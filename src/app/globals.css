@@ -1,0 +1,503 @@
+/* Google Fonts - Must be first, before Tailwind import */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+
+@import "tailwindcss";
+
+/* ============================================================================
+   VALIANCE ADMIN - GLASSMORPHIC DESIGN SYSTEM
+   A refined, data-focused aesthetic with frosted glass elements
+   ============================================================================ */
+
+/* ============================================================================
+   CSS CUSTOM PROPERTIES - DESIGN TOKENS
+   ============================================================================ */
+
+:root {
+  /* Brand Colors */
+  --teal: 167 21% 45%;
+  --teal-light: 167 21% 56%;
+  --teal-dark: 167 21% 37%;
+  --copper: 26 29% 67%;
+  --copper-light: 26 29% 76%;
+  --copper-dark: 26 29% 56%;
+
+  /* Semantic Colors */
+  --success: 167 21% 45%; /* Teal - matches brand palette */
+  --warning: 38 92% 50%;
+  --error: 354 42% 59%; /* Muted coral-red #C4686E - fits teal/copper palette */
+  --info: 199 89% 48%;
+
+  /* Typography */
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+
+  /* Animation */
+  --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Glass Effect */
+  --glass-blur: 20px;
+  --glass-saturate: 180%;
+}
+
+/* Dark Theme (Default) */
+:root,
+[data-theme="dark"] {
+  --background: 240 15% 4%;
+  --background-subtle: 240 12% 8%;
+  --foreground: 0 0% 96%;
+  --foreground-muted: 240 5% 65%;
+
+  --card: 240 12% 8%;
+  --card-foreground: 0 0% 96%;
+  --card-border: 240 10% 18%;
+
+  --popover: 240 12% 10%;
+  --popover-foreground: 0 0% 96%;
+
+  --primary: var(--teal);
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 240 10% 16%;
+  --secondary-foreground: 0 0% 96%;
+
+  --muted: 240 10% 14%;
+  --muted-foreground: 240 5% 55%;
+
+  --accent: var(--teal);
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: var(--error);
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 240 10% 18%;
+  --input: 240 10% 14%;
+  --ring: var(--teal);
+
+  /* Glass specific */
+  --glass-bg: rgba(18, 18, 24, 0.6);
+  --glass-border: rgba(91, 138, 138, 0.15);
+  --glass-highlight: rgba(255, 255, 255, 0.03);
+
+  /* Gradient backgrounds */
+  --gradient-bg: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(91, 138, 138, 0.15), transparent);
+
+  /* Shadows */
+  --shadow-card: 0 4px 24px -4px rgba(0, 0, 0, 0.2);
+  --shadow-card-hover: 0 8px 32px -4px rgba(0, 0, 0, 0.3);
+}
+
+/* Light Theme */
+[data-theme="light"] {
+  --background: 40 20% 96%;
+  --background-subtle: 40 15% 92%;
+  --foreground: 240 10% 10%;
+  --foreground-muted: 240 5% 40%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 10%;
+  --card-border: 240 10% 88%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 10%;
+
+  --primary: var(--teal);
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 240 10% 94%;
+  --secondary-foreground: 240 10% 20%;
+
+  --muted: 240 10% 92%;
+  --muted-foreground: 240 5% 45%;
+
+  --accent: var(--teal);
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: var(--error);
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 240 10% 88%;
+  --input: 40 15% 98%;
+  --ring: var(--teal);
+
+  /* Glass specific - lighter */
+  --glass-bg: rgba(255, 255, 255, 0.7);
+  --glass-border: rgba(91, 138, 138, 0.2);
+  --glass-highlight: rgba(255, 255, 255, 0.5);
+
+  /* Gradient backgrounds */
+  --gradient-bg: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(91, 138, 138, 0.08), transparent);
+
+  /* Shadows - much subtler for light mode */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-card-hover: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* ============================================================================
+   BASE STYLES
+   ============================================================================ */
+
+* {
+  border-color: hsl(var(--border));
+}
+
+/* Disable text selection on UI elements for app-like feel */
+button,
+nav,
+aside,
+header,
+main,
+label,
+h1, h2, h3, h4, h5, h6,
+p,
+span,
+[role="button"],
+.glass-card,
+.glass,
+.glass-subtle,
+.glass-strong,
+.select-none {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Allow selection on actual content/data */
+input,
+textarea,
+[contenteditable="true"],
+.select-text,
+.currency,
+.tabular-nums {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* Background gradient overlay */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100vh;
+  background: var(--gradient-bg);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Hide native number input spinners */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* ============================================================================
+   TYPOGRAPHY UTILITIES
+   ============================================================================ */
+
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Number styling - tabular figures for alignment */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+/* Currency styling */
+.currency {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.currency-positive {
+  color: hsl(var(--success));
+}
+
+.currency-negative {
+  color: hsl(var(--error));
+}
+
+/* ============================================================================
+   GLASS MORPHISM UTILITIES
+   ============================================================================ */
+
+.glass {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+}
+
+.glass-subtle {
+  background: var(--glass-bg);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+}
+
+.glass-strong {
+  background: var(--glass-bg);
+  backdrop-filter: blur(30px) saturate(200%);
+  -webkit-backdrop-filter: blur(30px) saturate(200%);
+}
+
+/* Glass card with inner highlight */
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
+  box-shadow: inset 0 1px 0 0 var(--glass-highlight), var(--shadow-card);
+}
+
+.glass-card:hover {
+  border-color: rgba(91, 138, 138, 0.3);
+  box-shadow: inset 0 1px 0 0 var(--glass-highlight), var(--shadow-card-hover);
+}
+
+/* ============================================================================
+   ANIMATIONS
+   ============================================================================ */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes slide-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes pulse-subtle {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out forwards;
+}
+
+.animate-fade-up {
+  animation: fade-up 0.4s ease-out forwards;
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out forwards;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 0.3s ease-out forwards;
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.3s ease-out forwards;
+}
+
+/* Staggered animation delays */
+.stagger-1 { animation-delay: 50ms; }
+.stagger-2 { animation-delay: 100ms; }
+.stagger-3 { animation-delay: 150ms; }
+.stagger-4 { animation-delay: 200ms; }
+.stagger-5 { animation-delay: 250ms; }
+.stagger-6 { animation-delay: 300ms; }
+
+/* ============================================================================
+   SCROLLBAR STYLING
+   ============================================================================ */
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted));
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}
+
+/* ============================================================================
+   FOCUS STYLES
+   ============================================================================ */
+
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* ============================================================================
+   SELECTION STYLES
+   ============================================================================ */
+
+::selection {
+  background: hsl(var(--primary) / 0.3);
+  color: hsl(var(--foreground));
+}
+
+/* ============================================================================
+   CHART STYLING
+   ============================================================================ */
+
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line {
+  stroke: hsl(var(--border));
+  stroke-opacity: 0.5;
+}
+
+.recharts-text {
+  fill: hsl(var(--muted-foreground));
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.recharts-tooltip-wrapper {
+  outline: none;
+}
+
+/* ============================================================================
+   SKELETON LOADING
+   ============================================================================ */
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 0%,
+    hsl(var(--muted) / 0.5) 50%,
+    hsl(var(--muted)) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+/* ============================================================================
+   TAILWIND THEME EXTENSIONS
+   ============================================================================ */
+
+@theme {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  /* Brand colors */
+  --color-teal: hsl(var(--teal));
+  --color-teal-light: hsl(var(--teal-light));
+  --color-teal-dark: hsl(var(--teal-dark));
+  --color-copper: hsl(var(--copper));
+
+  /* Semantic */
+  --color-success: hsl(var(--success));
+  --color-warning: hsl(var(--warning));
+  --color-error: hsl(var(--error));
+  --color-info: hsl(var(--info));
+
+  /* Border radius */
+  --radius-lg: 12px;
+  --radius-md: 8px;
+  --radius-sm: 4px;
+}
