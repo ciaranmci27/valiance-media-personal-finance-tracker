@@ -225,19 +225,18 @@ CREATE TRIGGER automations_updated_at
 
 -- Schedule job to run every 15 minutes
 -- Run this command after replacing the placeholders:
-/*
-SELECT cron.schedule(
-  'process-automations',
-  '*/15 * * * *',
-  $$
-  SELECT net.http_post(
-    url := '<SUPABASE_URL>/functions/v1/process-automations',
-    headers := '{"Authorization": "Bearer <SERVICE_ROLE_KEY>", "Content-Type": "application/json"}'::jsonb,
-    body := '{}'::jsonb
-  );
-  $$
-);
-*/
+--
+-- SELECT cron.schedule(
+--   'process-automations',
+--   '*/15 * * * *',
+--   $$
+--   SELECT net.http_post(
+--     url := '<SUPABASE_URL>/functions/v1/process-automations',
+--     headers := '{"Authorization": "Bearer <SERVICE_ROLE_KEY>", "Content-Type": "application/json"}'::jsonb,
+--     body := '{}'::jsonb
+--   );
+--   $$
+-- );
 
 -- To view scheduled jobs:
 -- SELECT * FROM cron.job;
