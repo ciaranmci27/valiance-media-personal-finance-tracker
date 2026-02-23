@@ -2,8 +2,6 @@
 
 A modern, glassmorphic finance tracking dashboard built with Next.js 15, Supabase, and Tailwind CSS. Track income sources, expenses, and net worth with a beautiful, responsive interface.
 
-![Dashboard Preview](/.github/preview.png)
-
 ## Features
 
 - **Income Tracking** - Manage multiple income sources and log monthly earnings
