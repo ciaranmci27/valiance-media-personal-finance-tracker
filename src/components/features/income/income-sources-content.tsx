@@ -24,6 +24,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 import type { IncomeSource } from "@/types/database";
@@ -45,6 +47,7 @@ const DEFAULT_COLORS = [
 
 export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
   const router = useRouter();
+  const { confirm, dialog: confirmDialog } = useConfirmationDialog();
   const [isAddOpen, setIsAddOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -63,7 +66,7 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
 
     // In demo mode, show message and close dialog
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       setNewName("");
       setNewColor(DEFAULT_COLORS[0]);
       setIsAddOpen(false);
@@ -122,7 +125,7 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
 
     // In demo mode, show message and close edit
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       setEditingId(null);
       return;
     }
@@ -146,11 +149,17 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure? This will soft-delete the source.")) return;
+    const confirmed = await confirm({
+      title: "Delete this source?",
+      description: "This income source will be moved to trash. You can restore it later.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!confirmed) return;
 
     // In demo mode, show message
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       return;
     }
 
@@ -170,6 +179,7 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
+      {confirmDialog}
       {/* Header - hidden on mobile (mobile uses header bar) */}
       <div className="hidden md:flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">

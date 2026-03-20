@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { createClient } from "@/lib/supabase/client";
 import type { AutomationWithActions, ScheduleTriggerConfig } from "@/types/database";
 
@@ -632,6 +633,7 @@ export function AutomationsListContent({
   automations,
 }: AutomationsListContentProps) {
   const router = useRouter();
+  const { confirm, dialog: confirmDialog } = useConfirmationDialog();
 
   const handleToggle = async (id: string, isActive: boolean) => {
     const supabase = createClient();
@@ -648,7 +650,13 @@ export function AutomationsListContent({
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this automation?")) return;
+    const confirmed = await confirm({
+      title: "Delete this automation?",
+      description: "This automation will be moved to trash. You can restore it later.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!confirmed) return;
 
     const supabase = createClient();
 
@@ -672,6 +680,7 @@ export function AutomationsListContent({
 
   return (
     <div className="space-y-4">
+      {confirmDialog}
       {/* Summary Cards */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
         <SummaryCard

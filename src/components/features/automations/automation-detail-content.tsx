@@ -36,11 +36,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Select, CustomSelect } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { EmailTagsInput } from "@/components/ui/email-tags-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn, formatDate } from "@/lib/utils";
+import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 import type {
@@ -274,6 +277,7 @@ export function AutomationDetailContent({
   automation,
 }: AutomationDetailContentProps) {
   const router = useRouter();
+  const { confirm, dialog: confirmDialog } = useConfirmationDialog();
   const [isEditing, setIsEditing] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
@@ -384,7 +388,7 @@ export function AutomationDetailContent({
   const handleSave = async () => {
     // In demo mode, show message and exit edit mode
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       setIsEditing(false);
       return;
     }
@@ -435,11 +439,17 @@ export function AutomationDetailContent({
   };
 
   const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this automation?")) return;
+    const confirmed = await confirm({
+      title: "Delete this automation?",
+      description: "This automation will be moved to trash. You can restore it later.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!confirmed) return;
 
     // In demo mode, show message and navigate back
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       router.push("/automations");
       return;
     }
@@ -489,7 +499,7 @@ export function AutomationDetailContent({
   const handleToggleActive = async () => {
     // In demo mode, show message
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       return;
     }
 
@@ -508,11 +518,17 @@ export function AutomationDetailContent({
   };
 
   const handleRunNow = async () => {
-    if (!confirm("Run a test of this automation?")) return;
+    const confirmed = await confirm({
+      title: "Run this automation?",
+      description: "This will execute a test run of the automation immediately.",
+      confirmLabel: "Run Now",
+      variant: "default",
+    });
+    if (!confirmed) return;
 
     // In demo mode, show message
     if (isDemoMode()) {
-      alert("Demo mode: Automations can't be run in demo mode. This is just a preview of the functionality.");
+      toast("info", "Demo mode: automations can't run in demo mode");
       return;
     }
 
@@ -531,13 +547,14 @@ export function AutomationDetailContent({
       }
 
       if (data?.processed > 0) {
+        toast("success", "Automation ran successfully");
         router.refresh();
       } else {
-        alert(data?.message || "Automation could not be run");
+        toast("warning", data?.message || "Automation could not be run");
       }
     } catch (error) {
       console.error("Error running automation:", error);
-      alert(error instanceof Error ? error.message : "Failed to run automation");
+      toast("error", error instanceof Error ? error.message : "Failed to run automation");
     } finally {
       setIsRunning(false);
     }
@@ -545,6 +562,7 @@ export function AutomationDetailContent({
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
+      {confirmDialog}
       {/* Header - hidden on mobile (mobile uses header bar) */}
       <div className="hidden md:flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -912,13 +930,13 @@ export function AutomationDetailContent({
                         ))}
                       </div>
                       {durationType === "count" && (
-                        <Input
-                          type="number"
+                        <NumberInput
+                          integer
+                          min={1}
+                          max={999}
                           label="Number of times to run"
                           value={runCount.toString()}
                           onChange={(e) => setRunCount(parseInt(e.target.value) || 1)}
-                          min={1}
-                          max={999}
                         />
                       )}
                       {durationType === "until" && (

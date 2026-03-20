@@ -56,6 +56,41 @@ export interface ManualTriggerConfig {
 // Union type for all trigger configs
 export type TriggerConfig = ScheduleTriggerConfig | ManualTriggerConfig;
 
+// Tax estimator types
+export type IncomeType = "1099" | "w2" | "k1";
+export type BusinessType = "none" | "sole_prop" | "llc" | "s_corp" | "c_corp" | "partnership";
+export type TaxClassification = "sole_prop" | "disregarded" | "s_corp" | "c_corp" | "partnership";
+
+// Tax estimator JSONB shape types
+export interface TaxIncomeSource {
+  id: string;
+  name: string;
+  amount: number;
+  subject_to_se: boolean;
+  income_type: IncomeType;
+  linked_source_id?: string;   // FK to income_sources.id when synced
+  linked_amount?: number;      // Original synced amount (for re-link restore)
+  is_unlinked?: boolean;       // true = user overrode, fields become editable
+}
+
+export interface TaxCapitalGainEntry {
+  id: string;
+  description: string;
+  amount: number;
+  term: "short" | "long";
+}
+
+export interface TaxPaymentEntry {
+  id: string;
+  type: "federal" | "state";
+  category?: "withholding" | "payment";
+  quarter?: "Q1" | "Q2" | "Q3" | "Q4" | "final" | "other";
+  label: string;
+  amount: number;
+  /** Links this withholding to an income source */
+  linked_income_id?: string;
+}
+
 // Expense category types
 export type ExpenseCategory =
   | "housing"
@@ -422,6 +457,65 @@ export type Database = {
           created_at?: string;
         };
       };
+      tax_estimates: {
+        Row: {
+          id: string;
+          tax_year: number;
+          filing_status: "single" | "mfj" | "mfs" | "hoh";
+          income_sources: TaxIncomeSource[];
+          capital_gains: TaxCapitalGainEntry[];
+          payments: TaxPaymentEntry[];
+          additional_deductions: number;
+          state: string | null;
+          business_type: "none" | "sole_prop" | "llc" | "s_corp" | "c_corp" | "partnership" | null;
+          tax_classification: "sole_prop" | "disregarded" | "s_corp" | "c_corp" | "partnership" | null;
+          dependents: number;
+          other_dependents: number;
+          additional_credits: number;
+          notes: string | null;
+          deleted_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          tax_year: number;
+          filing_status?: "single" | "mfj" | "mfs" | "hoh";
+          income_sources?: TaxIncomeSource[];
+          capital_gains?: TaxCapitalGainEntry[];
+          payments?: TaxPaymentEntry[];
+          additional_deductions?: number;
+          state?: string | null;
+          business_type?: "none" | "sole_prop" | "llc" | "s_corp" | "c_corp" | "partnership" | null;
+          tax_classification?: "sole_prop" | "disregarded" | "s_corp" | "c_corp" | "partnership" | null;
+          dependents?: number;
+          other_dependents?: number;
+          additional_credits?: number;
+          notes?: string | null;
+          deleted_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          tax_year?: number;
+          filing_status?: "single" | "mfj" | "mfs" | "hoh";
+          income_sources?: TaxIncomeSource[];
+          capital_gains?: TaxCapitalGainEntry[];
+          payments?: TaxPaymentEntry[];
+          additional_deductions?: number;
+          state?: string | null;
+          business_type?: "none" | "sole_prop" | "llc" | "s_corp" | "c_corp" | "partnership" | null;
+          tax_classification?: "sole_prop" | "disregarded" | "s_corp" | "c_corp" | "partnership" | null;
+          dependents?: number;
+          other_dependents?: number;
+          additional_credits?: number;
+          notes?: string | null;
+          deleted_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
     };
     Views: {
       income_entries_with_totals: {
@@ -501,3 +595,6 @@ export type AutomationFull = Automation & {
   automation_actions: AutomationAction[];
   automation_runs: AutomationRun[];
 };
+
+// Tax estimate types
+export type TaxEstimate = Database["public"]["Tables"]["tax_estimates"]["Row"];

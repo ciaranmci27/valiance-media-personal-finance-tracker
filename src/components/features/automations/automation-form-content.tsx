@@ -29,10 +29,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Select, CustomSelect } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { EmailTagsInput } from "@/components/ui/email-tags-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 import { cn } from "@/lib/utils";
@@ -537,7 +539,7 @@ export function AutomationFormContent() {
 
     // In demo mode, show message and navigate back
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       router.push("/automations");
       return;
     }
@@ -832,13 +834,13 @@ export function AutomationFormContent() {
                   </div>
 
                   {durationType === "count" && (
-                    <Input
-                      type="number"
+                    <NumberInput
+                      integer
+                      min={1}
+                      max={999}
                       label="Number of times to run"
                       value={runCount.toString()}
                       onChange={(e) => setRunCount(parseInt(e.target.value) || 1)}
-                      min={1}
-                      max={999}
                     />
                   )}
 

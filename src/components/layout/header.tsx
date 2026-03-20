@@ -20,6 +20,7 @@ const pageTitles: Record<string, string> = {
   "/expenses/new": "New Expense",
   "/net-worth": "Net Worth",
   "/net-worth/new": "Net Worth Entry",
+  "/tax-payments": "Tax Estimator",
   "/automations": "Automations",
   "/automations/new": "New Automation",
   "/settings": "Settings",
@@ -121,7 +122,7 @@ export function Header({ onMobileMenuClick }: HeaderProps) {
   // For custom header pages, show mobile header bar (hidden on desktop where page has its own header)
   if (hasCustomHeader) {
     return (
-      <header className="md:hidden sticky top-0 z-50 flex h-16 items-center justify-between border-b border-border/50 px-4 bg-background">
+      <header className="lg:hidden sticky top-0 z-50 flex h-16 items-center justify-between border-b border-border/50 px-4 bg-background">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -158,7 +159,7 @@ export function Header({ onMobileMenuClick }: HeaderProps) {
 
   return (
     <header
-      className="sticky top-0 z-50 md:static flex h-16 items-center justify-between border-b border-border/50 px-4 md:px-6 bg-background md:bg-gradient-to-b md:from-primary/5 md:to-transparent"
+      className="sticky top-0 z-50 lg:static flex h-16 items-center justify-between border-b border-border/50 px-4 lg:px-6 bg-background lg:bg-gradient-to-b lg:from-primary/5 lg:to-transparent"
     >
       <div className="flex items-center gap-3">
         {/* Mobile menu button */}
@@ -166,14 +167,14 @@ export function Header({ onMobileMenuClick }: HeaderProps) {
           variant="ghost"
           size="icon"
           onClick={onMobileMenuClick}
-          className="md:hidden"
+          className="lg:hidden"
         >
           <Menu className="h-5 w-5" />
         </Button>
-        <h1 className="text-lg md:text-xl font-semibold text-foreground">{pageTitle}</h1>
+        <h1 className="text-lg lg:text-xl font-semibold text-foreground">{pageTitle}</h1>
       </div>
 
-      <div className="flex items-center gap-1 md:gap-2">
+      <div className="flex items-center gap-1 lg:gap-2">
         {/* Notifications */}
         <NotificationDropdown />
 
@@ -199,7 +200,7 @@ export function Header({ onMobileMenuClick }: HeaderProps) {
             variant="ghost"
             size="icon"
             onClick={toggleTheme}
-            className={cn("hidden md:inline-flex", !theme && "opacity-0")}
+            className={cn("hidden lg:inline-flex", !theme && "opacity-0")}
           >
             <Image
               src={displayTheme === "dark" ? "/dark.png" : "/light.png"}

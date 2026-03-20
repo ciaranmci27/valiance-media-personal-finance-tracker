@@ -16,8 +16,10 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency, cn } from "@/lib/utils";
+import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 import type { IncomeSource } from "@/types/database";
@@ -162,7 +164,7 @@ export function AddIncomeContent({
 
     // In demo mode, show message and navigate back
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       router.push("/income");
       return;
     }
@@ -367,9 +369,7 @@ export function AddIncomeContent({
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Input
-                        type="number"
-                        step="0.01"
+                      <NumberInput
                         value={amount}
                         onChange={(e) =>
                           setAmounts((prev) => ({

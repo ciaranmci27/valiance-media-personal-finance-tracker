@@ -18,6 +18,7 @@ import {
   X,
   Layers,
   Zap,
+  Landmark,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
@@ -50,6 +51,11 @@ const navItems: NavItem[] = [
     title: "Net Worth",
     href: "/net-worth",
     icon: PiggyBank,
+  },
+  {
+    title: "Tax Estimator",
+    href: "/tax-payments",
+    icon: Landmark,
   },
   {
     title: "Automations",
@@ -162,7 +168,7 @@ export function Sidebar({
       {/* Mobile overlay backdrop */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm md:hidden"
+          className="fixed inset-0 z-40 bg-background/80 backdrop-blur-sm lg:hidden"
           onClick={handleMobileClose}
         />
       )}
@@ -172,7 +178,7 @@ export function Sidebar({
         <button
           onClick={handleCollapse}
           className={cn(
-            "fixed top-1/2 z-50 hidden md:flex",
+            "fixed top-1/2 z-50 hidden lg:flex",
             "h-8 w-3 items-center justify-center",
             "rounded-r-md bg-card border border-l-0 border-border",
             "text-muted-foreground hover:text-primary hover:bg-secondary",
@@ -194,8 +200,8 @@ export function Sidebar({
             "fixed left-0 top-0 z-50 h-screen transition-all duration-300",
             "glass-strong flex flex-col border-r border-border overflow-hidden",
             // Desktop: show based on collapsed state
-            "md:translate-x-0",
-            collapsed ? "md:w-16" : "md:w-64",
+            "lg:translate-x-0",
+            collapsed ? "lg:w-16" : "lg:w-64",
             // Mobile: show/hide based on mobileOpen, always full width
             "w-64",
             mobileOpen ? "translate-x-0" : "-translate-x-full"
@@ -204,7 +210,7 @@ export function Sidebar({
       {/* Logo - switches based on theme */}
       <div className="flex h-16 items-center justify-between border-b border-border px-4">
         {/* Desktop: Logo based on collapsed state */}
-        <div className="hidden md:block">
+        <div className="hidden lg:block">
           {!collapsed && (
             <Link href="/" className="flex items-center gap-2" onClick={handleNavClick}>
               <Image
@@ -232,7 +238,7 @@ export function Sidebar({
         </div>
 
         {/* Mobile: Logo on left */}
-        <Link href="/" className="md:hidden flex items-center gap-2" onClick={handleNavClick}>
+        <Link href="/" className="lg:hidden flex items-center gap-2" onClick={handleNavClick}>
           <Image
             src={displayTheme === "dark" ? siteConfig.logos.horizontalInverted : siteConfig.logos.horizontal}
             alt={siteConfig.companyName}
@@ -246,7 +252,7 @@ export function Sidebar({
         {/* Mobile close button on right */}
         <button
           onClick={handleMobileClose}
-          className="md:hidden flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"
+          className="lg:hidden flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground"
         >
           <X className="h-5 w-5" />
         </button>
@@ -273,18 +279,18 @@ export function Sidebar({
                   active
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                  collapsed && "md:justify-center md:px-2"
+                  collapsed && "lg:justify-center lg:px-2"
                 )}
               >
                 <Icon className={cn("h-5 w-5 shrink-0", active && "text-primary")} />
-                <span className={cn("whitespace-nowrap", collapsed && "md:hidden")}>{item.title}</span>
+                <span className={cn("whitespace-nowrap", collapsed && "lg:hidden")}>{item.title}</span>
               </Link>
             </Tooltip>
           );
         })}
 
         {/* Mobile: Settings and Sign Out in main nav area */}
-        <div className="md:hidden space-y-1">
+        <div className="lg:hidden space-y-1">
           {bottomNavItems.map((item) => {
             const Icon = item.icon;
             const active = pathname.startsWith(item.href);
@@ -318,7 +324,7 @@ export function Sidebar({
       </nav>
 
       {/* Bottom Navigation - Desktop only */}
-      <div className="hidden md:flex md:flex-col border-t border-border p-3 space-y-1">
+      <div className="hidden lg:flex lg:flex-col border-t border-border p-3 space-y-1">
         {bottomNavItems.map((item) => {
           const Icon = item.icon;
           const active = pathname.startsWith(item.href);

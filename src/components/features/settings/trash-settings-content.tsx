@@ -11,6 +11,7 @@ import {
   Calendar,
   Receipt,
   TrendingUp,
+  Calculator,
   Loader2,
   Package,
   Zap,
@@ -19,6 +20,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatMonth, formatDate, cn } from "@/lib/utils";
+import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 
@@ -31,6 +34,7 @@ interface DeletedItem {
   frequency?: string;
   event_type?: string;
   changed_at?: string;
+  tax_year?: number;
   deleted_at: string;
 }
 
@@ -41,9 +45,10 @@ interface TrashSettingsContentProps {
   deletedNetWorth: DeletedItem[];
   deletedAutomations: DeletedItem[];
   deletedExpenseHistory: DeletedItem[];
+  deletedTaxEstimates: DeletedItem[];
 }
 
-type ItemType = "income_sources" | "income_entries" | "expenses" | "net_worth" | "automations" | "expense_history";
+type ItemType = "income_sources" | "income_entries" | "expenses" | "net_worth" | "automations" | "expense_history" | "tax_estimates";
 
 const itemConfig: Record<ItemType, { icon: React.ElementType; label: string; color: string }> = {
   income_sources: { icon: DollarSign, label: "Income Sources", color: "text-primary bg-primary/10" },
@@ -52,6 +57,7 @@ const itemConfig: Record<ItemType, { icon: React.ElementType; label: string; col
   net_worth: { icon: TrendingUp, label: "Net Worth", color: "text-success bg-success/10" },
   automations: { icon: Zap, label: "Automations", color: "text-amber-500 bg-amber-500/10" },
   expense_history: { icon: History, label: "Expense History", color: "text-muted-foreground bg-muted" },
+  tax_estimates: { icon: Calculator, label: "Tax Estimates", color: "text-violet-500 bg-violet-500/10" },
 };
 
 export function TrashSettingsContent({
@@ -61,8 +67,10 @@ export function TrashSettingsContent({
   deletedNetWorth,
   deletedAutomations,
   deletedExpenseHistory,
+  deletedTaxEstimates,
 }: TrashSettingsContentProps) {
   const router = useRouter();
+  const { confirm, dialog: confirmDialog } = useConfirmationDialog();
   const [restoring, setRestoring] = React.useState<string | null>(null);
   const [deleting, setDeleting] = React.useState<string | null>(null);
 
@@ -73,6 +81,7 @@ export function TrashSettingsContent({
     ...deletedNetWorth.map((item) => ({ ...item, type: "net_worth" as ItemType })),
     ...deletedAutomations.map((item) => ({ ...item, type: "automations" as ItemType })),
     ...deletedExpenseHistory.map((item) => ({ ...item, type: "expense_history" as ItemType })),
+    ...deletedTaxEstimates.map((item) => ({ ...item, type: "tax_estimates" as ItemType })),
   ].sort((a, b) => new Date(b.deleted_at).getTime() - new Date(a.deleted_at).getTime());
 
   const totalDeleted = allItems.length;
@@ -80,7 +89,7 @@ export function TrashSettingsContent({
   const handleRestore = async (type: ItemType, id: string) => {
     // In demo mode, show message
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       return;
     }
 
@@ -100,20 +109,30 @@ export function TrashSettingsContent({
   };
 
   const handlePermanentDelete = async (type: ItemType, id: string) => {
-    // Show a more detailed warning for expenses and expense history since it affects historical data
-    let warningMessage = "Permanently delete this item? This cannot be undone.";
+    let description = "This will permanently delete this item. This cannot be undone.";
+    let useDoubleConfirm = false;
 
     if (type === "expenses") {
-      warningMessage = "⚠️ Warning: Permanently deleting this expense will make your historical financial data inaccurate.\n\nPast monthly totals and reports will no longer reflect this expense.\n\nWe recommend:\n• Pausing the expense instead (keeps history accurate)\n• Keeping it in trash (can restore later)\n\nAre you sure you want to permanently delete?";
+      description = "Permanently deleting this expense will make your historical financial data inaccurate. Past monthly totals and reports will no longer reflect this expense.";
+      useDoubleConfirm = true;
     } else if (type === "expense_history") {
-      warningMessage = "⚠️ Warning: Permanently deleting this history entry will remove the audit trail for this expense change.\n\nThis may affect your ability to track expense changes over time.\n\nAre you sure you want to permanently delete?";
+      description = "Permanently deleting this history entry will remove the audit trail for this expense change.";
+      useDoubleConfirm = true;
     }
 
-    if (!confirm(warningMessage)) return;
+    const confirmed = await confirm({
+      title: "Permanently delete?",
+      description,
+      confirmLabel: "Delete",
+      variant: "danger",
+      doubleConfirm: useDoubleConfirm,
+      doubleConfirmLabel: "Delete Forever",
+    });
+    if (!confirmed) return;
 
     // In demo mode, show message
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       return;
     }
 
@@ -132,6 +151,7 @@ export function TrashSettingsContent({
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
+      {confirmDialog}
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -199,11 +219,12 @@ export function TrashSettingsContent({
                     {/* Info */}
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">
-                        {item.name ||
+                        {item.tax_year ? `Tax Year ${item.tax_year}` :
+                          (item.name ||
                           (item.month ? formatMonth(item.month) :
                           (item.date ? formatMonth(item.date) :
                           (item.amount ? `${item.event_type ? `${item.event_type.charAt(0).toUpperCase() + item.event_type.slice(1)}: ` : ''}$${Number(item.amount).toFixed(2).replace(/\.00$/, '')} (${item.frequency})` :
-                          `Item ${item.id.slice(0, 8)}`)))}
+                          `Item ${item.id.slice(0, 8)}`))))}
                       </p>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <span>{config.label}</span>

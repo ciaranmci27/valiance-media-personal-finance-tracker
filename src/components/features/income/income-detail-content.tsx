@@ -20,10 +20,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { Textarea } from "@/components/ui/textarea";
 import { IncomeBreakdownChart } from "@/components/charts/income-breakdown-chart";
 import { useMaskedHover, getMaskedValue } from "@/components/ui/masked-value";
 import { formatCurrency, formatMonth, cn } from "@/lib/utils";
+import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 import type { IncomeSource } from "@/types/database";
@@ -60,6 +63,7 @@ export function IncomeDetailContent({
   nextEntryId,
 }: IncomeDetailContentProps) {
   const router = useRouter();
+  const { confirm, dialog: confirmDialog } = useConfirmationDialog();
   const [isEditing, setIsEditing] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
@@ -174,7 +178,7 @@ export function IncomeDetailContent({
   const handleSave = async () => {
     // In demo mode, show message and exit edit mode
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       setIsEditing(false);
       return;
     }
@@ -226,11 +230,17 @@ export function IncomeDetailContent({
   };
 
   const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this entry?")) return;
+    const confirmed = await confirm({
+      title: "Delete this entry?",
+      description: "This income entry will be moved to trash. You can restore it later.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!confirmed) return;
 
     // In demo mode, show message and navigate back
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       router.push("/income");
       return;
     }
@@ -293,7 +303,7 @@ export function IncomeDetailContent({
     if (!addingToSourceId || pendingAdditions.length === 0) return;
 
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       closeAddPanel();
       return;
     }
@@ -356,6 +366,7 @@ export function IncomeDetailContent({
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+      {confirmDialog}
       {/* Header - hidden on mobile (mobile uses header bar) */}
       <div className="hidden md:flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -512,9 +523,7 @@ export function IncomeDetailContent({
                       </td>
                       <td className="px-4 py-3 text-right">
                         {isEditing ? (
-                          <Input
-                            type="number"
-                            step="0.01"
+                          <NumberInput
                             value={amount || ""}
                             onChange={(e) =>
                               setAmounts((prev) => ({
@@ -608,10 +617,8 @@ export function IncomeDetailContent({
                                   {/* Input as the next line in the math column */}
                                   <div className="flex items-center justify-end">
                                     <div className="relative">
-                                      <input
+                                      <NumberInput
                                         ref={addInputRef}
-                                        type="number"
-                                        step="0.01"
                                         value={addInputValue}
                                         onChange={(e) => setAddInputValue(e.target.value)}
                                         onKeyDown={(e) => {

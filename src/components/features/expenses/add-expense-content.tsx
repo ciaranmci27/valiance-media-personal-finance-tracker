@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { siteConfig } from "@/config/site";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { CustomSelect } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -24,6 +25,7 @@ import {
   toMonthlyAmount,
   toAnnualAmount,
 } from "@/lib/utils";
+import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 import type { ExpenseCategory } from "@/types/database";
@@ -56,7 +58,7 @@ export function AddExpenseContent() {
 
     // In demo mode, show message and navigate back
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       router.push("/expenses");
       return;
     }
@@ -134,10 +136,7 @@ export function AddExpenseContent() {
             <DollarSign className="h-4 w-4" />
             <span className="text-sm font-medium">Amount</span>
           </div>
-          <Input
-            type="number"
-            step="0.01"
-            min="0"
+          <NumberInput
             value={amount || ""}
             onChange={(e) => setAmount(Number(e.target.value))}
             placeholder="0.00"

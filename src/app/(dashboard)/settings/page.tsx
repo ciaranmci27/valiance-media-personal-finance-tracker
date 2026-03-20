@@ -4,6 +4,7 @@ import {
   Palette,
   Database,
   Trash2,
+  Calculator,
   ChevronRight,
   Settings,
 } from "lucide-react";
@@ -33,6 +34,14 @@ const settingsSections = [
         iconBg: "bg-[#C5A68F]/10",
         iconColor: "text-[#C5A68F]",
       },
+      {
+        title: "Tax Estimator",
+        description: "Filing profile and state tax settings",
+        href: "/settings/tax",
+        icon: Calculator,
+        iconBg: "bg-violet-500/10",
+        iconColor: "text-violet-500",
+      },
     ],
   },
   {
@@ -43,8 +52,8 @@ const settingsSections = [
         description: "Backup and restore your data",
         href: "/settings/data",
         icon: Database,
-        iconBg: "bg-primary/10",
-        iconColor: "text-primary",
+        iconBg: "bg-sky-500/10",
+        iconColor: "text-sky-500",
       },
       {
         title: "Trash",

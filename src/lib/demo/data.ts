@@ -15,6 +15,7 @@ import type {
   AutomationWithActions,
   AutomationRun,
   Notification,
+  TaxEstimate,
 } from "@/types/database";
 
 // Helper to generate UUIDs (deterministic for demo)
@@ -1730,6 +1731,12 @@ export const demoDeletedExpenseHistory: {
   deleted_at: string;
 }[] = [];
 
+export const demoDeletedTaxEstimates: {
+  id: string;
+  tax_year: number;
+  deleted_at: string;
+}[] = [];
+
 // ============================================
 // HELPER FUNCTIONS FOR DETAIL PAGES
 // ============================================
@@ -1852,3 +1859,72 @@ export function getDemoNotifications(options?: { unreadOnly?: boolean; limit?: n
 export function getDemoUnreadCount() {
   return demoNotifications.filter((n) => !n.is_read).length;
 }
+
+// ============================================
+// TAX ESTIMATES
+// ============================================
+export const demoTaxEstimates: TaxEstimate[] = [
+  {
+    id: uuid("tax-2026"),
+    tax_year: 2026,
+    filing_status: "single",
+    income_sources: [
+      { id: uuid("tax-inc-1"), name: "Business Profit", amount: 72000, subject_to_se: true, income_type: "1099" as const },
+      { id: uuid("tax-inc-2"), name: "W-2 Employment", amount: 65000, subject_to_se: false, income_type: "w2" as const },
+    ],
+    capital_gains: [
+      { id: uuid("tax-cg-1"), description: "AAPL shares (held 2yr)", amount: 12500, term: "long" },
+      { id: uuid("tax-cg-2"), description: "Crypto trading", amount: -3200, term: "short" },
+    ],
+    payments: [
+      { id: uuid("tax-pay-1"), type: "federal", category: "withholding" as const, label: "W-2 Withholding", amount: 9800 },
+      { id: uuid("tax-pay-2"), type: "federal", category: "payment" as const, quarter: "Q1" as const, label: "Q1 Estimated", amount: 6500 },
+      { id: uuid("tax-pay-3"), type: "federal", category: "payment" as const, quarter: "Q2" as const, label: "Q2 Estimated", amount: 6500 },
+      { id: uuid("tax-pay-4"), type: "state", category: "withholding" as const, label: "AZ Withholding", amount: 1625 },
+      { id: uuid("tax-pay-5"), type: "state", category: "payment" as const, quarter: "Q1" as const, label: "Q1 AZ Estimated", amount: 800 },
+    ],
+    additional_deductions: 0,
+    state: "AZ",
+    business_type: "sole_prop",
+    tax_classification: "sole_prop",
+    dependents: 0,
+    other_dependents: 0,
+    additional_credits: 0,
+    notes: "Projected full-year estimate. Business profit reflects net after direct costs.",
+    deleted_at: null,
+    created_at: "2026-01-15T00:00:00Z",
+    updated_at: getDateTime(5),
+  },
+  {
+    id: uuid("tax-2025"),
+    tax_year: 2025,
+    filing_status: "single",
+    income_sources: [
+      { id: uuid("tax-25-inc-1"), name: "Business Profit", amount: 38000, subject_to_se: true, income_type: "1099" as const },
+      { id: uuid("tax-25-inc-2"), name: "W-2 Employment", amount: 62000, subject_to_se: false, income_type: "w2" as const },
+    ],
+    capital_gains: [
+      { id: uuid("tax-25-cg-1"), description: "Index fund rebalance", amount: 5400, term: "long" },
+    ],
+    payments: [
+      { id: uuid("tax-25-pay-1"), type: "federal", category: "withholding" as const, label: "W-2 Withholding", amount: 9200 },
+      { id: uuid("tax-25-pay-2"), type: "federal", category: "payment" as const, quarter: "Q1" as const, label: "Q1 Estimated", amount: 5000 },
+      { id: uuid("tax-25-pay-3"), type: "federal", category: "payment" as const, quarter: "Q2" as const, label: "Q2 Estimated", amount: 5000 },
+      { id: uuid("tax-25-pay-4"), type: "federal", category: "payment" as const, quarter: "Q3" as const, label: "Q3 Estimated", amount: 5000 },
+      { id: uuid("tax-25-pay-5"), type: "federal", category: "payment" as const, quarter: "Q4" as const, label: "Q4 Estimated", amount: 5000 },
+      { id: uuid("tax-25-pay-6"), type: "state", category: "withholding" as const, label: "AZ Withholding", amount: 1550 },
+      { id: uuid("tax-25-pay-7"), type: "state", category: "payment" as const, quarter: "Q1" as const, label: "AZ Estimated", amount: 2500 },
+    ],
+    additional_deductions: 0,
+    state: "AZ",
+    business_type: "sole_prop",
+    tax_classification: "sole_prop",
+    dependents: 0,
+    other_dependents: 0,
+    additional_credits: 0,
+    notes: "Filed. Final numbers.",
+    deleted_at: null,
+    created_at: "2025-01-10T00:00:00Z",
+    updated_at: "2025-04-12T00:00:00Z",
+  },
+];

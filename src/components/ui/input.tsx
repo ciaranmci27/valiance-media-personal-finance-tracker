@@ -17,13 +17,13 @@ const Input = React.forwardRef<HTMLInputElement, InputProps>(
     const inputId = id || (label ? label.toLowerCase().replace(/\s+/g, "-") : undefined);
 
     return (
-      <div className="space-y-1.5">
+      <div className={cn("space-y-1.5", !label && !icon && !rightIcon && "contents")}>
         {label && (
           <label htmlFor={inputId} className="text-sm font-medium text-foreground">
             {label}
           </label>
         )}
-        <div className="relative">
+        <div className={cn("relative", !label && !icon && !rightIcon && "contents")}>
           {icon && (
             <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
               {icon}

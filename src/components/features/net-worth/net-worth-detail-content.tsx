@@ -25,6 +25,8 @@ import {
   formatPercentage,
   cn,
 } from "@/lib/utils";
+import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 import type { NetWorth } from "@/types/database";
@@ -43,6 +45,7 @@ export function NetWorthDetailContent({
   nextEntryId,
 }: NetWorthDetailContentProps) {
   const router = useRouter();
+  const { confirm, dialog: confirmDialog } = useConfirmationDialog();
   const [isEditing, setIsEditing] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
@@ -89,7 +92,7 @@ export function NetWorthDetailContent({
 
   const handleSave = async () => {
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       setIsEditing(false);
       return;
     }
@@ -116,10 +119,16 @@ export function NetWorthDetailContent({
   };
 
   const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this entry?")) return;
+    const confirmed = await confirm({
+      title: "Delete this entry?",
+      description: "This net worth entry will be moved to trash. You can restore it later.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!confirmed) return;
 
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       router.push("/net-worth");
       return;
     }
@@ -150,6 +159,7 @@ export function NetWorthDetailContent({
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+      {confirmDialog}
       {/* Header - hidden on mobile (mobile uses header bar) */}
       <div className="hidden md:flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">

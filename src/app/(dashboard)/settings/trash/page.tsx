@@ -8,6 +8,7 @@ import {
   demoDeletedNetWorth,
   demoDeletedAutomations,
   demoDeletedExpenseHistory,
+  demoDeletedTaxEstimates,
 } from "@/lib/demo/data";
 
 export const metadata = {
@@ -25,6 +26,7 @@ export default async function TrashSettingsPage() {
         deletedNetWorth={demoDeletedNetWorth}
         deletedAutomations={demoDeletedAutomations}
         deletedExpenseHistory={demoDeletedExpenseHistory}
+        deletedTaxEstimates={demoDeletedTaxEstimates}
       />
     );
   }
@@ -39,6 +41,7 @@ export default async function TrashSettingsPage() {
     { data: deletedNetWorth },
     { data: deletedAutomations },
     { data: deletedExpenseHistory },
+    { data: deletedTaxEstimates },
   ] = await Promise.all([
     supabase
       .from("income_sources")
@@ -70,6 +73,11 @@ export default async function TrashSettingsPage() {
       .select("id, event_type, amount, frequency, changed_at, deleted_at")
       .not("deleted_at", "is", null)
       .order("deleted_at", { ascending: false }),
+    supabase
+      .from("tax_estimates")
+      .select("id, tax_year, deleted_at")
+      .not("deleted_at", "is", null)
+      .order("deleted_at", { ascending: false }),
   ]);
 
   return (
@@ -80,6 +88,7 @@ export default async function TrashSettingsPage() {
       deletedNetWorth={deletedNetWorth || []}
       deletedAutomations={deletedAutomations || []}
       deletedExpenseHistory={deletedExpenseHistory || []}
+      deletedTaxEstimates={deletedTaxEstimates || []}
     />
   );
 }

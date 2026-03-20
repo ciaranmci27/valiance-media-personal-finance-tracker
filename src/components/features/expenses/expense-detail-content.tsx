@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { siteConfig } from "@/config/site";
 import { Input } from "@/components/ui/input";
+import { NumberInput } from "@/components/ui/number-input";
 import { CustomSelect } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { useMaskedHover, getMaskedValue } from "@/components/ui/masked-value";
@@ -32,6 +33,8 @@ import {
   toAnnualAmount,
   cn,
 } from "@/lib/utils";
+import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 import type { Expense, ExpenseHistory, ExpenseCategory } from "@/types/database";
@@ -48,6 +51,7 @@ export function ExpenseDetailContent({
   history,
 }: ExpenseDetailContentProps) {
   const router = useRouter();
+  const { confirm, dialog: confirmDialog } = useConfirmationDialog();
   const [isEditing, setIsEditing] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
@@ -81,7 +85,7 @@ export function ExpenseDetailContent({
   const handleSave = async () => {
     // In demo mode, show message and exit edit mode
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       setIsEditing(false);
       return;
     }
@@ -135,11 +139,17 @@ export function ExpenseDetailContent({
   };
 
   const handleDelete = async () => {
-    if (!confirm("Are you sure you want to delete this expense?")) return;
+    const confirmed = await confirm({
+      title: "Delete this expense?",
+      description: "This expense will be moved to trash. You can restore it later.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!confirmed) return;
 
     // In demo mode, show message and navigate back
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       router.push("/expenses");
       return;
     }
@@ -167,7 +177,7 @@ export function ExpenseDetailContent({
   const handleToggleStatus = async () => {
     // In demo mode, show message
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       return;
     }
 
@@ -225,7 +235,7 @@ export function ExpenseDetailContent({
   const handleDeleteHistory = async (historyId: string) => {
     // In demo mode, show message
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       return;
     }
 
@@ -259,6 +269,7 @@ export function ExpenseDetailContent({
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
+      {confirmDialog}
       {/* Header - hidden on mobile (mobile uses header bar) */}
       <div className="hidden md:flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
@@ -363,10 +374,7 @@ export function ExpenseDetailContent({
             <span className="text-sm font-medium">Amount</span>
           </div>
           {isEditing ? (
-            <Input
-              type="number"
-              step="0.01"
-              min="0"
+            <NumberInput
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value))}
               className="text-xl sm:text-2xl font-bold font-mono text-center h-auto py-1"
@@ -606,12 +614,19 @@ function HistoryRow({
   isLatest?: boolean;
 }) {
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
+  const { confirm: confirmDelete, dialog: confirmDeleteDialog } = useConfirmationDialog();
   const [isDeleting, setIsDeleting] = React.useState(false);
   const displayAmount = getMaskedValue(formatCurrency(Number(entry.amount)), isHidden, isRevealed);
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!confirm("Delete this history entry?")) return;
+    const confirmed = await confirmDelete({
+      title: "Delete history entry?",
+      description: "This will remove this entry from the change history.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!confirmed) return;
 
     setIsDeleting(true);
     onDelete(entry.id);
@@ -622,6 +637,7 @@ function HistoryRow({
 
   return (
     <div className="px-4 py-3 flex items-center justify-between group" {...hoverProps}>
+      {confirmDeleteDialog}
       <span className="text-sm flex items-center gap-1">
         <span className={config.color}>{config.label}</span>
         {showAmount && (

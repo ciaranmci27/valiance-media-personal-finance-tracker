@@ -4,6 +4,7 @@ import * as React from "react";
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { DemoBanner } from "@/components/ui/demo-banner";
+import { ToastContainer } from "@/components/ui/toast";
 import { PrivacyProvider } from "@/contexts/privacy-context";
 import { isDemoMode } from "@/lib/demo";
 import { cn } from "@/lib/utils";
@@ -71,17 +72,18 @@ export function DashboardLayout({
           className={cn(
             "relative z-10 transition-all duration-300",
             // Desktop: margin based on sidebar state
-            sidebarCollapsed ? "md:ml-16" : "md:ml-64",
+            sidebarCollapsed ? "lg:ml-16" : "lg:ml-64",
             // Mobile: no margin (sidebar is overlay)
             "ml-0"
           )}
         >
           <Header onMobileMenuClick={() => setMobileOpen(true)} />
-          <main className={cn("px-4 md:px-6 pb-6 pt-6", isDemo && "pb-14")}>
+          <main className={cn("px-4 lg:px-6 pb-6 pt-6", isDemo && "pb-14")}>
             {children}
           </main>
           {isDemo && <DemoBanner sidebarCollapsed={sidebarCollapsed} />}
         </div>
+        <ToastContainer />
       </div>
     </PrivacyProvider>
   );

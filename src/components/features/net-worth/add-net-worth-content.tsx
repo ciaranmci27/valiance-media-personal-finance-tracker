@@ -23,6 +23,7 @@ import {
   formatPercentage,
   cn,
 } from "@/lib/utils";
+import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 import type { NetWorth } from "@/types/database";
@@ -140,7 +141,7 @@ export function AddNetWorthContent({
 
     // In demo mode, show message and navigate back
     if (isDemoMode()) {
-      alert("Demo mode: Changes won't be saved. This is just a preview of the functionality.");
+      toast("info", "Demo mode: changes are not saved");
       router.push("/net-worth");
       return;
     }
