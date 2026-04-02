@@ -12,6 +12,17 @@ export interface StateTaxConfig {
   type: "none" | "flat" | "progressive";
   flatRate?: number;
   brackets?: Record<FilingStatus, TaxBracket[]>;
+  /** Whether the state starts from Federal AGI or Federal Taxable Income. Default: "agi" */
+  startingPoint?: "agi" | "federal_taxable";
+  /** State standard deduction. "federal" = use federal amounts. Object = state-specific amounts. Omit = no deduction. */
+  deduction?: "federal" | Partial<Record<FilingStatus, number>> | {
+    type: "pct_of_agi";
+    rate: number;
+    min: Partial<Record<FilingStatus, number>>;
+    max: Partial<Record<FilingStatus, number>>;
+  };
+  /** Per-person personal exemption amount (filers + dependents). */
+  personalExemption?: number;
 }
 
 // All 50 states + DC
@@ -28,23 +39,24 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   WY: { code: "WY", name: "Wyoming", type: "none" },
 
   // Flat tax states
-  AZ: { code: "AZ", name: "Arizona", type: "flat", flatRate: 0.025 },
-  CO: { code: "CO", name: "Colorado", type: "flat", flatRate: 0.044 },
-  GA: { code: "GA", name: "Georgia", type: "flat", flatRate: 0.0519 },
-  ID: { code: "ID", name: "Idaho", type: "flat", flatRate: 0.058 },
+  AZ: { code: "AZ", name: "Arizona", type: "flat", flatRate: 0.025, deduction: "federal" },
+  CO: { code: "CO", name: "Colorado", type: "flat", flatRate: 0.044, startingPoint: "federal_taxable" },
+  GA: { code: "GA", name: "Georgia", type: "flat", flatRate: 0.0519, deduction: { single: 12000, mfj: 24000, mfs: 12000, hoh: 12000 } },
+  ID: { code: "ID", name: "Idaho", type: "flat", flatRate: 0.058, startingPoint: "federal_taxable" },
   IL: { code: "IL", name: "Illinois", type: "flat", flatRate: 0.0495 },
-  IN: { code: "IN", name: "Indiana", type: "flat", flatRate: 0.0305 },
-  IA: { code: "IA", name: "Iowa", type: "flat", flatRate: 0.038 },
-  KY: { code: "KY", name: "Kentucky", type: "flat", flatRate: 0.04 },
-  MI: { code: "MI", name: "Michigan", type: "flat", flatRate: 0.0425 },
-  MS: { code: "MS", name: "Mississippi", type: "flat", flatRate: 0.044 },
-  NC: { code: "NC", name: "North Carolina", type: "flat", flatRate: 0.0425 },
+  IN: { code: "IN", name: "Indiana", type: "flat", flatRate: 0.0305, personalExemption: 1000 },
+  IA: { code: "IA", name: "Iowa", type: "flat", flatRate: 0.038, deduction: "federal" },
+  KY: { code: "KY", name: "Kentucky", type: "flat", flatRate: 0.04, deduction: { single: 3270, mfj: 6540, mfs: 3270, hoh: 3270 } },
+  MI: { code: "MI", name: "Michigan", type: "flat", flatRate: 0.0425, personalExemption: 5800 },
+  MS: { code: "MS", name: "Mississippi", type: "flat", flatRate: 0.044, deduction: { single: 2300, mfj: 4600, mfs: 2300, hoh: 3400 } },
+  NC: { code: "NC", name: "North Carolina", type: "flat", flatRate: 0.0425, deduction: { single: 12750, mfj: 25500, mfs: 12750, hoh: 19125 } },
   PA: { code: "PA", name: "Pennsylvania", type: "flat", flatRate: 0.0307 },
   UT: { code: "UT", name: "Utah", type: "flat", flatRate: 0.0465 },
 
   // Progressive tax states
   AL: {
     code: "AL", name: "Alabama", type: "progressive",
+    deduction: { single: 3000, mfj: 8500, mfs: 3750, hoh: 4700 },
     brackets: {
       single: [
         { rate: 0.02, upTo: 500 },
@@ -70,6 +82,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   AR: {
     code: "AR", name: "Arkansas", type: "progressive",
+    deduction: { single: 2410, mfj: 4820, mfs: 2410, hoh: 2410 },
     brackets: {
       single: [
         { rate: 0.02, upTo: 4400 },
@@ -95,6 +108,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   CA: {
     code: "CA", name: "California", type: "progressive",
+    deduction: { single: 5706, mfj: 11412, mfs: 5706, hoh: 11412 },
     brackets: {
       single: [
         { rate: 0.01, upTo: 10412 },
@@ -189,6 +203,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   DE: {
     code: "DE", name: "Delaware", type: "progressive",
+    deduction: { single: 3250, mfj: 6500, mfs: 3250, hoh: 3250 },
     brackets: {
       single: [
         { rate: 0.0, upTo: 2000 },
@@ -230,6 +245,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   DC: {
     code: "DC", name: "District of Columbia", type: "progressive",
+    deduction: "federal",
     brackets: {
       single: [
         { rate: 0.04, upTo: 10000 },
@@ -271,6 +287,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   HI: {
     code: "HI", name: "Hawaii", type: "progressive",
+    deduction: { single: 4400, mfj: 8800, mfs: 4400, hoh: 6424 },
     brackets: {
       single: [
         { rate: 0.014, upTo: 2400 },
@@ -332,6 +349,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   KS: {
     code: "KS", name: "Kansas", type: "progressive",
+    deduction: { single: 3605, mfj: 8240, mfs: 4120, hoh: 6180 },
     brackets: {
       single: [
         { rate: 0.052, upTo: 23000 },
@@ -353,6 +371,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   LA: {
     code: "LA", name: "Louisiana", type: "progressive",
+    deduction: { single: 12500, mfj: 25000, mfs: 12500, hoh: 25000 },
     brackets: {
       single: [
         { rate: 0.0185, upTo: 12500 },
@@ -378,6 +397,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   ME: {
     code: "ME", name: "Maine", type: "progressive",
+    deduction: "federal",
     brackets: {
       single: [
         { rate: 0.058, upTo: 26050 },
@@ -403,6 +423,12 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   MD: {
     code: "MD", name: "Maryland", type: "progressive",
+    deduction: {
+      type: "pct_of_agi",
+      rate: 0.15,
+      min: { single: 1800, mfj: 3650, mfs: 1800, hoh: 3650 },
+      max: { single: 3350, mfj: 6700, mfs: 3350, hoh: 6700 },
+    },
     brackets: {
       single: [
         { rate: 0.02, upTo: 1000 },
@@ -469,6 +495,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   MN: {
     code: "MN", name: "Minnesota", type: "progressive",
+    deduction: { single: 14950, mfj: 29900, mfs: 14950, hoh: 22500 },
     brackets: {
       single: [
         { rate: 0.0535, upTo: 31690 },
@@ -498,6 +525,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   MO: {
     code: "MO", name: "Missouri", type: "progressive",
+    deduction: "federal",
     brackets: {
       single: [
         { rate: 0.02, upTo: 1207 },
@@ -539,6 +567,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   MT: {
     code: "MT", name: "Montana", type: "progressive",
+    startingPoint: "federal_taxable",
     brackets: {
       single: [
         { rate: 0.047, upTo: 20500 },
@@ -560,6 +589,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   NE: {
     code: "NE", name: "Nebraska", type: "progressive",
+    deduction: { single: 8600, mfj: 17200, mfs: 8600, hoh: 12600 },
     brackets: {
       single: [
         { rate: 0.0246, upTo: 3700 },
@@ -589,6 +619,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   ND: {
     code: "ND", name: "North Dakota", type: "progressive",
+    startingPoint: "federal_taxable",
     brackets: {
       single: [
         { rate: 0.0, upTo: 48475 },
@@ -657,6 +688,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   NM: {
     code: "NM", name: "New Mexico", type: "progressive",
+    deduction: "federal",
     brackets: {
       single: [
         { rate: 0.017, upTo: 5500 },
@@ -690,6 +722,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   NY: {
     code: "NY", name: "New York", type: "progressive",
+    deduction: { single: 8000, mfj: 16050, mfs: 8000, hoh: 11200 },
     brackets: {
       single: [
         { rate: 0.04, upTo: 8500 },
@@ -764,6 +797,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   OK: {
     code: "OK", name: "Oklahoma", type: "progressive",
+    deduction: { single: 6350, mfj: 12700, mfs: 6350, hoh: 9350 },
     brackets: {
       single: [
         { rate: 0.0025, upTo: 1000 },
@@ -801,6 +835,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   OR: {
     code: "OR", name: "Oregon", type: "progressive",
+    deduction: { single: 2835, mfj: 5670, mfs: 2835, hoh: 4560 },
     brackets: {
       single: [
         { rate: 0.0475, upTo: 4050 },
@@ -830,6 +865,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   RI: {
     code: "RI", name: "Rhode Island", type: "progressive",
+    deduction: { single: 10900, mfj: 21800, mfs: 10900, hoh: 16350 },
     brackets: {
       single: [
         { rate: 0.0375, upTo: 77450 },
@@ -855,6 +891,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   SC: {
     code: "SC", name: "South Carolina", type: "progressive",
+    startingPoint: "federal_taxable",
     brackets: {
       single: [
         { rate: 0.0, upTo: 3460 },
@@ -880,6 +917,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   VT: {
     code: "VT", name: "Vermont", type: "progressive",
+    deduction: { single: 7650, mfj: 15300, mfs: 7650, hoh: 11450 },
     brackets: {
       single: [
         { rate: 0.0335, upTo: 45400 },
@@ -909,6 +947,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   VA: {
     code: "VA", name: "Virginia", type: "progressive",
+    deduction: { single: 8750, mfj: 17500, mfs: 8750, hoh: 8750 },
     brackets: {
       single: [
         { rate: 0.02, upTo: 3000 },
@@ -938,6 +977,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   WV: {
     code: "WV", name: "West Virginia", type: "progressive",
+    personalExemption: 2000,
     brackets: {
       single: [
         { rate: 0.0236, upTo: 10000 },
@@ -971,6 +1011,7 @@ export const STATE_TAX_DATA: Record<string, StateTaxConfig> = {
   },
   WI: {
     code: "WI", name: "Wisconsin", type: "progressive",
+    deduction: { single: 14260, mfj: 26510, mfs: 12550, hoh: 18300 },
     brackets: {
       single: [
         { rate: 0.035, upTo: 14320 },

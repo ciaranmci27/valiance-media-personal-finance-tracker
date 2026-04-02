@@ -1359,7 +1359,10 @@ function CalculationResults({
         >
           <Row label="Gross Income" value={fmtMasked(breakdown.grossIncome)} bold />
           {breakdown.w2Income > 0 && (
-            <Row label="W-2 / Non-SE" value={fmtMasked(breakdown.w2Income)} sub />
+            <Row label="W-2 Wages" value={fmtMasked(breakdown.w2Income)} sub />
+          )}
+          {breakdown.otherIncome > 0 && (
+            <Row label="1099 / Other" value={fmtMasked(breakdown.otherIncome)} sub />
           )}
           {breakdown.seIncome > 0 && (
             <Row label="Self-Employment" value={fmtMasked(breakdown.seIncome)} sub />
@@ -1417,16 +1420,14 @@ function CalculationResults({
           subtotalValue={fmtMasked(federalSubtotal)}
           className="animate-fade-up stagger-2"
         >
-          {breakdown.federalTax.bracketBreakdown.length > 0 && (
-            <CollapsibleBracketTable
-              title="Federal Income Tax"
-              brackets={breakdown.federalTax.bracketBreakdown}
-              total={breakdown.federalTax.total}
-              fmtMasked={fmtMasked}
-              fmt={fmt}
-              pct={pct}
-            />
-          )}
+          <CollapsibleBracketTable
+            title="Federal Income Tax"
+            brackets={breakdown.federalTax.bracketBreakdown}
+            total={breakdown.federalTax.total}
+            fmtMasked={fmtMasked}
+            fmt={fmt}
+            pct={pct}
+          />
 
           {breakdown.ltcgTax.bracketBreakdown.length > 0 && (
             <CollapsibleBracketTable
@@ -1523,14 +1524,22 @@ function CalculationResults({
             className="animate-fade-up stagger-4"
           >
             {breakdown.stateTaxDetail.stateName ? (
-              <Row
-                label={
-                  breakdown.stateTaxDetail.rate != null
-                    ? `${breakdown.stateTaxDetail.stateName} (${(breakdown.stateTaxDetail.rate * 100).toFixed(1)}%)`
-                    : `${breakdown.stateTaxDetail.stateName} (progressive)`
-                }
-                value={fmtMasked(breakdown.stateTax)}
-              />
+              <>
+                {breakdown.stateTaxDetail.stateStandardDeduction > 0 && (
+                  <Row label="State Deduction" value={fmtMasked(breakdown.stateTaxDetail.stateStandardDeduction)} sub />
+                )}
+                {(breakdown.stateTaxDetail.rate === null || breakdown.stateTaxDetail.rate > 0) && (
+                  <Row label="State Taxable Income" value={fmtMasked(breakdown.stateTaxDetail.stateTaxableIncome)} sub />
+                )}
+                <Row
+                  label={
+                    breakdown.stateTaxDetail.rate != null
+                      ? `${breakdown.stateTaxDetail.stateName} (${(breakdown.stateTaxDetail.rate * 100).toFixed(1)}%)`
+                      : `${breakdown.stateTaxDetail.stateName} (progressive)`
+                  }
+                  value={fmtMasked(breakdown.stateTax)}
+                />
+              </>
             ) : (
               <Row label="No state selected" value="$0.00" color="muted" />
             )}

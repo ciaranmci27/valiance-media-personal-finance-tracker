@@ -59,6 +59,7 @@ export interface FullTaxBreakdown {
   w2Income: number;
   seIncome: number;
   passiveIncome: number;
+  otherIncome: number;
 
   // Capital gains
   capitalGains: CapitalGainsResult;
@@ -91,6 +92,8 @@ export interface FullTaxBreakdown {
     stateCode: string | null;
     stateName: string | null;
     rate: number | null; // null for progressive
+    stateStandardDeduction: number;
+    stateTaxableIncome: number;
   };
 
   // Federal credits
@@ -125,12 +128,10 @@ function walkBrackets(taxableAmount: number, brackets: TaxBracket[]): FederalTax
   let prevUpTo = 0;
 
   for (const bracket of brackets) {
-    if (remaining <= 0) break;
-
     const rangeStart = prevUpTo;
     const rangeEnd = bracket.upTo === Infinity ? Infinity : bracket.upTo;
     const bracketSize = bracket.upTo === Infinity ? remaining : bracket.upTo - prevUpTo;
-    const taxableInBracket = Math.min(remaining, bracketSize);
+    const taxableInBracket = remaining > 0 ? Math.min(remaining, bracketSize) : 0;
     const tax = taxableInBracket * bracket.rate;
 
     breakdown.push({
@@ -297,36 +298,77 @@ export function calculateLTCGTax(
 
 /**
  * Calculate state income tax based on state config.
+ * Most states start from Federal AGI and apply their own standard deduction.
+ * A few states (CO, ID, MT, ND, SC) start from Federal Taxable Income.
  */
 function calculateStateTax(
-  taxableIncome: number,
+  agi: number,
+  federalTaxableIncome: number,
   stateCode: string | null,
-  filingStatus: FilingStatus
-): { total: number; rate: number | null; stateName: string | null } {
+  filingStatus: FilingStatus,
+  federalStandardDeduction: number,
+  dependents: number = 0,
+  otherDependents: number = 0
+): { total: number; rate: number | null; stateName: string | null; stateStandardDeduction: number; stateTaxableIncome: number } {
   const config = getStateTaxConfig(stateCode);
   if (!config || config.type === "none") {
-    return { total: 0, rate: config?.type === "none" ? 0 : null, stateName: config?.name ?? null };
+    return { total: 0, rate: config?.type === "none" ? 0 : null, stateName: config?.name ?? null, stateStandardDeduction: 0, stateTaxableIncome: 0 };
   }
+
+  // Determine starting amount based on state's starting point
+  const startingAmount = config.startingPoint === "federal_taxable" ? federalTaxableIncome : agi;
+
+  // Resolve state standard deduction
+  let stateStandardDeduction = 0;
+  if (config.startingPoint !== "federal_taxable") {
+    if (config.deduction === "federal") {
+      stateStandardDeduction = federalStandardDeduction;
+    } else if (config.deduction && typeof config.deduction === "object" && "type" in config.deduction) {
+      // Income-percentage deduction (e.g., Maryland: 15% of AGI with floor/ceiling)
+      const d = config.deduction;
+      const rawPct = agi * d.rate;
+      const floor = d.min[filingStatus] ?? 0;
+      const ceiling = d.max[filingStatus] ?? Infinity;
+      stateStandardDeduction = Math.max(floor, Math.min(rawPct, ceiling));
+    } else if (config.deduction && typeof config.deduction === "object") {
+      stateStandardDeduction = config.deduction[filingStatus] ?? 0;
+    }
+  }
+
+  // Personal exemptions (uniform per-person amount for states like IN, MI, WV)
+  let personalExemptionTotal = 0;
+  if (config.personalExemption) {
+    const filers = filingStatus === "mfj" ? 2 : 1;
+    personalExemptionTotal = config.personalExemption * (filers + dependents + otherDependents);
+  }
+
+  // Combine standard deduction + personal exemptions for display and calculation
+  const totalStateDeduction = stateStandardDeduction + personalExemptionTotal;
+  const stateTaxableIncome = Math.max(0, startingAmount - totalStateDeduction);
 
   if (config.type === "flat" && config.flatRate != null) {
     return {
-      total: Math.max(0, taxableIncome) * config.flatRate,
+      total: stateTaxableIncome * config.flatRate,
       rate: config.flatRate,
       stateName: config.name,
+      stateStandardDeduction: totalStateDeduction,
+      stateTaxableIncome,
     };
   }
 
   if (config.type === "progressive" && config.brackets) {
     const brackets = config.brackets[filingStatus];
-    const result = walkBrackets(Math.max(0, taxableIncome), brackets);
+    const result = walkBrackets(stateTaxableIncome, brackets);
     return {
       total: result.total,
-      rate: null, // progressive, no single rate
+      rate: null,
       stateName: config.name,
+      stateStandardDeduction: totalStateDeduction,
+      stateTaxableIncome,
     };
   }
 
-  return { total: 0, rate: null, stateName: null };
+  return { total: 0, rate: null, stateName: null, stateStandardDeduction: 0, stateTaxableIncome: 0 };
 }
 
 /**
@@ -388,8 +430,9 @@ export function calculateFullTax(
   additionalCredits: number = 0
 ): FullTaxBreakdown {
   // 1. Classify income
+  // W-2 wages only (subject to FICA)
   const w2Income = incomeSources
-    .filter((s) => !s.subject_to_se && s.income_type !== "k1")
+    .filter((s) => s.income_type === "w2" && !s.subject_to_se)
     .reduce((sum, s) => sum + s.amount, 0);
   const seIncome = incomeSources
     .filter((s) => s.subject_to_se)
@@ -397,7 +440,11 @@ export function calculateFullTax(
   const passiveIncome = incomeSources
     .filter((s) => s.income_type === "k1" && !s.subject_to_se)
     .reduce((sum, s) => sum + s.amount, 0);
-  const totalIncome = w2Income + seIncome + passiveIncome;
+  // 1099 interest, dividends, etc. (not subject to FICA or SE tax)
+  const otherIncome = incomeSources
+    .filter((s) => s.income_type !== "w2" && s.income_type !== "k1" && !s.subject_to_se)
+    .reduce((sum, s) => sum + s.amount, 0);
+  const totalIncome = w2Income + seIncome + passiveIncome + otherIncome;
 
   // 2. Net capital gains
   const capGains = netCapitalGains(capitalGainEntries, config.capitalLossLimit[filingStatus]);
@@ -460,14 +507,15 @@ export function calculateFullTax(
   const netInvestmentIncome =
     Math.max(0, capGains.netShortTerm) +
     Math.max(0, capGains.netLongTerm) +
-    Math.max(0, passiveIncome);
+    Math.max(0, passiveIncome) +
+    Math.max(0, otherIncome);
   const niit =
     agi > niitThreshold
       ? config.niit.rate * Math.min(netInvestmentIncome, agi - niitThreshold)
       : 0;
 
-  // 12. State tax
-  const stateResult = calculateStateTax(taxableIncome, stateCode, filingStatus);
+  // 12. State tax (uses AGI + state's own standard deduction, not federal taxable income)
+  const stateResult = calculateStateTax(agi, taxableIncome, stateCode, filingStatus, standardDeduction, dependents, otherDependents);
   const stateTax = stateResult.total;
 
   // 12b. Child Tax Credit ($2,000/child, phases out above AGI threshold)
@@ -528,6 +576,7 @@ export function calculateFullTax(
     w2Income,
     seIncome,
     passiveIncome,
+    otherIncome,
     capitalGains: capGains,
     selfEmploymentTax: seTax,
     ficaTax,
@@ -548,6 +597,8 @@ export function calculateFullTax(
       stateCode,
       stateName: stateResult.stateName,
       rate: stateResult.rate,
+      stateStandardDeduction: stateResult.stateStandardDeduction,
+      stateTaxableIncome: stateResult.stateTaxableIncome,
     },
     childTaxCredit,
     otherDependentCredit,
