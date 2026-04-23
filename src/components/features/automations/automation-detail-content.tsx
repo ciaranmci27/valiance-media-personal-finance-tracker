@@ -35,9 +35,10 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { DateInput } from "@/components/ui/date-input";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/ui/number-input";
-import { Select, CustomSelect } from "@/components/ui/select";
+import { CustomSelect } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { EmailTagsInput } from "@/components/ui/email-tags-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +52,7 @@ import type {
   AutomationRun,
   EmailActionConfig,
   NotificationActionConfig,
+  PayrollEventTriggerConfig,
   ScheduleTriggerConfig,
 } from "@/types/database";
 
@@ -58,7 +60,7 @@ interface AutomationDetailContentProps {
   automation: AutomationFull;
 }
 
-type TriggerType = "schedule" | "manual";
+type TriggerType = "schedule" | "manual" | "payroll_event";
 
 // Common timezones
 const timezones = [
@@ -204,6 +206,34 @@ function getOrdinalSuffix(day: number) {
   }
 }
 
+function payrollEventLabel(event: PayrollEventTriggerConfig["event"]): string {
+  switch (event) {
+    case "pay_date":
+      return "Pay date";
+    case "ach_send_date":
+      return "ACH send date";
+    case "period_end":
+      return "Period end";
+    case "deposit_due":
+      return "Tax deposit due date";
+    case "form_due":
+      return "Form filing deadline";
+  }
+}
+
+function describePayrollOffset(minutes: number): string {
+  if (minutes === 0) return "at the event time";
+  const abs = Math.abs(minutes);
+  const days = Math.floor(abs / 1440);
+  const hours = Math.floor((abs % 1440) / 60);
+  const dir = minutes < 0 ? "before" : "after";
+  const parts: string[] = [];
+  if (days) parts.push(`${days} day${days === 1 ? "" : "s"}`);
+  if (hours) parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
+  if (parts.length === 0) parts.push(`${abs} minute${abs === 1 ? "" : "s"}`);
+  return `${parts.join(" ")} ${dir}`;
+}
+
 function getScheduleDescription(config: ScheduleTriggerConfig) {
   const timeLabel =
     timeOptions.find((t) => t.value === config.time)?.label ?? config.time;
@@ -284,7 +314,9 @@ export function AutomationDetailContent({
   const [isRunning, setIsRunning] = React.useState(false);
 
   const isScheduleTrigger = automation.trigger_type === "schedule";
+  const isPayrollTrigger = automation.trigger_type === "payroll_event";
   const triggerConfig = automation.trigger_config as ScheduleTriggerConfig;
+  const payrollConfig = automation.trigger_config as PayrollEventTriggerConfig;
 
   // Form state
   const [name, setName] = React.useState(automation.name);
@@ -397,9 +429,15 @@ export function AutomationDetailContent({
     const supabase = createClient();
 
     try {
-      const newTriggerConfig = buildTriggerConfig();
-      const nextRunAt =
-        triggerType === "schedule"
+      // For payroll_event triggers we preserve the existing trigger_config
+      // and next_run_at. The edit form doesn't expose trigger fields for
+      // payroll events yet, so any "edit" is really name/description/actions.
+      const newTriggerConfig = isPayrollTrigger
+        ? automation.trigger_config
+        : buildTriggerConfig();
+      const nextRunAt = isPayrollTrigger
+        ? automation.next_run_at
+        : triggerType === "schedule"
           ? calculateNextRun(newTriggerConfig as ScheduleTriggerConfig)
           : null;
 
@@ -647,6 +685,8 @@ export function AutomationDetailContent({
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                 {isScheduleTrigger ? (
                   <Calendar className="h-5 w-5 text-primary" />
+                ) : isPayrollTrigger ? (
+                  <CalendarClock className="h-5 w-5 text-primary" />
                 ) : (
                   <MousePointerClick className="h-5 w-5 text-primary" />
                 )}
@@ -654,7 +694,11 @@ export function AutomationDetailContent({
               <div>
                 <p className="text-sm text-muted-foreground">Trigger</p>
                 <p className="text-lg font-semibold">
-                  {isScheduleTrigger ? "Schedule" : "Manual"}
+                  {isScheduleTrigger
+                    ? "Schedule"
+                    : isPayrollTrigger
+                      ? "Payroll event"
+                      : "Manual"}
                 </p>
               </div>
             </div>
@@ -666,20 +710,30 @@ export function AutomationDetailContent({
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
                 {isScheduleTrigger ? (
                   <Repeat className="h-5 w-5 text-muted-foreground" />
+                ) : isPayrollTrigger ? (
+                  <CalendarClock className="h-5 w-5 text-muted-foreground" />
                 ) : (
                   <Clock className="h-5 w-5 text-muted-foreground" />
                 )}
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">
-                  {isScheduleTrigger ? "Frequency" : "Last Run"}
+                  {isScheduleTrigger
+                    ? "Frequency"
+                    : isPayrollTrigger
+                      ? "Event"
+                      : "Last Run"}
                 </p>
                 <p className="text-lg font-semibold">
                   {isScheduleTrigger
-                    ? frequencyOptions.find((f) => f.value === triggerConfig.frequency)?.label || "Monthly"
-                    : automation.last_run_at
-                      ? formatDate(automation.last_run_at)
-                      : "Never"}
+                    ? frequencyOptions.find(
+                        (f) => f.value === triggerConfig.frequency,
+                      )?.label || "Monthly"
+                    : isPayrollTrigger
+                      ? payrollEventLabel(payrollConfig.event)
+                      : automation.last_run_at
+                        ? formatDate(automation.last_run_at)
+                        : "Never"}
                 </p>
               </div>
             </div>
@@ -754,7 +808,29 @@ export function AutomationDetailContent({
             </div>
           </CardHeader>
           <CardContent>
-            {isEditing ? (
+            {isEditing && isPayrollTrigger ? (
+              <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground space-y-2">
+                <p className="text-foreground font-medium">
+                  Payroll event triggers aren&apos;t editable here yet.
+                </p>
+                <p>
+                  To change the event, offset, or scope, delete this automation
+                  and create a new one. (Name, description, and actions can
+                  still be edited.)
+                </p>
+                <p className="pt-2 border-t border-border/50 text-xs">
+                  <span className="text-foreground font-medium">
+                    Current setup:
+                  </span>{" "}
+                  {describePayrollOffset(payrollConfig.offset_minutes)} each{" "}
+                  {payrollEventLabel(payrollConfig.event)} at{" "}
+                  {payrollConfig.fire_time}{" "}
+                  {timezones.find((tz) => tz.value === payrollConfig.timezone)
+                    ?.label || payrollConfig.timezone}
+                  .
+                </p>
+              </div>
+            ) : isEditing ? (
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
                   Choose what starts this automation
@@ -850,44 +926,37 @@ export function AutomationDetailContent({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {frequency === "weekly" && (
-                        <Select
+                        <CustomSelect
                           label="Day of Week"
                           value={dayOfWeek.toString()}
-                          onChange={(e) => setDayOfWeek(parseInt(e.target.value))}
-                        >
-                          {daysOfWeek.map((day) => (
-                            <option key={day.value} value={day.value}>
-                              {day.label}
-                            </option>
-                          ))}
-                        </Select>
+                          onChange={(v) => setDayOfWeek(parseInt(v))}
+                          options={daysOfWeek.map((day) => ({
+                            value: String(day.value),
+                            label: day.label,
+                          }))}
+                        />
                       )}
                       {["monthly", "quarterly", "yearly"].includes(frequency) && (
-                        <Select
+                        <CustomSelect
                           label="Day of Month"
                           value={dayOfMonth.toString()}
-                          onChange={(e) => setDayOfMonth(parseInt(e.target.value))}
-                        >
-                          {dayOptions.map((day) => (
-                            <option key={day} value={day}>
-                              {day}
-                              {getOrdinalSuffix(day)}
-                            </option>
-                          ))}
-                        </Select>
+                          onChange={(v) => setDayOfMonth(parseInt(v))}
+                          options={dayOptions.map((day) => ({
+                            value: String(day),
+                            label: `${day}${getOrdinalSuffix(day)}`,
+                          }))}
+                        />
                       )}
                       {frequency === "yearly" && (
-                        <Select
+                        <CustomSelect
                           label="Month"
                           value={month.toString()}
-                          onChange={(e) => setMonth(parseInt(e.target.value))}
-                        >
-                          {months.map((m) => (
-                            <option key={m.value} value={m.value}>
-                              {m.label}
-                            </option>
-                          ))}
-                        </Select>
+                          onChange={(v) => setMonth(parseInt(v))}
+                          options={months.map((m) => ({
+                            value: String(m.value),
+                            label: m.label,
+                          }))}
+                        />
                       )}
                       <CustomSelect
                         label="Time"
@@ -940,12 +1009,11 @@ export function AutomationDetailContent({
                         />
                       )}
                       {durationType === "until" && (
-                        <Input
-                          type="date"
+                        <DateInput
                           label="Run until"
                           value={runUntil}
-                          onChange={(e) => setRunUntil(e.target.value)}
-                          min={new Date().toISOString().split("T")[0]}
+                          onChange={(v) => setRunUntil(v)}
+                          minDate={new Date().toISOString().split("T")[0]}
                         />
                       )}
                     </div>
@@ -968,6 +1036,47 @@ export function AutomationDetailContent({
                       {automation.next_run_at && (
                         <span className="inline-flex items-center gap-1.5 text-muted-foreground">
                           Next run: {formatDate(automation.next_run_at)}
+                        </span>
+                      )}
+                    </div>
+                  </>
+                ) : isPayrollTrigger ? (
+                  <>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Fires{" "}
+                      <span className="text-foreground font-medium">
+                        {describePayrollOffset(payrollConfig.offset_minutes)}
+                      </span>{" "}
+                      each{" "}
+                      <span className="text-foreground font-medium">
+                        {payrollEventLabel(payrollConfig.event)}
+                      </span>
+                      {payrollConfig.deposit_type &&
+                      payrollConfig.deposit_type !== "any"
+                        ? ` (${payrollConfig.deposit_type.replace(/_/g, " ")})`
+                        : ""}
+                      {payrollConfig.form_type &&
+                      payrollConfig.form_type !== "any"
+                        ? ` (${payrollConfig.form_type.toUpperCase()})`
+                        : ""}
+                      .
+                    </p>
+                    <div className="flex flex-wrap items-center gap-4 text-sm">
+                      <span className="inline-flex items-center gap-1.5">
+                        <Globe className="h-4 w-4 text-muted-foreground" />
+                        {timezones.find(
+                          (tz) => tz.value === payrollConfig.timezone,
+                        )?.label || payrollConfig.timezone}
+                      </span>
+                      {automation.next_run_at && (
+                        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                          Next run: {formatDate(automation.next_run_at)}
+                        </span>
+                      )}
+                      {payrollConfig.next_event_context?.event_date && (
+                        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+                          Tied to event on{" "}
+                          {payrollConfig.next_event_context.event_date}
                         </span>
                       )}
                     </div>

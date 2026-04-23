@@ -19,6 +19,7 @@ import {
   Layers,
   Zap,
   Landmark,
+  Users2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
@@ -56,6 +57,11 @@ const navItems: NavItem[] = [
     title: "Tax Estimator",
     href: "/tax-payments",
     icon: Landmark,
+  },
+  {
+    title: "Payroll",
+    href: "/payroll",
+    icon: Users2,
   },
   {
     title: "Automations",

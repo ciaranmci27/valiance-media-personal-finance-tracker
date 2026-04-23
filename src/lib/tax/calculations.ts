@@ -3,7 +3,7 @@
  */
 
 import type { TaxBracket, TaxYearConfig, FilingStatus } from "./constants";
-import type { TaxIncomeSource, TaxCapitalGainEntry, TaxPaymentEntry } from "@/types/database";
+import type { TaxIncomeSource, TaxCapitalGainEntry, TaxPaymentEntry, TaxClassification } from "@/types/database";
 import { getStateTaxConfig } from "./state-taxes";
 
 // ============================================================================
@@ -427,7 +427,8 @@ export function calculateFullTax(
   stateCode: string | null = null,
   dependents: number = 0,
   otherDependents: number = 0,
-  additionalCredits: number = 0
+  additionalCredits: number = 0,
+  taxClassification: TaxClassification | null = null
 ): FullTaxBreakdown {
   // 1. Classify income
   // W-2 wages only (subject to FICA)
@@ -466,7 +467,27 @@ export function calculateFullTax(
   const agi = grossIncome - seTax.deductibleHalf - capGains.lossDeduction;
 
   // 6. QBI deduction
-  const qbiEligibleIncome = Math.max(0, seIncome - seTax.deductibleHalf);
+  // QBI eligibility is independent of SE tax: pass-through entities (incl. S Corps)
+  // get QBI on their business income even when it isn't subject to SE tax.
+  // C Corps are non-pass-through and never qualify. When no classification is set,
+  // fall back to SE-subject income to preserve legacy estimates.
+  const qbiPassThroughClassifications: TaxClassification[] = [
+    "sole_prop",
+    "disregarded",
+    "partnership",
+    "s_corp",
+  ];
+  let qbiBusinessIncome: number;
+  if (taxClassification === "c_corp") {
+    qbiBusinessIncome = 0;
+  } else if (taxClassification && qbiPassThroughClassifications.includes(taxClassification)) {
+    qbiBusinessIncome = incomeSources
+      .filter((s) => s.income_type === "1099" || s.income_type === "k1")
+      .reduce((sum, s) => sum + s.amount, 0);
+  } else {
+    qbiBusinessIncome = seIncome;
+  }
+  const qbiEligibleIncome = Math.max(0, qbiBusinessIncome - seTax.deductibleHalf);
   const rawQbi = qbiEligibleIncome * config.qbi.rate;
 
   const standardDeduction = config.standardDeductions[filingStatus];

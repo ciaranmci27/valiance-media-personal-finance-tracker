@@ -51,25 +51,45 @@ interface NumberInputProps extends Omit<InputProps, "type" | "value" | "onChange
   min?: number;
   /** Maximum allowed value */
   max?: number;
+  /** Skip thousands-separator commas. Use for years, phone numbers, ZIP codes,
+   *  and any other identifier-style numeric that shouldn't be grouped. */
+  noCommas?: boolean;
 }
 
 const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
-  ({ value, onChange, integer, min, max, onKeyDown, ...props }, ref) => {
+  ({ value, onChange, integer, min, max, noCommas, onKeyDown, ...props }, ref) => {
+    const format = React.useCallback(
+      (s: string) => (noCommas ? s : formatWithCommas(s)),
+      [noCommas],
+    );
     // Track the display string separately so we can preserve user input like trailing dots
     const [display, setDisplay] = React.useState(() => {
       const num = typeof value === "string" ? value : value ? String(value) : "";
-      return formatWithCommas(num);
+      return format(num);
     });
 
-    // Sync display when value changes externally (e.g. loading data)
+    // Sync display when value changes externally (e.g. loading data). Skip
+    // the sync when the incoming prop is numerically equivalent to what the
+    // user has already typed; otherwise mid-edit states like ".", "0.", "0.0"
+    // get wiped because the parent's round-tripped value (e.g. 0.03 or "")
+    // stringifies differently than the raw input. This is what breaks typing
+    // ".03" or leaving a trailing dot while entering a decimal.
     const prevValueRef = React.useRef(value);
     React.useEffect(() => {
-      if (value !== prevValueRef.current) {
-        prevValueRef.current = value;
-        const num = typeof value === "string" ? value : value ? String(value) : "";
-        setDisplay(formatWithCommas(num));
-      }
-    }, [value]);
+      if (value === prevValueRef.current) return;
+      prevValueRef.current = value;
+
+      const incomingStr =
+        typeof value === "string" ? value : value ? String(value) : "";
+      const incomingNum = parseFloat(incomingStr);
+      const currentNum = parseFloat(stripCommas(display));
+      const sameNumeric =
+        (Number.isNaN(incomingNum) && Number.isNaN(currentNum)) ||
+        incomingNum === currentNum;
+      if (sameNumeric) return;
+
+      setDisplay(format(incomingStr));
+    }, [value, display]);
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const raw = stripCommas(e.target.value);
@@ -91,20 +111,20 @@ const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
         if (!isNaN(num)) {
           if (max != null && num > max) {
             const clamped = String(max);
-            setDisplay(formatWithCommas(clamped));
+            setDisplay(format(clamped));
             onChange({ target: { value: clamped } });
             return;
           }
           if (min != null && num < min) {
             const clamped = String(min);
-            setDisplay(formatWithCommas(clamped));
+            setDisplay(format(clamped));
             onChange({ target: { value: clamped } });
             return;
           }
         }
       }
 
-      setDisplay(formatWithCommas(raw));
+      setDisplay(format(raw));
       onChange({ target: { value: raw } });
     };
 
@@ -119,7 +139,7 @@ const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
         if (max != null && next > max) next = max;
         if (min != null && next < min) next = min;
         const nextStr = integer ? String(next) : String(Math.round(next * 100) / 100);
-        setDisplay(formatWithCommas(nextStr));
+        setDisplay(format(nextStr));
         onChange({ target: { value: nextStr } });
       }
       onKeyDown?.(e);

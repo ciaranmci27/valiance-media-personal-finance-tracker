@@ -4,14 +4,101 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+import {
+  computeNextPayrollEvent,
+  loadPayrollInputs,
+  substituteEventVariables,
+  type PayrollEventContext,
+  type PayrollEventTriggerConfig,
+} from "./payroll-events.ts";
 
-// SMTP configuration from environment
-const SMTP_HOST = Deno.env.get("SMTP_HOST") || "";
-const SMTP_PORT = parseInt(Deno.env.get("SMTP_PORT") || "587");
-const SMTP_SECURE = Deno.env.get("SMTP_SECURE") === "true";
-const SMTP_USER = Deno.env.get("SMTP_USER") || "";
-const SMTP_PASS = Deno.env.get("SMTP_PASS") || "";
-const SMTP_FROM = Deno.env.get("SMTP_FROM") || "";
+// SMTP accounts are stored in the Supabase `email_accounts` table. Passwords
+// are AES-256-GCM encrypted under SMTP_ENCRYPTION_KEY, matching the format
+// produced by admin/src/lib/email/crypto.ts (iv_hex:tag_hex:cipher_hex).
+const SMTP_ENCRYPTION_KEY = Deno.env.get("SMTP_ENCRYPTION_KEY") || "";
+
+interface EmailAccountRow {
+  id: string;
+  label: string;
+  host: string;
+  port: number;
+  secure: boolean;
+  username: string;
+  encrypted_password: string;
+  from_name: string;
+  from_email: string;
+  reply_to: string | null;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+function hexToBytes(hex: string): Uint8Array {
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(hex.substr(i * 2, 2), 16);
+  }
+  return bytes;
+}
+
+async function decryptSmtpPassword(encrypted: string): Promise<string> {
+  if (!SMTP_ENCRYPTION_KEY) {
+    throw new Error("SMTP_ENCRYPTION_KEY is not set");
+  }
+  const parts = encrypted.split(":");
+  if (parts.length !== 3) {
+    throw new Error("Invalid encrypted password format");
+  }
+  const [ivHex, tagHex, cipherHex] = parts;
+  const iv = hexToBytes(ivHex);
+  const tag = hexToBytes(tagHex);
+  const cipher = hexToBytes(cipherHex);
+
+  // Node's aes-256-gcm stores ciphertext and tag separately; WebCrypto AES-GCM
+  // expects them concatenated as ciphertext||tag.
+  const combined = new Uint8Array(cipher.length + tag.length);
+  combined.set(cipher, 0);
+  combined.set(tag, cipher.length);
+
+  const keyMaterial = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(SMTP_ENCRYPTION_KEY),
+  );
+  const cryptoKey = await crypto.subtle.importKey(
+    "raw",
+    keyMaterial,
+    { name: "AES-GCM" },
+    false,
+    ["decrypt"],
+  );
+
+  const plaintext = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv, tagLength: 128 },
+    cryptoKey,
+    combined,
+  );
+
+  return new TextDecoder().decode(plaintext);
+}
+
+async function loadDefaultEmailAccount(
+  supabase: ReturnType<typeof createClient>,
+): Promise<EmailAccountRow | null> {
+  const { data: defaultRow } = await supabase
+    .from("email_accounts")
+    .select("*")
+    .eq("is_default", true)
+    .maybeSingle();
+  if (defaultRow) return defaultRow as unknown as EmailAccountRow;
+
+  const { data: fallback } = await supabase
+    .from("email_accounts")
+    .select("*")
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+  return fallback ? (fallback as unknown as EmailAccountRow) : null;
+}
 
 interface EmailActionConfig {
   to: string;
@@ -47,8 +134,10 @@ interface Automation {
   id: string;
   user_id: string;
   name: string;
-  trigger_type: "schedule" | "manual";
-  trigger_config: TriggerConfig;
+  trigger_type: "schedule" | "manual" | "payroll_event";
+  // Schema varies by trigger_type. Narrowed at consumption sites.
+  // deno-lint-ignore no-explicit-any
+  trigger_config: any;
   next_run_at: string;
 }
 
@@ -272,33 +361,55 @@ function parseEmails(emails: string): string[] {
   return emails.split(",").map((e) => e.trim()).filter(Boolean);
 }
 
-// Send email via SMTP
-async function sendEmail(config: EmailActionConfig): Promise<void> {
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
-    console.log("SMTP not configured, skipping email:", config.subject);
-    throw new Error("SMTP not configured. Please set SMTP_HOST, SMTP_USER, and SMTP_PASS secrets.");
+// Send email via SMTP. The account is loaded from the `email_accounts` table
+// (default account, or oldest as fallback) and its password is decrypted with
+// SMTP_ENCRYPTION_KEY. Configure accounts via Settings > SMTP & Email.
+async function sendEmail(
+  supabase: ReturnType<typeof createClient>,
+  config: EmailActionConfig,
+): Promise<void> {
+  if (!SMTP_ENCRYPTION_KEY) {
+    console.log("SMTP_ENCRYPTION_KEY not set, skipping email:", config.subject);
+    throw new Error(
+      "SMTP_ENCRYPTION_KEY is not set. Add it to the edge function secrets to enable email sending.",
+    );
+  }
+
+  const account = await loadDefaultEmailAccount(supabase);
+  if (!account) {
+    console.log("No email accounts configured, skipping email:", config.subject);
+    throw new Error(
+      "No email accounts configured. Add one via Settings > SMTP & Email in the admin app.",
+    );
+  }
+
+  let password: string;
+  try {
+    password = await decryptSmtpPassword(account.encrypted_password);
+  } catch (error) {
+    console.error("Failed to decrypt SMTP password:", error);
+    throw new Error(
+      "Failed to decrypt SMTP password. Verify SMTP_ENCRYPTION_KEY matches the key used by the admin app.",
+    );
   }
 
   try {
-    // Create SMTP client
     const client = new SMTPClient({
       connection: {
-        hostname: SMTP_HOST,
-        port: SMTP_PORT,
-        tls: SMTP_SECURE,
+        hostname: account.host,
+        port: account.port,
+        tls: account.secure,
         auth: {
-          username: SMTP_USER,
-          password: SMTP_PASS,
+          username: account.username,
+          password,
         },
       },
     });
 
-    // Parse recipients
     const toAddresses = parseEmails(config.to);
     const ccAddresses = config.cc ? parseEmails(config.cc) : undefined;
     const bccAddresses = config.bcc ? parseEmails(config.bcc) : undefined;
 
-    // Build email content
     const emailContent: {
       from: string;
       to: string[];
@@ -309,24 +420,25 @@ async function sendEmail(config: EmailActionConfig): Promise<void> {
       content?: string;
       html?: string;
     } = {
-      from: SMTP_FROM,
+      from: `"${account.from_name}" <${account.from_email}>`,
       to: toAddresses,
       subject: config.subject,
     };
 
-    // Add CC, BCC, Reply-To if provided
     if (ccAddresses && ccAddresses.length > 0) emailContent.cc = ccAddresses;
     if (bccAddresses && bccAddresses.length > 0) emailContent.bcc = bccAddresses;
-    if (config.replyTo) emailContent.replyTo = config.replyTo;
+    if (config.replyTo) {
+      emailContent.replyTo = config.replyTo;
+    } else if (account.reply_to) {
+      emailContent.replyTo = account.reply_to;
+    }
 
-    // Set content based on format
     if (config.format === "html") {
       emailContent.html = config.body;
     } else {
       emailContent.content = config.body;
     }
 
-    // Send the email
     await client.send(emailContent);
     await client.close();
 
@@ -335,6 +447,54 @@ async function sendEmail(config: EmailActionConfig): Promise<void> {
     console.error("Error sending email:", error);
     throw error;
   }
+}
+
+// ─── Template-variable rendering for payroll_event triggers ──────────────────
+// Substitute {{event_type}}, {{event_date}}, {{employee_name}}, {{amount}},
+// {{link}}, etc. into the action config. For non-payroll triggers, the
+// context will be null and the config passes through untouched.
+//
+// REQUIRED ENV: APP_BASE_URL
+// ---------------------------
+// The substitute helper uses APP_BASE_URL to turn relative `{{link}}` values
+// (e.g. "/payroll/cycles/2026-05-20") into absolute URLs for emails. Without
+// it, email recipients clicking the link land on a broken path. We warn
+// once at module load so missing config shows up in the Edge Function logs.
+// Set it to your admin origin (e.g. https://admin.valiancemedia.com) via:
+//   supabase secrets set APP_BASE_URL=https://admin.valiancemedia.com
+
+const APP_BASE_URL = Deno.env.get("APP_BASE_URL") ?? undefined;
+if (!APP_BASE_URL) {
+  console.warn(
+    "[process-automations] APP_BASE_URL is not set. Template links in payroll_event automations will be emitted as relative paths - emails may contain broken URLs. Configure via `supabase secrets set APP_BASE_URL=<origin>`.",
+  );
+}
+
+function renderEmailConfig(
+  config: EmailActionConfig,
+  context: PayrollEventContext | null,
+): EmailActionConfig {
+  if (!context) return config;
+  return {
+    ...config,
+    subject: substituteEventVariables(config.subject, context, APP_BASE_URL),
+    body: substituteEventVariables(config.body, context, APP_BASE_URL),
+  };
+}
+
+function renderNotificationConfig(
+  config: NotificationActionConfig,
+  context: PayrollEventContext | null,
+): NotificationActionConfig {
+  if (!context) return config;
+  return {
+    ...config,
+    title: substituteEventVariables(config.title, context, APP_BASE_URL),
+    message: substituteEventVariables(config.message, context, APP_BASE_URL),
+    link: config.link
+      ? substituteEventVariables(config.link, context, APP_BASE_URL)
+      : config.link,
+  };
 }
 
 // Create in-app notification
@@ -383,8 +543,13 @@ async function processAutomation(
 ): Promise<void> {
   console.log(`Processing automation: ${automation.name} (${automation.id})`);
 
-  // Check if automation has exceeded duration limits before processing
-  if (automation.trigger_type === "schedule" && hasExceededDuration(automation.trigger_config)) {
+  // Check if automation has exceeded duration limits before processing.
+  // Applies to any non-manual trigger with duration settings.
+  if (
+    (automation.trigger_type === "schedule" ||
+      automation.trigger_type === "payroll_event") &&
+    hasExceededDuration(automation.trigger_config)
+  ) {
     console.log(`Skipping automation ${automation.name} - duration limit exceeded, deactivating`);
     await supabase
       .from("automations")
@@ -414,19 +579,36 @@ async function processAutomation(
 
   // Use try-finally to ensure run status is ALWAYS updated
   try {
+    // For payroll_event automations, pull the event context stored when we
+    // last computed next_run_at. Used to fill template variables in email /
+    // notification bodies.
+    const eventContext: PayrollEventContext | null =
+      automation.trigger_type === "payroll_event"
+        ? (automation.trigger_config as PayrollEventTriggerConfig)
+            .next_event_context ?? null
+        : null;
+
     // Execute actions in order
     const sortedActions = actions.sort((a, b) => a.sort_order - b.sort_order);
 
     for (const action of sortedActions) {
       try {
         if (action.action_type === "email") {
-          await sendEmail(action.action_config as EmailActionConfig);
+          const rendered = renderEmailConfig(
+            action.action_config as EmailActionConfig,
+            eventContext,
+          );
+          await sendEmail(supabase, rendered);
         } else if (action.action_type === "notification") {
+          const rendered = renderNotificationConfig(
+            action.action_config as NotificationActionConfig,
+            eventContext,
+          );
           await createNotification(
             supabase,
             automation.user_id,
             runId,
-            action.action_config as NotificationActionConfig
+            rendered,
           );
         }
       } catch (error) {
@@ -443,7 +625,9 @@ async function processAutomation(
         last_run_at: string;
         next_run_at?: string;
         is_active?: boolean;
-        trigger_config?: TriggerConfig;
+        // Schema varies by trigger_type; narrow at assignment sites.
+        // deno-lint-ignore no-explicit-any
+        trigger_config?: any;
       } = {
         last_run_at: new Date().toISOString(),
       };
@@ -479,6 +663,56 @@ async function processAutomation(
         updateData.trigger_config = {
           ...config,
           runs_completed: newRunsCompleted,
+        };
+      } else if (automation.trigger_type === "payroll_event") {
+        const config = automation.trigger_config as PayrollEventTriggerConfig;
+        const newRunsCompleted = (config.runs_completed ?? 0) + 1;
+
+        let shouldDeactivate = false;
+        if (config.duration_type === "count" && config.run_count) {
+          if (newRunsCompleted >= config.run_count) shouldDeactivate = true;
+        } else if (config.duration_type === "until" && config.run_until) {
+          if (new Date() >= new Date(config.run_until)) shouldDeactivate = true;
+        }
+
+        let nextEventContext: PayrollEventContext | null = null;
+
+        if (shouldDeactivate) {
+          updateData.is_active = false;
+          updateData.next_run_at = null as unknown as string;
+        } else {
+          // Recompute from the just-fired moment to skip the event we just
+          // fired on. loadPayrollInputs reads the live payroll state so any
+          // schedule changes / new deposits are reflected immediately.
+          try {
+            const inputs = await loadPayrollInputs(supabase);
+            const next = computeNextPayrollEvent(
+              config,
+              new Date(),
+              inputs,
+            );
+            if (next) {
+              updateData.next_run_at = next.fire_at;
+              nextEventContext = next.context;
+            } else {
+              // No upcoming events match the config. Keep automation active
+              // but clear next_run_at; it will pick up again whenever new
+              // events are scheduled (e.g. a new employee or deposit).
+              updateData.next_run_at = null as unknown as string;
+            }
+          } catch (e) {
+            console.error(
+              `Error computing next payroll event for ${automation.id}:`,
+              e,
+            );
+            updateData.next_run_at = null as unknown as string;
+          }
+        }
+
+        updateData.trigger_config = {
+          ...config,
+          runs_completed: newRunsCompleted,
+          next_event_context: nextEventContext,
         };
       }
 

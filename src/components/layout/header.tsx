@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { usePrivacy } from "@/contexts/privacy-context";
 import { cn } from "@/lib/utils";
+import { siteConfig } from "@/config/site";
 import { NotificationDropdown } from "./notification-dropdown";
 
 // Map paths to page titles
@@ -23,10 +24,17 @@ const pageTitles: Record<string, string> = {
   "/tax-payments": "Tax Estimator",
   "/automations": "Automations",
   "/automations/new": "New Automation",
+  "/payroll": "Payroll",
+  "/payroll/config": "Payroll Settings",
+  "/payroll/config/organization": "Organization",
+  "/payroll/config/federal": "Federal Tax Tables",
+  "/payroll/config/states": "State Tax Tables",
+  "/payroll/config/states/new": "Add State",
   "/settings": "Settings",
   "/settings/account": "Account Settings",
   "/settings/appearance": "Appearance",
   "/settings/data": "Data Management",
+  "/settings/smtp": "SMTP & Email",
   "/settings/trash": "Trash",
 };
 
@@ -55,6 +63,17 @@ export function Header({ onMobileMenuClick }: HeaderProps) {
 
     // Check if it's a dynamic route (e.g., /income/[id])
     const segments = pathname.split("/").filter(Boolean);
+
+    // Payroll dynamic routes
+    if (segments[0] === "payroll" && segments[1] === "config") {
+      if (segments[2] === "federal" && segments[3]) {
+        return `${segments[3]} Federal Tax`;
+      }
+      if (segments[2] === "states" && segments[3] && segments[4]) {
+        return `${segments[3].toUpperCase()} · ${segments[4]}`;
+      }
+    }
+
     if (segments.length >= 2) {
       const basePath = `/${segments[0]}`;
       if (pageTitles[basePath]) {
@@ -78,7 +97,7 @@ export function Header({ onMobileMenuClick }: HeaderProps) {
       }
     }
 
-    return "Valiance Admin";
+    return siteConfig.companyName;
   }, [pathname]);
 
   // Read actual theme from DOM on mount and listen for changes

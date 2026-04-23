@@ -177,6 +177,21 @@ html {
   scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Reserve space for the scrollbar even when content doesn't need it, so
+     expanding/collapsing accordions and opening dialogs don't shift the
+     layout horizontally. Supported in all modern browsers; older fallback
+     is just the (undesirable) current behavior. */
+  scrollbar-gutter: stable;
+}
+
+/* Tailwind v3+ removed the default button cursor rule that v2 shipped, so
+   native <button> elements show the arrow cursor even when interactive.
+   Restore the pointer globally. Disabled buttons keep the default cursor
+   (browsers handle that via the :disabled pseudo-class). Also applies to
+   elements with role="button" (clickable divs/rows/spans). */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
 }
 
 body {
@@ -394,6 +409,32 @@ input[type="number"] {
 .stagger-5 { animation-delay: 250ms; }
 .stagger-6 { animation-delay: 300ms; }
 
+/* Honor the OS-level reduced-motion preference. Decorative entrance
+   animations (fade-up, fade-in, scale-in, slide-*) and their stagger
+   delays are disabled so content is visible immediately. animate-spin
+   is intentionally preserved because spinners signal async progress,
+   not decoration, and removing them would strip feedback the user
+   needs. Transitions are also shortened to near-zero. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-fade-up,
+  .animate-scale-in,
+  .animate-slide-in-right,
+  .animate-slide-in-left {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  .stagger-1, .stagger-2, .stagger-3,
+  .stagger-4, .stagger-5, .stagger-6 {
+    animation-delay: 0ms !important;
+  }
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ============================================================================
    SCROLLBAR STYLING
    ============================================================================ */
@@ -414,6 +455,14 @@ input[type="number"] {
 
 ::-webkit-scrollbar-thumb:hover {
   background: hsl(var(--muted-foreground));
+}
+
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }
 
 /* ============================================================================

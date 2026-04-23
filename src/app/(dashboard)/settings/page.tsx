@@ -7,6 +7,7 @@ import {
   Calculator,
   ChevronRight,
   Settings,
+  Mail,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +42,19 @@ const settingsSections = [
         icon: Calculator,
         iconBg: "bg-violet-500/10",
         iconColor: "text-violet-500",
+      },
+    ],
+  },
+  {
+    title: "Integrations",
+    items: [
+      {
+        title: "SMTP & Email",
+        description: "Configure outbound email accounts",
+        href: "/settings/smtp",
+        icon: Mail,
+        iconBg: "bg-emerald-500/10",
+        iconColor: "text-emerald-500",
       },
     ],
   },

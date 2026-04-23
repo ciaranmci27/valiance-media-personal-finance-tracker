@@ -53,8 +53,82 @@ export interface ManualTriggerConfig {
   // Empty - manual triggers have no configuration
 }
 
+// ─── Payroll event trigger ────────────────────────────────────────────────────
+// Triggers that fire relative to a payroll event (pay date, ACH send, deposit
+// due, form due). The scheduler recomputes next_run_at on every fire by
+// querying live payroll state, so variable dates (last-day-of-month, banking
+// holidays, off-cycle bonuses) are naturally handled.
+
+export type PayrollEventType =
+  | "pay_date"        // fires relative to an employee's deposit date
+  | "ach_send_date"   // fires relative to pay_date - 2 banking days
+  | "period_end"      // fires relative to the end of a pay period
+  | "deposit_due"     // fires relative to a tax deposit's due_date
+  | "form_due";       // fires relative to a form's filing deadline
+
+export type PayrollDepositType =
+  | "federal_941"
+  | "federal_940"
+  | "state_withholding"
+  | "state_suta"
+  | "state_sdi"
+  | "any";
+
+export type PayrollFormType =
+  | "941"
+  | "940"
+  | "w2"
+  | "w3"
+  | "a1_qrt"
+  | "a1_apr"
+  | "any";
+
+/**
+ * Context captured when next_run_at was computed. Preserves the "which event"
+ * metadata so template variables in action configs (emails/notifications) can
+ * reference the actual upcoming event at fire time without re-querying.
+ */
+export interface PayrollEventContext {
+  event_date: string;        // YYYY-MM-DD of the underlying payroll event
+  event_type: PayrollEventType;
+  employee_id?: string | null;
+  employee_name?: string | null;
+  amount?: number | null;    // gross pay / deposit amount / form total
+  deposit_id?: string | null;
+  deposit_type?: PayrollDepositType | null;
+  form_id?: string | null;
+  form_type?: PayrollFormType | null;
+  link?: string | null;      // deep link to the relevant admin page
+}
+
+export interface PayrollEventTriggerConfig {
+  event: PayrollEventType;
+  /** Minutes relative to the event. Negative = before, 0 = at the event's
+   *  fire_time, positive = after. e.g. -1440 = 24 hours before. */
+  offset_minutes: number;
+  /** Local wall-clock time on the target day, HH:MM (24h). */
+  fire_time: string;
+  timezone: string;
+  /** Scope filters (optional). */
+  employee_id?: string | null;
+  deposit_type?: PayrollDepositType | null;
+  form_type?: PayrollFormType | null;
+  /** Duration settings (mirrors ScheduleTriggerConfig). */
+  duration_type: "forever" | "count" | "until";
+  run_count?: number;
+  run_until?: string;
+  runs_completed?: number;
+  /** Context about the event `next_run_at` was computed for. Updated every
+   *  time we recompute next_run_at. Used for template variable substitution
+   *  in action bodies. */
+  next_event_context?: PayrollEventContext | null;
+}
+
 // Union type for all trigger configs
-export type TriggerConfig = ScheduleTriggerConfig | ManualTriggerConfig;
+export type TriggerConfig =
+  | ScheduleTriggerConfig
+  | ManualTriggerConfig
+  | PayrollEventTriggerConfig;
 
 // Tax estimator types
 export type IncomeType = "1099" | "w2" | "k1";
@@ -336,7 +410,7 @@ export type Database = {
           name: string;
           description: string | null;
           is_active: boolean;
-          trigger_type: "schedule" | "manual";
+          trigger_type: "schedule" | "manual" | "payroll_event";
           trigger_config: TriggerConfig;
           last_run_at: string | null;
           next_run_at: string | null;
@@ -350,7 +424,7 @@ export type Database = {
           name: string;
           description?: string | null;
           is_active?: boolean;
-          trigger_type?: "schedule" | "manual";
+          trigger_type?: "schedule" | "manual" | "payroll_event";
           trigger_config: TriggerConfig;
           last_run_at?: string | null;
           next_run_at?: string | null;
@@ -364,7 +438,7 @@ export type Database = {
           name?: string;
           description?: string | null;
           is_active?: boolean;
-          trigger_type?: "schedule" | "manual";
+          trigger_type?: "schedule" | "manual" | "payroll_event";
           trigger_config?: TriggerConfig;
           last_run_at?: string | null;
           next_run_at?: string | null;

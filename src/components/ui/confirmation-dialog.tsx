@@ -11,7 +11,7 @@ interface ConfirmationDialogProps {
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
   title: string;
-  description: string;
+  description: React.ReactNode;
   confirmLabel?: string;
   cancelLabel?: string;
   variant?: "danger" | "warning" | "default";
@@ -20,7 +20,7 @@ interface ConfirmationDialogProps {
   /** Title for the second confirmation step */
   doubleConfirmTitle?: string;
   /** Description for the second confirmation step */
-  doubleConfirmDescription?: string;
+  doubleConfirmDescription?: React.ReactNode;
   /** Button label for the second confirmation step (falls back to confirmLabel) */
   doubleConfirmLabel?: string;
 }
@@ -96,8 +96,10 @@ export function ConfirmationDialog({
           </DialogPrimitive.Title>
 
           {/* Description */}
-          <DialogPrimitive.Description className="text-sm text-muted-foreground leading-relaxed mb-6">
-            {activeDescription}
+          <DialogPrimitive.Description asChild>
+            <div className="text-sm text-muted-foreground leading-relaxed mb-6">
+              {activeDescription}
+            </div>
           </DialogPrimitive.Description>
 
           {/* Actions */}

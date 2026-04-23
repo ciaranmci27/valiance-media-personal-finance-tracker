@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { NumberInput } from "@/components/ui/number-input";
 import { CustomSelect } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
@@ -25,7 +24,11 @@ import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 import { demoTaxEstimates } from "@/lib/demo/data";
-import { FILING_STATUS_LABELS, type FilingStatus } from "@/lib/tax/constants";
+import {
+  FILING_STATUS_LABELS,
+  getAvailableTaxYears,
+  type FilingStatus,
+} from "@/lib/tax/constants";
 import { STATE_OPTIONS } from "@/lib/tax/state-taxes";
 import {
   BUSINESS_TYPE_OPTIONS,
@@ -83,6 +86,9 @@ export function TaxSettingsContent() {
   const [showAddYear, setShowAddYear] = React.useState(false);
   const [addYearValue, setAddYearValue] = React.useState("");
   const [addingYear, setAddingYear] = React.useState(false);
+  const [addYearError, setAddYearError] = React.useState<string | null>(null);
+
+  const supportedYears = React.useMemo(() => getAvailableTaxYears(), []);
 
   // Load estimates
   React.useEffect(() => {
@@ -217,12 +223,22 @@ export function TaxSettingsContent() {
   // Add a new year manually
   const addYear = async () => {
     const year = Number(addYearValue);
-    if (!year || year < 2000 || year > 2100) return;
+    if (!year || year < 2000 || year > 2100) {
+      setAddYearError("Enter a valid year.");
+      return;
+    }
+    if (!supportedYears.includes(year)) {
+      setAddYearError(
+        `Tax rules for ${year} aren't loaded yet. Hang tight for an update, or add them yourself at src/lib/tax-core/years/${year}.ts. Loaded years: ${supportedYears.join(", ")}.`
+      );
+      return;
+    }
     if (yearProfiles.some((p) => p.taxYear === year)) {
       // Already exists, just expand it
       setExpandedYear(year);
       setShowAddYear(false);
       setAddYearValue("");
+      setAddYearError(null);
       return;
     }
 
@@ -273,6 +289,7 @@ export function TaxSettingsContent() {
       setExpandedYear(year);
       setShowAddYear(false);
       setAddYearValue("");
+      setAddYearError(null);
     } finally {
       setAddingYear(false);
     }
@@ -539,31 +556,46 @@ export function TaxSettingsContent() {
 
           {/* Add Year */}
           {showAddYear ? (
-            <div className="flex items-center gap-2">
-              <NumberInput
-                placeholder="e.g. 2024"
-                value={addYearValue}
-                onChange={(e) => setAddYearValue(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && addYear()}
-                className="h-8 w-28 text-sm"
-                autoFocus
-              />
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={addYear}
-                disabled={addingYear}
-                className="h-8 text-xs gap-1.5"
-              >
-                {addingYear && <Loader2 className="h-3 w-3 animate-spin" />}
-                Add
-              </Button>
-              <button
-                onClick={() => { setShowAddYear(false); setAddYearValue(""); }}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                Cancel
-              </button>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <Input
+                  inputMode="numeric"
+                  maxLength={4}
+                  placeholder={`e.g. ${supportedYears[0] ?? 2026}`}
+                  value={addYearValue}
+                  onChange={(e) => {
+                    const digitsOnly = e.target.value.replace(/\D/g, "").slice(0, 4);
+                    setAddYearValue(digitsOnly);
+                    if (addYearError) setAddYearError(null);
+                  }}
+                  onKeyDown={(e) => e.key === "Enter" && addYear()}
+                  className="h-8 w-28 text-sm"
+                  autoFocus
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={addYear}
+                  disabled={addingYear}
+                  className="h-8 text-xs gap-1.5"
+                >
+                  {addingYear && <Loader2 className="h-3 w-3 animate-spin" />}
+                  Add
+                </Button>
+                <button
+                  onClick={() => {
+                    setShowAddYear(false);
+                    setAddYearValue("");
+                    setAddYearError(null);
+                  }}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+              {addYearError && (
+                <p className="text-xs text-error">{addYearError}</p>
+              )}
             </div>
           ) : (
             <button

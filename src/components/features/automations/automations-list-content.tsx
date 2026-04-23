@@ -10,6 +10,7 @@ import {
   Mail,
   Bell,
   Calendar,
+  CalendarClock,
   Clock,
   Play,
   Pause,
@@ -26,7 +27,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { createClient } from "@/lib/supabase/client";
-import type { AutomationWithActions, ScheduleTriggerConfig } from "@/types/database";
+import type {
+  AutomationWithActions,
+  PayrollEventTriggerConfig,
+  ScheduleTriggerConfig,
+} from "@/types/database";
 
 interface AutomationsListContentProps {
   automations: AutomationWithActions[];
@@ -102,6 +107,32 @@ const getFrequencyLabel = (triggerConfig: ScheduleTriggerConfig) => {
   return labels[freq] || "Monthly";
 };
 
+const formatPayrollTriggerSummary = (
+  config: PayrollEventTriggerConfig,
+): string => {
+  const eventLabels: Record<PayrollEventTriggerConfig["event"], string> = {
+    pay_date: "Pay date",
+    ach_send_date: "ACH send",
+    period_end: "Period end",
+    deposit_due: "Deposit due",
+    form_due: "Form due",
+  };
+  return `${formatOffsetLabel(config.offset_minutes)}${eventLabels[config.event]}`.trim();
+};
+
+function formatOffsetLabel(minutes: number): string {
+  if (minutes === 0) return "At ";
+  const abs = Math.abs(minutes);
+  const day = Math.floor(abs / 1440);
+  const hour = Math.floor((abs % 1440) / 60);
+  const dir = minutes < 0 ? "before" : "after";
+  const parts: string[] = [];
+  if (day) parts.push(`${day}d`);
+  if (hour) parts.push(`${hour}h`);
+  if (parts.length === 0) parts.push(`${abs}m`);
+  return `${parts.join(" ")} ${dir} `;
+}
+
 const getScheduleDetail = (triggerConfig: ScheduleTriggerConfig) => {
   const freq = triggerConfig.frequency || "monthly";
   const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -168,7 +199,9 @@ function AutomationCard({
   }, [showMenu]);
 
   const isScheduleTrigger = automation.trigger_type === "schedule";
+  const isPayrollTrigger = automation.trigger_type === "payroll_event";
   const triggerConfig = automation.trigger_config as ScheduleTriggerConfig;
+  const payrollConfig = automation.trigger_config as PayrollEventTriggerConfig;
   const emailActions = automation.automation_actions.filter(
     (a) => a.action_type === "email"
   ).length;
@@ -302,6 +335,11 @@ function AutomationCard({
                 <MousePointerClick className="h-3.5 w-3.5" />
                 Manual
               </>
+            ) : isPayrollTrigger ? (
+              <>
+                <CalendarClock className="h-3.5 w-3.5" />
+                Payroll
+              </>
             ) : (
               <>
                 <Calendar className="h-3.5 w-3.5" />
@@ -324,6 +362,11 @@ function AutomationCard({
                   {triggerConfig.time}
                 </span>
               )}
+            </div>
+          )}
+          {isPayrollTrigger && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>{formatPayrollTriggerSummary(payrollConfig)}</span>
             </div>
           )}
         </div>
@@ -422,7 +465,9 @@ function AutomationRow({
   };
 
   const isScheduleTrigger = automation.trigger_type === "schedule";
+  const isPayrollTrigger = automation.trigger_type === "payroll_event";
   const triggerConfig = automation.trigger_config as ScheduleTriggerConfig;
+  const payrollConfig = automation.trigger_config as PayrollEventTriggerConfig;
   const emailActions = automation.automation_actions.filter(
     (a) => a.action_type === "email"
   ).length;
@@ -474,6 +519,11 @@ function AutomationRow({
               <MousePointerClick className="h-3.5 w-3.5" />
               Manual
             </>
+          ) : isPayrollTrigger ? (
+            <>
+              <CalendarClock className="h-3.5 w-3.5" />
+              Payroll event
+            </>
           ) : (
             <>
               <Calendar className="h-3.5 w-3.5" />
@@ -499,6 +549,10 @@ function AutomationRow({
               <Clock className="h-3.5 w-3.5" />
               {triggerConfig.time}
             </span>
+          </div>
+        ) : isPayrollTrigger ? (
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            <span>{formatPayrollTriggerSummary(payrollConfig)}</span>
           </div>
         ) : (
           <span className="text-sm text-muted-foreground">—</span>

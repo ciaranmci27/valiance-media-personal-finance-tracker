@@ -28,9 +28,10 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { DateInput } from "@/components/ui/date-input";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/ui/number-input";
-import { Select, CustomSelect } from "@/components/ui/select";
+import { CustomSelect } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { EmailTagsInput } from "@/components/ui/email-tags-input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,8 +42,19 @@ import { cn } from "@/lib/utils";
 import type {
   EmailActionConfig,
   NotificationActionConfig,
+  PayrollDepositType,
+  PayrollEventTriggerConfig,
+  PayrollEventType,
+  PayrollFormType,
   ScheduleTriggerConfig,
+  TriggerConfig,
 } from "@/types/database";
+import type {
+  PayrollEmployee,
+  PayrollTaxDeposit,
+  PayrollForm,
+} from "@/types/payroll";
+import { computeNextPayrollEvent } from "@/lib/payroll/next-event";
 
 interface ActionItem {
   id: string;
@@ -50,7 +62,69 @@ interface ActionItem {
   config: EmailActionConfig | NotificationActionConfig;
 }
 
-type TriggerType = "schedule" | "manual";
+type TriggerType = "schedule" | "manual" | "payroll_event";
+
+const PAYROLL_EVENT_OPTIONS: {
+  value: PayrollEventType;
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "pay_date",
+    label: "Pay date",
+    description: "The day employees are deposited",
+  },
+  {
+    value: "ach_send_date",
+    label: "ACH send date",
+    description: "2 banking days before the pay date",
+  },
+  {
+    value: "period_end",
+    label: "Period end",
+    description: "Last day of the work period",
+  },
+  {
+    value: "deposit_due",
+    label: "Tax deposit due",
+    description: "941, FUTA, state withholding, SUTA, SDI",
+  },
+  {
+    value: "form_due",
+    label: "Form filing due",
+    description: "941, 940, W-2, W-3, A1-QRT, A1-APR",
+  },
+];
+
+const DEPOSIT_TYPE_OPTIONS: { value: PayrollDepositType; label: string }[] = [
+  { value: "any", label: "Any deposit type" },
+  { value: "federal_941", label: "Federal 941 (withholding + FICA)" },
+  { value: "federal_940", label: "FUTA" },
+  { value: "state_withholding", label: "State withholding" },
+  { value: "state_suta", label: "SUTA" },
+  { value: "state_sdi", label: "SDI" },
+];
+
+const FORM_TYPE_OPTIONS: { value: PayrollFormType; label: string }[] = [
+  { value: "any", label: "Any form" },
+  { value: "941", label: "Form 941" },
+  { value: "940", label: "Form 940" },
+  { value: "w2", label: "Form W-2" },
+  { value: "w3", label: "Form W-3" },
+  { value: "a1_qrt", label: "Form A1-QRT" },
+  { value: "a1_apr", label: "Form A1-APR" },
+];
+
+const OFFSET_OPTIONS: { value: number; label: string }[] = [
+  { value: -10080, label: "1 week before" },
+  { value: -4320, label: "3 days before" },
+  { value: -2880, label: "2 days before" },
+  { value: -1440, label: "1 day before (24 hours)" },
+  { value: -720, label: "12 hours before" },
+  { value: -180, label: "3 hours before" },
+  { value: 0, label: "At the event time" },
+  { value: 1440, label: "1 day after" },
+];
 
 // Common timezones
 const timezones = [
@@ -472,6 +546,65 @@ export function AutomationFormContent() {
   const [runCount, setRunCount] = React.useState(10);
   const [runUntil, setRunUntil] = React.useState("");
 
+  // Payroll event trigger state
+  const [payrollEvent, setPayrollEvent] =
+    React.useState<PayrollEventType>("pay_date");
+  const [payrollOffsetMinutes, setPayrollOffsetMinutes] =
+    React.useState<number>(-1440);
+  const [payrollEmployeeId, setPayrollEmployeeId] = React.useState<string>("");
+  const [payrollDepositType, setPayrollDepositType] =
+    React.useState<PayrollDepositType>("any");
+  const [payrollFormType, setPayrollFormType] =
+    React.useState<PayrollFormType>("any");
+  const [payrollEmployees, setPayrollEmployees] = React.useState<
+    PayrollEmployee[]
+  >([]);
+  const [payrollDeposits, setPayrollDeposits] = React.useState<
+    PayrollTaxDeposit[]
+  >([]);
+  const [payrollForms, setPayrollForms] = React.useState<PayrollForm[]>([]);
+
+  // Load payroll data eagerly on mount so we can decide whether to SHOW the
+  // Payroll Event trigger option (hidden entirely when no active employees
+  // exist), and to drive the scope dropdown / live preview when the trigger
+  // is selected. Employees, deposits, and forms are all pulled so every event
+  // type works immediately without another fetch.
+  React.useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+    void (async () => {
+      const [emps, deps, forms] = await Promise.all([
+        supabase
+          .from("payroll_employees")
+          .select("*")
+          .eq("status", "active")
+          .is("deleted_at", null),
+        supabase
+          .from("payroll_tax_deposits")
+          .select("*")
+          .is("deleted_at", null),
+        supabase.from("payroll_forms").select("*").is("deleted_at", null),
+      ]);
+      if (cancelled) return;
+      setPayrollEmployees((emps.data ?? []) as PayrollEmployee[]);
+      setPayrollDeposits((deps.data ?? []) as PayrollTaxDeposit[]);
+      setPayrollForms((forms.data ?? []) as PayrollForm[]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Gate the Payroll Event trigger option. If the only active employees get
+  // removed after the user has already selected "payroll_event", fall back
+  // to "manual" so the form doesn't end up in a dead-end state.
+  const hasActiveEmployees = payrollEmployees.length > 0;
+  React.useEffect(() => {
+    if (triggerType === "payroll_event" && !hasActiveEmployees) {
+      setTriggerType(null);
+    }
+  }, [triggerType, hasActiveEmployees]);
+
   // Actions state
   const [actions, setActions] = React.useState<ActionItem[]>([]);
 
@@ -498,9 +631,36 @@ export function AutomationFormContent() {
     setActions(actions.filter((a) => a.id !== id));
   };
 
-  const buildTriggerConfig = (): ScheduleTriggerConfig | Record<string, never> => {
+  const buildTriggerConfig = (): TriggerConfig => {
     if (triggerType === "manual") {
       return {};
+    }
+
+    if (triggerType === "payroll_event") {
+      const config: PayrollEventTriggerConfig = {
+        event: payrollEvent,
+        offset_minutes: payrollOffsetMinutes,
+        fire_time: time,
+        timezone,
+        duration_type: durationType,
+        runs_completed: 0,
+      };
+      if (
+        payrollEvent === "pay_date" ||
+        payrollEvent === "ach_send_date" ||
+        payrollEvent === "period_end"
+      ) {
+        if (payrollEmployeeId) config.employee_id = payrollEmployeeId;
+      }
+      if (payrollEvent === "deposit_due") {
+        config.deposit_type = payrollDepositType;
+      }
+      if (payrollEvent === "form_due") {
+        config.form_type = payrollFormType;
+      }
+      if (durationType === "count") config.run_count = runCount;
+      if (durationType === "until") config.run_until = runUntil;
+      return config;
     }
 
     const config: ScheduleTriggerConfig = {
@@ -533,6 +693,49 @@ export function AutomationFormContent() {
     return config;
   };
 
+  // Compute the next fire time for the payroll_event trigger, used in the
+  // live preview. Recomputes whenever any relevant field changes.
+  const payrollPreview = React.useMemo(() => {
+    if (triggerType !== "payroll_event") return null;
+    try {
+      const cfg: PayrollEventTriggerConfig = {
+        event: payrollEvent,
+        offset_minutes: payrollOffsetMinutes,
+        fire_time: time,
+        timezone,
+        duration_type: "forever",
+        employee_id:
+          payrollEvent === "pay_date" ||
+          payrollEvent === "ach_send_date" ||
+          payrollEvent === "period_end"
+            ? payrollEmployeeId || null
+            : null,
+        deposit_type:
+          payrollEvent === "deposit_due" ? payrollDepositType : null,
+        form_type: payrollEvent === "form_due" ? payrollFormType : null,
+      };
+      return computeNextPayrollEvent(cfg, new Date(), {
+        employees: payrollEmployees,
+        deposits: payrollDeposits,
+        forms: payrollForms,
+      });
+    } catch {
+      return null;
+    }
+  }, [
+    triggerType,
+    payrollEvent,
+    payrollOffsetMinutes,
+    time,
+    timezone,
+    payrollEmployeeId,
+    payrollDepositType,
+    payrollFormType,
+    payrollEmployees,
+    payrollDeposits,
+    payrollForms,
+  ]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim() || !triggerType || actions.length === 0) return;
@@ -554,10 +757,30 @@ export function AutomationFormContent() {
       if (!user) throw new Error("Not authenticated");
 
       const triggerConfig = buildTriggerConfig();
-      const nextRunAt =
-        triggerType === "schedule"
-          ? calculateNextRun(triggerConfig as ScheduleTriggerConfig)
-          : null;
+      let nextRunAt: string | null = null;
+      let finalTriggerConfig: TriggerConfig = triggerConfig;
+      if (triggerType === "schedule") {
+        nextRunAt = calculateNextRun(triggerConfig as ScheduleTriggerConfig);
+      } else if (triggerType === "payroll_event") {
+        // Compute the initial next_run_at plus event context so the first
+        // firing already has the right template variables available.
+        const preview = computeNextPayrollEvent(
+          triggerConfig as PayrollEventTriggerConfig,
+          new Date(),
+          {
+            employees: payrollEmployees,
+            deposits: payrollDeposits,
+            forms: payrollForms,
+          },
+        );
+        if (preview) {
+          nextRunAt = preview.fire_at;
+          finalTriggerConfig = {
+            ...(triggerConfig as PayrollEventTriggerConfig),
+            next_event_context: preview.context,
+          };
+        }
+      }
 
       const { data: automation, error: automationError } = await supabase
         .from("automations")
@@ -566,7 +789,7 @@ export function AutomationFormContent() {
           name: name.trim(),
           description: description.trim() || null,
           trigger_type: triggerType,
-          trigger_config: triggerConfig,
+          trigger_config: finalTriggerConfig,
           next_run_at: nextRunAt,
         })
         .select()
@@ -656,8 +879,14 @@ export function AutomationFormContent() {
               Choose what starts this automation
             </p>
 
-            {/* Trigger Type Selection */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* Trigger Type Selection. Payroll Event is hidden when there
+                are no active employees, so the grid collapses to 2 columns. */}
+            <div
+              className={cn(
+                "grid grid-cols-1 gap-3",
+                hasActiveEmployees ? "sm:grid-cols-3" : "sm:grid-cols-2",
+              )}
+            >
               <button
                 type="button"
                 onClick={() => setTriggerType("manual")}
@@ -713,7 +942,260 @@ export function AutomationFormContent() {
                   </p>
                 </div>
               </button>
+
+              {hasActiveEmployees && (
+                <button
+                  type="button"
+                  onClick={() => setTriggerType("payroll_event")}
+                  className={cn(
+                    "flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left",
+                    triggerType === "payroll_event"
+                      ? "border-primary bg-primary/5"
+                      : "border-border hover:border-primary/50 hover:bg-secondary/50"
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
+                      triggerType === "payroll_event"
+                        ? "bg-primary/10 text-primary"
+                        : "bg-muted text-muted-foreground"
+                    )}
+                  >
+                    <CalendarClock className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-medium">Payroll Event</p>
+                    <p className="text-sm text-muted-foreground">
+                      Fire relative to pay dates, deposits, forms
+                    </p>
+                  </div>
+                </button>
+              )}
             </div>
+
+            {/* Payroll Event Configuration */}
+            {triggerType === "payroll_event" && (
+              <div className="space-y-6 pt-4 border-t border-border mt-4">
+                {/* Event type */}
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                    <CalendarClock className="h-4 w-4" />
+                    Event
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {PAYROLL_EVENT_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setPayrollEvent(opt.value)}
+                        className={cn(
+                          "text-left px-3 py-2 rounded-lg border transition-colors",
+                          payrollEvent === opt.value
+                            ? "border-primary bg-primary/10"
+                            : "border-border hover:border-primary/50 hover:bg-secondary"
+                        )}
+                      >
+                        <div className="text-sm font-medium">{opt.label}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {opt.description}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Scope (depends on event) */}
+                {(payrollEvent === "pay_date" ||
+                  payrollEvent === "ach_send_date" ||
+                  payrollEvent === "period_end") && (
+                  <CustomSelect
+                    label="Which employee(s)?"
+                    value={payrollEmployeeId || "__all__"}
+                    onChange={(v) =>
+                      setPayrollEmployeeId(v === "__all__" ? "" : v)
+                    }
+                    options={[
+                      { value: "__all__", label: "Any employee" },
+                      ...payrollEmployees.map((e) => ({
+                        value: e.id,
+                        label: `${e.first_name} ${e.last_name}`.trim(),
+                      })),
+                    ]}
+                  />
+                )}
+
+                {payrollEvent === "deposit_due" && (
+                  <CustomSelect
+                    label="Which deposit type?"
+                    value={payrollDepositType}
+                    onChange={(v) =>
+                      setPayrollDepositType(v as PayrollDepositType)
+                    }
+                    options={DEPOSIT_TYPE_OPTIONS.map((o) => ({
+                      value: o.value,
+                      label: o.label,
+                    }))}
+                  />
+                )}
+
+                {payrollEvent === "form_due" && (
+                  <CustomSelect
+                    label="Which form?"
+                    value={payrollFormType}
+                    onChange={(v) => setPayrollFormType(v as PayrollFormType)}
+                    options={FORM_TYPE_OPTIONS.map((o) => ({
+                      value: o.value,
+                      label: o.label,
+                    }))}
+                  />
+                )}
+
+                {/* Offset */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <CustomSelect
+                    label="When to fire"
+                    value={String(payrollOffsetMinutes)}
+                    onChange={(v) => setPayrollOffsetMinutes(parseInt(v, 10))}
+                    options={OFFSET_OPTIONS.map((o) => ({
+                      value: String(o.value),
+                      label: o.label,
+                    }))}
+                  />
+                  <CustomSelect
+                    label="Fire at this time"
+                    value={time}
+                    onChange={setTime}
+                    options={timeOptions}
+                  />
+                </div>
+
+                <CustomSelect
+                  label="Timezone"
+                  value={timezone}
+                  onChange={setTimezone}
+                  options={timezones}
+                />
+
+                {/* Preview */}
+                <div
+                  className={cn(
+                    "rounded-lg border p-4 space-y-1.5",
+                    payrollPreview
+                      ? "border-primary/20 bg-primary/5"
+                      : "border-border bg-muted/20"
+                  )}
+                >
+                  <div className="text-xs font-semibold uppercase tracking-wider text-primary">
+                    Next fire
+                  </div>
+                  {payrollPreview ? (
+                    <>
+                      <p className="text-sm text-foreground">
+                        {new Date(payrollPreview.fire_at).toLocaleString(
+                          "en-US",
+                          {
+                            weekday: "long",
+                            month: "long",
+                            day: "numeric",
+                            year: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                            timeZone: timezone,
+                            timeZoneName: "short",
+                          },
+                        )}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Based on{" "}
+                        <span className="text-foreground font-medium">
+                          {payrollPreview.context.event_type.replace(
+                            /_/g,
+                            " ",
+                          )}
+                        </span>
+                        {payrollPreview.context.employee_name &&
+                          ` for ${payrollPreview.context.employee_name}`}{" "}
+                        on{" "}
+                        <span className="text-foreground font-medium">
+                          {payrollPreview.context.event_date}
+                        </span>
+                      </p>
+                    </>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">
+                      No upcoming events match this configuration yet. Verify
+                      you have active employees / unpaid deposits / unfiled
+                      forms for the selected scope.
+                    </p>
+                  )}
+                </div>
+
+                {/* Template variables hint */}
+                <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground space-y-1">
+                  <div className="font-semibold text-foreground">
+                    Template variables you can use in email / notification
+                    bodies:
+                  </div>
+                  <code className="block font-mono text-[11px] leading-5">
+                    {"{{event_type}}"} {"{{event_date}}"}{" "}
+                    {"{{employee_name}}"} {"{{amount}}"} {"{{link}}"}{" "}
+                    {"{{deposit_type}}"} {"{{form_type}}"}
+                  </code>
+                </div>
+
+                {/* Duration (shared shape with schedule triggers) */}
+                <div className="space-y-3 pt-4 border-t border-border">
+                  <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                    <Repeat className="h-4 w-4" />
+                    Duration
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {(["forever", "count", "until"] as const).map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setDurationType(type)}
+                        className={cn(
+                          "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
+                          durationType === type
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border hover:border-primary/50 hover:bg-secondary"
+                        )}
+                      >
+                        {type === "forever"
+                          ? "Forever"
+                          : type === "count"
+                            ? "# of Times"
+                            : "Until Date"}
+                      </button>
+                    ))}
+                  </div>
+
+                  {durationType === "count" && (
+                    <NumberInput
+                      integer
+                      min={1}
+                      max={999}
+                      label="Number of times to run"
+                      value={runCount.toString()}
+                      onChange={(e) =>
+                        setRunCount(parseInt(e.target.value) || 1)
+                      }
+                    />
+                  )}
+
+                  {durationType === "until" && (
+                    <DateInput
+                      label="Run until"
+                      value={runUntil}
+                      onChange={(v) => setRunUntil(v)}
+                      minDate={new Date().toISOString().split("T")[0]}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Schedule Configuration (only shown when schedule is selected) */}
             {triggerType === "schedule" && (
@@ -748,46 +1230,39 @@ export function AutomationFormContent() {
                 {/* Frequency-specific options */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {frequency === "weekly" && (
-                    <Select
+                    <CustomSelect
                       label="Day of Week"
                       value={dayOfWeek.toString()}
-                      onChange={(e) => setDayOfWeek(parseInt(e.target.value))}
-                    >
-                      {daysOfWeek.map((day) => (
-                        <option key={day.value} value={day.value}>
-                          {day.label}
-                        </option>
-                      ))}
-                    </Select>
+                      onChange={(v) => setDayOfWeek(parseInt(v))}
+                      options={daysOfWeek.map((day) => ({
+                        value: String(day.value),
+                        label: day.label,
+                      }))}
+                    />
                   )}
 
                   {["monthly", "quarterly", "yearly"].includes(frequency) && (
-                    <Select
+                    <CustomSelect
                       label="Day of Month"
                       value={dayOfMonth.toString()}
-                      onChange={(e) => setDayOfMonth(parseInt(e.target.value))}
-                    >
-                      {dayOptions.map((day) => (
-                        <option key={day} value={day}>
-                          {day}
-                          {getOrdinalSuffix(day)}
-                        </option>
-                      ))}
-                    </Select>
+                      onChange={(v) => setDayOfMonth(parseInt(v))}
+                      options={dayOptions.map((day) => ({
+                        value: String(day),
+                        label: `${day}${getOrdinalSuffix(day)}`,
+                      }))}
+                    />
                   )}
 
                   {frequency === "yearly" && (
-                    <Select
+                    <CustomSelect
                       label="Month"
                       value={month.toString()}
-                      onChange={(e) => setMonth(parseInt(e.target.value))}
-                    >
-                      {months.map((m) => (
-                        <option key={m.value} value={m.value}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </Select>
+                      onChange={(v) => setMonth(parseInt(v))}
+                      options={months.map((m) => ({
+                        value: String(m.value),
+                        label: m.label,
+                      }))}
+                    />
                   )}
 
                   <CustomSelect
@@ -845,12 +1320,11 @@ export function AutomationFormContent() {
                   )}
 
                   {durationType === "until" && (
-                    <Input
-                      type="date"
+                    <DateInput
                       label="Run until"
                       value={runUntil}
-                      onChange={(e) => setRunUntil(e.target.value)}
-                      min={new Date().toISOString().split("T")[0]}
+                      onChange={(v) => setRunUntil(v)}
+                      minDate={new Date().toISOString().split("T")[0]}
                     />
                   )}
                 </div>

@@ -64,9 +64,10 @@ function CustomSelect({
 
   const selectedOption = options.find((opt) => opt.value === value);
 
-  // Size-based padding
-  const buttonPadding = size === "sm" ? "px-3 py-1.5 text-sm" : "px-4 py-2.5";
-  const optionPadding = size === "sm" ? "px-3 py-2" : "px-4 py-2.5";
+  // Size-based sizing — default matches <Input> (h-10, px-3, text-sm) for form parity
+  const buttonPadding =
+    size === "sm" ? "px-3 py-1.5 text-sm" : "h-10 px-3 py-2 text-sm";
+  const optionPadding = size === "sm" ? "px-3 py-2" : "px-3 py-2.5";
 
   // Calculate dropdown position based on trigger button
   const updateDropdownPosition = React.useCallback(() => {
@@ -173,6 +174,11 @@ function CustomSelect({
           left: dropdownPosition.left,
           width: dropdownPosition.width,
           zIndex: 99999,
+          // Radix Dialog (modal) sets pointer-events: none on <body> while
+          // open, and this dropdown portals to body so it inherits that
+          // block. Re-enable events for the dropdown itself so hover, click,
+          // and scroll work when CustomSelect is used inside a dialog.
+          pointerEvents: "auto",
         }}
         className="py-1 border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto bg-card"
       >
@@ -246,14 +252,15 @@ function CustomSelect({
           disabled={disabled}
           aria-haspopup="listbox"
           aria-expanded={isOpen}
+          aria-required={required || undefined}
           className={cn(
-            "w-full rounded-lg border border-input bg-card transition-colors duration-200",
+            "w-full rounded-lg border border-border bg-input text-foreground transition-colors duration-200",
             "text-left cursor-pointer inline-flex items-center justify-between",
-            "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background",
+            "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background focus:border-transparent",
             "disabled:cursor-not-allowed disabled:opacity-50",
             buttonPadding,
             error && "border-error focus:ring-error",
-            isOpen && "ring-2 ring-ring ring-offset-2 ring-offset-background border-primary"
+            isOpen && "ring-2 ring-ring ring-offset-2 ring-offset-background border-transparent"
           )}
         >
           <span className={selectedOption ? "text-foreground" : "text-muted-foreground"}>
@@ -301,7 +308,7 @@ const Select = React.forwardRef<HTMLSelectElement, SelectProps>(
         <div className="relative">
           <select
             className={cn(
-              "flex h-10 w-full appearance-none rounded-lg border border-input bg-card px-3 py-2 pr-10 text-sm ring-offset-background transition-colors",
+              "flex h-10 w-full appearance-none rounded-lg border border-border bg-input text-foreground px-3 py-2 pr-10 text-sm ring-offset-background transition-colors",
               "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
               "disabled:cursor-not-allowed disabled:opacity-50",
               error && "border-error focus:ring-error",

@@ -14,6 +14,7 @@ import { isDemoMode } from "@/lib/demo";
 import { demoIncomeEntries } from "@/lib/demo/data";
 import {
   FILING_STATUS_LABELS,
+  getAvailableTaxYears,
   type FilingStatus,
 } from "@/lib/tax/constants";
 import { STATE_OPTIONS } from "@/lib/tax/state-taxes";
@@ -137,6 +138,9 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
   const [creating, setCreating] = React.useState(false);
   const [addYearValue, setAddYearValue] = React.useState("");
   const [showAddYear, setShowAddYear] = React.useState(false);
+  const [addYearError, setAddYearError] = React.useState<string | null>(null);
+
+  const supportedYears = React.useMemo(() => getAvailableTaxYears(), []);
 
   const classificationOptions = getClassificationOptions(businessType);
   const showClassification = classificationOptions.length > 1;
@@ -182,17 +186,31 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
         }
       }
 
-      // Fallback: if no income data at all, offer the current year
+      // Drop years without a registered tax-core config: they can't be
+      // calculated, so creating estimates for them would leave orphan rows.
+      const supportedSet = new Set(supportedYears);
+      incomeYears = incomeYears.filter((y) => supportedSet.has(y));
+
+      // Fallback: if no supported income years, offer the most recent
+      // supported year (or the selected year if it happens to be supported).
       if (incomeYears.length === 0) {
-        incomeYears.push(selectedYear);
+        const fallback = supportedSet.has(selectedYear)
+          ? selectedYear
+          : supportedYears[0];
+        if (fallback) incomeYears.push(fallback);
       }
 
       incomeYears.sort((a, b) => b - a);
       setEligibleYears(incomeYears);
       setSelectedYears(new Set(incomeYears));
     } catch {
-      setEligibleYears([selectedYear]);
-      setSelectedYears(new Set([selectedYear]));
+      const fallback = supportedYears.includes(selectedYear)
+        ? selectedYear
+        : supportedYears[0];
+      if (fallback) {
+        setEligibleYears([fallback]);
+        setSelectedYears(new Set([fallback]));
+      }
     } finally {
       setLoadingYears(false);
     }
@@ -239,7 +257,16 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
 
   const addYear = () => {
     const year = Number(addYearValue);
-    if (!year || year < 2000 || year > 2100) return;
+    if (!year || year < 2000 || year > 2100) {
+      setAddYearError("Enter a valid year.");
+      return;
+    }
+    if (!supportedYears.includes(year)) {
+      setAddYearError(
+        `Tax rules for ${year} aren't loaded yet. Hang tight for an update, or add them yourself at src/lib/tax-core/years/${year}.ts. Loaded years: ${supportedYears.join(", ")}.`
+      );
+      return;
+    }
     if (eligibleYears.includes(year)) {
       // Already exists, just make sure it's selected
       setSelectedYears((prev) => new Set(prev).add(year));
@@ -248,6 +275,7 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
       setSelectedYears((prev) => new Set(prev).add(year));
     }
     setAddYearValue("");
+    setAddYearError(null);
     setShowAddYear(false);
   };
 
@@ -581,25 +609,39 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
 
             {/* Add Year */}
             {showAddYear ? (
-              <div className="flex items-center gap-2">
-                <NumberInput
-                  integer
-                  placeholder="e.g. 2024"
-                  value={addYearValue}
-                  onChange={(e) => setAddYearValue(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && addYear()}
-                  className="h-8 w-28 text-sm"
-                  autoFocus
-                />
-                <Button size="sm" variant="ghost" onClick={addYear} className="h-8 text-xs">
-                  Add
-                </Button>
-                <button
-                  onClick={() => { setShowAddYear(false); setAddYearValue(""); }}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Cancel
-                </button>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Input
+                    inputMode="numeric"
+                    maxLength={4}
+                    placeholder={`e.g. ${supportedYears[0] ?? 2026}`}
+                    value={addYearValue}
+                    onChange={(e) => {
+                      const digitsOnly = e.target.value.replace(/\D/g, "").slice(0, 4);
+                      setAddYearValue(digitsOnly);
+                      if (addYearError) setAddYearError(null);
+                    }}
+                    onKeyDown={(e) => e.key === "Enter" && addYear()}
+                    className="h-8 w-28 text-sm"
+                    autoFocus
+                  />
+                  <Button size="sm" variant="ghost" onClick={addYear} className="h-8 text-xs">
+                    Add
+                  </Button>
+                  <button
+                    onClick={() => {
+                      setShowAddYear(false);
+                      setAddYearValue("");
+                      setAddYearError(null);
+                    }}
+                    className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+                {addYearError && (
+                  <p className="text-xs text-error">{addYearError}</p>
+                )}
               </div>
             ) : (
               <button

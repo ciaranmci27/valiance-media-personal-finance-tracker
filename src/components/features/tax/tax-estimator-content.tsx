@@ -35,6 +35,7 @@ import { calculateFullTax } from "@/lib/tax/calculations";
 import type { FullTaxBreakdown, BracketLine } from "@/lib/tax/calculations";
 import {
   getTaxYearConfig,
+  getAvailableTaxYears,
   FILING_STATUS_LABELS,
   type FilingStatus,
 } from "@/lib/tax/constants";
@@ -106,16 +107,25 @@ interface TaxEstimatorContentProps {
 export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
   const router = useRouter();
 
-  // Derive year tabs from estimates that actually exist
-  const yearTabs = React.useMemo(
-    () => estimates.map((e) => e.tax_year).sort((a, b) => b - a),
-    [estimates]
-  );
+  // Derive year tabs from estimates that actually exist AND have a config
+  // file registered in tax-core/years. Orphan estimates for unsupported years
+  // stay in the DB (no data loss) but don't surface in the picker since we
+  // can't calculate anything without that year's brackets and thresholds.
+  const yearTabs = React.useMemo(() => {
+    const supported = new Set(getAvailableTaxYears());
+    return estimates
+      .map((e) => e.tax_year)
+      .filter((y) => supported.has(y))
+      .sort((a, b) => b - a);
+  }, [estimates]);
 
   // Current selected year
   const [selectedYear, setSelectedYear] = React.useState(() => {
     if (yearTabs.length > 0) return yearTabs[0];
-    return new Date().getFullYear();
+    const currentYear = new Date().getFullYear();
+    const supported = getAvailableTaxYears();
+    if (supported.includes(currentYear)) return currentYear;
+    return supported[0] ?? currentYear;
   });
 
   // Form state
@@ -197,9 +207,10 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
       state,
       dependents,
       otherDependents,
-      additionalCredits
+      additionalCredits,
+      taxClassification
     );
-  }, [incomeSources, capitalGains, payments, additionalDeductions, filingStatus, taxConfig, state, dependents, otherDependents, additionalCredits]);
+  }, [incomeSources, capitalGains, payments, additionalDeductions, filingStatus, taxConfig, state, dependents, otherDependents, additionalCredits, taxClassification]);
 
   // Mark dirty and schedule auto-save
   const markDirty = React.useCallback(() => {
@@ -392,6 +403,37 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
   // ============================================================================
   // Income type change
   // ============================================================================
+
+  // SE tax doesn't apply to S Corp / C Corp K-1 distributions, so the toggle
+  // is hidden (and forced off) in those cases. Partnership K-1s keep the
+  // toggle to distinguish general partner (SE) from limited partner (no SE).
+  const canHaveSeToggle = React.useCallback(
+    (incomeType: IncomeType) => {
+      if (incomeType === "1099") return true;
+      if (incomeType === "k1") {
+        return taxClassification !== "s_corp" && taxClassification !== "c_corp";
+      }
+      return false;
+    },
+    [taxClassification]
+  );
+
+  // When classification changes to one that can't have SE on K-1, clear any
+  // stale SE flags from prior state to keep calculations and UI consistent.
+  React.useEffect(() => {
+    if (taxClassification !== "s_corp" && taxClassification !== "c_corp") return;
+    setIncomeSources((prev) => {
+      let changed = false;
+      const next = prev.map((s) => {
+        if (s.income_type === "k1" && s.subject_to_se) {
+          changed = true;
+          return { ...s, subject_to_se: false };
+        }
+        return s;
+      });
+      return changed ? next : prev;
+    });
+  }, [taxClassification]);
 
   const toggleSe = (sourceId: string) => {
     setIncomeSources((prev) =>
@@ -706,7 +748,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                         taxClassification={taxClassification}
                         onChange={(type) => handleIncomeTypeChange(source.id, type)}
                       />
-                      {(source.income_type === "1099" || source.income_type === "k1") && (
+                      {canHaveSeToggle(source.income_type) && (
                         <button
                           type="button"
                           onClick={() => toggleSe(source.id)}

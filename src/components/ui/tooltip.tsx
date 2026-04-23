@@ -12,6 +12,9 @@ export interface TooltipProps {
   className?: string;
   /** When true, renders children directly without tooltip functionality */
   disabled?: boolean;
+  /** Wide tooltip for multi-line content (glossary/definitions). Removes
+   *  whitespace-nowrap and caps width so text wraps naturally. */
+  wide?: boolean;
 }
 
 export function Tooltip({
@@ -21,6 +24,7 @@ export function Tooltip({
   delay = 200,
   className,
   disabled = false,
+  wide = false,
 }: TooltipProps) {
   // When disabled, render children directly without any wrapper
   if (disabled) {
@@ -185,7 +189,14 @@ export function Tooltip({
       )}
       style={{ top: coords.top, left: coords.left }}
     >
-      <div className="relative px-2.5 py-1.5 text-xs font-medium text-foreground bg-card rounded-md shadow-lg border border-border whitespace-nowrap">
+      <div
+        className={cn(
+          "relative text-foreground bg-card rounded-md shadow-lg border border-border",
+          wide
+            ? "px-3 py-2 text-xs leading-relaxed max-w-[280px]"
+            : "px-2.5 py-1.5 text-xs font-medium whitespace-nowrap",
+        )}
+      >
         {content}
       </div>
     </div>
