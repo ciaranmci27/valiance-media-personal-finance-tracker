@@ -1608,6 +1608,19 @@ function CalculationResults({
             <div className="space-y-1">
               <Row label="Federal Liability" value={fmtMasked(breakdown.federalLiability)} />
               <Row label="Federal Paid" value={fmtMasked(breakdown.totalFederalPaid)} sub />
+              {breakdown.ficaAutoCredited > 0 && (
+                <div className="flex items-center justify-between pl-6 text-xs text-muted-foreground">
+                  <Tooltip content="Employee-side Social Security (6.2%) and Medicare (1.45%) are withheld from each paycheck by your employer and remitted on Form 941, so they're automatically credited as paid here.">
+                    <span className="flex items-center gap-1 cursor-help">
+                      FICA Auto-Withheld
+                      <span className="text-[9px] uppercase tracking-wider rounded bg-primary/10 text-primary px-1 py-px">
+                        Auto
+                      </span>
+                    </span>
+                  </Tooltip>
+                  <span className="font-mono">{fmtMasked(breakdown.ficaAutoCredited)}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between pl-3 pt-0.5">
                 <span className={cn(
                   "font-medium text-sm",

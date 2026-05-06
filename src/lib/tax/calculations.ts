@@ -107,6 +107,7 @@ export interface FullTaxBreakdown {
   totalLiability: number;
   federalLiability: number;
   stateLiability: number;
+  ficaAutoCredited: number;
   totalFederalPaid: number;
   totalStatePaid: number;
   totalPaid: number;
@@ -581,9 +582,33 @@ export function calculateFullTax(
   const totalLiability = federalLiability + stateLiability;
 
   // 14. Payments
-  const totalFederalPaid = paymentEntries
-    .filter((p) => p.type === "federal")
-    .reduce((sum, p) => sum + p.amount, 0);
+  // Employee-side SS (6.2%) and Medicare (1.45%) on W-2 wages are mandatorily
+  // withheld by the employer at payroll time and remitted on Form 941, so they
+  // are auto-credited as paid here.
+  //
+  // Additional Medicare (0.9%) is per-source. Employers withhold at a flat
+  // single-employer threshold (IRC §3101(b)(2), filing-status-independent).
+  // The 1040 reconciles to the filer's actual filing-status threshold on
+  // Form 8959, so we credit the employer-withheld portion only; any
+  // difference (multi-job aggregation, MFS thresholds, MFJ joint threshold)
+  // stays in liability for filing-time reconciliation.
+  const employerAddlMedicareThreshold =
+    config.payrollFica.additional_medicare_threshold;
+  const additionalMedicareEmployerWithheld = incomeSources
+    .filter((s) => s.income_type === "w2" && !s.subject_to_se)
+    .reduce(
+      (sum, src) =>
+        sum +
+        Math.max(0, src.amount - employerAddlMedicareThreshold) *
+          config.ficaTax.additionalMedicareRate,
+      0
+    );
+  const ficaAutoCredited =
+    ficaTax.ssTax + ficaTax.medicareTax + additionalMedicareEmployerWithheld;
+  const totalFederalPaid =
+    paymentEntries
+      .filter((p) => p.type === "federal")
+      .reduce((sum, p) => sum + p.amount, 0) + ficaAutoCredited;
   const totalStatePaid = paymentEntries
     .filter((p) => p.type === "state")
     .reduce((sum, p) => sum + p.amount, 0);
@@ -629,6 +654,7 @@ export function calculateFullTax(
     totalLiability,
     federalLiability,
     stateLiability,
+    ficaAutoCredited,
     totalFederalPaid,
     totalStatePaid,
     totalPaid,
