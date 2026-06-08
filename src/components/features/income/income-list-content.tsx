@@ -205,7 +205,7 @@ function IncomeRow({
         const amount = getSourceAmount(entry.id, source.id);
         const displayValue =
           amount === 0
-            ? "—"
+            ? "-"
             : getMaskedValue(formatCurrency(amount), isHidden, isRevealed, currencyMask);
         return (
           <td
@@ -480,7 +480,7 @@ export function IncomeListContent({
         <Link href="/income/new">
           <Button>
             <Plus className="h-4 w-4" />
-            Add Entry
+            Add Item
           </Button>
         </Link>
       </div>

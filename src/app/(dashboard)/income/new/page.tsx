@@ -1,7 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { AddIncomeContent } from "@/components/features/income/add-income-content";
 import { isDemoMode } from "@/lib/demo";
-import { demoIncomeSources, demoIncomeEntries } from "@/lib/demo/data";
+import {
+  demoIncomeSources,
+  demoIncomeLineItems,
+} from "@/lib/demo/data";
 
 export const metadata = {
   title: "Add Income Entry",
@@ -10,18 +13,10 @@ export const metadata = {
 export default async function AddIncomePage() {
   // Handle demo mode
   if (isDemoMode()) {
-    const sorted = [...demoIncomeEntries].sort((a, b) => b.month.localeCompare(a.month));
-    const latestMonth = sorted[0]?.month ?? null;
-    const existingEntries: Record<string, string> = {};
-    for (const e of sorted) {
-      existingEntries[e.month.slice(0, 7)] = e.id;
-    }
-
     return (
       <AddIncomeContent
         sources={demoIncomeSources.filter((s) => s.is_active)}
-        existingEntries={existingEntries}
-        latestMonth={latestMonth}
+        lineItems={demoIncomeLineItems}
       />
     );
   }
@@ -35,27 +30,31 @@ export default async function AddIncomePage() {
     .eq("is_active", true)
     .order("sort_order");
 
-  // Get all existing entries (month -> id) to prevent duplicates and link to them
-  const { data: entries } = await supabase
-    .from("income_entries")
-    .select("id, month")
+  const { data: lineItems } = await supabase
+    .from("income_line_items")
+    .select(`
+      *,
+      income_sources (
+        id,
+        name,
+        color
+      ),
+      income_entries!inner (
+        id,
+        month,
+        deleted_at
+      )
+    `)
     .is("deleted_at", null)
-    .order("month", { ascending: false });
-
-  const existingEntries: Record<string, string> = {};
-  let latestMonth: string | null = null;
-  for (const e of entries ?? []) {
-    const month = (e as { month: string }).month;
-    const id = (e as { id: string }).id;
-    existingEntries[month.slice(0, 7)] = id;
-    if (!latestMonth) latestMonth = month;
-  }
+    .is("income_entries.deleted_at", null)
+    .order("received_date", { ascending: false })
+    .order("created_at", { ascending: false });
 
   return (
     <AddIncomeContent
       sources={sources || []}
-      existingEntries={existingEntries}
-      latestMonth={latestMonth}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      lineItems={(lineItems || []) as any}
     />
   );
 }

@@ -38,21 +38,32 @@ export function DataSettingsContent() {
         { data: incomeSources },
         { data: incomeEntries },
         { data: incomeAmounts },
+        { data: incomeLineItems },
         { data: expenses },
         { data: netWorth },
       ] = await Promise.all([
         supabase.from("income_sources").select("*").is("deleted_at", null),
         supabase.from("income_entries").select("*").is("deleted_at", null),
         supabase.from("income_amounts").select("*"),
+        supabase.from("income_line_items").select("*").is("deleted_at", null),
         supabase.from("expenses").select("*").is("deleted_at", null),
         supabase.from("net_worth").select("*").is("deleted_at", null),
       ]);
+
+      const activeIncomeEntryIds = new Set(
+        (incomeEntries || []).map((entry) => entry.id),
+      );
 
       const exportData = {
         exportedAt: new Date().toISOString(),
         incomeSources,
         incomeEntries,
-        incomeAmounts,
+        incomeAmounts: (incomeAmounts || []).filter((amount) =>
+          activeIncomeEntryIds.has(amount.entry_id),
+        ),
+        incomeLineItems: (incomeLineItems || []).filter((item) =>
+          activeIncomeEntryIds.has(item.entry_id),
+        ),
         expenses,
         netWorth,
       };
@@ -81,28 +92,39 @@ export function DataSettingsContent() {
     const supabase = createClient();
 
     try {
-      const { data: entries } = await supabase
-        .from("income_entries")
+      const { data: lineItems } = await supabase
+        .from("income_line_items")
         .select(`
-          month,
+          received_date,
+          amount,
           notes,
-          income_amounts (
-            amount,
-            income_sources (name)
-          )
+          income_sources (name),
+          income_entries!inner (month, deleted_at)
         `)
         .is("deleted_at", null)
-        .order("month", { ascending: false });
+        .is("income_entries.deleted_at", null)
+        .order("received_date", { ascending: false });
 
-      if (!entries) return;
+      if (!lineItems) return;
 
-      const headers = ["Month", "Total", "Notes"];
-      const rows = entries.map((entry) => {
-        const total = entry.income_amounts.reduce(
-          (sum: number, ia: { amount: string }) => sum + Number(ia.amount),
-          0
-        );
-        return [entry.month, total.toFixed(2), entry.notes || ""].join(",");
+      const headers = ["Date", "Month", "Source", "Amount", "Notes"];
+      const escapeCsv = (value: string | number | null | undefined) => {
+        const stringValue = String(value ?? "");
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      };
+
+      const rows = lineItems.map((item) => {
+        const source =
+          (item.income_sources as unknown as { name: string } | null)?.name || "";
+        const month =
+          (item.income_entries as unknown as { month: string } | null)?.month || "";
+        return [
+          item.received_date,
+          month,
+          source,
+          Number(item.amount).toFixed(2),
+          item.notes || "",
+        ].map(escapeCsv).join(",");
       });
 
       const csv = [headers.join(","), ...rows].join("\n");

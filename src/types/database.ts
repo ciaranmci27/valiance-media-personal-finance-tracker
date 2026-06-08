@@ -292,6 +292,41 @@ export type Database = {
           updated_at?: string;
         };
       };
+      income_line_items: {
+        Row: {
+          id: string;
+          entry_id: string;
+          source_id: string;
+          received_date: string;
+          amount: number;
+          notes: string | null;
+          deleted_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          entry_id: string;
+          source_id: string;
+          received_date: string;
+          amount: number;
+          notes?: string | null;
+          deleted_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          entry_id?: string;
+          source_id?: string;
+          received_date?: string;
+          amount?: number;
+          notes?: string | null;
+          deleted_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
       expenses: {
         Row: {
           id: string;
@@ -630,6 +665,7 @@ export type Database = {
 export type IncomeSource = Database["public"]["Tables"]["income_sources"]["Row"];
 export type IncomeEntry = Database["public"]["Tables"]["income_entries"]["Row"];
 export type IncomeAmount = Database["public"]["Tables"]["income_amounts"]["Row"];
+export type IncomeLineItem = Database["public"]["Tables"]["income_line_items"]["Row"];
 export type Expense = Database["public"]["Tables"]["expenses"]["Row"];
 export type ExpenseHistory = Database["public"]["Tables"]["expense_history"]["Row"];
 export type NetWorth = Database["public"]["Tables"]["net_worth"]["Row"];
@@ -639,7 +675,16 @@ export type IncomeEntryWithAmounts = IncomeEntry & {
   income_amounts: (IncomeAmount & {
     income_sources: IncomeSource;
   })[];
+  income_line_items?: IncomeLineItemWithSource[];
   total: number;
+};
+
+export type IncomeLineItemWithSource = IncomeLineItem & {
+  income_sources: { id: string; name: string; color: string | null } | null;
+};
+
+export type IncomeLineItemWithEntryAndSource = IncomeLineItemWithSource & {
+  income_entries: Pick<IncomeEntry, "id" | "month" | "deleted_at"> | null;
 };
 
 export type ExpenseWithHistory = Expense & {

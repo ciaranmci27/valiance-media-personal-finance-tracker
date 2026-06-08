@@ -79,7 +79,7 @@ export default async function IncomeDetailPage({
 
   const supabase = await createClient();
 
-  // Fetch the entry with its amounts
+  // Fetch the entry with its aggregate amounts
   const { data: entry } = await supabase
     .from("income_entries")
     .select(
@@ -104,6 +104,23 @@ export default async function IncomeDetailPage({
   if (!entry) {
     notFound();
   }
+
+  const { data: lineItems } = await supabase
+    .from("income_line_items")
+    .select(
+      `
+      *,
+      income_sources (
+        id,
+        name,
+        color
+      )
+    `
+    )
+    .eq("entry_id", id)
+    .is("deleted_at", null)
+    .order("received_date", { ascending: false })
+    .order("created_at", { ascending: false });
 
   // Fetch all income sources for the form
   const { data: sources } = await supabase
@@ -135,7 +152,7 @@ export default async function IncomeDetailPage({
   return (
     <IncomeDetailContent
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      entry={entry as any}
+      entry={{ ...(entry as any), income_line_items: lineItems || [] }}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       sources={(sources || []) as any}
       prevEntryId={prevEntry?.id || null}

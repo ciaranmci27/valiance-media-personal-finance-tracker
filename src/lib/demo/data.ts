@@ -9,6 +9,8 @@ import type {
   IncomeSource,
   IncomeEntry,
   IncomeAmount,
+  IncomeLineItemWithEntryAndSource,
+  IncomeLineItemWithSource,
   Expense,
   ExpenseHistory,
   NetWorth,
@@ -408,6 +410,34 @@ export const demoIncomeAmounts: (IncomeAmount & { income_entries: { month: strin
 
 // Plain income amounts (without join)
 export const demoIncomeAmountsPlain: IncomeAmount[] = demoIncomeAmounts.map(({ income_entries, ...rest }) => rest);
+
+export const demoIncomeLineItems: IncomeLineItemWithEntryAndSource[] = demoIncomeAmounts
+  .filter((amount) => Number(amount.amount) !== 0)
+  .map((amount) => {
+    const source = demoIncomeSources.find((s) => s.id === amount.source_id);
+    const entry = demoIncomeEntries.find((e) => e.id === amount.entry_id);
+
+    return {
+      id: uuid(`line-${amount.id}`),
+      entry_id: amount.entry_id,
+      source_id: amount.source_id,
+      received_date: entry?.month ?? amount.income_entries.month,
+      amount: Number(amount.amount),
+      notes: "Legacy monthly total",
+      deleted_at: null,
+      created_at: amount.created_at,
+      updated_at: amount.updated_at,
+      income_sources: source
+        ? { id: source.id, name: source.name, color: source.color }
+        : null,
+      income_entries: entry
+        ? { id: entry.id, month: entry.month, deleted_at: entry.deleted_at }
+        : { id: amount.entry_id, month: amount.income_entries.month, deleted_at: null },
+    };
+  });
+
+export const demoIncomeLineItemsPlain: IncomeLineItemWithSource[] =
+  demoIncomeLineItems.map(({ income_entries, ...rest }) => rest);
 
 // ============================================
 // EXPENSES (comprehensive list)
@@ -1756,13 +1786,15 @@ export function getDemoIncomeEntry(id: string) {
         ...amount,
         income_sources: source
           ? { id: source.id, name: source.name, color: source.color }
-          : null,
+        : null,
       };
     });
+  const lineItems = demoIncomeLineItemsPlain.filter((item) => item.entry_id === id);
 
   return {
     ...entry,
     income_amounts: amounts,
+    income_line_items: lineItems,
   };
 }
 

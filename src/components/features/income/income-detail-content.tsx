@@ -3,43 +3,53 @@
 import * as React from "react";
 import { useRouter } from "next/navigation";
 import {
+  Calendar,
+  CalendarDays,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  DollarSign,
+  FileText,
+  Loader2,
   Pencil,
+  PieChart,
   Plus,
-  Minus,
+  ReceiptText,
   Save,
   Trash2,
   X,
-  Calendar,
-  DollarSign,
-  Loader2,
-  ChevronLeft,
-  ChevronRight,
-  FileText,
-  PieChart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
-import { Input } from "@/components/ui/input";
+import { CustomSelect } from "@/components/ui/select";
+import { DateInput } from "@/components/ui/date-input";
 import { NumberInput } from "@/components/ui/number-input";
 import { Textarea } from "@/components/ui/textarea";
 import { IncomeBreakdownChart } from "@/components/charts/income-breakdown-chart";
 import { useMaskedHover, getMaskedValue } from "@/components/ui/masked-value";
-import { formatCurrency, formatMonth, cn } from "@/lib/utils";
+import { formatCurrency, formatDate, formatMonth, cn } from "@/lib/utils";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
-import type { IncomeSource } from "@/types/database";
+import {
+  defaultDateForMonth,
+  ensureIncomeEntryForDate,
+} from "@/lib/income-ledger";
+import type {
+  IncomeLineItemWithSource,
+  IncomeSource,
+} from "@/types/database";
 
 interface IncomeAmount {
   id: string;
   source_id: string;
-  amount: string;
+  amount: string | number;
   income_sources: {
     id: string;
     name: string;
     color: string | null;
-  };
+  } | null;
 }
 
 interface IncomeEntry {
@@ -47,6 +57,7 @@ interface IncomeEntry {
   month: string;
   notes: string | null;
   income_amounts: IncomeAmount[];
+  income_line_items: IncomeLineItemWithSource[];
 }
 
 interface IncomeDetailContentProps {
@@ -54,6 +65,82 @@ interface IncomeDetailContentProps {
   sources: IncomeSource[];
   prevEntryId: string | null;
   nextEntryId: string | null;
+}
+
+interface SourceRow {
+  source: {
+    id: string;
+    name: string;
+    color: string | null;
+    is_active: boolean;
+  };
+  total: number;
+  items: IncomeLineItemWithSource[];
+}
+
+function sortedItems(items: IncomeLineItemWithSource[]) {
+  return [...items].sort((a, b) => {
+    const dateDiff = b.received_date.localeCompare(a.received_date);
+    if (dateDiff !== 0) return dateDiff;
+    return b.created_at.localeCompare(a.created_at);
+  });
+}
+
+function buildSourceRows(
+  entry: IncomeEntry,
+  sources: IncomeSource[],
+): SourceRow[] {
+  const rows = new Map<string, SourceRow>();
+  const activeItems = sortedItems(
+    (entry.income_line_items || []).filter((item) => !item.deleted_at),
+  );
+
+  for (const item of activeItems) {
+    const fallbackSource = sources.find((source) => source.id === item.source_id);
+    const source = item.income_sources || fallbackSource;
+    if (!source) continue;
+
+    const existing = rows.get(source.id) || {
+      source: {
+        id: source.id,
+        name: source.name,
+        color: source.color,
+        is_active: fallbackSource?.is_active ?? true,
+      },
+      total: 0,
+      items: [],
+    };
+
+    existing.items.push(item);
+    existing.total += Number(item.amount);
+    rows.set(source.id, existing);
+  }
+
+  if (activeItems.length === 0) {
+    for (const amount of entry.income_amounts || []) {
+      const total = Number(amount.amount) || 0;
+      if (total === 0) continue;
+      const fallbackSource = sources.find((source) => source.id === amount.source_id);
+      const source = amount.income_sources || fallbackSource;
+      if (!source) continue;
+
+      rows.set(source.id, {
+        source: {
+          id: source.id,
+          name: source.name,
+          color: source.color,
+          is_active: fallbackSource?.is_active ?? true,
+        },
+        total,
+        items: [],
+      });
+    }
+  }
+
+  return Array.from(rows.values()).sort((a, b) => {
+    if (b.total !== a.total) return b.total - a.total;
+    return a.source.name.localeCompare(b.source.name);
+  });
 }
 
 export function IncomeDetailContent({
@@ -64,109 +151,103 @@ export function IncomeDetailContent({
 }: IncomeDetailContentProps) {
   const router = useRouter();
   const { confirm, dialog: confirmDialog } = useConfirmationDialog();
-  const [isEditing, setIsEditing] = React.useState(false);
-  const [isSaving, setIsSaving] = React.useState(false);
-  const [isDeleting, setIsDeleting] = React.useState(false);
-
-  // Form state
-  const [amounts, setAmounts] = React.useState<Record<string, string>>(() => {
-    const initial: Record<string, string> = {};
-    entry.income_amounts.forEach((ia) => {
-      initial[ia.source_id] = ia.amount;
-    });
-    return initial;
-  });
-  const [notes, setNotes] = React.useState(entry.notes || "");
-
-  // Add-to-amount state
-  const [addingToSourceId, setAddingToSourceId] = React.useState<string | null>(null);
-  const [pendingAdditions, setPendingAdditions] = React.useState<string[]>([]);
-  const [addInputValue, setAddInputValue] = React.useState("");
-  const [isAddSaving, setIsAddSaving] = React.useState(false);
-  const addInputRef = React.useRef<HTMLInputElement>(null);
-
-  // Focus input when panel opens
-  React.useEffect(() => {
-    if (addingToSourceId && addInputRef.current) {
-      addInputRef.current.focus();
-    }
-  }, [addingToSourceId]);
-
-  // Privacy mode
-  const { isHidden, isRevealed, hoverProps } = useMaskedHover();
-
-  // Calculate total
-  const total = Object.values(amounts).reduce(
-    (sum, amt) => sum + (parseFloat(amt) || 0),
-    0
+  const [isDeletingMonth, setIsDeletingMonth] = React.useState(false);
+  const [isAdding, setIsAdding] = React.useState(false);
+  const [isSavingNotes, setIsSavingNotes] = React.useState(false);
+  const [isEditingNotes, setIsEditingNotes] = React.useState(false);
+  const [expandedSourceIds, setExpandedSourceIds] = React.useState<Set<string>>(
+    () => new Set(),
   );
 
-  // Count active sources (with non-zero amounts, including losses)
-  const activeSourceCount = Object.values(amounts).filter(
-    (amt) => parseFloat(amt) !== 0
-  ).length;
+  const sourceRows = React.useMemo(
+    () => buildSourceRows(entry, sources),
+    [entry, sources],
+  );
 
-  // Build sources for display:
-  // - View mode: only sources with recorded amounts
-  // - Edit mode: all active sources (so user can add to any)
-  const displaySources = React.useMemo(() => {
-    const sourceMap = new Map<string, { id: string; name: string; color: string | null }>();
-
-    // Sources with recorded amounts (skip zero-amount in view mode)
-    entry.income_amounts.forEach((ia) => {
-      if (ia.income_sources) {
-        const amt = parseFloat(ia.amount) || 0;
-        if (isEditing || amt !== 0) {
-          sourceMap.set(ia.source_id, {
-            id: ia.income_sources.id,
-            name: ia.income_sources.name,
-            color: ia.income_sources.color,
-          });
-        }
+  React.useEffect(() => {
+    setExpandedSourceIds((previous) => {
+      const next = new Set(previous);
+      for (const row of sourceRows) {
+        if (row.items.length > 0) next.add(row.source.id);
       }
+      return next;
     });
+  }, [sourceRows]);
 
-    // In edit mode, also include active sources without amounts
-    if (isEditing) {
-      sources.filter(s => s.is_active).forEach((source) => {
-        if (!sourceMap.has(source.id)) {
-          sourceMap.set(source.id, {
-            id: source.id,
-            name: source.name,
-            color: source.color,
-          });
-        }
+  const activeSourceOptions = React.useMemo(() => {
+    return sources
+      .filter((source) => source.is_active)
+      .map((source) => ({
+        value: source.id,
+        label: source.name,
+      }));
+  }, [sources]);
+
+  const editableSourceOptions = React.useMemo(() => {
+    const sourceMap = new Map<string, { value: string; label: string }>();
+    for (const source of sources) {
+      if (source.is_active) {
+        sourceMap.set(source.id, {
+          value: source.id,
+          label: source.name,
+        });
+      }
+    }
+    for (const row of sourceRows) {
+      const source = sources.find((s) => s.id === row.source.id);
+      sourceMap.set(row.source.id, {
+        value: row.source.id,
+        label: source?.name || row.source.name,
       });
     }
+    return Array.from(sourceMap.values());
+  }, [sources, sourceRows]);
 
-    // Sort by amount: positive (highest to lowest), then losses, then zero/empty
-    return Array.from(sourceMap.values()).sort((a, b) => {
-      const amountA = parseFloat(amounts[a.id] || "0") || 0;
-      const amountB = parseFloat(amounts[b.id] || "0") || 0;
+  const defaultSourceId = activeSourceOptions[0]?.value ?? "";
+  const [addDate, setAddDate] = React.useState(() => defaultDateForMonth(entry.month));
+  const [addSourceId, setAddSourceId] = React.useState(defaultSourceId);
+  const [addAmount, setAddAmount] = React.useState("");
+  const [addNotes, setAddNotes] = React.useState("");
+  const [monthNotes, setMonthNotes] = React.useState(entry.notes || "");
 
-      // Zero entries go last
-      if (amountA === 0 && amountB !== 0) return 1;
-      if (amountB === 0 && amountA !== 0) return -1;
+  const [editingItemId, setEditingItemId] = React.useState<string | null>(null);
+  const [editDate, setEditDate] = React.useState("");
+  const [editSourceId, setEditSourceId] = React.useState("");
+  const [editAmount, setEditAmount] = React.useState("");
+  const [editNotes, setEditNotes] = React.useState("");
+  const [savingItemId, setSavingItemId] = React.useState<string | null>(null);
+  const [deletingItemId, setDeletingItemId] = React.useState<string | null>(null);
 
-      // Both non-zero: sort by absolute value descending (positive first, then negative)
-      if (amountA > 0 && amountB <= 0) return -1;
-      if (amountB > 0 && amountA <= 0) return 1;
+  React.useEffect(() => {
+    setAddDate(defaultDateForMonth(entry.month));
+    setMonthNotes(entry.notes || "");
+  }, [entry.month, entry.notes]);
 
-      // Both positive or both negative: sort by value descending
-      return amountB - amountA;
-    });
-  }, [entry.income_amounts, sources, amounts, isEditing]);
+  React.useEffect(() => {
+    if (!addSourceId && defaultSourceId) setAddSourceId(defaultSourceId);
+  }, [addSourceId, defaultSourceId]);
 
-  // Chart data - use displaySources
-  const chartData = displaySources
-    .map((source) => ({
-      name: source.name,
-      value: parseFloat(amounts[source.id] || "0") || 0,
-      color: source.color || "#5B8A8A",
+  const { isHidden, isRevealed, hoverProps } = useMaskedHover();
+  const activeLineItemCount = sourceRows.reduce(
+    (sum, row) => sum + row.items.length,
+    0,
+  );
+  const monthTotal = sourceRows.reduce((sum, row) => sum + row.total, 0);
+  const activeSourceCount = sourceRows.filter((row) => row.total !== 0).length;
+  const displayTotal = getMaskedValue(
+    formatCurrency(monthTotal),
+    isHidden,
+    isRevealed,
+  );
+
+  const chartData = sourceRows
+    .map((row) => ({
+      name: row.source.name,
+      value: row.total,
+      color: row.source.color || "#5B8A8A",
     }))
-    .filter((d) => d.value !== 0);
+    .filter((row) => row.value !== 0);
 
-  // Navigation
   const goToPrevious = () => {
     if (prevEntryId) router.push(`/income/${prevEntryId}`);
   };
@@ -175,278 +256,288 @@ export function IncomeDetailContent({
     if (nextEntryId) router.push(`/income/${nextEntryId}`);
   };
 
-  const handleSave = async () => {
-    // In demo mode, show message and exit edit mode
+  const toggleSource = (sourceId: string) => {
+    setExpandedSourceIds((previous) => {
+      const next = new Set(previous);
+      if (next.has(sourceId)) {
+        next.delete(sourceId);
+      } else {
+        next.add(sourceId);
+      }
+      return next;
+    });
+  };
+
+  const resetAddForm = () => {
+    setAddAmount("");
+    setAddNotes("");
+  };
+
+  const handleAddItem = async () => {
+    const numericAmount = parseFloat(addAmount) || 0;
+    if (!addDate || !addSourceId || numericAmount === 0) return;
+
     if (isDemoMode()) {
       toast("info", "Demo mode: changes are not saved");
-      setIsEditing(false);
+      resetAddForm();
       return;
     }
 
-    setIsSaving(true);
+    setIsAdding(true);
     const supabase = createClient();
 
     try {
-      // Update notes
-      await supabase
-        .from("income_entries")
-        .update({ notes: notes || null })
-        .eq("id", entry.id);
+      const targetEntryId = await ensureIncomeEntryForDate(supabase, addDate);
+      const { error } = await supabase.from("income_line_items").insert({
+        entry_id: targetEntryId,
+        source_id: addSourceId,
+        received_date: addDate,
+        amount: numericAmount,
+        notes: addNotes.trim() || null,
+      });
 
-      // Update amounts
-      for (const sourceId of Object.keys(amounts)) {
-        const amount = parseFloat(amounts[sourceId]) || 0;
-        const existingAmount = entry.income_amounts.find(
-          (ia) => ia.source_id === sourceId
-        );
+      if (error) throw error;
 
-        if (existingAmount && amount === 0) {
-          // Remove zero-amount records so the source doesn't show as active
-          await supabase
-            .from("income_amounts")
-            .delete()
-            .eq("id", existingAmount.id);
-        } else if (existingAmount) {
-          await supabase
-            .from("income_amounts")
-            .update({ amount })
-            .eq("id", existingAmount.id);
-        } else if (amount !== 0) {
-          await supabase.from("income_amounts").insert({
-            entry_id: entry.id,
-            source_id: sourceId,
-            amount,
-          });
-        }
+      resetAddForm();
+      toast("success", "Income item added");
+      if (targetEntryId !== entry.id) {
+        router.push(`/income/${targetEntryId}`);
+      } else {
+        router.refresh();
       }
-
-      setIsEditing(false);
-      router.refresh();
     } catch (error) {
-      console.error("Error saving:", error);
+      console.error("Error adding income item:", error);
+      toast("error", "Could not add income item");
     } finally {
-      setIsSaving(false);
+      setIsAdding(false);
     }
   };
 
-  const handleDelete = async () => {
+  const startEditItem = (item: IncomeLineItemWithSource) => {
+    setEditingItemId(item.id);
+    setEditDate(item.received_date);
+    setEditSourceId(item.source_id);
+    setEditAmount(String(item.amount));
+    setEditNotes(item.notes || "");
+  };
+
+  const cancelEditItem = () => {
+    setEditingItemId(null);
+    setEditDate("");
+    setEditSourceId("");
+    setEditAmount("");
+    setEditNotes("");
+  };
+
+  const handleSaveItem = async (itemId: string) => {
+    const numericAmount = parseFloat(editAmount) || 0;
+    if (!editDate || !editSourceId || numericAmount === 0) return;
+
+    if (isDemoMode()) {
+      toast("info", "Demo mode: changes are not saved");
+      cancelEditItem();
+      return;
+    }
+
+    setSavingItemId(itemId);
+    const supabase = createClient();
+
+    try {
+      const targetEntryId = await ensureIncomeEntryForDate(supabase, editDate);
+      const { error } = await supabase
+        .from("income_line_items")
+        .update({
+          entry_id: targetEntryId,
+          source_id: editSourceId,
+          received_date: editDate,
+          amount: numericAmount,
+          notes: editNotes.trim() || null,
+          deleted_at: null,
+        })
+        .eq("id", itemId);
+
+      if (error) throw error;
+
+      cancelEditItem();
+      toast("success", "Income item updated");
+      if (targetEntryId !== entry.id) {
+        router.push(`/income/${targetEntryId}`);
+      } else {
+        router.refresh();
+      }
+    } catch (error) {
+      console.error("Error updating income item:", error);
+      toast("error", "Could not update income item");
+    } finally {
+      setSavingItemId(null);
+    }
+  };
+
+  const handleDeleteItem = async (item: IncomeLineItemWithSource) => {
     const confirmed = await confirm({
-      title: "Delete this entry?",
-      description: "This income entry will be moved to trash. You can restore it later.",
+      title: "Delete this income item?",
+      description: "This item will be removed from the monthly total.",
       confirmLabel: "Delete",
       variant: "danger",
     });
     if (!confirmed) return;
 
-    // In demo mode, show message and navigate back
+    if (isDemoMode()) {
+      toast("info", "Demo mode: changes are not saved");
+      return;
+    }
+
+    setDeletingItemId(item.id);
+    const supabase = createClient();
+
+    try {
+      const { error } = await supabase
+        .from("income_line_items")
+        .update({ deleted_at: new Date().toISOString() })
+        .eq("id", item.id);
+
+      if (error) throw error;
+
+      toast("success", "Income item deleted");
+      if (activeLineItemCount <= 1) {
+        router.push("/income");
+      } else {
+        router.refresh();
+      }
+    } catch (error) {
+      console.error("Error deleting income item:", error);
+      toast("error", "Could not delete income item");
+    } finally {
+      setDeletingItemId(null);
+    }
+  };
+
+  const handleSaveMonthNotes = async () => {
+    if (isDemoMode()) {
+      toast("info", "Demo mode: changes are not saved");
+      setIsEditingNotes(false);
+      return;
+    }
+
+    setIsSavingNotes(true);
+    const supabase = createClient();
+
+    try {
+      const { error } = await supabase
+        .from("income_entries")
+        .update({ notes: monthNotes.trim() || null })
+        .eq("id", entry.id);
+
+      if (error) throw error;
+
+      setIsEditingNotes(false);
+      toast("success", "Month notes saved");
+      router.refresh();
+    } catch (error) {
+      console.error("Error saving month notes:", error);
+      toast("error", "Could not save notes");
+    } finally {
+      setIsSavingNotes(false);
+    }
+  };
+
+  const handleDeleteMonth = async () => {
+    const confirmed = await confirm({
+      title: "Delete this month?",
+      description: "This income month will be moved to trash. You can restore it later.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!confirmed) return;
+
     if (isDemoMode()) {
       toast("info", "Demo mode: changes are not saved");
       router.push("/income");
       return;
     }
 
-    setIsDeleting(true);
+    setIsDeletingMonth(true);
     const supabase = createClient();
 
     try {
-      await supabase
+      const { error } = await supabase
         .from("income_entries")
         .update({ deleted_at: new Date().toISOString() })
         .eq("id", entry.id);
 
+      if (error) throw error;
+
       router.push("/income");
       router.refresh();
     } catch (error) {
-      console.error("Error deleting:", error);
+      console.error("Error deleting month:", error);
+      toast("error", "Could not delete month");
     } finally {
-      setIsDeleting(false);
+      setIsDeletingMonth(false);
     }
   };
 
-  const handleCancel = () => {
-    // Reset form state
-    const initial: Record<string, string> = {};
-    entry.income_amounts.forEach((ia) => {
-      initial[ia.source_id] = ia.amount;
-    });
-    setAmounts(initial);
-    setNotes(entry.notes || "");
-    setIsEditing(false);
-  };
-
-  // Add-to-amount handlers
-  const openAddPanel = (sourceId: string) => {
-    setAddingToSourceId(sourceId);
-    setPendingAdditions([]);
-    setAddInputValue("");
-  };
-
-  const closeAddPanel = () => {
-    setAddingToSourceId(null);
-    setPendingAdditions([]);
-    setAddInputValue("");
-  };
-
-  const addPendingAmount = () => {
-    const val = parseFloat(addInputValue);
-    if (isNaN(val) || val === 0) return;
-    setPendingAdditions((prev) => [...prev, addInputValue]);
-    setAddInputValue("");
-    addInputRef.current?.focus();
-  };
-
-  const removePendingAmount = (index: number) => {
-    setPendingAdditions((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleAddSave = async () => {
-    if (!addingToSourceId || pendingAdditions.length === 0) return;
-
-    if (isDemoMode()) {
-      toast("info", "Demo mode: changes are not saved");
-      closeAddPanel();
-      return;
-    }
-
-    setIsAddSaving(true);
-    const supabase = createClient();
-
-    try {
-      const currentAmount = parseFloat(amounts[addingToSourceId] || "0") || 0;
-      const additionsSum = pendingAdditions.reduce(
-        (sum, val) => sum + (parseFloat(val) || 0),
-        0
-      );
-      const newTotal = currentAmount + additionsSum;
-
-      const existingRecord = entry.income_amounts.find(
-        (ia) => ia.source_id === addingToSourceId
-      );
-
-      if (existingRecord && newTotal === 0) {
-        // Remove zero-amount records so the source doesn't show as active
-        await supabase
-          .from("income_amounts")
-          .delete()
-          .eq("id", existingRecord.id);
-      } else if (existingRecord) {
-        await supabase
-          .from("income_amounts")
-          .update({ amount: newTotal })
-          .eq("id", existingRecord.id);
-      } else if (newTotal !== 0) {
-        await supabase.from("income_amounts").insert({
-          entry_id: entry.id,
-          source_id: addingToSourceId,
-          amount: newTotal,
-        });
-      }
-
-      // Update local state immediately so the UI reflects the new total
-      setAmounts((prev) => ({
-        ...prev,
-        [addingToSourceId]: String(newTotal),
-      }));
-      closeAddPanel();
-      router.refresh();
-    } catch (error) {
-      console.error("Error saving addition:", error);
-    } finally {
-      setIsAddSaving(false);
-    }
-  };
-
-  const formatClean = (value: number) => formatCurrency(value);
-
-  const displayTotal = getMaskedValue(
-    formatClean(total),
-    isHidden,
-    isRevealed
-  );
+  const canAdd = Boolean(addDate && addSourceId && (parseFloat(addAmount) || 0) !== 0);
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
       {confirmDialog}
-      {/* Header - hidden on mobile (mobile uses header bar) */}
-      <div className="hidden md:flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <h1 className="text-xl font-semibold">Income Entry</h1>
-        </div>
 
-        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
-          {isEditing ? (
-            <>
-              <Button variant="ghost" onClick={handleCancel} disabled={isSaving}>
-                <X className="h-4 w-4 sm:mr-1" />
-                <span className="hidden sm:inline">Cancel</span>
-              </Button>
-              <Button onClick={handleSave} disabled={isSaving}>
-                {isSaving ? (
-                  <Loader2 className="h-4 w-4 sm:mr-1 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4 sm:mr-1" />
-                )}
-                <span className="hidden sm:inline">
-                  {isSaving ? "Saving..." : "Save"}
-                </span>
-              </Button>
-            </>
-          ) : (
-            <Button
-              onClick={() => { closeAddPanel(); setIsEditing(true); }}
-              className="bg-teal text-white hover:bg-teal/90"
-            >
-              <Pencil className="h-4 w-4 sm:mr-1" />
-              <span className="sm:inline">Edit</span>
-            </Button>
-          )}
+      <div className="hidden md:flex items-center justify-between gap-2">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+            <ReceiptText className="h-5 w-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold">Income Ledger</h1>
+            <p className="text-sm text-muted-foreground">
+              {formatMonth(entry.month)}
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Month & Total Summary */}
-      <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-px rounded-xl overflow-hidden glass-card">
-        {/* Month Navigator */}
+      <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-px rounded-xl overflow-hidden glass-card">
         <div className="bg-card/50 p-3 sm:p-5 flex flex-col items-center justify-center">
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
             <Calendar className="h-4 w-4" />
             <span className="text-sm font-medium">Month</span>
           </div>
           <div className="flex items-center justify-center w-full">
-            <div className="flex items-center justify-center gap-1">
-              <button
-                onClick={goToPrevious}
-                disabled={!prevEntryId}
-                className={cn(
-                  "p-1.5 rounded-lg transition-colors shrink-0 select-none",
-                  prevEntryId
-                    ? "hover:bg-secondary text-muted-foreground hover:text-foreground"
-                    : "text-muted-foreground/30 cursor-not-allowed"
-                )}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <p className="text-sm sm:text-base md:text-lg font-semibold whitespace-nowrap px-1">
-                {formatMonth(entry.month)}
-              </p>
-              <button
-                onClick={goToNext}
-                disabled={!nextEntryId}
-                className={cn(
-                  "p-1.5 rounded-lg transition-colors shrink-0 select-none",
-                  nextEntryId
-                    ? "hover:bg-secondary text-muted-foreground hover:text-foreground"
-                    : "text-muted-foreground/30 cursor-not-allowed"
-                )}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            </div>
+            <button
+              onClick={goToPrevious}
+              disabled={!prevEntryId}
+              aria-label="Previous month"
+              className={cn(
+                "p-1.5 rounded-lg transition-colors shrink-0 select-none",
+                prevEntryId
+                  ? "hover:bg-secondary text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground/30 cursor-not-allowed",
+              )}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <p className="text-sm sm:text-base md:text-lg font-semibold whitespace-nowrap px-2">
+              {formatMonth(entry.month)}
+            </p>
+            <button
+              onClick={goToNext}
+              disabled={!nextEntryId}
+              aria-label="Next month"
+              className={cn(
+                "p-1.5 rounded-lg transition-colors shrink-0 select-none",
+                nextEntryId
+                  ? "hover:bg-secondary text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground/30 cursor-not-allowed",
+              )}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
           </div>
         </div>
 
-        {/* Total */}
         <div
-          className="bg-card/50 p-3 sm:p-5 text-center border-t min-[360px]:border-t-0 min-[360px]:border-l border-border/50 flex flex-col items-center justify-center"
+          className="bg-card/50 p-3 sm:p-5 text-center border-t min-[420px]:border-t-0 min-[420px]:border-l border-border/50 flex flex-col items-center justify-center"
           {...hoverProps}
         >
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
@@ -455,360 +546,393 @@ export function IncomeDetailContent({
           </div>
           <p className={cn(
             "text-xl sm:text-2xl font-bold font-mono",
-            total > 0 ? "text-primary" : "text-muted-foreground"
+            monthTotal > 0 ? "text-primary" : monthTotal < 0 ? "text-error" : "text-muted-foreground",
           )}>
             {displayTotal}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            {activeSourceCount} source{activeSourceCount !== 1 ? "s" : ""}
+            {activeSourceCount} source{activeSourceCount === 1 ? "" : "s"}
+          </p>
+        </div>
+
+        <div className="bg-card/50 p-3 sm:p-5 text-center border-t min-[420px]:border-t-0 min-[420px]:border-l border-border/50 flex flex-col items-center justify-center">
+          <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
+            <CalendarDays className="h-4 w-4" />
+            <span className="text-sm font-medium">Items</span>
+          </div>
+          <p className="text-xl sm:text-2xl font-bold font-mono">
+            {activeLineItemCount}
+          </p>
+          <p className="text-xs text-muted-foreground mt-1">
+            dated entries
           </p>
         </div>
       </div>
 
-      {/* Sources */}
-      <div className="rounded-xl glass-card overflow-hidden">
-        {displaySources.length === 0 ? (
-          <div className="p-6 text-center">
-            <p className="text-sm text-muted-foreground">No income sources.</p>
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 px-1 text-muted-foreground">
+          <Plus className="h-4 w-4" />
+          <h2 className="text-sm font-medium uppercase tracking-wider">
+            Add Income Item
+          </h2>
+        </div>
+
+        <div className="rounded-xl glass-card p-4 sm:p-5 space-y-4">
+          <div className="grid gap-3 md:grid-cols-[160px_minmax(0,1fr)_140px]">
+            <DateInput
+              label="Date"
+              value={addDate}
+              onChange={(value) => value && setAddDate(value)}
+              size="sm"
+            />
+            <CustomSelect
+              label="Source"
+              value={addSourceId}
+              onChange={setAddSourceId}
+              options={activeSourceOptions}
+              placeholder="Select source"
+              size="sm"
+            />
+            <NumberInput
+              label="Amount"
+              value={addAmount}
+              onChange={(event) => setAddAmount(event.target.value)}
+              placeholder="0.00"
+              className="h-[34px] min-h-[34px] px-2.5 py-1.5 font-mono"
+            />
           </div>
-        ) : (
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-border">
-                <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                  Source
-                </th>
-                <th className="px-4 py-3 text-right text-sm font-medium text-muted-foreground uppercase tracking-wider">
-                  Amount
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {displaySources.map((source, index) => {
-                const amount = amounts[source.id] || "";
-                const numericAmount = parseFloat(amount || "0") || 0;
-                const displayValue = getMaskedValue(
-                  formatClean(numericAmount),
-                  isHidden,
-                  isRevealed
-                );
-                const isPanelOpen = addingToSourceId === source.id;
-
-                // Compute add-panel math
-                const additionsSum = isPanelOpen
-                  ? pendingAdditions.reduce(
-                      (sum, val) => sum + (parseFloat(val) || 0),
-                      0
-                    )
-                  : 0;
-                const newTotal = numericAmount + additionsSum;
-
-                return (
-                  <React.Fragment key={source.id}>
-                    <tr
-                      className={cn(
-                        "animate-fade-up h-[60px]",
-                        `stagger-${Math.min(index + 1, 6)}`
-                      )}
-                      {...(isEditing ? {} : hoverProps)}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className="h-3 w-3 rounded-full flex-shrink-0"
-                            style={{ backgroundColor: source.color || "#5B8A8A" }}
-                          />
-                          <span className="text-sm font-medium">{source.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {isEditing ? (
-                          <NumberInput
-                            value={amount || ""}
-                            onChange={(e) =>
-                              setAmounts((prev) => ({
-                                ...prev,
-                                [source.id]: e.target.value,
-                              }))
-                            }
-                            className="w-28 h-8 px-1 text-right text-sm font-mono ml-auto"
-                            placeholder="0.00"
-                          />
-                        ) : (
-                          <div className="flex items-center justify-end gap-2">
-                            <Tooltip content="Add to amount">
-                            <button
-                              onClick={() =>
-                                isPanelOpen
-                                  ? closeAddPanel()
-                                  : openAddPanel(source.id)
-                              }
-                              className={cn(
-                                "p-1 rounded-md transition-colors",
-                                isPanelOpen
-                                  ? "bg-primary/10 text-primary"
-                                  : "text-muted-foreground/50 hover:text-primary hover:bg-primary/10"
-                              )}
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                            </button>
-                            </Tooltip>
-                            <span
-                              className={cn(
-                                "font-mono",
-                                numericAmount === 0
-                                  ? "text-muted-foreground font-normal"
-                                  : numericAmount < 0
-                                    ? "text-error font-semibold"
-                                    : "text-foreground font-semibold"
-                              )}
-                            >
-                              {numericAmount === 0 ? "—" : displayValue}
-                            </span>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-
-                    {/* Add-to-amount expansion */}
-                    {isPanelOpen && (() => {
-                      const inputVal = parseFloat(addInputValue) || 0;
-                      const liveTotal = newTotal + inputVal;
-
-                      return (
-                        <tr className="animate-fade-in">
-                          <td colSpan={2} className="p-0">
-                            <div className="mx-3 my-2 rounded-lg bg-secondary/40 border border-border/50 overflow-hidden">
-                              <div className="px-5 py-4 space-y-3">
-                                {/* Math column — everything right-aligned */}
-                                <div className="font-mono text-sm tabular-nums space-y-2.5">
-                                  {/* Current balance */}
-                                  <div className="flex items-baseline justify-between text-muted-foreground">
-                                    <span className="text-xs font-sans uppercase tracking-wider font-medium">Current</span>
-                                    <span>{formatClean(numericAmount)}</span>
-                                  </div>
-                                  <div className="border-t border-border/30" />
-
-                                  {/* Committed additions */}
-                                  {pendingAdditions.map((val, i) => {
-                                    const parsed = parseFloat(val) || 0;
-                                    return (
-                                      <div
-                                        key={i}
-                                        className="flex items-center justify-end"
-                                      >
-                                        <Tooltip content="Click to remove">
-                                        <button
-                                          onClick={() => removePendingAmount(i)}
-                                          className={cn(
-                                            "hover:line-through transition-colors cursor-pointer",
-                                            parsed < 0
-                                              ? "text-error hover:text-error/60"
-                                              : "text-primary hover:text-error"
-                                          )}
-                                        >
-                                          {parsed >= 0 ? "+" : "−"}{formatClean(Math.abs(parsed))}
-                                        </button>
-                                        </Tooltip>
-                                      </div>
-                                    );
-                                  })}
-
-                                  {/* Input as the next line in the math column */}
-                                  <div className="flex items-center justify-end">
-                                    <div className="relative">
-                                      <NumberInput
-                                        ref={addInputRef}
-                                        value={addInputValue}
-                                        onChange={(e) => setAddInputValue(e.target.value)}
-                                        onKeyDown={(e) => {
-                                          if (e.key === "Enter") addPendingAmount();
-                                          if (e.key === "Escape") closeAddPanel();
-                                        }}
-                                        className={cn(
-                                          "w-36 h-9 rounded-lg border border-border bg-background/50 text-right text-sm font-mono text-foreground",
-                                          "pl-3 pr-10",
-                                          "placeholder:text-muted-foreground",
-                                          "!outline-none !ring-0 !shadow-none",
-                                        )}
-                                        placeholder="0.00"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={addPendingAmount}
-                                        tabIndex={-1}
-                                        className="absolute right-1.5 top-1/2 -translate-y-1/2 focus:outline-none"
-                                      >
-                                        {(() => {
-                                          const inputNum = parseFloat(addInputValue);
-                                          const hasValue = addInputValue && !isNaN(inputNum) && inputNum !== 0;
-                                          const isNeg = hasValue && inputNum < 0;
-                                          return (
-                                            <div className={cn(
-                                              "h-6 w-6 rounded-full flex items-center justify-center transition-colors",
-                                              hasValue
-                                                ? isNeg
-                                                  ? "bg-error text-white"
-                                                  : "bg-primary text-primary-foreground"
-                                                : "bg-muted text-muted-foreground/40"
-                                            )}>
-                                              {isNeg ? (
-                                                <Minus className="h-3.5 w-3.5" />
-                                              ) : (
-                                                <Plus className="h-3.5 w-3.5" />
-                                              )}
-                                            </div>
-                                          );
-                                        })()}
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  {/* Running total — updates live as you type */}
-                                  {pendingAdditions.length > 0 && (
-                                    <>
-                                      <div className="border-t border-border/40 !mt-2" />
-                                      <div className="flex items-baseline justify-between">
-                                        <span className="text-xs font-sans uppercase tracking-wider font-medium text-muted-foreground">
-                                          New total
-                                        </span>
-                                        <span className="font-semibold text-foreground">
-                                          {formatClean(liveTotal)}
-                                        </span>
-                                      </div>
-                                    </>
-                                  )}
-                                </div>
-
-                                {/* Actions — stable row at bottom */}
-                                <div className="flex items-center justify-end gap-2">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-9 px-3 text-sm text-muted-foreground"
-                                    onClick={closeAddPanel}
-                                    disabled={isAddSaving}
-                                  >
-                                    Cancel
-                                  </Button>
-                                  {pendingAdditions.length > 0 && (
-                                    <Button
-                                      size="sm"
-                                      className="h-9 px-4 text-sm"
-                                      onClick={handleAddSave}
-                                      disabled={isAddSaving}
-                                    >
-                                      {isAddSaving ? (
-                                        <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                                      ) : (
-                                        <Save className="h-4 w-4 mr-1.5" />
-                                      )}
-                                      {isAddSaving ? "Saving..." : "Save"}
-                                    </Button>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })()}
-                  </React.Fragment>
-                );
-              })}
-            </tbody>
-          </table>
-        )}
+          <div className="space-y-3">
+            <Textarea
+              value={addNotes}
+              onChange={(event) => setAddNotes(event.target.value)}
+              placeholder="Notes for this item..."
+              className="min-h-[72px]"
+            />
+            <div className="flex justify-end">
+              <Button
+                onClick={handleAddItem}
+                disabled={!canAdd || isAdding}
+                className="w-full sm:w-32"
+              >
+                {isAdding ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                {isAdding ? "Saving..." : "Add"}
+              </Button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Notes & Breakdown Chart Row */}
-      <div className={cn(
-        "grid gap-6 items-stretch",
-        chartData.length > 0 ? "grid-cols-1 lg:grid-cols-2" : "grid-cols-1"
-      )}>
-        {/* Notes - Left */}
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2 text-muted-foreground mb-3">
-            <FileText className="h-4 w-4" />
-            <span className="text-sm font-medium uppercase tracking-wider">Notes</span>
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 px-1 text-muted-foreground">
+            <ReceiptText className="h-4 w-4" />
+            <h2 className="text-sm font-medium uppercase tracking-wider">
+              Source Entries
+            </h2>
           </div>
-          {isEditing ? (
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Any notes about this month's income..."
-              className="flex-1 min-h-[200px] resize-none glass-card px-4 py-4"
-            />
-          ) : (
-            <div
-              className="rounded-xl glass-card flex-1 min-h-[200px] px-4 py-4 cursor-pointer hover:bg-secondary/30 transition-colors"
-              onClick={() => { closeAddPanel(); setIsEditing(true); }}
-            >
-              <p className={cn(
-                "text-sm whitespace-pre-wrap",
-                !entry.notes && "text-muted-foreground italic"
-              )}>
-                {entry.notes || "Click to add notes..."}
+
+          {sourceRows.length === 0 ? (
+            <div className="glass-card rounded-xl p-8 text-center">
+              <ReceiptText className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
+              <p className="font-medium">No income items for this month</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                Add one above to start the ledger.
               </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {sourceRows.map((row, index) => {
+                const isExpanded = expandedSourceIds.has(row.source.id);
+                const displaySourceTotal = getMaskedValue(
+                  formatCurrency(row.total),
+                  isHidden,
+                  isRevealed,
+                );
+
+                return (
+                  <div
+                    key={row.source.id}
+                    className={cn(
+                      "rounded-xl glass-card overflow-hidden animate-fade-up",
+                      `stagger-${Math.min(index + 1, 6)}`,
+                    )}
+                    {...hoverProps}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => toggleSource(row.source.id)}
+                      className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-secondary/30 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <ChevronDown
+                          className={cn(
+                            "h-4 w-4 text-muted-foreground transition-transform",
+                            !isExpanded && "-rotate-90",
+                          )}
+                        />
+                        <span
+                          className="h-3 w-3 rounded-full shrink-0"
+                          style={{ backgroundColor: row.source.color || "#5B8A8A" }}
+                        />
+                        <div className="min-w-0">
+                          <p className="font-medium truncate">{row.source.name}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {row.items.length} item{row.items.length === 1 ? "" : "s"}
+                          </p>
+                        </div>
+                      </div>
+                      <p className={cn(
+                        "font-mono font-semibold",
+                        row.total < 0 ? "text-error" : "text-primary",
+                      )}>
+                        {displaySourceTotal}
+                      </p>
+                    </button>
+
+                    {isExpanded && (
+                      <div className="border-t border-border/50">
+                        {row.items.length === 0 ? (
+                          <div className="px-4 py-4 text-sm text-muted-foreground">
+                            No item history exists for this source yet.
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-border/50">
+                            {row.items.map((item) => {
+                              const isEditing = editingItemId === item.id;
+                              const isSaving = savingItemId === item.id;
+                              const isDeleting = deletingItemId === item.id;
+                              const displayItemAmount = getMaskedValue(
+                                formatCurrency(Number(item.amount)),
+                                isHidden,
+                                isRevealed,
+                              );
+
+                              if (isEditing) {
+                                return (
+                                  <div key={item.id} className="p-4 bg-secondary/20 space-y-3">
+                                    <div className="grid gap-3 md:grid-cols-[150px_minmax(0,1fr)_130px]">
+                                      <DateInput
+                                        label="Date"
+                                        value={editDate}
+                                        onChange={(value) => value && setEditDate(value)}
+                                        size="sm"
+                                      />
+                                      <CustomSelect
+                                        label="Source"
+                                        value={editSourceId}
+                                        onChange={setEditSourceId}
+                                        options={editableSourceOptions}
+                                        size="sm"
+                                      />
+                                      <NumberInput
+                                        label="Amount"
+                                        value={editAmount}
+                                        onChange={(event) => setEditAmount(event.target.value)}
+                                        className="h-[34px] min-h-[34px] px-2.5 py-1.5 font-mono"
+                                      />
+                                    </div>
+                                    <Textarea
+                                      value={editNotes}
+                                      onChange={(event) => setEditNotes(event.target.value)}
+                                      placeholder="Notes for this item..."
+                                      className="min-h-[72px]"
+                                    />
+                                    <div className="flex items-center justify-end gap-2">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={cancelEditItem}
+                                        disabled={isSaving}
+                                      >
+                                        <X className="h-4 w-4" />
+                                        Cancel
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        onClick={() => handleSaveItem(item.id)}
+                                        disabled={isSaving || (parseFloat(editAmount) || 0) === 0}
+                                      >
+                                        {isSaving ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <Save className="h-4 w-4" />
+                                        )}
+                                        {isSaving ? "Saving..." : "Save"}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div
+                                  key={item.id}
+                                  className="grid grid-cols-[1fr_auto_auto] gap-3 px-4 py-3 items-center"
+                                >
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-medium">
+                                      {formatDate(item.received_date)}
+                                    </p>
+                                    {item.notes && (
+                                      <p className="text-xs text-muted-foreground truncate mt-0.5">
+                                        {item.notes}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <p className={cn(
+                                    "font-mono text-sm font-medium",
+                                    Number(item.amount) < 0 ? "text-error" : "text-foreground",
+                                  )}>
+                                    {displayItemAmount}
+                                  </p>
+                                  <div className="flex items-center gap-1">
+                                    <Tooltip content="Edit item">
+                                      <Button
+                                        size="icon-sm"
+                                        variant="ghost"
+                                        aria-label="Edit income item"
+                                        onClick={() => startEditItem(item)}
+                                        disabled={Boolean(editingItemId) || isDeleting}
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </Button>
+                                    </Tooltip>
+                                    <Tooltip content="Delete item">
+                                      <Button
+                                        size="icon-sm"
+                                        variant="ghost"
+                                        aria-label="Delete income item"
+                                        className="text-error hover:text-error"
+                                        onClick={() => handleDeleteItem(item)}
+                                        disabled={isDeleting}
+                                      >
+                                        {isDeleting ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <Trash2 className="h-4 w-4" />
+                                        )}
+                                      </Button>
+                                    </Tooltip>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
 
-        {/* Breakdown Chart - Right */}
-        {chartData.length > 0 && (
+        <div className="space-y-6">
+          {chartData.length > 0 && (
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2 text-muted-foreground mb-3">
+                <PieChart className="h-4 w-4" />
+                <span className="text-sm font-medium uppercase tracking-wider">Breakdown</span>
+              </div>
+              <div className="rounded-xl glass-card p-4 flex-1" {...hoverProps}>
+                <IncomeBreakdownChart
+                  data={chartData}
+                  isRevealed={isRevealed}
+                  size="compact"
+                />
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-col">
-            <div className="flex items-center gap-2 text-muted-foreground mb-3">
-              <PieChart className="h-4 w-4" />
-              <span className="text-sm font-medium uppercase tracking-wider">Breakdown</span>
+            <div className="flex items-center justify-between gap-2 text-muted-foreground mb-3">
+              <div className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                <span className="text-sm font-medium uppercase tracking-wider">Month Notes</span>
+              </div>
+              {!isEditingNotes && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setIsEditingNotes(true)}
+                >
+                  <Pencil className="h-4 w-4" />
+                  Edit
+                </Button>
+              )}
             </div>
-            <div className="rounded-xl glass-card p-4 flex-1">
-              <IncomeBreakdownChart data={chartData} isRevealed={isRevealed} size="compact" />
-            </div>
+            {isEditingNotes ? (
+              <div className="space-y-3">
+                <Textarea
+                  value={monthNotes}
+                  onChange={(event) => setMonthNotes(event.target.value)}
+                  placeholder="Any notes about this month..."
+                  className="min-h-[160px] resize-none glass-card px-4 py-4"
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setMonthNotes(entry.notes || "");
+                      setIsEditingNotes(false);
+                    }}
+                    disabled={isSavingNotes}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={handleSaveMonthNotes}
+                    disabled={isSavingNotes}
+                  >
+                    {isSavingNotes ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    {isSavingNotes ? "Saving..." : "Save"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="rounded-xl glass-card flex min-h-[160px] w-full items-start justify-start px-4 py-4 text-left cursor-pointer hover:bg-secondary/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                onClick={() => setIsEditingNotes(true)}
+              >
+                <p className={cn(
+                  "text-sm whitespace-pre-wrap",
+                  !entry.notes && "text-muted-foreground italic",
+                )}>
+                  {entry.notes || "Click to add notes..."}
+                </p>
+              </button>
+            )}
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Bottom Actions */}
-      {isEditing ? (
-        <div className="flex md:hidden items-center justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={handleCancel} disabled={isSaving}>
-            <X className="h-4 w-4 mr-1" />
-            Cancel
-          </Button>
-          <Button size="sm" onClick={handleSave} disabled={isSaving}>
-            {isSaving ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-            ) : (
-              <Save className="h-4 w-4 mr-1" />
-            )}
-            {isSaving ? "Saving..." : "Save"}
-          </Button>
-        </div>
-      ) : (
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="ghost"
-            className="text-error hover:text-error hover:bg-error/10"
-            onClick={handleDelete}
-            disabled={isDeleting}
-          >
-            {isDeleting ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-            ) : (
-              <Trash2 className="h-4 w-4 mr-1" />
-            )}
-            {isDeleting ? "Deleting..." : "Delete"}
-          </Button>
-          <Button
-            className="md:hidden bg-teal text-white hover:bg-teal/90"
-            size="sm"
-            onClick={() => { closeAddPanel(); setIsEditing(true); }}
-          >
-            <Pencil className="h-4 w-4 mr-1" />
-            Edit
-          </Button>
-        </div>
-      )}
+      <div className="flex items-center justify-end">
+        <Button
+          variant="ghost"
+          className="text-error hover:text-error hover:bg-error/10"
+          onClick={handleDeleteMonth}
+          disabled={isDeletingMonth}
+        >
+          {isDeletingMonth ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+          {isDeletingMonth ? "Deleting..." : "Delete Month"}
+        </Button>
+      </div>
     </div>
   );
 }
