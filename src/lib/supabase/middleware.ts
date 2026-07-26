@@ -52,8 +52,10 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  // Define public routes that don't require authentication
-  const publicRoutes = ["/login"];
+  // Define public routes that don't require authentication.
+  // The invoice webhook receiver authenticates via HMAC signature (no session),
+  // so it must not be redirected to /login.
+  const publicRoutes = ["/login", "/api/webhooks"];
   const isPublicRoute = publicRoutes.some((route) =>
     request.nextUrl.pathname.startsWith(route)
   );
