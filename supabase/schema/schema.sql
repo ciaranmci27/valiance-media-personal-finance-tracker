@@ -134,6 +134,11 @@ CREATE TABLE income_line_items (
   amount NUMERIC(12,2) NOT NULL,
   notes TEXT,
   deleted_at TIMESTAMPTZ,
+  -- Provenance for externally-synced rows (e.g. CRM invoices via webhook).
+  -- NULL for manual entries. See migration 20260725_create_invoice_income_sync.sql.
+  external_source TEXT,
+  external_ref TEXT,
+  external_type TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
 
@@ -146,6 +151,14 @@ CREATE INDEX idx_income_line_items_source ON income_line_items(source_id, receiv
   WHERE deleted_at IS NULL;
 CREATE INDEX idx_income_line_items_received_date ON income_line_items(received_date DESC)
   WHERE deleted_at IS NULL;
+
+-- One active row per (source, ref, type); NULL external_ref (manual rows) never collide.
+CREATE UNIQUE INDEX idx_income_line_items_external
+  ON income_line_items (external_source, external_ref, external_type)
+  WHERE deleted_at IS NULL AND external_ref IS NOT NULL;
+CREATE INDEX idx_income_line_items_external_ref
+  ON income_line_items (external_source, external_ref)
+  WHERE external_ref IS NOT NULL;
 
 CREATE TRIGGER income_line_items_updated_at
   BEFORE UPDATE ON income_line_items
@@ -264,6 +277,34 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER income_line_items_sync_amounts
   AFTER INSERT OR UPDATE OR DELETE ON income_line_items
   FOR EACH ROW EXECUTE FUNCTION sync_income_amount_from_line_items();
+
+-- ----------------------------------------------------------------------------
+-- webhook_receipts: generic inbound-webhook cursor. One row per
+-- (source, external_ref) holding the last event applied, for idempotency +
+-- out-of-order guarding. Reusable by any receiver, keyed by source. See
+-- migration 20260725_create_invoice_income_sync.sql.
+-- ----------------------------------------------------------------------------
+CREATE TABLE webhook_receipts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  source TEXT NOT NULL,
+  external_ref TEXT NOT NULL,
+  last_sequence BIGINT NOT NULL DEFAULT 0,
+  last_event_id TEXT,
+  last_status TEXT,
+  last_synced_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (source, external_ref)
+);
+
+CREATE TRIGGER webhook_receipts_updated_at
+  BEFORE UPDATE ON webhook_receipts
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+ALTER TABLE webhook_receipts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Authenticated users can view webhook_receipts"
+  ON webhook_receipts FOR SELECT TO authenticated USING (true);
 
 -- ============================================================================
 -- TABLE 5: expenses
