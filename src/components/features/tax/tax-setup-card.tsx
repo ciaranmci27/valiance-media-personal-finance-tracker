@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/ui/number-input";
 import { CustomSelect } from "@/components/ui/select";
 import { Tooltip } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { cn, parseLocalDate } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 import { demoIncomeEntries } from "@/lib/demo/data";
@@ -136,6 +136,7 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
   const [expandedYear, setExpandedYear] = React.useState<number | null>(null);
   const [loadingYears, setLoadingYears] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
+  const [createError, setCreateError] = React.useState<string | null>(null);
   const [addYearValue, setAddYearValue] = React.useState("");
   const [showAddYear, setShowAddYear] = React.useState(false);
   const [addYearError, setAddYearError] = React.useState<string | null>(null);
@@ -165,7 +166,7 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
       if (isDemoMode()) {
         const yearSet = new Set<number>();
         for (const entry of demoIncomeEntries) {
-          const year = new Date(entry.month).getFullYear();
+          const year = parseLocalDate(entry.month).getFullYear();
           yearSet.add(year);
         }
         incomeYears = Array.from(yearSet);
@@ -179,7 +180,7 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
         if (data) {
           const yearSet = new Set<number>();
           for (const row of data) {
-            const year = new Date(row.month).getFullYear();
+            const year = parseLocalDate(row.month).getFullYear();
             yearSet.add(year);
           }
           incomeYears = Array.from(yearSet);
@@ -324,12 +325,20 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
           };
         });
 
-        await supabase.from("tax_estimates").insert(rows);
+        // supabase-js resolves with { error } rather than throwing, so a failed
+        // insert would otherwise fall through to onComplete() and leave the user
+        // stuck in setup mode with no explanation.
+        const { error } = await supabase.from("tax_estimates").insert(rows);
+        if (error) throw error;
       }
 
       router.refresh();
       onComplete();
-    } catch {
+    } catch (err) {
+      console.error("Failed to create tax estimates", err);
+      setCreateError(
+        err instanceof Error ? err.message : "Could not create these tax years. Please try again."
+      );
       setCreating(false);
     }
   };
@@ -651,6 +660,12 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                 <Plus className="h-3.5 w-3.5" />
                 Add a year manually
               </button>
+            )}
+
+            {createError && (
+              <p role="alert" className="text-sm text-error">
+                {createError}
+              </p>
             )}
 
             {/* Actions */}

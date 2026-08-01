@@ -5,7 +5,7 @@
  * and payroll. When the IRS publishes new values, update this file.
  *
  * Sources:
- * - Standard deductions, 1040 brackets, LTCG: Rev. Proc. 2025-38
+ * - Standard deductions, 1040 brackets, LTCG, QBI, CTC: Rev. Proc. 2025-32
  * - SS wage base: SSA 2025 COLA fact sheet (2026 base = $184,500)
  * - FUTA: 6.0% on first $7,000 (stable)
  * - FICA rates: IRC §§ 3101(a)/(b), 3111(a)/(b)
@@ -24,6 +24,13 @@ export const TAX_YEAR_2026: TaxYearDefaults = {
     mfj: 32200,
     mfs: 16100,
     hoh: 24150,
+  },
+
+  // Rev. Proc. 2025-32 sec. 4.14(3): $1,650, increased to $2,050 if the
+  // individual is also unmarried and not a surviving spouse.
+  additionalStandardDeduction: {
+    perCondition: 1650,
+    perConditionUnmarried: 2050,
   },
 
   federalBrackets: {
@@ -67,23 +74,23 @@ export const TAX_YEAR_2026: TaxYearDefaults = {
 
   ltcgBrackets: {
     single: [
-      { rate: 0.00, upTo: 48350 },
-      { rate: 0.15, upTo: 533400 },
+      { rate: 0.00, upTo: 49450 },
+      { rate: 0.15, upTo: 545500 },
       { rate: 0.20, upTo: Infinity },
     ],
     mfj: [
-      { rate: 0.00, upTo: 96700 },
-      { rate: 0.15, upTo: 600050 },
+      { rate: 0.00, upTo: 98900 },
+      { rate: 0.15, upTo: 613700 },
       { rate: 0.20, upTo: Infinity },
     ],
     mfs: [
-      { rate: 0.00, upTo: 48350 },
-      { rate: 0.15, upTo: 300025 },
+      { rate: 0.00, upTo: 49450 },
+      { rate: 0.15, upTo: 306850 },
       { rate: 0.20, upTo: Infinity },
     ],
     hoh: [
-      { rate: 0.00, upTo: 64750 },
-      { rate: 0.15, upTo: 566700 },
+      { rate: 0.00, upTo: 66200 },
+      { rate: 0.15, upTo: 579600 },
       { rate: 0.20, upTo: Infinity },
     ],
   },
@@ -135,11 +142,22 @@ export const TAX_YEAR_2026: TaxYearDefaults = {
 
   qbi: {
     rate: 0.20,
+    // Rev. Proc. 2025-32 sec. 4.26. Note these do NOT track the top of the 24%
+    // bracket the way the 2025 figures did, so they must be read from the
+    // Revenue Procedure directly rather than derived.
     phaseOut: {
-      single: 202550,
-      mfj: 405100,
-      mfs: 202550,
-      hoh: 202550,
+      single: 201750,
+      mfj: 403500,
+      mfs: 201775,
+      hoh: 201750,
+    },
+    // Published phase-in range amounts are 553,500 (MFJ), 276,775 (MFS) and
+    // 276,750 (all others). OBBBA widened these to 150k/75k for 2026.
+    phaseInRange: {
+      single: 75000,
+      mfj: 150000,
+      mfs: 75000,
+      hoh: 75000,
     },
   },
 
@@ -154,7 +172,9 @@ export const TAX_YEAR_2026: TaxYearDefaults = {
   },
 
   childTaxCredit: {
-    perChild: 2000,
+    // Rev. Proc. 2025-32 sec. 4.05: maximum credit $2,200, refundable portion $1,700.
+    perChild: 2200,
+    refundablePerChild: 1700,
     phaseOutStart: {
       single: 200000,
       mfj: 400000,

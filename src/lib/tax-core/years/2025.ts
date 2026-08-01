@@ -4,8 +4,10 @@
  * Historical values. Should not change once filing season closes.
  *
  * Sources:
- * - Standard deductions, 1040 brackets, LTCG: Rev. Proc. 2024-40
- *   (with OBBBA amendments for 2025 std deductions)
+ * - Standard deductions, 1040 brackets, LTCG, QBI: Rev. Proc. 2024-40,
+ *   as amended by Rev. Proc. 2025-32 sec. 3.01 (OBBBA standard deductions)
+ * - Child tax credit $2,200: OBBBA sec. 70104 amending IRC 24(h)(2);
+ *   refundable portion $1,700 per Rev. Proc. 2024-40 sec. 2.05
  * - SS wage base: $176,100 (SSA 2024 COLA fact sheet)
  * - FUTA: 6.0% on first $7,000
  */
@@ -20,6 +22,13 @@ export const TAX_YEAR_2025: TaxYearDefaults = {
     mfj: 31500,
     mfs: 15750,
     hoh: 23625,
+  },
+
+  // Rev. Proc. 2024-40 sec. 2.15(3): $1,600, increased to $2,000 if the
+  // individual is also unmarried and not a surviving spouse.
+  additionalStandardDeduction: {
+    perCondition: 1600,
+    perConditionUnmarried: 2000,
   },
 
   federalBrackets: {
@@ -55,7 +64,7 @@ export const TAX_YEAR_2025: TaxYearDefaults = {
       { rate: 0.12, upTo: 64850 },
       { rate: 0.22, upTo: 103350 },
       { rate: 0.24, upTo: 197300 },
-      { rate: 0.32, upTo: 250525 },
+      { rate: 0.32, upTo: 250500 },
       { rate: 0.35, upTo: 626350 },
       { rate: 0.37, upTo: Infinity },
     ],
@@ -74,7 +83,7 @@ export const TAX_YEAR_2025: TaxYearDefaults = {
     ],
     mfs: [
       { rate: 0.00, upTo: 48350 },
-      { rate: 0.15, upTo: 300025 },
+      { rate: 0.15, upTo: 300000 },
       { rate: 0.20, upTo: Infinity },
     ],
     hoh: [
@@ -133,6 +142,14 @@ export const TAX_YEAR_2025: TaxYearDefaults = {
       mfs: 197300,
       hoh: 197300,
     },
+    // Rev. Proc. 2024-40 sec. 2.27 publishes phase-in range amounts of
+    // 494,600 (MFJ) and 247,300 (all others), i.e. widths of 100k and 50k.
+    phaseInRange: {
+      single: 50000,
+      mfj: 100000,
+      mfs: 50000,
+      hoh: 50000,
+    },
   },
 
   niit: {
@@ -146,7 +163,10 @@ export const TAX_YEAR_2025: TaxYearDefaults = {
   },
 
   childTaxCredit: {
-    perChild: 2000,
+    // OBBBA sec. 70104 amended IRC 24(h)(2) to set the maximum credit at
+    // $2,200 for any taxable year beginning in 2025, indexed thereafter.
+    perChild: 2200,
+    refundablePerChild: 1700,
     phaseOutStart: {
       single: 200000,
       mfj: 400000,

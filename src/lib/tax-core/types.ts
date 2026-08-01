@@ -111,8 +111,69 @@ export interface StateTaxConfig {
         min: Partial<Record<FilingStatus, number>>;
         max: Partial<Record<FilingStatus, number>>;
       };
-  /** Per-person personal exemption amount (filers + dependents). */
-  personalExemption?: number;
+  /**
+   * State personal exemption, which reduces taxable income.
+   *
+   * A plain number is a PER-PERSON amount, multiplied by filers plus dependents
+   * (Indiana, Michigan, West Virginia). Some states instead set a per-return
+   * amount that varies by filing status and add a separate per-dependent
+   * amount, which is what the object form expresses (Mississippi).
+   */
+  personalExemption?:
+    | number
+    | {
+        byStatus: Partial<Record<FilingStatus, number>>;
+        perDependent?: number;
+      };
+  /**
+   * Portion of capital gain the state excludes from income.
+   *
+   * Missouri excludes 100% of ALL capital gain for individuals from TY2025;
+   * North Dakota excludes 40% of net LONG-TERM gain only. The base matters, so
+   * it is explicit rather than assumed.
+   */
+  capitalGainsExclusion?: {
+    /** Fraction excluded, 0 to 1. */
+    pct: number;
+    appliesTo: "all" | "longTerm";
+  };
+  /**
+   * Standard deduction that shrinks as income rises, rather than a fixed amount.
+   *
+   * Wisconsin is the clearest case: flat up to a threshold, then falling by a
+   * fixed fraction of every dollar above it until it reaches zero. Applying the
+   * maximum at every income level understates tax materially.
+   */
+  deductionPhaseOut?: {
+    /** Income above which the deduction begins to shrink. */
+    startIncome: Partial<Record<FilingStatus, number>>;
+    /** Reduction per dollar of income above `startIncome`. */
+    ratePerDollar: Partial<Record<FilingStatus, number>>;
+    /**
+     * Optional second linear segment; the deduction is the GREATER of the two.
+     * Wisconsin's head-of-household schedule starts on a steeper slope and then
+     * converges onto the single-filer line, which one slope cannot express.
+     */
+    secondary?: Partial<Record<FilingStatus, { base: number; ratePerDollar: number }>>;
+  };
+  /**
+   * Nonrefundable per-dependent credit applied against the state tax.
+   *
+   * Distinct from `personalExemption`, which reduces taxable income. Arizona,
+   * for example, allows no dependent exemption at all and instead grants a
+   * credit of $100 per dependent under 17 and $25 per older dependent.
+   */
+  dependentCredit?: {
+    perChild: number;
+    perOtherDependent: number;
+    /** Credit phases out above this federal AGI, by filing status. */
+    phaseOutStart: Partial<Record<FilingStatus, number>>;
+    /** Credit is reduced by this fraction for each `phaseOutStep` (or part) of excess AGI. */
+    phaseOutRatePerStep: number;
+    phaseOutStep: number;
+    /** Excess AGI above this eliminates the credit entirely. */
+    phaseOutFullyLostAbove: number;
+  };
 }
 
 // ============================================================================
@@ -123,6 +184,17 @@ export interface TaxYearDefaults {
   year: number;
 
   standardDeductions: Record<FilingStatus, number>;
+
+  /**
+   * IRC 63(f) additional standard deduction for the aged and the blind. Each
+   * taxpayer may qualify twice (65 or older AND blind).
+   */
+  additionalStandardDeduction: {
+    /** Per qualifying condition, married filers and surviving spouses. */
+    perCondition: number;
+    /** Higher amount when unmarried and not a surviving spouse. */
+    perConditionUnmarried: number;
+  };
 
   /** IRS 1040 annual brackets used by the estimator. */
   federalBrackets: Record<FilingStatus, TaxBracket[]>;
@@ -162,7 +234,15 @@ export interface TaxYearDefaults {
 
   qbi: {
     rate: number;
+    /** IRC 199A(e)(2) threshold amount, keyed to taxable income before the QBI deduction. */
     phaseOut: Record<FilingStatus, number>;
+    /**
+     * Width of the IRC 199A(b)(3)(B) phase-in range, i.e. the published
+     * "phase-in range amount" minus the threshold amount. OBBBA widened this
+     * from 50,000/100,000 (2025) to 75,000/150,000 (2026), so it has to vary
+     * by year rather than being hardcoded in the engine.
+     */
+    phaseInRange: Record<FilingStatus, number>;
   };
 
   niit: {
@@ -172,6 +252,8 @@ export interface TaxYearDefaults {
 
   childTaxCredit: {
     perChild: number;
+    /** IRC 24(d)(1)(A) refundable cap per qualifying child (the ACTC). */
+    refundablePerChild: number;
     phaseOutStart: Record<FilingStatus, number>;
     phaseOutRate: number;
   };

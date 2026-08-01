@@ -106,10 +106,17 @@ export function TaxSettingsContent() {
             .select("*")
             .is("deleted_at", null)
             .order("tax_year", { ascending: false });
+          // Falling back to [] on a failed read renders an empty list that looks
+          // exactly like "you have no tax years", which invites the user to
+          // re-add years that already exist.
+          if (result.error) throw result.error;
           data = (result.data as TaxEstimate[]) ?? [];
         }
 
         setYearProfiles(data.map(profileFromEstimate));
+      } catch (err) {
+        console.error("Failed to load tax years", err);
+        toast("error", "Could not load your tax years. Refresh to try again.");
       } finally {
         setLoading(false);
       }
@@ -147,10 +154,13 @@ export function TaxSettingsContent() {
         await new Promise((r) => setTimeout(r, 300));
       } else {
         const supabase = createClient();
-        await supabase
+        const { error } = await supabase
           .from("tax_estimates")
           .update(updates)
           .eq("id", profile.id);
+        // supabase-js resolves with { error } instead of throwing. Without this
+        // the row stays dirty in the database while the UI shows a saved tick.
+        if (error) throw error;
       }
 
       setYearProfiles((prev) =>
@@ -158,6 +168,9 @@ export function TaxSettingsContent() {
       );
       setSavedYear(taxYear);
       setTimeout(() => setSavedYear(null), 2000);
+    } catch (err) {
+      console.error("Failed to save tax year profile", err);
+      toast("error", err instanceof Error ? err.message : "Could not save. Please try again.");
     } finally {
       setSavingYear(null);
     }
@@ -196,10 +209,11 @@ export function TaxSettingsContent() {
       } else {
         const supabase = createClient();
         for (const profile of yearProfiles) {
-          await supabase
+          const { error } = await supabase
             .from("tax_estimates")
             .update(updates)
             .eq("id", profile.id);
+          if (error) throw error;
         }
       }
 
@@ -215,6 +229,9 @@ export function TaxSettingsContent() {
         }))
       );
       toast("success", `Applied ${sourceTaxYear} settings to all years`);
+    } catch (err) {
+      console.error("Failed to apply settings to all years", err);
+      toast("error", err instanceof Error ? err.message : "Could not apply to all years.");
     } finally {
       setApplyingAll(false);
     }
@@ -265,12 +282,18 @@ export function TaxSettingsContent() {
         await new Promise((r) => setTimeout(r, 300));
       } else {
         const supabase = createClient();
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from("tax_estimates")
           .insert(newRow)
           .select("id")
           .single();
-        if (data) newId = data.id;
+        // Without this the row is added to local state carrying the fabricated
+        // "new-<year>" id. Saving it then issues an UPDATE against a uuid column
+        // with a non-uuid value, which Postgres rejects as 22P02 while the UI
+        // still renders a saved tick.
+        if (error) throw error;
+        if (!data?.id) throw new Error("The year was not created. Please try again.");
+        newId = data.id;
       }
 
       const newProfile: YearProfile = {
@@ -290,6 +313,9 @@ export function TaxSettingsContent() {
       setShowAddYear(false);
       setAddYearValue("");
       setAddYearError(null);
+    } catch (err) {
+      console.error("Failed to add tax year", err);
+      setAddYearError(err instanceof Error ? err.message : "Could not add this year.");
     } finally {
       setAddingYear(false);
     }
@@ -317,14 +343,18 @@ export function TaxSettingsContent() {
         await new Promise((r) => setTimeout(r, 300));
       } else {
         const supabase = createClient();
-        await supabase
+        const { error } = await supabase
           .from("tax_estimates")
           .update({ deleted_at: new Date().toISOString() })
           .eq("id", profile.id);
+        if (error) throw error;
       }
 
       setYearProfiles((prev) => prev.filter((p) => p.taxYear !== taxYear));
       if (expandedYear === taxYear) setExpandedYear(null);
+    } catch (err) {
+      console.error("Failed to delete tax year", err);
+      toast("error", err instanceof Error ? err.message : "Could not delete this year.");
     } finally {
       setDeletingYear(null);
     }

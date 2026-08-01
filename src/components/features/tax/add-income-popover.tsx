@@ -48,12 +48,16 @@ const BADGE_STYLES: Record<IncomeType, string> = {
   "1099": "bg-primary/15 text-primary border-primary/25",
   w2: "bg-muted text-muted-foreground border-border",
   k1: "bg-copper/15 text-copper border-copper/25",
+  qualified_dividend: "bg-primary/8 text-primary border-primary/20",
+  retirement: "bg-copper/8 text-copper border-copper/20",
 };
 
 const BADGE_LABELS: Record<IncomeType, string> = {
   "1099": "1099",
   w2: "W-2",
   k1: "K-1",
+  qualified_dividend: "Qual Div",
+  retirement: "Retirement",
 };
 
 // ============================================================================

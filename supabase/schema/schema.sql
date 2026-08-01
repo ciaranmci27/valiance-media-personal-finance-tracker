@@ -568,7 +568,7 @@ CREATE POLICY "Authenticated users can delete net_worth"
 
 CREATE TABLE tax_estimates (
   id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  tax_year              INTEGER NOT NULL UNIQUE,
+  tax_year              INTEGER NOT NULL,
   filing_status         VARCHAR(20) NOT NULL DEFAULT 'single'
                           CHECK (filing_status IN ('single', 'mfj', 'mfs', 'hoh')),
   income_sources        JSONB NOT NULL DEFAULT '[]',
@@ -583,6 +583,17 @@ CREATE TABLE tax_estimates (
   dependents            INTEGER NOT NULL DEFAULT 0,
   other_dependents      INTEGER NOT NULL DEFAULT 0,
   additional_credits    NUMERIC(12,2) NOT NULL DEFAULT 0,
+  -- IRC 199A limitation inputs. Above the threshold amount an SSTB loses the
+  -- deduction entirely; any other business is capped by the greater of 50% of
+  -- its W-2 wages or 25% of wages plus 2.5% of unadjusted property basis.
+  is_sstb                 BOOLEAN NOT NULL DEFAULT FALSE,
+  business_w2_wages       NUMERIC(12,2) NOT NULL DEFAULT 0,
+  business_property_basis NUMERIC(14,2) NOT NULL DEFAULT 0,
+  -- Additional standard deduction for the aged and the blind (IRC 63(f)).
+  taxpayer_age_65       BOOLEAN NOT NULL DEFAULT FALSE,
+  taxpayer_blind        BOOLEAN NOT NULL DEFAULT FALSE,
+  spouse_age_65         BOOLEAN NOT NULL DEFAULT FALSE,
+  spouse_blind          BOOLEAN NOT NULL DEFAULT FALSE,
   notes                 TEXT,
   deleted_at            TIMESTAMPTZ,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -591,6 +602,11 @@ CREATE TABLE tax_estimates (
 
 -- Index for year lookups (most common query)
 CREATE INDEX idx_tax_estimates_year ON tax_estimates(tax_year DESC)
+  WHERE deleted_at IS NULL;
+
+-- One live estimate per year. Partial so a soft-deleted year can be re-created;
+-- a plain UNIQUE would block it forever since reads filter on deleted_at.
+CREATE UNIQUE INDEX idx_tax_estimates_year_unique_active ON tax_estimates(tax_year)
   WHERE deleted_at IS NULL;
 
 -- Trigger for updated_at

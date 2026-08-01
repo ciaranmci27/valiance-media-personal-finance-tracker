@@ -131,7 +131,19 @@ export type TriggerConfig =
   | PayrollEventTriggerConfig;
 
 // Tax estimator types
-export type IncomeType = "1099" | "w2" | "k1";
+/**
+ * How a line of income is taxed.
+ *
+ * - `w2`      wages, employee FICA
+ * - `k1`      pass-through distribution
+ * - `1099`    generic non-employment income, ordinary rates, treated as net
+ *             investment income when not subject to SE tax
+ * - `qualified_dividend`  taxed at long-term capital gain rates (IRC 1(h)(11))
+ *             and included in net investment income
+ * - `retirement`  distributions from qualified plans and IRAs: ordinary rates,
+ *             but expressly EXCLUDED from net investment income by IRC 1411(c)(5)
+ */
+export type IncomeType = "1099" | "w2" | "k1" | "qualified_dividend" | "retirement";
 export type BusinessType = "none" | "sole_prop" | "llc" | "s_corp" | "c_corp" | "partnership";
 export type TaxClassification = "sole_prop" | "disregarded" | "s_corp" | "c_corp" | "partnership";
 
@@ -145,6 +157,19 @@ export interface TaxIncomeSource {
   linked_source_id?: string;   // FK to income_sources.id when synced
   linked_amount?: number;      // Original synced amount (for re-link restore)
   is_unlinked?: boolean;       // true = user overrode, fields become editable
+  /**
+   * Whose income this is. The Social Security wage base is per individual and
+   * each spouse files a separate Schedule SE, so a joint return must not pool
+   * both spouses' wages against one base. Absent = "self".
+   */
+  taxpayer?: "self" | "spouse";
+  /**
+   * K-1 only. Income from a business the taxpayer materially participates in is
+   * excluded from net investment income by Reg. 1.1411-4(b). An S corp
+   * shareholder-employee's ordinary income is the common case: neither SE-taxed
+   * nor subject to NIIT. Absent = not materially participating (conservative).
+   */
+  materially_participates?: boolean;
 }
 
 export interface TaxCapitalGainEntry {
@@ -581,6 +606,13 @@ export type Database = {
           dependents: number;
           other_dependents: number;
           additional_credits: number;
+          is_sstb: boolean;
+          business_w2_wages: number;
+          business_property_basis: number;
+          taxpayer_age_65: boolean;
+          taxpayer_blind: boolean;
+          spouse_age_65: boolean;
+          spouse_blind: boolean;
           notes: string | null;
           deleted_at: string | null;
           created_at: string;
@@ -600,6 +632,13 @@ export type Database = {
           dependents?: number;
           other_dependents?: number;
           additional_credits?: number;
+          is_sstb?: boolean;
+          business_w2_wages?: number;
+          business_property_basis?: number;
+          taxpayer_age_65?: boolean;
+          taxpayer_blind?: boolean;
+          spouse_age_65?: boolean;
+          spouse_blind?: boolean;
           notes?: string | null;
           deleted_at?: string | null;
           created_at?: string;
@@ -619,6 +658,13 @@ export type Database = {
           dependents?: number;
           other_dependents?: number;
           additional_credits?: number;
+          is_sstb?: boolean;
+          business_w2_wages?: number;
+          business_property_basis?: number;
+          taxpayer_age_65?: boolean;
+          taxpayer_blind?: boolean;
+          spouse_age_65?: boolean;
+          spouse_blind?: boolean;
           notes?: string | null;
           deleted_at?: string | null;
           created_at?: string;

@@ -19,10 +19,12 @@ import {
   ChevronDown,
   MapPin,
   StickyNote,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NumberInput } from "@/components/ui/number-input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { CustomSelect } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -107,17 +109,47 @@ interface TaxEstimatorContentProps {
 export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
   const router = useRouter();
 
+  // `estimates` is a server-render snapshot that never refreshes: there is no
+  // router.refresh() after a save and no realtime subscription. Reading it
+  // directly when switching years would resurrect pre-edit values and then
+  // persist them over good data, so all reads go through this local cache and
+  // every successful save writes back into it.
+  const [estimateCache, setEstimateCache] = React.useState<Record<number, TaxEstimate>>(
+    () => Object.fromEntries(estimates.map((e) => [e.tax_year, e]))
+  );
+  const estimateCacheRef = React.useRef(estimateCache);
+  React.useEffect(() => {
+    estimateCacheRef.current = estimateCache;
+  }, [estimateCache]);
+
+  // Adopt years the server knows about that we have not seen yet (for example
+  // after the setup wizard runs). Never overwrite a year already in the cache,
+  // since ours is newer than the page-load snapshot.
+  React.useEffect(() => {
+    setEstimateCache((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const e of estimates) {
+        if (!next[e.tax_year]) {
+          next[e.tax_year] = e;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [estimates]);
+
   // Derive year tabs from estimates that actually exist AND have a config
   // file registered in tax-core/years. Orphan estimates for unsupported years
   // stay in the DB (no data loss) but don't surface in the picker since we
   // can't calculate anything without that year's brackets and thresholds.
   const yearTabs = React.useMemo(() => {
     const supported = new Set(getAvailableTaxYears());
-    return estimates
-      .map((e) => e.tax_year)
+    return Object.keys(estimateCache)
+      .map(Number)
       .filter((y) => supported.has(y))
       .sort((a, b) => b - a);
-  }, [estimates]);
+  }, [estimateCache]);
 
   // Current selected year
   const [selectedYear, setSelectedYear] = React.useState(() => {
@@ -142,18 +174,33 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
   const [dependents, setDependents] = React.useState(0);
   const [otherDependents, setOtherDependents] = React.useState(0);
   const [additionalCredits, setAdditionalCredits] = React.useState(0);
+  // IRC 199A limitation inputs
+  const [isSstb, setIsSstb] = React.useState(false);
+  const [businessW2Wages, setBusinessW2Wages] = React.useState(0);
+  const [businessPropertyBasis, setBusinessPropertyBasis] = React.useState(0);
+  // IRC 63(f) additional standard deduction
+  const [taxpayerAge65, setTaxpayerAge65] = React.useState(false);
+  const [taxpayerBlind, setTaxpayerBlind] = React.useState(false);
+  const [spouseAge65, setSpouseAge65] = React.useState(false);
+  const [spouseBlind, setSpouseBlind] = React.useState(false);
 
   // UI state
-  const [saveStatus, setSaveStatus] = React.useState<"idle" | "saving" | "saved">("idle");
+  const [saveStatus, setSaveStatus] = React.useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveError, setSaveError] = React.useState<string | null>(null);
   const [dirty, setDirty] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
   const saveTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const isLoadingRef = React.useRef(true); // prevents auto-save on initial load
 
-  // Load data for selected year
+  // Bumped on every edit. A save records the version it wrote so that edits made
+  // while the request was in flight are not mistaken for having been persisted.
+  const editVersionRef = React.useRef(0);
+
+  // Load data for selected year. Depends only on selectedYear: re-running when
+  // the cache updates would reset the form out from under an in-progress edit.
   React.useEffect(() => {
     isLoadingRef.current = true;
-    const existing = estimates.find((e) => e.tax_year === selectedYear);
+    const existing = estimateCacheRef.current[selectedYear];
     if (existing) {
       setFilingStatus(existing.filing_status);
       setIncomeSources(existing.income_sources || []);
@@ -168,6 +215,13 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
       setDependents(existing.dependents ?? 0);
       setOtherDependents(existing.other_dependents ?? 0);
       setAdditionalCredits(existing.additional_credits ?? 0);
+      setIsSstb(existing.is_sstb ?? false);
+      setBusinessW2Wages(Number(existing.business_w2_wages) || 0);
+      setBusinessPropertyBasis(Number(existing.business_property_basis) || 0);
+      setTaxpayerAge65(existing.taxpayer_age_65 ?? false);
+      setTaxpayerBlind(existing.taxpayer_blind ?? false);
+      setSpouseAge65(existing.spouse_age_65 ?? false);
+      setSpouseBlind(existing.spouse_blind ?? false);
     } else {
       setFilingStatus("single");
       setIncomeSources([]);
@@ -182,14 +236,31 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
       setDependents(0);
       setOtherDependents(0);
       setAdditionalCredits(0);
+      setIsSstb(false);
+      setBusinessW2Wages(0);
+      setBusinessPropertyBasis(0);
+      setTaxpayerAge65(false);
+      setTaxpayerBlind(false);
+      setSpouseAge65(false);
+      setSpouseBlind(false);
     }
     setDirty(false);
     setSaveStatus("idle");
+    setSaveError(null);
     // Allow auto-save after a tick so the state settles
     requestAnimationFrame(() => {
       isLoadingRef.current = false;
     });
-  }, [selectedYear, estimates]);
+  }, [selectedYear]);
+
+  // Keep the selected year inside the available tabs. Without this, a wizard run
+  // that creates only a prior year leaves the form showing an empty current year
+  // whose edits would try to insert a second row.
+  React.useEffect(() => {
+    if (yearTabs.length > 0 && !yearTabs.includes(selectedYear)) {
+      setSelectedYear(yearTabs[0]);
+    }
+  }, [yearTabs, selectedYear]);
 
   // Tax config for selected year
   const taxConfig = React.useMemo(() => getTaxYearConfig(selectedYear), [selectedYear]);
@@ -208,13 +279,36 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
       dependents,
       otherDependents,
       additionalCredits,
-      taxClassification
+      taxClassification,
+      {
+        isSstb,
+        businessW2Wages,
+        businessPropertyBasis,
+        taxpayerAge65,
+        taxpayerBlind,
+        spouseAge65,
+        spouseBlind,
+      }
     );
-  }, [incomeSources, capitalGains, payments, additionalDeductions, filingStatus, taxConfig, state, dependents, otherDependents, additionalCredits, taxClassification]);
+  }, [incomeSources, capitalGains, payments, additionalDeductions, filingStatus, taxConfig, state, dependents, otherDependents, additionalCredits, taxClassification, isSstb, businessW2Wages, businessPropertyBasis, taxpayerAge65, taxpayerBlind, spouseAge65, spouseBlind]);
+
+  // The QBI wage/property limitation only bites once taxable income passes the
+  // threshold, so those inputs stay hidden until they can change the answer.
+  const showQbiLimitInputs = React.useMemo(() => {
+    if (!breakdown || !taxConfig) return false;
+    if (breakdown.qbiDeduction <= 0 && !isSstb && businessW2Wages === 0) {
+      // Still show it if they are over the threshold with business income,
+      // since that is exactly when a zero deduction may be wrong.
+      const over = breakdown.taxableIncome + breakdown.qbiDeduction > taxConfig.qbi.phaseOut[filingStatus];
+      return over;
+    }
+    return breakdown.taxableIncome + breakdown.qbiDeduction > taxConfig.qbi.phaseOut[filingStatus];
+  }, [breakdown, taxConfig, filingStatus, isSstb, businessW2Wages]);
 
   // Mark dirty and schedule auto-save
   const markDirty = React.useCallback(() => {
     if (isLoadingRef.current) return;
+    editVersionRef.current += 1;
     setDirty(true);
     setSaveStatus("idle");
   }, []);
@@ -435,6 +529,26 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
     });
   }, [taxClassification]);
 
+  const toggleMaterialParticipation = (sourceId: string) => {
+    setIncomeSources((prev) =>
+      prev.map((s) =>
+        s.id === sourceId ? { ...s, materially_participates: !s.materially_participates } : s
+      )
+    );
+    markDirty();
+  };
+
+  const toggleTaxpayer = (sourceId: string) => {
+    setIncomeSources((prev) =>
+      prev.map((s) =>
+        s.id === sourceId
+          ? { ...s, taxpayer: (s.taxpayer ?? "self") === "self" ? "spouse" : "self" }
+          : s
+      )
+    );
+    markDirty();
+  };
+
   const toggleSe = (sourceId: string) => {
     setIncomeSources((prev) =>
       prev.map((s) => s.id === sourceId ? { ...s, subject_to_se: !s.subject_to_se } : s)
@@ -444,6 +558,12 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
 
   const handleIncomeTypeChange = (sourceId: string, newType: IncomeType) => {
     const source = incomeSources.find((s) => s.id === sourceId);
+
+    // Re-picking the type a row already has must be a no-op. Falling through
+    // would reset subject_to_se (turning an investment-income row into
+    // self-employment income) and duplicate any linked withholding rows.
+    if (source && source.income_type === newType) return;
+
     const wasW2 = source?.income_type === "w2";
     const isNowW2 = newType === "w2";
 
@@ -479,60 +599,152 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
   // Auto-save (debounced 1.5s after last change)
   // ============================================================================
 
+  // Snapshot of everything a save needs, refreshed whenever the form changes, so
+  // that a flush triggered from elsewhere (year switch, unmount) writes the
+  // current values rather than whatever was captured when a timer was scheduled.
+  const saveContextRef = React.useRef<{
+    year: number;
+    existingId: string | null;
+    payload: Record<string, unknown>;
+  } | null>(null);
+
+  saveContextRef.current = {
+    year: selectedYear,
+    existingId,
+    payload: {
+      tax_year: selectedYear,
+      filing_status: filingStatus,
+      income_sources: incomeSources as unknown as Record<string, unknown>[],
+      capital_gains: capitalGains as unknown as Record<string, unknown>[],
+      payments: payments as unknown as Record<string, unknown>[],
+      additional_deductions: additionalDeductions,
+      state: state,
+      business_type: businessType,
+      tax_classification: taxClassification,
+      dependents: dependents,
+      other_dependents: otherDependents,
+      additional_credits: additionalCredits,
+      is_sstb: isSstb,
+      business_w2_wages: businessW2Wages,
+      business_property_basis: businessPropertyBasis,
+      taxpayer_age_65: taxpayerAge65,
+      taxpayer_blind: taxpayerBlind,
+      spouse_age_65: spouseAge65,
+      spouse_blind: spouseBlind,
+      notes: notes || null,
+    },
+  };
+
+  /**
+   * Persist the current form state.
+   *
+   * supabase-js resolves with { data, error } instead of throwing, so the error
+   * has to be read explicitly. Reporting success on a failed write is worse than
+   * failing loudly: it clears the dirty flag and the edit is gone.
+   */
+  const persist = React.useCallback(async (): Promise<boolean> => {
+    const ctx = saveContextRef.current;
+    if (!ctx) return false;
+
+    if (isDemoMode()) {
+      setDirty(false);
+      setSaveStatus("saved");
+      return true;
+    }
+
+    const versionAtStart = editVersionRef.current;
+    setSaveStatus("saving");
+
+    try {
+      const supabase = createClient();
+      let savedId = ctx.existingId;
+
+      if (ctx.existingId) {
+        const { error } = await supabase
+          .from("tax_estimates")
+          .update(ctx.payload)
+          .eq("id", ctx.existingId);
+        if (error) throw error;
+      } else {
+        const { data, error } = await supabase
+          .from("tax_estimates")
+          .insert(ctx.payload)
+          .select("id")
+          .single();
+        if (error) throw error;
+        savedId = data?.id ?? null;
+        if (savedId) setExistingId(savedId);
+      }
+
+      // Write back so switching years reads what we just saved.
+      setEstimateCache((prev) => ({
+        ...prev,
+        [ctx.year]: {
+          ...(prev[ctx.year] ?? {}),
+          ...ctx.payload,
+          id: savedId,
+        } as TaxEstimate,
+      }));
+      setSaveError(null);
+
+      // Only clear dirty if nothing changed while the request was in flight.
+      // Otherwise leave it set so the debounce writes the newer edit too.
+      if (editVersionRef.current === versionAtStart) {
+        setDirty(false);
+        setSaveStatus("saved");
+      } else {
+        setSaveStatus("idle");
+      }
+      return true;
+    } catch (err) {
+      console.error("Failed to save tax estimate", err);
+      setSaveError(err instanceof Error ? err.message : "Could not save changes");
+      setSaveStatus("error");
+      // Deliberately leave `dirty` true so the next edit or flush retries.
+      return false;
+    }
+  }, []);
+
   React.useEffect(() => {
     if (!dirty || isLoadingRef.current) return;
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-
-    saveTimeoutRef.current = setTimeout(async () => {
-      if (isDemoMode()) {
-        setDirty(false);
-        setSaveStatus("saved");
-        return;
-      }
-
-      setSaveStatus("saving");
-      try {
-        const supabase = createClient();
-        const payload = {
-          tax_year: selectedYear,
-          filing_status: filingStatus,
-          income_sources: incomeSources as unknown as Record<string, unknown>[],
-          capital_gains: capitalGains as unknown as Record<string, unknown>[],
-          payments: payments as unknown as Record<string, unknown>[],
-          additional_deductions: additionalDeductions,
-          state: state,
-          business_type: businessType,
-          tax_classification: taxClassification,
-          dependents: dependents,
-          other_dependents: otherDependents,
-          additional_credits: additionalCredits,
-          notes: notes || null,
-        };
-
-        if (existingId) {
-          await supabase.from("tax_estimates").update(payload).eq("id", existingId);
-        } else {
-          const { data } = await supabase
-            .from("tax_estimates")
-            .insert(payload)
-            .select("id")
-            .single();
-          if (data) setExistingId(data.id);
-        }
-
-        setDirty(false);
-        setSaveStatus("saved");
-      } catch {
-        setSaveStatus("idle");
-      }
+    saveTimeoutRef.current = setTimeout(() => {
+      void persist();
     }, 1500);
 
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, filingStatus, incomeSources, capitalGains, payments, additionalDeductions, notes, selectedYear, existingId, state, businessType, taxClassification, dependents, otherDependents, additionalCredits]);
+  }, [dirty, filingStatus, incomeSources, capitalGains, payments, additionalDeductions, notes, selectedYear, existingId, state, businessType, taxClassification, dependents, otherDependents, additionalCredits, isSstb, businessW2Wages, businessPropertyBasis, taxpayerAge65, taxpayerBlind, spouseAge65, spouseBlind]);
+
+  /** Flush any pending write, then switch year. */
+  const changeYear = React.useCallback(
+    async (year: number) => {
+      if (year === selectedYear) return;
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (dirty) {
+        const ok = await persist();
+        // Keep the user on the year that failed rather than silently dropping it.
+        if (!ok) return;
+      }
+      setSelectedYear(year);
+    },
+    [selectedYear, dirty, persist]
+  );
+
+  // Unsaved edits survive at most 1.5s, so warn before the tab closes or a hard
+  // navigation happens while a write is still pending.
+  React.useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
 
   // ============================================================================
   // Stat card helpers
@@ -547,7 +759,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
   // ============================================================================
 
   // Setup mode: no data for any year
-  const isSetupMode = estimates.length === 0;
+  const isSetupMode = Object.keys(estimateCache).length === 0;
 
   if (isSetupMode) {
     return (
@@ -611,12 +823,23 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
               Saved
             </span>
           )}
+          {saveStatus === "error" && (
+            <button
+              type="button"
+              onClick={() => void persist()}
+              title={saveError ?? "Save failed"}
+              className="flex items-center gap-1.5 text-xs text-error hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-error rounded"
+            >
+              <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+              Not saved. Retry
+            </button>
+          )}
 
           {/* Year Tabs - dropdown on mobile, buttons on desktop */}
           <div className="sm:hidden w-28">
             <CustomSelect
               value={String(selectedYear)}
-              onChange={(value) => setSelectedYear(Number(value))}
+              onChange={(value) => void changeYear(Number(value))}
               options={yearTabs.map((year) => ({
                 value: String(year),
                 label: String(year),
@@ -628,7 +851,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
             {yearTabs.map((year) => (
               <button
                 key={year}
-                onClick={() => setSelectedYear(year)}
+                onClick={() => void changeYear(year)}
                 className={cn(
                   "px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200",
                   selectedYear === year
@@ -761,6 +984,38 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                         >
                           SE
                         </button>
+                      )}
+                      {/* Material participation excludes K-1 income from the 3.8%
+                          net investment income tax (Reg. 1.1411-4(b)). */}
+                      {source.income_type === "k1" && !source.subject_to_se && (
+                        <Tooltip content="You materially participate in this business, so its income is not subject to the 3.8% net investment income tax.">
+                          <button
+                            type="button"
+                            onClick={() => toggleMaterialParticipation(source.id)}
+                            aria-pressed={!!source.materially_participates}
+                            className={cn(
+                              "shrink-0 h-8 px-1.5 inline-flex items-center text-[10px] font-semibold uppercase tracking-wider rounded border cursor-pointer transition-colors",
+                              source.materially_participates
+                                ? "bg-primary/15 text-primary border-primary/25"
+                                : "bg-muted text-muted-foreground/40 border-border line-through"
+                            )}
+                          >
+                            Active
+                          </button>
+                        </Tooltip>
+                      )}
+                      {/* The Social Security wage base is per person, so a joint
+                          return has to know whose earnings these are. */}
+                      {filingStatus === "mfj" && (
+                        <Tooltip content="Whose income this is. The Social Security wage base applies per person.">
+                          <button
+                            type="button"
+                            onClick={() => toggleTaxpayer(source.id)}
+                            className="shrink-0 h-8 px-1.5 inline-flex items-center text-[10px] font-semibold uppercase tracking-wider rounded border cursor-pointer transition-colors bg-muted text-muted-foreground border-border hover:text-foreground"
+                          >
+                            {(source.taxpayer ?? "self") === "self" ? "You" : "Spouse"}
+                          </button>
+                        </Tooltip>
                       )}
                       {isOverridden && (
                         <span className="shrink-0 h-8 px-1.5 inline-flex items-center text-[10px] font-semibold uppercase tracking-wider rounded bg-copper/15 text-copper border border-copper/25">
@@ -1031,6 +1286,96 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                     />
                   </div>
                 </div>
+
+                {/* Age and blindness: IRC 63(f) additional standard deduction */}
+                <fieldset className="border-t border-border pt-2">
+                  <legend className="sr-only">Additional standard deduction</legend>
+                  <p className="text-xs text-muted-foreground mb-2">
+                    Extra standard deduction for age and blindness
+                  </p>
+                  <div className="flex flex-wrap gap-x-5 gap-y-2">
+                    <Checkbox
+                      size="sm"
+                      label="I'm 65 or older"
+                      checked={taxpayerAge65}
+                      onChange={(v) => { setTaxpayerAge65(v); markDirty(); }}
+                    />
+                    <Checkbox
+                      size="sm"
+                      label="I'm blind"
+                      checked={taxpayerBlind}
+                      onChange={(v) => { setTaxpayerBlind(v); markDirty(); }}
+                    />
+                    {filingStatus === "mfj" && (
+                      <>
+                        <Checkbox
+                      size="sm"
+                          label="Spouse is 65 or older"
+                          checked={spouseAge65}
+                          onChange={(v) => { setSpouseAge65(v); markDirty(); }}
+                        />
+                        <Checkbox
+                      size="sm"
+                          label="Spouse is blind"
+                          checked={spouseBlind}
+                          onChange={(v) => { setSpouseBlind(v); markDirty(); }}
+                        />
+                      </>
+                    )}
+                  </div>
+                </fieldset>
+
+                {/* IRC 199A limitation. Only relevant once taxable income passes
+                    the threshold, so it stays collapsed until then. */}
+                {breakdown && taxConfig && showQbiLimitInputs && (
+                  <fieldset className="border-t border-border pt-2">
+                    <legend className="sr-only">Business deduction limits</legend>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Your income is above the {formatCurrency(taxConfig.qbi.phaseOut[filingStatus])} QBI
+                      threshold, so the deduction now depends on these.
+                    </p>
+                    <div className="space-y-2">
+                      <Checkbox
+                      size="sm"
+                        label="Service business (consulting, health, law, accounting, finance)"
+                        checked={isSstb}
+                        onChange={(v) => { setIsSstb(v); markDirty(); }}
+                      />
+                      {!isSstb && (
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                          <div className="flex items-center justify-between gap-2 sm:basis-1/2 min-w-0">
+                            <label className="text-sm text-muted-foreground whitespace-nowrap">
+                              Business W-2 wages
+                            </label>
+                            <NumberInput
+                              placeholder="0"
+                              value={businessW2Wages || ""}
+                              onChange={(e) => {
+                                setBusinessW2Wages(Math.max(0, Number(e.target.value) || 0));
+                                markDirty();
+                              }}
+                              className="h-8 text-sm font-mono w-24 text-right"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between gap-2 sm:basis-1/2 min-w-0">
+                            <label className="text-sm text-muted-foreground whitespace-nowrap">
+                              Business property basis
+                            </label>
+                            <NumberInput
+                              placeholder="0"
+                              value={businessPropertyBasis || ""}
+                              onChange={(e) => {
+                                setBusinessPropertyBasis(Math.max(0, Number(e.target.value) || 0));
+                                markDirty();
+                              }}
+                              className="h-8 text-sm font-mono w-24 text-right"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </fieldset>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -1384,8 +1729,15 @@ function CalculationResults({
   const federalSubtotal = breakdown.federalTaxAfterCredits + breakdown.niit;
   const payrollSubtotal = breakdown.selfEmploymentTax.total + breakdown.ficaTax.total;
 
-  const isOverpaid = breakdown.netRemaining < 0;
-  const isPaidInFull = breakdown.netRemaining === 0;
+  // Compare against a cent rather than exact zero: netRemaining is a chain of
+  // bracket-walked sums, so an exact 0 is not something to rely on.
+  const isPaidInFull = Math.abs(breakdown.netRemaining) < 0.005;
+  const isOverpaid = !isPaidInFull && breakdown.netRemaining < 0;
+  // A negative balance can come from over-withholding or from a refundable
+  // credit. Naming the driver avoids "Overpaid" appearing when nothing was
+  // actually overpaid.
+  const refundDrivenByCredit =
+    isOverpaid && breakdown.additionalChildTaxCredit > 0;
 
   return (
     <div className="space-y-4 text-sm" {...hoverProps}>
@@ -1438,9 +1790,14 @@ function CalculationResults({
             </SubSection>
           )}
 
+          {breakdown.seDeduction > 0 && (
+            <Row label="SE Deduction" value={fmtMasked(breakdown.seDeduction)} sub />
+          )}
+
+          <Row label="AGI" value={fmtMasked(breakdown.agi)} />
+
           <SubSection title="Deductions">
             <Row label="Standard" value={fmtMasked(breakdown.standardDeduction)} sub />
-            <Row label="SE Deduction" value={fmtMasked(breakdown.seDeduction)} sub />
             {breakdown.qbiDeduction > 0 && (
               <Row label="QBI (20%)" value={fmtMasked(breakdown.qbiDeduction)} sub />
             )}
@@ -1450,7 +1807,7 @@ function CalculationResults({
             <Row label="Total Deductions" value={fmtMasked(breakdown.totalDeductions)} bold />
           </SubSection>
 
-          <Row label="AGI" value={fmtMasked(breakdown.agi)} />
+          <Row label="Taxable Income" value={fmtMasked(breakdown.taxableIncome)} />
         </GroupPanel>
 
         {/* Group 2: Federal Taxes */}
@@ -1621,6 +1978,22 @@ function CalculationResults({
                   <span className="font-mono">{fmtMasked(breakdown.ficaAutoCredited)}</span>
                 </div>
               )}
+              {breakdown.excessSocialSecurityWithheld > 0 && (
+                <div className="flex items-center justify-between pl-6 text-xs text-muted-foreground">
+                  <Tooltip content="Each employer withholds Social Security up to the wage base on its own payroll. With more than one job that over-withholds, and the excess comes back as a refundable credit on Schedule 3.">
+                    <span className="cursor-help">Excess Social Security</span>
+                  </Tooltip>
+                  <span className="font-mono">{fmtMasked(breakdown.excessSocialSecurityWithheld)}</span>
+                </div>
+              )}
+              {breakdown.additionalChildTaxCredit > 0 && (
+                <div className="flex items-center justify-between pl-6 text-xs text-muted-foreground">
+                  <Tooltip content="The child credit you could not use against income tax comes back as a refund, up to $1,700 per child and limited to 15% of earnings over $2,500.">
+                    <span className="cursor-help">Refundable Child Credit</span>
+                  </Tooltip>
+                  <span className="font-mono">{fmtMasked(breakdown.additionalChildTaxCredit)}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between pl-3 pt-0.5">
                 <span className={cn(
                   "font-medium text-sm",
@@ -1682,11 +2055,14 @@ function CalculationResults({
           >
             <div>
               <span className="font-semibold text-sm">
-                {isPaidInFull ? "Paid in Full" : "Total Remaining"}
+                {isPaidInFull ? "Paid in Full" : isOverpaid ? "Refund Due" : "Total Remaining"}
               </span>
               {isOverpaid && (
                 <p className="text-[11px] text-success mt-0.5">
-                  Overpaid by {fmt(Math.abs(breakdown.netRemaining))}
+                  {fmt(Math.abs(breakdown.netRemaining))} back
+                  {refundDrivenByCredit
+                    ? ` (includes ${fmt(breakdown.additionalChildTaxCredit)} refundable child credit)`
+                    : ""}
                 </p>
               )}
               {isPaidInFull && (
@@ -1808,7 +2184,9 @@ function CopyableValue({
   const [copied, setCopied] = React.useState(false);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(String(Math.abs(rawValue)));
+    // Preserve the sign: a refund copied as a positive number reads as an
+    // amount owed. Round to cents so the clipboard does not carry float noise.
+    navigator.clipboard.writeText((Math.round(rawValue * 100) / 100).toFixed(2));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
