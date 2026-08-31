@@ -86,7 +86,7 @@ export function IncomeTrendChart({
             {formatMonthShort(item.month)}
           </p>
           <p className="text-sm">
-            <span className="font-mono font-medium" style={{ color }}>
+            <span className="tabular-nums font-medium" style={{ color }}>
               {showValues ? formatCurrency(value) : "•••••"}
             </span>
           </p>

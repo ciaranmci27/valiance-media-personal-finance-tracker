@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
 import { useRouter } from "next/navigation";
 import {
   Pencil,
@@ -270,9 +271,9 @@ export function ExpenseDetailContent({
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       {confirmDialog}
-      {/* Header - hidden on mobile (mobile uses header bar) */}
-      <div className="hidden md:flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
+          <MobileMenuButton />
           {isEditing ? (
             <Input
               value={name}
@@ -319,6 +320,7 @@ export function ExpenseDetailContent({
         </div>
 
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          <HeaderControls />
           {isEditing ? (
             <>
               <Button variant="ghost" onClick={handleCancel} disabled={isSaving}>
@@ -377,10 +379,10 @@ export function ExpenseDetailContent({
             <NumberInput
               value={amount}
               onChange={(e) => setAmount(Number(e.target.value))}
-              className="text-xl sm:text-2xl font-bold font-mono text-center h-auto py-1"
+              className="text-xl sm:text-2xl font-bold tabular-nums text-center h-auto py-1"
             />
           ) : (
-            <p className="text-xl sm:text-2xl font-bold font-mono">{displayAmount}</p>
+            <p className="text-xl sm:text-2xl font-bold tabular-nums">{displayAmount}</p>
           )}
           <p className="text-xs text-muted-foreground mt-1">{frequencyLabels[frequency]}</p>
         </div>
@@ -389,7 +391,7 @@ export function ExpenseDetailContent({
             <Calendar className="h-4 w-4" />
             <span className="text-sm font-medium">Monthly</span>
           </div>
-          <p className="text-xl sm:text-2xl font-bold font-mono text-primary">{displayMonthly}</p>
+          <p className="text-xl sm:text-2xl font-bold tabular-nums text-primary">{displayMonthly}</p>
           <p className="text-xs text-muted-foreground mt-1">Per month</p>
         </div>
         <div className="hidden sm:block bg-card/50 p-5 text-center">
@@ -397,7 +399,7 @@ export function ExpenseDetailContent({
             <TrendingUp className="h-4 w-4" />
             <span className="text-sm font-medium">Annual</span>
           </div>
-          <p className="text-2xl font-bold font-mono">{displayAnnual}</p>
+          <p className="text-2xl font-bold tabular-nums">{displayAnnual}</p>
           <p className="text-xs text-muted-foreground mt-1">Per year</p>
         </div>
       </div>
@@ -643,7 +645,7 @@ function HistoryRow({
         {showAmount && (
           <>
             {" "}
-            <span className="font-mono font-medium">{displayAmount}</span>{" "}
+            <span className="tabular-nums font-medium">{displayAmount}</span>{" "}
             <span className="text-muted-foreground">({entry.frequency})</span>
           </>
         )}

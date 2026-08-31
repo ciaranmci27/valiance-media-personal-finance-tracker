@@ -16,14 +16,8 @@ export default async function DashboardServerLayout({
   const privacyCookie = cookieStore.get("data-hidden");
   const initialPrivacyHidden = privacyCookie?.value === "true";
 
-  const sidebarCookie = cookieStore.get("sidebar-collapsed");
-  const initialSidebarCollapsed = sidebarCookie?.value === "true";
-
   return (
-    <DashboardLayout
-      initialPrivacyHidden={initialPrivacyHidden}
-      initialSidebarCollapsed={initialSidebarCollapsed}
-    >
+    <DashboardLayout initialPrivacyHidden={initialPrivacyHidden}>
       {children}
     </DashboardLayout>
   );

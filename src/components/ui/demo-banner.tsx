@@ -1,28 +1,22 @@
 "use client";
 
 import { Info } from "lucide-react";
-import { cn } from "@/lib/utils";
 
-interface DemoBannerProps {
-  sidebarCollapsed?: boolean;
-}
-
-export function DemoBanner({ sidebarCollapsed = false }: DemoBannerProps) {
+/**
+ * Announcement bar pinned to the top of the content area (right of the
+ * sidebar on desktop). h-9 is load-bearing: the dashboard layout offsets
+ * <main> by the same height in demo mode so content clears the bar.
+ */
+export function DemoBanner() {
   return (
-    <div
-      className={cn(
-        "fixed bottom-0 right-0 left-0 z-40 bg-primary/10 backdrop-blur-sm border-t border-primary/20 px-4 py-2 transition-all duration-300",
-        // Match sidebar margin on desktop
-        sidebarCollapsed ? "md:left-16" : "md:left-64"
-      )}
-    >
-      <div className="flex items-center justify-center gap-2 text-sm">
+    <div className="fixed top-0 right-0 left-0 lg:left-60 z-40 h-9 bg-primary/10 backdrop-blur-sm border-b border-primary/20 px-4">
+      <div className="flex h-full items-center justify-center gap-2 text-sm">
         <Info className="h-4 w-4 text-primary shrink-0" />
         <span className="text-primary font-medium">
           Demo Mode
         </span>
         <span className="text-muted-foreground hidden sm:inline">
-          — You&apos;re viewing sample data. Changes won&apos;t be saved.
+          You&apos;re viewing sample data. Changes won&apos;t be saved.
         </span>
       </div>
     </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
 import {
   ArrowLeftCircle,
   Check,
@@ -288,8 +289,9 @@ export function SmtpSettingsContent({ encryptionConfigured }: Props) {
   // ─── Header ──────────────────────────────────────────────────────────────────
 
   const header = (
-    <div className="flex items-center justify-between">
+    <div className="flex flex-wrap items-center justify-between gap-y-2">
       <div className="flex items-center gap-3">
+        <MobileMenuButton />
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-sky-500/10">
           <Mail className="h-5 w-5 text-sky-500" aria-hidden="true" />
         </div>
@@ -299,6 +301,7 @@ export function SmtpSettingsContent({ encryptionConfigured }: Props) {
             Configure outbound email accounts
           </p>
         </div>
+        <HeaderControls className="ml-auto" />
       </div>
       {encryptionConfigured && !showForm && accounts.length > 0 && (
         <Button

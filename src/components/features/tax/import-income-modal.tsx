@@ -214,7 +214,7 @@ export function ImportIncomeModal({
           <div className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3 mt-4">
             <span className="text-sm text-muted-foreground">
               Total Tracked Revenue:{" "}
-              <span className="font-mono font-medium text-foreground">
+              <span className="tabular-nums font-medium text-foreground">
                 {formatCurrency(sources.reduce((sum, s) => sum + s.total, 0))}
               </span>
             </span>
@@ -282,7 +282,7 @@ export function ImportIncomeModal({
                       YTD
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground font-mono">
+                  <p className="text-xs text-muted-foreground tabular-nums">
                     {formatCurrency(source.total)}
                   </p>
                 </div>
@@ -318,7 +318,7 @@ export function ImportIncomeModal({
           {/* Footer total */}
           {selectedCount > 0 && (
             <div className="hidden sm:block flex-1 text-sm text-muted-foreground">
-              <span className="font-mono font-medium text-foreground">
+              <span className="tabular-nums font-medium text-foreground">
                 {formatCurrency(selectedTotal)}
               </span>{" "}
               from {selectedCount} source{selectedCount !== 1 ? "s" : ""}

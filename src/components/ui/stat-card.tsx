@@ -76,18 +76,18 @@ export function StatCard({
   return (
     <div
       className={cn(
-        "glass-card rounded-xl p-4 sm:p-6 animate-fade-up transition-opacity",
+        "glass-card rounded-xl p-4 lg:p-5 animate-fade-up transition-opacity",
         isHidden && "cursor-default",
         className
       )}
       {...hoverProps}
     >
       <div className="flex items-start justify-between">
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
+        <div>
+          <p className="text-xs lg:text-sm text-muted-foreground font-medium">{title}</p>
           <p
             className={cn(
-              "text-lg sm:text-2xl font-bold tracking-tight currency",
+              "text-2xl lg:text-3xl font-bold tracking-tight leading-none mt-0.5 currency",
               // Neutralize color when hidden to not reveal positive/negative
               isHidden && !isRevealed
                 ? "text-foreground"
@@ -100,33 +100,33 @@ export function StatCard({
           </p>
         </div>
         {icon && (
-          <div className="hidden min-[440px]:block rounded-lg bg-primary/10 p-2.5 text-primary">
+          <div className="hidden min-[440px]:grid w-8 h-8 lg:w-9 lg:h-9 rounded-lg place-items-center bg-[rgba(var(--ink),0.06)] text-muted-foreground shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]">
             {icon}
           </div>
         )}
       </div>
 
       {percentageChange !== null && (
-        <div className="mt-4 flex items-center gap-2">
+        <div className="mt-3.5 flex items-center gap-2">
           <div
             className={cn(
-              "flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
+              "flex items-center gap-1 text-xs font-medium",
               // When hidden (and not revealed by hover), always show neutral styling
               isHidden && !isRevealed
-                ? "bg-muted text-muted-foreground"
+                ? "text-muted-foreground"
                 : invertTrend
                 ? // Inverted: up = bad (red), down = good (green)
                   trend === "up"
-                  ? "bg-error/10 text-error"
+                  ? "text-error"
                   : trend === "down"
-                  ? "bg-success/10 text-success"
-                  : "bg-muted text-muted-foreground"
+                  ? "text-success"
+                  : "text-muted-foreground"
                 : // Normal: up = good (green), down = bad (red)
                   trend === "up"
-                ? "bg-success/10 text-success"
+                ? "text-success"
                 : trend === "down"
-                ? "bg-error/10 text-error"
-                : "bg-muted text-muted-foreground"
+                ? "text-error"
+                : "text-muted-foreground"
             )}
           >
             {/* When hidden, always show neutral Minus icon */}

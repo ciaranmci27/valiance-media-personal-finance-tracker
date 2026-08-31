@@ -27,12 +27,10 @@ export const siteConfig = {
 } as const;
 
 /**
- * Theme colors are defined in src/app/globals.css as CSS custom properties.
- * To change colors, edit the CSS variables there:
- *
- * --primary: #5B8A8A (teal)
- * --secondary: #C5A68F (copper)
- * --background: #F5F3EF (light theme)
+ * Theme colors, fonts, surfaces, and glass effects are all defined in
+ * src/app/globals.css as CSS custom properties (Tailwind v4 CSS-first,
+ * no tailwind.config). Brand hues live in the :root block (--teal,
+ * --copper); everything else derives from the theme blocks there.
  */
 
 export type SiteConfig = typeof siteConfig;

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { PageHeader } from "@/components/layout/page-header";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -115,7 +116,7 @@ function IncomeCard({
           <span className="text-xs text-muted-foreground block mb-0.5">Total</span>
           <span
             className={cn(
-              "font-mono font-semibold text-lg",
+              "tabular-nums font-semibold text-lg",
               total < 0 ? "text-error" : "text-primary"
             )}
           >
@@ -140,7 +141,7 @@ function IncomeCard({
               </div>
               <span
                 className={cn(
-                  "font-mono text-sm",
+                  "tabular-nums text-sm",
                   amount < 0 ? "text-error" : "text-foreground"
                 )}
               >
@@ -211,7 +212,7 @@ function IncomeRow({
           <td
             key={source.id}
             className={cn(
-              "px-4 py-3 align-middle text-right font-mono text-sm min-w-[140px]",
+              "px-4 py-3 align-middle text-right tabular-nums text-sm min-w-[140px]",
               amount === 0
                 ? "text-muted-foreground"
                 : amount < 0
@@ -225,7 +226,7 @@ function IncomeRow({
       })}
       <td
         className={cn(
-          "px-4 py-3 align-middle text-right font-mono font-medium min-w-[140px]",
+          "px-4 py-3 align-middle text-right tabular-nums font-medium min-w-[140px]",
           total < 0 ? "text-error" : "text-primary"
         )}
       >
@@ -403,6 +404,7 @@ export function IncomeListContent({
 
   return (
     <div className="space-y-4">
+      <PageHeader title="Income" />
       {/* Stat Cards */}
       <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard
@@ -549,7 +551,7 @@ export function IncomeListContent({
                 <span className="text-sm font-medium text-muted-foreground">
                   {selectedYear === "all" ? "Total Income" : `${selectedYear} Total`}
                 </span>
-                <span className="font-mono font-bold text-lg text-primary">
+                <span className="tabular-nums font-bold text-lg text-primary">
                   <MaskedValue value={formatCurrency(currentTotal)} />
                 </span>
               </div>

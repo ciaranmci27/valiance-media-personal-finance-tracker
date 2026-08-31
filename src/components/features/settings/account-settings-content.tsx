@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
 import Link from "next/link";
 import { ArrowLeft, Save, Loader2, Mail, Lock, AlertCircle, CheckCircle2, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -101,8 +102,9 @@ export function AccountSettingsContent({ user }: AccountSettingsContentProps) {
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-y-2">
         <div className="flex items-center gap-3">
+          <MobileMenuButton />
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
             <UserIcon className="h-5 w-5 text-primary" />
           </div>
@@ -113,12 +115,15 @@ export function AccountSettingsContent({ user }: AccountSettingsContentProps) {
             </p>
           </div>
         </div>
-        <Link href="/settings">
-          <Button size="sm" className="rounded-xl gap-1">
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-        </Link>
+        <div className="ml-auto flex items-center gap-2">
+          <Link href="/settings">
+            <Button size="sm" className="rounded-xl gap-1">
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </Button>
+          </Link>
+          <HeaderControls />
+        </div>
       </div>
 
       {/* Message Toast */}

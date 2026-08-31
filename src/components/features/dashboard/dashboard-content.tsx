@@ -11,6 +11,8 @@ import { NetWorthChart } from "@/components/charts/net-worth-chart";
 import { IncomeBreakdownChart } from "@/components/charts/income-breakdown-chart";
 import { formatCurrency, toMonthlyAmount, cn, formatMonth, formatMonthShort } from "@/lib/utils";
 import { MaskedValue, useMaskedHover } from "@/components/ui/masked-value";
+import { PageHeader } from "@/components/layout/page-header";
+import { siteConfig } from "@/config/site";
 import type { IncomeEntry, IncomeSource, IncomeAmount, Expense, ExpenseHistory, NetWorth } from "@/types/database";
 
 // Chart range options
@@ -432,8 +434,18 @@ export function DashboardContent({
     return formatMonth(month);
   };
 
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  const firstName = siteConfig.realName.split(" ")[0];
+
   return (
     <div className="space-y-4">
+      <PageHeader
+        title={`${greeting}, ${firstName}`}
+        subtitle="Here's where things stand today."
+      />
+
       {/* Header with Period Selector */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-4">

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { PageHeader } from "@/components/layout/page-header";
 import * as ReactDOM from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -734,6 +735,7 @@ export function AutomationsListContent({
 
   return (
     <div className="space-y-4">
+      <PageHeader title="Automations" />
       {confirmDialog}
       {/* Summary Cards */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-4">

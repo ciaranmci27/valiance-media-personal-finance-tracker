@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { PageHeader } from "@/components/layout/page-header";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -792,6 +793,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
 
   return (
     <div className="space-y-4 animate-fade-up">
+      <PageHeader title="Tax Estimator" />
       {/* Filters Row */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {/* Profile summary + settings link */}
@@ -1097,7 +1099,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                         }
                         disabled={fieldsDisabled}
                         className={cn(
-                          "h-8 text-sm font-mono flex-1 sm:flex-initial",
+                          "h-8 text-sm tabular-nums flex-1 sm:flex-initial",
                           fieldsDisabled && "opacity-60"
                         )}
                       />
@@ -1186,7 +1188,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                       onChange={(e) =>
                         updateCapitalGain(gain.id, "amount", Number(e.target.value) || 0)
                       }
-                      className="h-8 text-sm font-mono flex-1 sm:flex-initial"
+                      className="h-8 text-sm tabular-nums flex-1 sm:flex-initial"
                     />
                   </div>
                 </div>
@@ -1205,19 +1207,19 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
             <CardContent className="px-4 pb-3 pt-0 space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Standard Deduction</span>
-                <span className="font-mono font-medium text-foreground">
+                <span className="tabular-nums font-medium text-foreground">
                   {formatCurrency(taxConfig?.standardDeductions[filingStatus] ?? 0)}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">SE Deduction</span>
-                <span className="font-mono font-medium text-foreground">
+                <span className="tabular-nums font-medium text-foreground">
                   {formatCurrency(breakdown?.seDeduction ?? 0)}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">QBI Deduction (20%)</span>
-                <span className="font-mono font-medium text-foreground">
+                <span className="tabular-nums font-medium text-foreground">
                   {formatCurrency(breakdown?.qbiDeduction ?? 0)}
                 </span>
               </div>
@@ -1236,7 +1238,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                         setDependents(Math.max(0, Number(e.target.value) || 0));
                         markDirty();
                       }}
-                      className="h-8 text-sm font-mono w-24 text-right"
+                      className="h-8 text-sm tabular-nums w-24 text-right"
                     />
                   </div>
                   <div className="flex items-center justify-between gap-2 sm:basis-1/2 min-w-0">
@@ -1252,7 +1254,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                         setOtherDependents(Math.max(0, Number(e.target.value) || 0));
                         markDirty();
                       }}
-                      className="h-8 text-sm font-mono w-24 text-right"
+                      className="h-8 text-sm tabular-nums w-24 text-right"
                     />
                   </div>
                 </div>
@@ -1268,7 +1270,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                         setAdditionalDeductions(Number(e.target.value) || 0);
                         markDirty();
                       }}
-                      className="h-8 text-sm font-mono w-24 text-right"
+                      className="h-8 text-sm tabular-nums w-24 text-right"
                     />
                   </div>
                   <div className="flex items-center justify-between gap-2 sm:basis-1/2 min-w-0">
@@ -1282,7 +1284,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                         setAdditionalCredits(Number(e.target.value) || 0);
                         markDirty();
                       }}
-                      className="h-8 text-sm font-mono w-24 text-right"
+                      className="h-8 text-sm tabular-nums w-24 text-right"
                     />
                   </div>
                 </div>
@@ -1354,7 +1356,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                                 setBusinessW2Wages(Math.max(0, Number(e.target.value) || 0));
                                 markDirty();
                               }}
-                              className="h-8 text-sm font-mono w-24 text-right"
+                              className="h-8 text-sm tabular-nums w-24 text-right"
                             />
                           </div>
                           <div className="flex items-center justify-between gap-2 sm:basis-1/2 min-w-0">
@@ -1368,7 +1370,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                                 setBusinessPropertyBasis(Math.max(0, Number(e.target.value) || 0));
                                 markDirty();
                               }}
-                              className="h-8 text-sm font-mono w-24 text-right"
+                              className="h-8 text-sm tabular-nums w-24 text-right"
                             />
                           </div>
                         </div>
@@ -1598,7 +1600,7 @@ function GroupPanel({
           )}
         >
           <span>{subtotalLabel}</span>
-          <span className="font-mono">{subtotalValue}</span>
+          <span className="tabular-nums">{subtotalValue}</span>
         </div>
       )}
     </div>
@@ -1655,7 +1657,7 @@ function CollapsibleBracketTable({
             )}
           />
         </span>
-        <span className="font-mono font-semibold text-sm">{fmtMasked(total)}</span>
+        <span className="tabular-nums font-semibold text-sm">{fmtMasked(total)}</span>
       </button>
 
       <div
@@ -1678,16 +1680,16 @@ function CollapsibleBracketTable({
               <tbody>
                 {brackets.map((b, i) => (
                   <tr key={i} className="border-t border-border/30">
-                    <td className="py-1 px-1 font-mono">{pct(b.rate)}</td>
-                    <td className="py-1 px-1 text-right font-mono text-muted-foreground">
+                    <td className="py-1 px-1 tabular-nums">{pct(b.rate)}</td>
+                    <td className="py-1 px-1 text-right tabular-nums text-muted-foreground">
                       {b.rangeEnd === Infinity
                         ? `${fmt(b.rangeStart)}+`
                         : `${fmt(b.rangeStart)} - ${fmt(b.rangeEnd)}`}
                     </td>
-                    <td className="py-1 px-1 text-right font-mono">
+                    <td className="py-1 px-1 text-right tabular-nums">
                       {fmtMasked(b.taxableInBracket)}
                     </td>
-                    <td className="py-1 px-1 text-right font-mono font-medium">
+                    <td className="py-1 px-1 text-right tabular-nums font-medium">
                       {fmtMasked(b.tax)}
                     </td>
                   </tr>
@@ -1975,7 +1977,7 @@ function CalculationResults({
                       </span>
                     </span>
                   </Tooltip>
-                  <span className="font-mono">{fmtMasked(breakdown.ficaAutoCredited)}</span>
+                  <span className="tabular-nums">{fmtMasked(breakdown.ficaAutoCredited)}</span>
                 </div>
               )}
               {breakdown.excessSocialSecurityWithheld > 0 && (
@@ -1983,7 +1985,7 @@ function CalculationResults({
                   <Tooltip content="Each employer withholds Social Security up to the wage base on its own payroll. With more than one job that over-withholds, and the excess comes back as a refundable credit on Schedule 3.">
                     <span className="cursor-help">Excess Social Security</span>
                   </Tooltip>
-                  <span className="font-mono">{fmtMasked(breakdown.excessSocialSecurityWithheld)}</span>
+                  <span className="tabular-nums">{fmtMasked(breakdown.excessSocialSecurityWithheld)}</span>
                 </div>
               )}
               {breakdown.additionalChildTaxCredit > 0 && (
@@ -1991,7 +1993,7 @@ function CalculationResults({
                   <Tooltip content="The child credit you could not use against income tax comes back as a refund, up to $1,700 per child and limited to 15% of earnings over $2,500.">
                     <span className="cursor-help">Refundable Child Credit</span>
                   </Tooltip>
-                  <span className="font-mono">{fmtMasked(breakdown.additionalChildTaxCredit)}</span>
+                  <span className="tabular-nums">{fmtMasked(breakdown.additionalChildTaxCredit)}</span>
                 </div>
               )}
               <div className="flex items-center justify-between pl-3 pt-0.5">
@@ -2165,7 +2167,7 @@ function PaymentRow({
           placeholder="0"
           value={payment.amount || ""}
           onChange={(e) => onUpdate(payment.id, "amount", Number(e.target.value) || 0)}
-          className="h-8 text-sm font-mono flex-1 sm:flex-initial"
+          className="h-8 text-sm tabular-nums flex-1 sm:flex-initial"
         />
       </div>
     </div>
@@ -2196,7 +2198,7 @@ function CopyableValue({
       type="button"
       onClick={handleCopy}
       className={cn(
-        "font-mono cursor-pointer rounded px-1 -mx-1 transition-colors hover:bg-secondary/60 active:scale-95",
+        "tabular-nums cursor-pointer rounded px-1 -mx-1 transition-colors hover:bg-secondary/60 active:scale-95",
         className
       )}
       title="Click to copy"
@@ -2239,7 +2241,7 @@ function Row({
       </span>
       <span
         className={cn(
-          "font-mono",
+          "tabular-nums",
           bold && "font-semibold",
           color === "error" && "text-error",
           color === "success" && "text-success",

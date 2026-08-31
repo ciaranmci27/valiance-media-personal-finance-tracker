@@ -138,7 +138,7 @@ export function IncomeChart({ data, sources, isRevealed: externalRevealed }: Inc
                       {entry.dataKey === "total" ? "Total" : entry.dataKey}
                     </span>
                   </div>
-                  <span className="font-mono font-medium">
+                  <span className="tabular-nums font-medium">
                     {showValues ? formatCurrency(entry.value) : "•••••"}
                   </span>
                 </div>

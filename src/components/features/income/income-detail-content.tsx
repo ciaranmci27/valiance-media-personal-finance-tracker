@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
 import { useRouter } from "next/navigation";
 import {
   Calendar,
@@ -483,8 +484,9 @@ export function IncomeDetailContent({
     <div className="max-w-4xl mx-auto space-y-6">
       {confirmDialog}
 
-      <div className="hidden md:flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-3 min-w-0">
+          <MobileMenuButton />
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
             <ReceiptText className="h-5 w-5 text-primary" />
           </div>
@@ -495,6 +497,7 @@ export function IncomeDetailContent({
             </p>
           </div>
         </div>
+        <HeaderControls />
       </div>
 
       <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-px rounded-xl overflow-hidden glass-card">
@@ -545,7 +548,7 @@ export function IncomeDetailContent({
             <span className="text-sm font-medium">Total</span>
           </div>
           <p className={cn(
-            "text-xl sm:text-2xl font-bold font-mono",
+            "text-xl sm:text-2xl font-bold tabular-nums",
             monthTotal > 0 ? "text-primary" : monthTotal < 0 ? "text-error" : "text-muted-foreground",
           )}>
             {displayTotal}
@@ -560,7 +563,7 @@ export function IncomeDetailContent({
             <CalendarDays className="h-4 w-4" />
             <span className="text-sm font-medium">Items</span>
           </div>
-          <p className="text-xl sm:text-2xl font-bold font-mono">
+          <p className="text-xl sm:text-2xl font-bold tabular-nums">
             {activeLineItemCount}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
@@ -598,7 +601,7 @@ export function IncomeDetailContent({
               value={addAmount}
               onChange={(event) => setAddAmount(event.target.value)}
               placeholder="0.00"
-              className="h-[34px] min-h-[34px] px-2.5 py-1.5 font-mono"
+              className="h-[34px] min-h-[34px] px-2.5 py-1.5 tabular-nums"
             />
           </div>
           <div className="space-y-3">
@@ -686,7 +689,7 @@ export function IncomeDetailContent({
                         </div>
                       </div>
                       <p className={cn(
-                        "font-mono font-semibold",
+                        "tabular-nums font-semibold",
                         row.total < 0 ? "text-error" : "text-primary",
                       )}>
                         {displaySourceTotal}
@@ -732,7 +735,7 @@ export function IncomeDetailContent({
                                         label="Amount"
                                         value={editAmount}
                                         onChange={(event) => setEditAmount(event.target.value)}
-                                        className="h-[34px] min-h-[34px] px-2.5 py-1.5 font-mono"
+                                        className="h-[34px] min-h-[34px] px-2.5 py-1.5 tabular-nums"
                                       />
                                     </div>
                                     <Textarea
@@ -784,7 +787,7 @@ export function IncomeDetailContent({
                                     )}
                                   </div>
                                   <p className={cn(
-                                    "font-mono text-sm font-medium",
+                                    "tabular-nums text-sm font-medium",
                                     Number(item.amount) < 0 ? "text-error" : "text-foreground",
                                   )}>
                                     {displayItemAmount}

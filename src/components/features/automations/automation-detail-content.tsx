@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
 import { useRouter } from "next/navigation";
 import {
   Pencil,
@@ -601,10 +602,10 @@ export function AutomationDetailContent({
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       {confirmDialog}
-      {/* Header - hidden on mobile (mobile uses header bar) */}
-      <div className="hidden md:flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
+            <MobileMenuButton />
             <h1 className="text-2xl font-bold">{automation.name}</h1>
             <span
               className={cn(
@@ -634,6 +635,7 @@ export function AutomationDetailContent({
           )}
         </div>
         <div className="flex items-center gap-2">
+          <HeaderControls />
           {isEditing ? (
             <>
               <Button variant="ghost" onClick={handleCancel} disabled={isSaving}>

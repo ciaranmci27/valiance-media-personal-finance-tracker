@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -168,8 +169,9 @@ export function AddIncomeContent({
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
-      <div className="hidden md:flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
+          <MobileMenuButton />
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
             <ReceiptText className="h-5 w-5 text-primary" />
           </div>
@@ -180,12 +182,15 @@ export function AddIncomeContent({
             </p>
           </div>
         </div>
-        <Link href="/income">
-          <Button variant="ghost">
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/income">
+            <Button variant="ghost">
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </Button>
+          </Link>
+          <HeaderControls />
+        </div>
       </div>
 
       <div className="grid gap-px overflow-hidden rounded-xl glass-card md:grid-cols-3">
@@ -209,7 +214,7 @@ export function AddIncomeContent({
             <span className="text-sm font-medium">Month Total</span>
           </div>
           <p className={cn(
-            "text-2xl font-bold font-mono",
+            "text-2xl font-bold tabular-nums",
             monthTotal < 0 ? "text-error" : "text-primary",
           )}>
             {formatCurrency(monthTotal)}
@@ -220,7 +225,7 @@ export function AddIncomeContent({
             <ReceiptText className="h-4 w-4" />
             <span className="text-sm font-medium">Items Added</span>
           </div>
-          <p className="text-2xl font-bold font-mono">
+          <p className="text-2xl font-bold tabular-nums">
             {selectedMonthItems.length}
           </p>
         </div>
@@ -255,7 +260,7 @@ export function AddIncomeContent({
             value={amount}
             onChange={(event) => setAmount(event.target.value)}
             placeholder="0.00"
-            className="h-10 min-h-10 font-mono"
+            className="h-10 min-h-10 tabular-nums"
             required
           />
 
@@ -322,7 +327,7 @@ export function AddIncomeContent({
                       </div>
                     </div>
                     <p className={cn(
-                      "font-mono font-semibold",
+                      "tabular-nums font-semibold",
                       group.total < 0 ? "text-error" : "text-primary",
                     )}>
                       {formatCurrency(group.total)}
@@ -346,7 +351,7 @@ export function AddIncomeContent({
                           )}
                         </div>
                         <p className={cn(
-                          "font-mono text-sm font-medium",
+                          "tabular-nums text-sm font-medium",
                           Number(item.amount) < 0 ? "text-error" : "text-foreground",
                         )}>
                           {formatCurrency(Number(item.amount))}

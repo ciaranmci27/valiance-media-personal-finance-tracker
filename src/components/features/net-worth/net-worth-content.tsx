@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { PageHeader } from "@/components/layout/page-header";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -106,7 +107,7 @@ function NetWorthCard({
         <div className="text-right">
           <span
             className={cn(
-              "font-mono font-semibold text-lg",
+              "tabular-nums font-semibold text-lg",
               Number(entry.amount) < 0 ? "text-error" : "text-primary"
             )}
           >
@@ -123,7 +124,7 @@ function NetWorthCard({
               <span className="text-sm text-muted-foreground">Change</span>
               <span
                 className={cn(
-                  "font-mono text-sm",
+                  "tabular-nums text-sm",
                   isHidden && !isRevealed
                     ? "text-muted-foreground"
                     : change > 0
@@ -208,7 +209,7 @@ function NetWorthRow({
       </td>
       <td
         className={cn(
-          "px-4 py-3 align-middle text-right font-mono font-medium min-w-[140px]",
+          "px-4 py-3 align-middle text-right tabular-nums font-medium min-w-[140px]",
           Number(entry.amount) < 0 ? "text-error" : "text-primary"
         )}
       >
@@ -218,7 +219,7 @@ function NetWorthRow({
         {prevEntry && (
           <span
             className={cn(
-              "inline-flex items-center gap-1 font-mono text-sm",
+              "inline-flex items-center gap-1 tabular-nums text-sm",
               // Neutralize colors when hidden
               isHidden && !isRevealed
                 ? "text-muted-foreground"
@@ -397,6 +398,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
 
   return (
     <div className="space-y-4">
+      <PageHeader title="Net Worth" />
       {/* Stat Cards */}
       <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard
@@ -559,7 +561,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                 </span>
                 <span
                   className={cn(
-                    "font-mono font-bold text-lg",
+                    "tabular-nums font-bold text-lg",
                     stats.totalChange > 0
                       ? "text-success"
                       : stats.totalChange < 0
@@ -665,7 +667,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                       <td className="px-4 py-3 text-right">
                         <span
                           className={cn(
-                            "font-bold tracking-tight font-mono",
+                            "font-bold tracking-tight tabular-nums",
                             stats.totalChange > 0
                               ? "text-success"
                               : stats.totalChange < 0

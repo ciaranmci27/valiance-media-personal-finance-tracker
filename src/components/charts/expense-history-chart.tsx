@@ -57,7 +57,7 @@ export function ExpenseHistoryChart({ history }: ExpenseHistoryChartProps) {
         <div className="glass-card rounded-lg p-3 shadow-lg border border-border">
           <p className="text-xs text-muted-foreground mb-1">{data.label}</p>
           <p className="text-sm">
-            <span className="font-mono font-medium text-primary">
+            <span className="tabular-nums font-medium text-primary">
               {showValues ? formatCurrency(data.amount) : "•••••"}
             </span>
             <span className="text-muted-foreground ml-1.5 text-xs">/{data.frequency}</span>

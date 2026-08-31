@@ -1,5 +1,7 @@
-/* Google Fonts - Must be first, before Tailwind import */
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=JetBrains+Mono:ital,wght@0,100..800;1,100..800&display=swap');
+/* Fonts are loaded via next/font in src/app/layout.tsx (self-hosted DM Sans
+   variable + DM Mono), exposed as --font-dm-sans / --font-dm-mono on <html>.
+   Do NOT use a Google Fonts @import url() here: Turbopack drops external
+   @import rules from bundled CSS, silently breaking the webfont. */
 
 @import "tailwindcss";
 
@@ -27,9 +29,9 @@
   --error: 354 42% 59%; /* Muted coral-red #C4686E - fits teal/copper palette */
   --info: 199 89% 48%;
 
-  /* Typography */
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+  /* Typography (families come from next/font variables set on <html>) */
+  --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: var(--font-dm-mono), 'DM Mono', 'SF Mono', 'Fira Code', monospace;
 
   /* Animation */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -37,33 +39,39 @@
   --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
 
   /* Glass Effect */
-  --glass-blur: 20px;
-  --glass-saturate: 180%;
+  --glass-blur: 22px;
+  --glass-saturate: 150%;
 }
 
 /* Dark Theme (Default) */
 :root,
 [data-theme="dark"] {
-  --background: 240 15% 4%;
+  /* RGB triplet behind white/black-alpha effects (hover borders, scrollbars);
+     flips per theme so alpha tints invert automatically */
+  --ink: 255, 255, 255;
+
+  /* Base is deliberately deeper than the glass panels so cards sit lighter
+     than the canvas and the glass reads as glass */
+  --background: 225 20% 4%;
   --background-subtle: 240 12% 8%;
-  --foreground: 0 0% 96%;
+  --foreground: 240 5% 96%;
   --foreground-muted: 240 5% 65%;
 
-  --card: 240 12% 8%;
-  --card-foreground: 0 0% 96%;
-  --card-border: 240 10% 18%;
+  --card: 231 12% 10%;
+  --card-foreground: 240 5% 96%;
+  --card-border: 228 8% 16%;
 
-  --popover: 240 12% 10%;
-  --popover-foreground: 0 0% 96%;
+  --popover: 231 12% 10%;
+  --popover-foreground: 240 5% 96%;
 
   --primary: var(--teal);
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 240 10% 16%;
-  --secondary-foreground: 0 0% 96%;
+  --secondary: 230 11% 13%;
+  --secondary-foreground: 240 5% 96%;
 
-  --muted: 240 10% 14%;
-  --muted-foreground: 240 5% 55%;
+  --muted: 231 11% 11%;
+  --muted-foreground: 240 5% 65%;
 
   --accent: var(--teal);
   --accent-foreground: 0 0% 100%;
@@ -71,45 +79,51 @@
   --destructive: var(--error);
   --destructive-foreground: 0 0% 100%;
 
-  --border: 240 10% 18%;
-  --input: 240 10% 14%;
+  --border: 228 8% 16%;
+  --input: 231 11% 11%;
   --ring: var(--teal);
 
-  /* Glass specific */
-  --glass-bg: rgba(18, 18, 24, 0.6);
-  --glass-border: rgba(91, 138, 138, 0.15);
-  --glass-highlight: rgba(255, 255, 255, 0.03);
+  /* Glass specific - panels sit LIGHTER than the base */
+  --glass-bg: rgba(26, 28, 35, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.09);
 
-  /* Gradient backgrounds */
-  --gradient-bg: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(91, 138, 138, 0.15), transparent);
+  /* Ambient back-light: brand-derived radials (teal top-left, copper
+     top-right, teal bottom) instead of a single teal wash */
+  --gradient-bg:
+    radial-gradient(58% 48% at 12% -6%, color-mix(in srgb, hsl(var(--teal)) 11%, transparent), transparent 60%),
+    radial-gradient(46% 42% at 96% 4%, color-mix(in srgb, hsl(var(--copper)) 6%, transparent), transparent 55%),
+    radial-gradient(70% 55% at 50% 116%, color-mix(in srgb, hsl(var(--teal)) 7%, transparent), transparent 62%);
 
   /* Shadows */
-  --shadow-card: 0 4px 24px -4px rgba(0, 0, 0, 0.2);
-  --shadow-card-hover: 0 8px 32px -4px rgba(0, 0, 0, 0.3);
+  --shadow-card: 0 4px 24px -6px rgba(0, 0, 0, 0.55);
+  --shadow-card-hover: 0 10px 40px -10px rgba(0, 0, 0, 0.65);
 }
 
 /* Light Theme */
 [data-theme="light"] {
-  --background: 40 20% 96%;
-  --background-subtle: 40 15% 92%;
-  --foreground: 240 10% 10%;
-  --foreground-muted: 240 5% 40%;
+  --ink: 24, 24, 27;
+
+  --background: 220 12% 96%;
+  --background-subtle: 220 10% 92%;
+  --foreground: 240 6% 10%;
+  --foreground-muted: 240 4% 34%;
 
   --card: 0 0% 100%;
-  --card-foreground: 240 10% 10%;
-  --card-border: 240 10% 88%;
+  --card-foreground: 240 6% 10%;
+  --card-border: 240 6% 89%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 240 10% 10%;
+  --popover-foreground: 240 6% 10%;
 
   --primary: var(--teal);
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 240 10% 94%;
-  --secondary-foreground: 240 10% 20%;
+  --secondary: 220 8% 92%;
+  --secondary-foreground: 240 6% 20%;
 
-  --muted: 240 10% 92%;
-  --muted-foreground: 240 5% 45%;
+  --muted: 220 8% 93%;
+  --muted-foreground: 240 4% 34%;
 
   --accent: var(--teal);
   --accent-foreground: 0 0% 100%;
@@ -117,21 +131,24 @@
   --destructive: var(--error);
   --destructive-foreground: 0 0% 100%;
 
-  --border: 240 10% 88%;
-  --input: 40 15% 98%;
+  --border: 240 6% 89%;
+  --input: 220 10% 98%;
   --ring: var(--teal);
 
   /* Glass specific - lighter */
-  --glass-bg: rgba(255, 255, 255, 0.7);
-  --glass-border: rgba(91, 138, 138, 0.2);
-  --glass-highlight: rgba(255, 255, 255, 0.5);
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(0, 0, 0, 0.10);
+  --glass-highlight: rgba(255, 255, 255, 0.70);
 
-  /* Gradient backgrounds */
-  --gradient-bg: radial-gradient(ellipse 80% 50% at 50% -20%, rgba(91, 138, 138, 0.08), transparent);
+  /* Ambient back-light - subtler in light mode */
+  --gradient-bg:
+    radial-gradient(58% 48% at 12% -6%, color-mix(in srgb, hsl(var(--teal)) 7%, transparent), transparent 60%),
+    radial-gradient(46% 42% at 96% 4%, color-mix(in srgb, hsl(var(--copper)) 4%, transparent), transparent 55%),
+    radial-gradient(70% 55% at 50% 116%, color-mix(in srgb, hsl(var(--teal)) 4%, transparent), transparent 62%);
 
   /* Shadows - much subtler for light mode */
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03);
-  --shadow-card-hover: 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 20px -8px rgba(16, 24, 40, 0.12);
+  --shadow-card-hover: 0 10px 32px -10px rgba(16, 24, 40, 0.18);
 }
 
 /* ============================================================================
@@ -213,6 +230,31 @@ body::before {
   background: var(--gradient-bg);
   pointer-events: none;
   z-index: 0;
+  /* Promote to a stable compositor layer. These fixed layers sit inside the
+     backdrop of every .glass-card blur; left unpromoted, Chrome re-rasterizes
+     them in tiles whenever content below repaints (chart hover), and the tile
+     seams show up as rectangular bands inside the blurred cards. */
+  transform: translateZ(0);
+}
+
+/* Film grain over the canvas - keeps large dark surfaces from reading flat.
+   Sits at the same layer as the gradient (behind z-10 content); glass panels
+   pick it up through their backdrop blur. Plain low opacity, NO blend mode:
+   mix-blend-mode inside a backdrop-filter's backdrop is a known Chromium
+   artifact trigger (same rectangular seams as above). */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 100vh;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 140px 140px;
+  opacity: 0.02;
+  pointer-events: none;
+  z-index: 0;
+  transform: translateZ(0);
 }
 
 /* Hide native number input spinners */
@@ -238,17 +280,16 @@ input[type="number"] {
   font-family: var(--font-mono);
 }
 
-/* Number styling - tabular figures for alignment */
+/* Number styling - tabular figures for alignment. Numbers stay in DM Sans
+   (matching the app, which never sets money in mono); DM Mono is reserved
+   for genuinely code-like values via the font-mono utility. */
 .tabular-nums {
   font-variant-numeric: tabular-nums;
-  font-family: var(--font-mono);
 }
 
 /* Currency styling */
 .currency {
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
 }
 
 .currency-positive {
@@ -263,36 +304,70 @@ input[type="number"] {
    GLASS MORPHISM UTILITIES
    ============================================================================ */
 
+/* NOTE: -webkit-backdrop-filter must come BEFORE the standard property.
+   Lightning CSS (Turbopack) folds the alias into the same logical property
+   and keeps only the last declaration, so standard-first order shipped
+   webkit-only CSS and silently disabled the blur in Chrome. */
 .glass {
   background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
 }
 
 .glass-subtle {
   background: var(--glass-bg);
-  backdrop-filter: blur(12px) saturate(150%);
   -webkit-backdrop-filter: blur(12px) saturate(150%);
+  backdrop-filter: blur(12px) saturate(150%);
 }
 
 .glass-strong {
   background: var(--glass-bg);
-  backdrop-filter: blur(30px) saturate(200%);
   -webkit-backdrop-filter: blur(30px) saturate(200%);
+  backdrop-filter: blur(30px) saturate(200%);
 }
 
-/* Glass card with inner highlight */
+/* Glass card. No inset top-highlight line: the extra 1px inner edge read as
+   a doubled border next to the app's cards, which use border + shadow only. */
 .glass-card {
   background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border: 1px solid var(--glass-border);
-  box-shadow: inset 0 1px 0 0 var(--glass-highlight), var(--shadow-card);
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease,
+    transform 0.2s cubic-bezier(0.2, 1, 0.3, 1);
 }
 
 .glass-card:hover {
-  border-color: rgba(91, 138, 138, 0.3);
-  box-shadow: inset 0 1px 0 0 var(--glass-highlight), var(--shadow-card-hover);
+  border-color: rgba(var(--ink), 0.16);
+  box-shadow: var(--shadow-card-hover);
+  transform: translateY(-1px);
+}
+
+/* Sidebar rail: opaque surface base with the translucent glass fill painted
+   over it, so it matches the glass look without letting a light page bleed
+   through (the rail stays dark in both themes via data-theme="dark"). */
+.glass-sidebar {
+  background-color: hsl(var(--background));
+  background-image: linear-gradient(var(--glass-bg), var(--glass-bg));
+  border-right: 1px solid hsl(var(--border));
+  box-shadow: 10px 0 34px -22px rgba(0, 0, 0, 0.6);
+}
+
+/* Soft inset brand ring for active sidebar items */
+.glow-brand-soft {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, hsl(var(--teal)) 28%, transparent);
+}
+
+/* Thin white-alpha scrollbar for the always-dark sidebar */
+.sidebar-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.18);
 }
 
 /* ============================================================================
@@ -429,6 +504,9 @@ input[type="number"] {
   .stagger-4, .stagger-5, .stagger-6 {
     animation-delay: 0ms !important;
   }
+  .glass-card:hover {
+    transform: none;
+  }
   *, *::before, *::after {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
@@ -440,8 +518,8 @@ input[type="number"] {
    ============================================================================ */
 
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -449,12 +527,12 @@ input[type="number"] {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: hsl(var(--muted));
-  border-radius: 4px;
+  background: rgba(var(--ink), 0.12);
+  border-radius: 2px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(var(--muted-foreground));
+  background: rgba(var(--ink), 0.22);
 }
 
 .scrollbar-hide {
@@ -495,8 +573,8 @@ input[type="number"] {
 
 .recharts-text {
   fill: hsl(var(--muted-foreground));
-  font-family: var(--font-mono);
   font-size: 11px;
+  font-weight: 500;
 }
 
 .recharts-tooltip-wrapper {

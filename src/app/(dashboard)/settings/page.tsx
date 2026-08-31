@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
 import {
   User,
   Palette,
@@ -84,9 +85,9 @@ const settingsSections = [
 export default function SettingsPage() {
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
-      {/* Header - hidden on mobile, shown on desktop */}
-      <div className="hidden md:block space-y-1">
+      <div className="space-y-1">
         <div className="flex items-center gap-3">
+          <MobileMenuButton />
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
             <Settings className="h-5 w-5 text-primary" />
           </div>
@@ -96,6 +97,7 @@ export default function SettingsPage() {
               Manage your account and preferences
             </p>
           </div>
+          <HeaderControls className="ml-auto" />
         </div>
       </div>
 

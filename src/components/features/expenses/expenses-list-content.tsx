@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { PageHeader } from "@/components/layout/page-header";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -184,7 +185,7 @@ function ExpenseCard({
           <div className="grid grid-cols-3 gap-2">
             <div>
               <span className="text-xs text-muted-foreground block mb-0.5">Amount</span>
-              <span className={cn("font-mono text-sm", isPaused && "text-muted-foreground")}>
+              <span className={cn("tabular-nums text-sm", isPaused && "text-muted-foreground")}>
                 {displayAmount}
               </span>
             </div>
@@ -198,7 +199,7 @@ function ExpenseCard({
               <span className="text-xs text-muted-foreground block mb-0.5">Monthly</span>
               <span
                 className={cn(
-                  "font-mono font-semibold",
+                  "tabular-nums font-semibold",
                   isPaused ? "text-muted-foreground font-normal" : "text-foreground"
                 )}
               >
@@ -314,11 +315,11 @@ function ExpenseRow({
       <td className="px-4 py-3 align-middle text-sm text-muted-foreground">
         {expense.category ? EXPENSE_CATEGORIES[expense.category] : "—"}
       </td>
-      <td className={cn("px-4 py-3 align-middle text-right font-mono text-sm min-w-[140px]", isPaused && "text-muted-foreground")}>{displayAmount}</td>
+      <td className={cn("px-4 py-3 align-middle text-right tabular-nums text-sm min-w-[140px]", isPaused && "text-muted-foreground")}>{displayAmount}</td>
       <td className="px-4 py-3 align-middle text-sm text-muted-foreground">
         {frequencyLabels[expense.frequency]}
       </td>
-      <td className={cn("px-4 py-3 align-middle text-right font-mono text-sm font-medium min-w-[140px]", isPaused && "text-muted-foreground font-normal")}>
+      <td className={cn("px-4 py-3 align-middle text-right tabular-nums text-sm font-medium min-w-[140px]", isPaused && "text-muted-foreground font-normal")}>
         {displayMonthly}
       </td>
       <td className="px-4 py-3 align-middle">
@@ -522,6 +523,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
 
   return (
     <div className="space-y-4">
+      <PageHeader title="Fixed Expenses" />
       {/* Stat Cards */}
       <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard
@@ -706,7 +708,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                       ? "Personal Total"
                       : `${siteConfig.companyName} Total`}
                 </span>
-                <span className="font-mono font-bold text-lg text-foreground">
+                <span className="tabular-nums font-bold text-lg text-foreground">
                   <MaskedValue value={formatCurrency(currentTotals.monthly)} />
                 </span>
               </div>

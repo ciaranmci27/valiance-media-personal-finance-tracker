@@ -74,7 +74,7 @@ export function NetWorthChart({ data, isRevealed: externalRevealed }: NetWorthCh
               className="w-2 h-2 rounded-full"
               style={{ backgroundColor: color }}
             />
-            <p className="text-lg font-mono font-bold" style={{ color }}>
+            <p className="text-lg tabular-nums font-bold" style={{ color }}>
               {showValues ? formatCurrency(value) : "•••••"}
             </p>
           </div>

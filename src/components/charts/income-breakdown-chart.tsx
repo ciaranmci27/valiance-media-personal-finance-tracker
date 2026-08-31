@@ -119,7 +119,7 @@ export function IncomeBreakdownChart({ data, isRevealed: externalRevealed, size 
             </span>
           </div>
           <p className="text-sm">
-            <span className="font-mono font-medium" style={item.isNegative ? { color: NEGATIVE_COLOR } : undefined}>
+            <span className="tabular-nums font-medium" style={item.isNegative ? { color: NEGATIVE_COLOR } : undefined}>
               {showValues ? formatCurrency(item.actualValue, { compact: true }) : "•••••"}
             </span>
             <span className="text-muted-foreground ml-2">

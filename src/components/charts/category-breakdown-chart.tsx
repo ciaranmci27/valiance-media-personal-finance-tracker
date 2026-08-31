@@ -73,7 +73,7 @@ export function CategoryBreakdownChart({
             <span className="font-medium text-foreground">{item.name}</span>
           </div>
           <p className="text-sm">
-            <span className="font-mono font-medium">
+            <span className="tabular-nums font-medium">
               {showValues ? formatCurrency(item.value) : "•••••"}
             </span>
             <span className="text-muted-foreground ml-2">

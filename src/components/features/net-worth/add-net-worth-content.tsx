@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -175,13 +176,14 @@ export function AddNetWorthContent({
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
-      {/* Header - hidden on mobile (mobile uses header bar) */}
-      <div className="hidden md:flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
+          <MobileMenuButton />
           <h1 className="text-xl font-semibold">Net Worth Entry</h1>
         </div>
 
         <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+          <HeaderControls />
           <Link href="/net-worth">
             <Button variant="ghost" disabled={isSaving}>
               <X className="h-4 w-4 sm:mr-1" />
@@ -285,12 +287,12 @@ export function AddNetWorthContent({
               setAmount(Number(raw) || 0);
             }}
             placeholder="0"
-            className="text-center text-xl sm:text-2xl font-bold font-mono max-w-[200px]"
+            className="text-center text-xl sm:text-2xl font-bold tabular-nums max-w-[200px]"
           />
           {previousEntry && !hasConflict && (
             amount > 0 ? (
               <p className={cn(
-                "text-xs font-mono mt-1",
+                "text-xs tabular-nums mt-1",
                 trend === "up" && "text-success",
                 trend === "down" && "text-error",
                 trend === "neutral" && "text-muted-foreground"

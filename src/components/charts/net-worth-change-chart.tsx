@@ -39,7 +39,7 @@ export function NetWorthChangeChart({
             {formatMonthShort(item.date)}
           </p>
           <p
-            className={`text-sm font-mono font-medium ${
+            className={`text-sm tabular-nums font-medium ${
               isPositive ? "text-success" : "text-error"
             }`}
           >

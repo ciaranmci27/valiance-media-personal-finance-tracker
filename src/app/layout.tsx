@@ -1,6 +1,25 @@
 import type { Metadata } from "next";
+import { DM_Sans, DM_Mono } from "next/font/google";
 import { siteConfig } from "@/config/site";
 import "./globals.css";
+
+// Self-hosted via next/font: Turbopack silently drops external @import url()
+// rules from globals.css, which left the UI rendering whatever local "DM Sans"
+// the OS had (or the system font) with synthesized weights.
+const dmSans = DM_Sans({
+  subsets: ["latin"],
+  style: ["normal", "italic"],
+  axes: ["opsz"],
+  variable: "--font-dm-sans",
+  display: "swap",
+});
+
+const dmMono = DM_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-dm-mono",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: {
@@ -44,18 +63,6 @@ const initScript = `
     } else if (hidden === 'false') {
       document.cookie = 'data-hidden=false; path=/; max-age=31536000; SameSite=Lax';
     }
-
-    // Sidebar collapsed preference
-    var sidebarCollapsed = localStorage.getItem('sidebar-collapsed');
-    if (sidebarCollapsed === 'true') {
-      document.documentElement.setAttribute('data-sidebar-collapsed', 'true');
-      if (document.cookie.indexOf('sidebar-collapsed=true') === -1) {
-        document.cookie = 'sidebar-collapsed=true; path=/; max-age=31536000; SameSite=Lax';
-      }
-    } else if (sidebarCollapsed === 'false') {
-      document.documentElement.setAttribute('data-sidebar-collapsed', 'false');
-      document.cookie = 'sidebar-collapsed=false; path=/; max-age=31536000; SameSite=Lax';
-    }
   } catch (e) {}
 })();
 `;
@@ -78,7 +85,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" data-theme="dark" suppressHydrationWarning>
+    <html
+      lang="en"
+      data-theme="dark"
+      suppressHydrationWarning
+      className={`${dmSans.variable} ${dmMono.variable}`}
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: initScript }} />
         <style dangerouslySetInnerHTML={{ __html: privacyCriticalCSS }} />

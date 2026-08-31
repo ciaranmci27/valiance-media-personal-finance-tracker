@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -829,8 +830,8 @@ export function AutomationFormContent() {
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      {/* Header - hidden on mobile (mobile uses header bar) */}
-      <div className="hidden md:flex items-center gap-3">
+      <div className="flex items-center gap-3">
+        <MobileMenuButton />
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
           <Zap className="h-5 w-5 text-primary" />
         </div>
@@ -840,6 +841,7 @@ export function AutomationFormContent() {
             Build a workflow with a trigger and actions
           </p>
         </div>
+        <HeaderControls className="ml-auto" />
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-2">

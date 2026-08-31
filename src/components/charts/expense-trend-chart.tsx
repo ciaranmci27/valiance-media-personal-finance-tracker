@@ -124,7 +124,7 @@ export function ExpenseTrendChart({ history }: ExpenseTrendChartProps) {
         <div className="glass-card rounded-lg p-3 shadow-lg border border-border">
           <p className="text-sm font-medium text-foreground mb-1">{label}</p>
           <p className="text-sm">
-            <span className="font-mono font-medium text-primary">
+            <span className="tabular-nums font-medium text-primary">
               {showValues ? formatCurrency(payload[0].value) : "•••••"}
             </span>
             <span className="text-muted-foreground ml-2">/month</span>
