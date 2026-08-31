@@ -21,6 +21,14 @@ export const APP_ENV: string = RAW_APP_ENV === '' ? 'production' : RAW_APP_ENV;
 const LOCAL_OR_TEST_ENVS = new Set(['local', 'ci', 'test']);
 export const isLocalOrTestEnv = LOCAL_OR_TEST_ENVS.has(APP_ENV);
 
+// Payroll is disabled by default: automating the tax payments it prepares
+// requires being an IRS-authorized payroll provider, so the module is hidden
+// until that exists (or a provider integration replaces it). Set to 'true' to
+// bring the UI back. The process-automations edge function has its own copy
+// of this flag (Supabase secret PAYROLL_ENABLED) since NEXT_PUBLIC_ vars
+// don't reach Deno.
+export const PAYROLL_ENABLED = process.env.NEXT_PUBLIC_PAYROLL_ENABLED === 'true';
+
 export const DISABLE_ADMIN_AUTH = process.env.DISABLE_ADMIN_AUTH === 'true';
 export const ADMIN_ALLOWED_EMAILS = optional(process.env.ADMIN_ALLOWED_EMAILS);
 

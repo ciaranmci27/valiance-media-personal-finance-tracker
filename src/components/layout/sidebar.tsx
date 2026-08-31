@@ -25,6 +25,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 import { Tooltip } from "@/components/ui/tooltip";
 import { isDemoMode } from "@/lib/demo";
+import { PAYROLL_ENABLED } from "@/lib/env";
 
 interface NavItem {
   title: string;
@@ -58,11 +59,15 @@ const navItems: NavItem[] = [
     href: "/tax-payments",
     icon: Landmark,
   },
-  {
-    title: "Payroll",
-    href: "/payroll",
-    icon: Users2,
-  },
+  ...(PAYROLL_ENABLED
+    ? [
+        {
+          title: "Payroll",
+          href: "/payroll",
+          icon: Users2,
+        },
+      ]
+    : []),
   {
     title: "Automations",
     href: "/automations",

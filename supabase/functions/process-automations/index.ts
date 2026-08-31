@@ -17,6 +17,12 @@ import {
 // produced by admin/src/lib/email/crypto.ts (iv_hex:tag_hex:cipher_hex).
 const SMTP_ENCRYPTION_KEY = Deno.env.get("SMTP_ENCRYPTION_KEY") || "";
 
+// Mirrors NEXT_PUBLIC_PAYROLL_ENABLED in the Next.js app (that value can't
+// reach Deno, so this is a separate Supabase secret). Defaults off: while the
+// payroll feature is disabled, payroll_event automations must not fire, even
+// via manual trigger. Re-enable with `supabase secrets set PAYROLL_ENABLED=true`.
+const PAYROLL_ENABLED = Deno.env.get("PAYROLL_ENABLED") === "true";
+
 interface EmailAccountRow {
   id: string;
   label: string;
@@ -818,6 +824,23 @@ serve(async (req: Request) => {
 
       automations = result.data;
       queryError = result.error;
+    }
+
+    // Silently drop payroll_event automations while payroll is disabled.
+    // Covers both the scheduled sweep and manual triggers. Rows are left
+    // untouched (is_active, next_run_at) so re-enabling the flag resumes them.
+    if (!PAYROLL_ENABLED && automations) {
+      const skipped = automations.filter(
+        (a: { trigger_type: string }) => a.trigger_type === "payroll_event"
+      ).length;
+      if (skipped > 0) {
+        console.log(
+          `Skipping ${skipped} payroll_event automation(s): PAYROLL_ENABLED is not set`
+        );
+        automations = automations.filter(
+          (a: { trigger_type: string }) => a.trigger_type !== "payroll_event"
+        );
+      }
     }
 
     if (queryError) {

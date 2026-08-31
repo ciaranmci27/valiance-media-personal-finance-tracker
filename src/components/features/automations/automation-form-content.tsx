@@ -55,6 +55,7 @@ import type {
   PayrollForm,
 } from "@/types/payroll";
 import { computeNextPayrollEvent } from "@/lib/payroll/next-event";
+import { PAYROLL_ENABLED } from "@/lib/env";
 
 interface ActionItem {
   id: string;
@@ -568,8 +569,11 @@ export function AutomationFormContent() {
   // Payroll Event trigger option (hidden entirely when no active employees
   // exist), and to drive the scope dropdown / live preview when the trigger
   // is selected. Employees, deposits, and forms are all pulled so every event
-  // type works immediately without another fetch.
+  // type works immediately without another fetch. When the payroll feature is
+  // disabled the fetch is skipped, which leaves hasActiveEmployees false and
+  // hides the trigger through the same gate.
   React.useEffect(() => {
+    if (!PAYROLL_ENABLED) return;
     const supabase = createClient();
     let cancelled = false;
     void (async () => {
