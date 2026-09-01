@@ -488,7 +488,7 @@ export function IncomeDetailContent({
         <div className="flex items-center gap-3 min-w-0">
           <MobileMenuButton />
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <ReceiptText className="h-5 w-5 text-primary" />
+            <ReceiptText className="h-5 w-5 text-teal-light" />
           </div>
           <div>
             <h1 className="text-xl font-semibold">Income Ledger</h1>
@@ -501,7 +501,7 @@ export function IncomeDetailContent({
       </div>
 
       <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-px rounded-xl overflow-hidden glass-card">
-        <div className="bg-card/50 p-3 sm:p-5 flex flex-col items-center justify-center">
+        <div className="bg-white/[0.03] p-3 sm:p-5 flex flex-col items-center justify-center">
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
             <Calendar className="h-4 w-4" />
             <span className="text-sm font-medium">Month</span>
@@ -540,7 +540,7 @@ export function IncomeDetailContent({
         </div>
 
         <div
-          className="bg-card/50 p-3 sm:p-5 text-center border-t min-[420px]:border-t-0 min-[420px]:border-l border-border/50 flex flex-col items-center justify-center"
+          className="bg-white/[0.03] p-3 sm:p-5 text-center border-t min-[420px]:border-t-0 min-[420px]:border-l border-white/[0.06] flex flex-col items-center justify-center"
           {...hoverProps}
         >
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
@@ -549,7 +549,7 @@ export function IncomeDetailContent({
           </div>
           <p className={cn(
             "text-xl sm:text-2xl font-bold tabular-nums",
-            monthTotal > 0 ? "text-primary" : monthTotal < 0 ? "text-error" : "text-muted-foreground",
+            monthTotal > 0 ? "text-teal-light" : monthTotal < 0 ? "text-error" : "text-muted-foreground",
           )}>
             {displayTotal}
           </p>
@@ -558,7 +558,7 @@ export function IncomeDetailContent({
           </p>
         </div>
 
-        <div className="bg-card/50 p-3 sm:p-5 text-center border-t min-[420px]:border-t-0 min-[420px]:border-l border-border/50 flex flex-col items-center justify-center">
+        <div className="bg-white/[0.03] p-3 sm:p-5 text-center border-t min-[420px]:border-t-0 min-[420px]:border-l border-white/[0.06] flex flex-col items-center justify-center">
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
             <CalendarDays className="h-4 w-4" />
             <span className="text-sm font-medium">Items</span>
@@ -668,7 +668,7 @@ export function IncomeDetailContent({
                     <button
                       type="button"
                       onClick={() => toggleSource(row.source.id)}
-                      className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-secondary/30 transition-colors"
+                      className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-secondary transition-colors"
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <ChevronDown
@@ -690,14 +690,14 @@ export function IncomeDetailContent({
                       </div>
                       <p className={cn(
                         "tabular-nums font-semibold",
-                        row.total < 0 ? "text-error" : "text-primary",
+                        row.total < 0 ? "text-error" : "text-teal-light",
                       )}>
                         {displaySourceTotal}
                       </p>
                     </button>
 
                     {isExpanded && (
-                      <div className="border-t border-border/50">
+                      <div className="border-t border-white/[0.06]">
                         {row.items.length === 0 ? (
                           <div className="px-4 py-4 text-sm text-muted-foreground">
                             No item history exists for this source yet.
@@ -716,7 +716,7 @@ export function IncomeDetailContent({
 
                               if (isEditing) {
                                 return (
-                                  <div key={item.id} className="p-4 bg-secondary/20 space-y-3">
+                                  <div key={item.id} className="p-4 bg-secondary space-y-3">
                                     <div className="grid gap-3 md:grid-cols-[150px_minmax(0,1fr)_130px]">
                                       <DateInput
                                         label="Date"
@@ -906,7 +906,7 @@ export function IncomeDetailContent({
             ) : (
               <button
                 type="button"
-                className="rounded-xl glass-card flex min-h-[160px] w-full items-start justify-start px-4 py-4 text-left cursor-pointer hover:bg-secondary/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                className="rounded-xl glass-card flex min-h-[160px] w-full items-start justify-start px-4 py-4 text-left cursor-pointer hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 onClick={() => setIsEditingNotes(true)}
               >
                 <p className={cn(

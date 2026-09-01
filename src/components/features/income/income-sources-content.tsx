@@ -184,7 +184,7 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
       <div className="flex items-center gap-3">
         <MobileMenuButton />
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-          <Layers className="h-5 w-5 text-primary" />
+          <Layers className="h-5 w-5 text-teal-light" />
         </div>
         <div>
           <h1 className="text-2xl font-bold">Income Sources</h1>
@@ -306,7 +306,7 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
               <div
                 key={source.id}
                 className={cn(
-                  "px-4 py-3 transition-colors hover:bg-secondary/30",
+                  "px-4 py-3 transition-colors hover:bg-secondary",
                   editingId === source.id ? "flex flex-col gap-3" : "flex items-center gap-4"
                 )}
               >

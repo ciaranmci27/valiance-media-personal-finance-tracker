@@ -381,7 +381,7 @@ export function RunBatchContent({
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <Play className="h-5 w-5 text-primary" aria-hidden="true" />
+              <Play className="h-5 w-5 text-teal-light" aria-hidden="true" />
             </div>
             <div>
               <h1 className="text-2xl font-bold">Calculate Payroll</h1>
@@ -396,7 +396,7 @@ export function RunBatchContent({
         <div className="glass-card rounded-xl p-4 flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <CalendarDays
-              className="h-4 w-4 text-primary"
+              className="h-4 w-4 text-teal-light"
               aria-hidden="true"
             />
             <span className="text-sm font-semibold text-foreground">
@@ -445,7 +445,7 @@ export function RunBatchContent({
                     {" "}
                     <Link
                       href={`/payroll/runs/${e.existing_run_id}`}
-                      className="font-medium text-primary hover:underline"
+                      className="font-medium text-teal-light hover:underline"
                     >
                       Open run &rarr;
                     </Link>
@@ -478,7 +478,7 @@ export function RunBatchContent({
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {/* Employees take home */}
-            <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
+            <div className="rounded-lg border border-border bg-secondary p-4 space-y-2">
               <div className="flex items-center gap-2">
                 <UserCircle
                   className="h-4 w-4 text-muted-foreground"
@@ -514,7 +514,7 @@ export function RunBatchContent({
             </div>
 
             {/* Employer pays */}
-            <div className="rounded-lg border border-border bg-secondary/20 p-4 space-y-2">
+            <div className="rounded-lg border border-border bg-secondary p-4 space-y-2">
               <div className="flex items-center gap-2">
                 <Wallet
                   className="h-4 w-4 text-muted-foreground"
@@ -584,7 +584,7 @@ export function RunBatchContent({
             {preview.errors.map((e) => (
               <li
                 key={e.employee.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-border bg-secondary/20 px-4 py-3"
+                className="flex items-center justify-between gap-3 rounded-lg border border-border bg-secondary px-4 py-3"
               >
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-foreground truncate">
@@ -628,7 +628,7 @@ export function RunBatchContent({
       ) : nothingToRun ? (
         <div className="glass-card rounded-xl p-10 text-center space-y-3">
           <div
-            className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-muted"
+            className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-secondary"
             aria-hidden="true"
           >
             <Users className="h-5 w-5 text-muted-foreground" />
@@ -788,7 +788,7 @@ function RunRow({
           aria-label={`Include ${item.employee.first_name} ${item.employee.last_name}`}
         />
 
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary font-semibold text-sm flex-shrink-0">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-teal-light font-semibold text-sm flex-shrink-0">
           {initials(item.employee.first_name, item.employee.last_name)}
         </div>
 
@@ -1278,7 +1278,7 @@ function ApproveStepLine({
   return (
     <li className="flex items-start gap-2.5">
       <span
-        className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary flex-shrink-0"
+        className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-teal-light flex-shrink-0"
         aria-hidden="true"
       >
         {icon}

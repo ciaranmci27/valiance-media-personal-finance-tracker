@@ -53,8 +53,8 @@ export function FederalListContent({ configs }: Props) {
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#C5A68F]/10">
-              <Landmark className="h-5 w-5 text-[#C5A68F]" aria-hidden="true" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-copper/10">
+              <Landmark className="h-5 w-5 text-copper" aria-hidden="true" />
             </div>
             <div>
               <h1 className="text-2xl font-bold">Federal Tax Tables</h1>
@@ -125,11 +125,11 @@ export function FederalListContent({ configs }: Props) {
                 )}
               >
                 <div className="flex items-center gap-4">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#C5A68F]/10 group-hover:scale-105 transition-transform">
-                    <Landmark className="h-5 w-5 text-[#C5A68F]" aria-hidden="true" />
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-copper/10 group-hover:scale-105 transition-transform">
+                    <Landmark className="h-5 w-5 text-copper" aria-hidden="true" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-medium text-foreground group-hover:text-primary transition-colors">
+                    <h3 className="font-medium text-foreground group-hover:text-teal-light transition-colors">
                       {cfg.tax_year} Tax Year
                     </h3>
                     <p className="text-sm text-muted-foreground truncate">
@@ -137,7 +137,7 @@ export function FederalListContent({ configs }: Props) {
                       {(cfg.futa.rate * 100).toFixed(1)}% on ${cfg.futa.wage_base.toLocaleString()}
                     </p>
                   </div>
-                  <ChevronRight className="h-5 w-5 text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
+                  <ChevronRight className="h-5 w-5 text-muted-foreground/50 group-hover:text-teal-light group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
                 </div>
               </div>
             </Link>

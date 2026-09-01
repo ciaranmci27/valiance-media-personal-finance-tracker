@@ -48,7 +48,7 @@ export function PayWindowsContent({ windows, errors }: Props) {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <Play className="h-5 w-5 text-primary" aria-hidden="true" />
+            <Play className="h-5 w-5 text-teal-light" aria-hidden="true" />
           </div>
           <div>
             <h1 className="text-2xl font-bold">Calculate Payroll</h1>
@@ -92,7 +92,7 @@ export function PayWindowsContent({ windows, errors }: Props) {
           <div className="glass-card rounded-xl p-10 text-center space-y-3">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
               <CalendarDays
-                className="h-6 w-6 text-primary"
+                className="h-6 w-6 text-teal-light"
                 aria-hidden="true"
               />
             </div>
@@ -191,7 +191,7 @@ function WindowCard({ window: w }: { window: PayWindow }) {
       href={href}
       className={cn(
         "group glass-card rounded-xl p-4 flex flex-col gap-3 transition-colors",
-        "hover:border-primary/30 hover:bg-secondary/30",
+        "hover:border-primary/30 hover:bg-secondary",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
     >
@@ -204,7 +204,7 @@ function WindowCard({ window: w }: { window: PayWindow }) {
                 ? "bg-error/10 text-error"
                 : w.has_existing_run
                   ? "bg-success/10 text-success"
-                  : "bg-primary/10 text-primary",
+                  : "bg-primary/10 text-teal-light",
             )}
             aria-hidden="true"
           >

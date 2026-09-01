@@ -79,7 +79,7 @@ export function RunsListContent({ runs }: { runs: PayrollRunListItem[] }) {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <ListChecks className="h-5 w-5 text-primary" aria-hidden="true" />
+              <ListChecks className="h-5 w-5 text-teal-light" aria-hidden="true" />
             </div>
             <div>
               <h1 className="text-2xl font-bold">Pay Runs</h1>
@@ -245,10 +245,10 @@ function RunStatusBadge({ status }: { status: RunStatus }) {
     status === "paid"
       ? "bg-success/10 text-success"
       : status === "finalized"
-        ? "bg-primary/10 text-primary"
+        ? "bg-primary/10 text-teal-light"
         : status === "voided"
           ? "bg-error/10 text-error"
-          : "bg-muted text-muted-foreground";
+          : "bg-secondary text-muted-foreground";
   return (
     <span
       className={cn(

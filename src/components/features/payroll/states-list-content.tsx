@@ -77,14 +77,14 @@ export function StatesListContent({ configs }: Props) {
                         <MapIcon className="h-5 w-5 text-violet-500" aria-hidden="true" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h3 className="font-medium text-foreground group-hover:text-primary transition-colors">
+                        <h3 className="font-medium text-foreground group-hover:text-teal-light transition-colors">
                           {cfg.state_code} · {cfg.tax_year}
                         </h3>
                         <p className="text-sm text-muted-foreground truncate">
                           {CALCULATION_METHOD_LABELS[cfg.calculation_method]}
                         </p>
                       </div>
-                      <ChevronRight className="h-5 w-5 text-muted-foreground/50 group-hover:text-primary group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
+                      <ChevronRight className="h-5 w-5 text-muted-foreground/50 group-hover:text-teal-light group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
                     </div>
                   </div>
                 </Link>

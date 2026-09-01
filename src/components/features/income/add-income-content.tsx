@@ -173,7 +173,7 @@ export function AddIncomeContent({
         <div className="flex items-center gap-3 min-w-0">
           <MobileMenuButton />
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <ReceiptText className="h-5 w-5 text-primary" />
+            <ReceiptText className="h-5 w-5 text-teal-light" />
           </div>
           <div>
             <h1 className="text-xl font-semibold">Add Income Item</h1>
@@ -194,7 +194,7 @@ export function AddIncomeContent({
       </div>
 
       <div className="grid gap-px overflow-hidden rounded-xl glass-card md:grid-cols-3">
-        <div className="bg-card/50 p-4 sm:p-5">
+        <div className="bg-white/[0.03] p-4 sm:p-5">
           <div className="flex items-center gap-2 text-muted-foreground mb-2">
             <CalendarDays className="h-4 w-4" />
             <span className="text-sm font-medium">Selected Month</span>
@@ -203,24 +203,24 @@ export function AddIncomeContent({
           <button
             type="button"
             onClick={() => setReceivedDate(defaultDateForMonth(selectedMonth))}
-            className="mt-1 text-xs text-primary hover:underline"
+            className="mt-1 text-xs text-teal-light hover:underline"
           >
             Jump to today in this month
           </button>
         </div>
-        <div className="bg-card/50 p-4 sm:p-5 border-t md:border-t-0 md:border-l border-border/50">
+        <div className="bg-white/[0.03] p-4 sm:p-5 border-t md:border-t-0 md:border-l border-white/[0.06]">
           <div className="flex items-center gap-2 text-muted-foreground mb-2">
             <DollarSign className="h-4 w-4" />
             <span className="text-sm font-medium">Month Total</span>
           </div>
           <p className={cn(
             "text-2xl font-bold tabular-nums",
-            monthTotal < 0 ? "text-error" : "text-primary",
+            monthTotal < 0 ? "text-error" : "text-teal-light",
           )}>
             {formatCurrency(monthTotal)}
           </p>
         </div>
-        <div className="bg-card/50 p-4 sm:p-5 border-t md:border-t-0 md:border-l border-border/50">
+        <div className="bg-white/[0.03] p-4 sm:p-5 border-t md:border-t-0 md:border-l border-white/[0.06]">
           <div className="flex items-center gap-2 text-muted-foreground mb-2">
             <ReceiptText className="h-4 w-4" />
             <span className="text-sm font-medium">Items Added</span>
@@ -234,7 +234,7 @@ export function AddIncomeContent({
       <div className="grid gap-6 lg:grid-cols-[minmax(0,360px)_1fr]">
         <div className="rounded-xl glass-card p-4 sm:p-5 space-y-4 h-fit">
           <div className="flex items-center gap-2">
-            <Plus className="h-4 w-4 text-primary" />
+            <Plus className="h-4 w-4 text-teal-light" />
             <h2 className="font-semibold">New Item</h2>
           </div>
 
@@ -295,7 +295,7 @@ export function AddIncomeContent({
 
           {groups.length === 0 ? (
             <div className="glass-card rounded-xl p-8 text-center">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted mx-auto mb-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary mx-auto mb-3">
                 <ReceiptText className="h-5 w-5 text-muted-foreground" />
               </div>
               <p className="font-medium">No items added for this month</p>
@@ -313,7 +313,7 @@ export function AddIncomeContent({
                     `stagger-${Math.min(groupIndex + 1, 6)}`,
                   )}
                 >
-                  <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border/50">
+                  <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/[0.06]">
                     <div className="flex items-center gap-3 min-w-0">
                       <span
                         className="h-3 w-3 rounded-full shrink-0"
@@ -328,7 +328,7 @@ export function AddIncomeContent({
                     </div>
                     <p className={cn(
                       "tabular-nums font-semibold",
-                      group.total < 0 ? "text-error" : "text-primary",
+                      group.total < 0 ? "text-error" : "text-teal-light",
                     )}>
                       {formatCurrency(group.total)}
                     </p>

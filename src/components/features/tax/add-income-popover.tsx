@@ -45,10 +45,10 @@ type PopoverView = "menu" | "templates";
 // ============================================================================
 
 const BADGE_STYLES: Record<IncomeType, string> = {
-  "1099": "bg-primary/15 text-primary border-primary/25",
-  w2: "bg-muted text-muted-foreground border-border",
+  "1099": "bg-primary/15 text-teal-light border-primary/25",
+  w2: "bg-secondary text-muted-foreground border-border",
   k1: "bg-copper/15 text-copper border-copper/25",
-  qualified_dividend: "bg-primary/8 text-primary border-primary/20",
+  qualified_dividend: "bg-primary/8 text-teal-light border-primary/20",
   retirement: "bg-copper/8 text-copper border-copper/20",
 };
 
@@ -93,7 +93,7 @@ function TemplateRow({
         className={cn(
           "flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
           alreadyAdded
-            ? "border-border bg-muted"
+            ? "border-border bg-secondary"
             : selected
               ? "border-primary bg-primary text-primary-foreground"
               : "border-border"
@@ -311,7 +311,7 @@ export function AddIncomePopover({
             </button>
 
             {/* Link tracked income */}
-            <div className="border-t border-border/50">
+            <div className="border-t border-white/[0.06]">
               <button
                 type="button"
                 onClick={() => { setIsOpen(false); onOpenImport(); }}
@@ -331,7 +331,7 @@ export function AddIncomePopover({
             </div>
 
             {/* Custom entry */}
-            <div className="border-t border-border/50">
+            <div className="border-t border-white/[0.06]">
               <button
                 type="button"
                 onClick={() => { setIsOpen(false); onAddCustom(); }}
@@ -353,7 +353,7 @@ export function AddIncomePopover({
         ) : (
           <>
             {/* Back header */}
-            <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-white/[0.06]">
               <button
                 type="button"
                 onClick={() => setView("menu")}

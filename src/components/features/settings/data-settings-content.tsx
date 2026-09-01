@@ -194,7 +194,7 @@ export function DataSettingsContent() {
         <div className="glass-card rounded-xl p-6">
           <div className="flex items-start gap-4">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 shrink-0">
-              <Download className="h-5 w-5 text-primary" />
+              <Download className="h-5 w-5 text-teal-light" />
             </div>
             <div className="flex-1 space-y-4">
               <div>
@@ -215,11 +215,11 @@ export function DataSettingsContent() {
                     "disabled:opacity-50 disabled:cursor-not-allowed"
                   )}
                 >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#C5A68F]/10 group-hover:bg-[#C5A68F]/20 transition-colors">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-copper/10 group-hover:bg-copper/20 transition-colors">
                     {isExporting === "json" ? (
-                      <Loader2 className="h-5 w-5 text-[#C5A68F] animate-spin" />
+                      <Loader2 className="h-5 w-5 text-copper animate-spin" />
                     ) : (
-                      <FileJson className="h-5 w-5 text-[#C5A68F]" />
+                      <FileJson className="h-5 w-5 text-copper" />
                     )}
                   </div>
                   <div>
@@ -269,7 +269,7 @@ export function DataSettingsContent() {
           <div className="flex items-start gap-4">
             {isDemoMode() ? (
               <>
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-muted shrink-0">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary shrink-0">
                   <HardDrive className="h-5 w-5 text-muted-foreground" />
                 </div>
                 <div className="flex-1">

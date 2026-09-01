@@ -317,7 +317,7 @@ export function StateYearEditorContent({
 
       {isPrefilled && prefillSource && (
         <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm flex items-start gap-2">
-          <span className="text-primary font-medium shrink-0">Prefilled.</span>
+          <span className="text-teal-light font-medium shrink-0">Prefilled.</span>
           <span className="text-muted-foreground">
             Copied the calculation method, SDI / SUTA, and payment portals
             from{" "}
@@ -629,7 +629,7 @@ function PortalEditor({
     onChange({ ...value, [key]: v });
   };
   return (
-    <div className="space-y-3 pb-5 border-b border-border/50 last:border-b-0 last:pb-0">
+    <div className="space-y-3 pb-5 border-b border-white/[0.06] last:border-b-0 last:pb-0">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-sm font-semibold text-foreground">{title}</div>
@@ -658,7 +658,7 @@ function PortalEditor({
             }
             className={cn(
               "relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-              enabled ? "bg-primary" : "bg-muted",
+              enabled ? "bg-primary" : "bg-secondary",
             )}
           >
             <span
@@ -810,14 +810,14 @@ function FlatElectedEditor({
               key={r}
               className={cn(
                 "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg",
-                "bg-primary/10 text-primary text-sm font-medium"
+                "bg-primary/10 text-teal-light text-sm font-medium"
               )}
             >
               {(r * 100).toFixed(2)}%
               <button
                 type="button"
                 onClick={() => onRemoveRate(r)}
-                className="text-primary/70 hover:text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
+                className="text-teal-light/70 hover:text-teal-light transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
                 aria-label={`Remove ${(r * 100).toFixed(2)}% rate`}
               >
                 <X className="h-3.5 w-3.5" aria-hidden="true" />

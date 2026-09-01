@@ -92,7 +92,7 @@ function RailUI({ active }: { active: 1 | 2 | 3 }) {
                     isActive &&
                       "bg-primary/10 border-primary/40 text-foreground shadow-sm",
                     isDone &&
-                      "bg-secondary/40 border-border text-foreground hover:border-primary/30 hover:bg-secondary/60",
+                      "bg-secondary/40 border-border text-foreground hover:border-primary/30 hover:bg-secondary",
                     isUpcoming &&
                       "bg-transparent border-border text-muted-foreground hover:border-primary/30 hover:text-foreground",
                   )}

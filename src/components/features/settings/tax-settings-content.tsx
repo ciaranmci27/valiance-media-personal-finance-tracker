@@ -498,7 +498,7 @@ export function TaxSettingsContent() {
 
                   {/* Expanded Fields */}
                   {isExpanded && (
-                    <div className="border-t border-border/50 p-4 space-y-4">
+                    <div className="border-t border-white/[0.06] p-4 space-y-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <CustomSelect
                           label="Filing Status"

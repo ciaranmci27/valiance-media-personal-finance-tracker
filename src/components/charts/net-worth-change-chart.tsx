@@ -34,7 +34,7 @@ export function NetWorthChangeChart({
       const item = payload[0].payload;
       const isPositive = item.change >= 0;
       return (
-        <div className="glass-card rounded-lg p-3 shadow-lg border border-border">
+        <div className="rounded-lg bg-card p-3 border border-white/[0.08] shadow-[var(--shadow-overlay)]">
           <p className="text-sm font-medium text-foreground mb-1">
             {formatMonthShort(item.date)}
           </p>
@@ -62,7 +62,7 @@ export function NetWorthChangeChart({
 
   if (data.length === 0) {
     return (
-      <div className="h-[200px] flex items-center justify-center text-muted-foreground">
+      <div className="h-[200px] flex items-center justify-center text-zinc-500">
         No change data
       </div>
     );
@@ -81,25 +81,25 @@ export function NetWorthChangeChart({
             tickFormatter={tickFormatter}
             axisLine={false}
             tickLine={false}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "#71717A", fontSize: 11 }}
             tickMargin={8}
           />
           <YAxis
             axisLine={false}
             tickLine={false}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "#71717A", fontSize: 11 }}
             tickFormatter={(value) =>
               showValues ? `$${(value / 1000).toFixed(0)}K` : "•••"
             }
             width={48}
           />
           <Tooltip content={<CustomTooltip />} />
-          <ReferenceLine y={0} stroke="hsl(var(--border))" />
+          <ReferenceLine y={0} stroke="var(--color-border)" />
           <Bar dataKey="change" radius={[4, 4, 0, 0]}>
             {data.map((entry, index) => (
               <Cell
                 key={`cell-${index}`}
-                fill={entry.change >= 0 ? "hsl(142, 40%, 45%)" : "hsl(0, 45%, 55%)"}
+                fill={entry.change >= 0 ? "var(--color-success)" : "var(--color-error)"}
                 opacity={0.8}
               />
             ))}

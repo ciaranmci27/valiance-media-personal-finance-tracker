@@ -355,7 +355,7 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
           <div className="text-center space-y-2">
             <div className="flex justify-center">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                <Calculator className="h-6 w-6 text-primary" />
+                <Calculator className="h-6 w-6 text-teal-light" />
               </div>
             </div>
             <h2 className="text-xl font-semibold text-foreground">
@@ -414,7 +414,7 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                   value={dependents || ""}
                   onChange={(e) => setDependents(Math.max(0, Number(e.target.value) || 0))}
                   placeholder="0"
-                  className="h-8 text-sm bg-card border-input"
+                  className="h-8 text-sm bg-input border-border"
                 />
               </div>
             </div>
@@ -442,7 +442,7 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
         <div className="text-center space-y-2">
           <div className="flex justify-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-              <Calculator className="h-6 w-6 text-primary" />
+              <Calculator className="h-6 w-6 text-teal-light" />
             </div>
           </div>
           <h2 className="text-xl font-semibold text-foreground">
@@ -515,7 +515,7 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                             </>
                           )}
                           {isCustomized && (
-                            <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded bg-primary/10 text-primary">
+                            <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded bg-primary/10 text-teal-light">
                               Customized
                             </span>
                           )}
@@ -549,7 +549,7 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
 
                     {/* Expanded Fields */}
                     {isSelected && isExpanded && (
-                      <div className="border-t border-border/50 p-4 pt-4">
+                      <div className="border-t border-white/[0.06] p-4 pt-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <CustomSelect
                             label="Filing Status"
@@ -606,7 +606,7 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                               })
                             }
                             placeholder="0"
-                            className="h-8 text-sm bg-card border-input"
+                            className="h-8 text-sm bg-input border-border"
                           />
                         </div>
                       </div>

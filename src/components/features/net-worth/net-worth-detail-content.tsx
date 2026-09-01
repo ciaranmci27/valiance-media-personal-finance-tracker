@@ -201,7 +201,7 @@ export function NetWorthDetailContent({
       {/* Month & Amount Summary */}
       <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-px rounded-xl overflow-hidden glass-card">
         {/* Month Navigator */}
-        <div className="bg-card/50 p-3 sm:p-5 flex flex-col items-center justify-center">
+        <div className="bg-white/[0.03] p-3 sm:p-5 flex flex-col items-center justify-center">
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
             <Calendar className="h-4 w-4" />
             <span className="text-sm font-medium">Month</span>
@@ -241,7 +241,7 @@ export function NetWorthDetailContent({
 
         {/* Net Worth Amount */}
         <div
-          className="bg-card/50 p-3 sm:p-5 text-center border-t min-[360px]:border-t-0 min-[360px]:border-l border-border/50 flex flex-col items-center justify-center"
+          className="bg-white/[0.03] p-3 sm:p-5 text-center border-t min-[360px]:border-t-0 min-[360px]:border-l border-white/[0.06] flex flex-col items-center justify-center"
           {...(isEditing ? {} : hoverProps)}
         >
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
@@ -261,7 +261,7 @@ export function NetWorthDetailContent({
               className="text-center text-xl sm:text-2xl font-bold tabular-nums max-w-[200px]"
             />
           ) : (
-            <p className="text-xl sm:text-2xl font-bold tabular-nums text-primary">
+            <p className="text-xl sm:text-2xl font-bold tabular-nums text-teal-light">
               {displayAmount}
             </p>
           )}
@@ -293,7 +293,7 @@ export function NetWorthDetailContent({
           />
         ) : (
           <div
-            className="rounded-xl glass-card min-h-[150px] px-4 py-4 cursor-pointer hover:bg-secondary/30 transition-colors"
+            className="rounded-xl glass-card min-h-[150px] px-4 py-4 cursor-pointer hover:bg-secondary transition-colors"
             onClick={() => setIsEditing(true)}
           >
             <p className={cn(

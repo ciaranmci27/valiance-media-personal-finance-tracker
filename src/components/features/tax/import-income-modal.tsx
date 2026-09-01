@@ -211,7 +211,7 @@ export function ImportIncomeModal({
 
         {/* YTD total summary banner */}
         {!loading && sources.length > 0 && (
-          <div className="flex items-center justify-between rounded-lg bg-muted/50 px-4 py-3 mt-4">
+          <div className="flex items-center justify-between rounded-lg bg-secondary px-4 py-3 mt-4">
             <span className="text-sm text-muted-foreground">
               Total Tracked Revenue:{" "}
               <span className="tabular-nums font-medium text-foreground">
@@ -278,7 +278,7 @@ export function ImportIncomeModal({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <p className="text-sm font-medium truncate">{source.name}</p>
-                    <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded bg-muted text-muted-foreground border border-border">
+                    <span className="shrink-0 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded bg-secondary text-muted-foreground border border-border">
                       YTD
                     </span>
                   </div>
@@ -302,8 +302,8 @@ export function ImportIncomeModal({
                       className={cn(
                         "px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded border cursor-pointer transition-colors",
                         source.subjectToSe
-                          ? "bg-primary/15 text-primary border-primary/25"
-                          : "bg-muted text-muted-foreground/40 border-border line-through"
+                          ? "bg-primary/15 text-teal-light border-primary/25"
+                          : "bg-secondary text-muted-foreground/40 border-border line-through"
                       )}
                     >
                       SE

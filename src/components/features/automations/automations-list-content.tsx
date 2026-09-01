@@ -59,7 +59,7 @@ function SummaryCard({
           <div
             className={cn(
               "flex h-10 w-10 items-center justify-center rounded-lg",
-              primary ? "bg-primary/10" : "bg-muted"
+              primary ? "bg-primary/10" : "bg-secondary"
             )}
           >
             {icon}
@@ -69,7 +69,7 @@ function SummaryCard({
             <p
               className={cn(
                 "text-xl font-bold",
-                primary && "text-primary"
+                primary && "text-teal-light"
               )}
             >
               {value}
@@ -238,7 +238,7 @@ function AutomationCard({
     <div
       onClick={handleCardClick}
       className={cn(
-        "glass-card rounded-xl p-4 cursor-pointer transition-all duration-300",
+        "glass-card glass-card-interactive rounded-xl p-4 cursor-pointer transition-all duration-300",
         "hover:border-primary/30 active:scale-[0.98]",
         "animate-fade-up relative",
         `stagger-${Math.min(index + 1, 6)}`
@@ -250,13 +250,13 @@ function AutomationCard({
           <div
             className={cn(
               "flex h-9 w-9 items-center justify-center rounded-lg shrink-0",
-              automation.is_active ? "bg-primary/10" : "bg-muted"
+              automation.is_active ? "bg-primary/10" : "bg-secondary"
             )}
           >
             <Zap
               className={cn(
                 "h-4 w-4",
-                automation.is_active ? "text-primary" : "text-muted-foreground"
+                automation.is_active ? "text-teal-light" : "text-muted-foreground"
               )}
             />
           </div>
@@ -327,7 +327,7 @@ function AutomationCard({
       </div>
 
       {/* Info Grid */}
-      <div className="border-t border-border/50 pt-3 space-y-2">
+      <div className="border-t border-white/[0.06] pt-3 space-y-2">
         {/* Trigger and Schedule Row */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
@@ -479,7 +479,7 @@ function AutomationRow({
   return (
     <tr
       className={cn(
-        "transition-colors hover:bg-secondary/50 cursor-pointer animate-fade-up",
+        "transition-colors hover:bg-secondary cursor-pointer animate-fade-up",
         `stagger-${Math.min(index + 1, 6)}`
       )}
     >
@@ -491,18 +491,18 @@ function AutomationRow({
           <div
             className={cn(
               "flex h-8 w-8 items-center justify-center rounded-lg shrink-0",
-              automation.is_active ? "bg-primary/10" : "bg-muted"
+              automation.is_active ? "bg-primary/10" : "bg-secondary"
             )}
           >
             <Zap
               className={cn(
                 "h-4 w-4",
-                automation.is_active ? "text-primary" : "text-muted-foreground"
+                automation.is_active ? "text-teal-light" : "text-muted-foreground"
               )}
             />
           </div>
           <div className="min-w-0">
-            <span className="font-medium text-foreground group-hover:text-primary transition-colors block truncate">
+            <span className="font-medium text-foreground group-hover:text-teal-light transition-colors block truncate">
               {automation.name}
             </span>
             {automation.description && (
@@ -734,8 +734,16 @@ export function AutomationsListContent({
   );
 
   return (
-    <div className="space-y-4">
-      <PageHeader title="Automations" />
+    <div className="space-y-5 lg:space-y-6">
+      <PageHeader
+        title="Automations"
+        subtitle={
+          <span className="hidden sm:inline">
+            {automations.filter((a) => a.is_active).length} active automation
+            {automations.filter((a) => a.is_active).length !== 1 && "s"}
+          </span>
+        }
+      />
       {confirmDialog}
       {/* Summary Cards */}
       <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
@@ -752,13 +760,13 @@ export function AutomationsListContent({
           className="stagger-2"
         />
         <SummaryCard
-          icon={<Zap className="h-5 w-5 text-primary" />}
+          icon={<Zap className="h-5 w-5 text-teal-light" />}
           label="Automations"
           value={automations.length}
           className="stagger-3"
         />
         <SummaryCard
-          icon={<History className="h-5 w-5 text-primary" />}
+          icon={<History className="h-5 w-5 text-teal-light" />}
           label="Total Runs"
           value={totalRuns}
           className="stagger-4 border-primary/30"
@@ -831,7 +839,7 @@ export function AutomationsListContent({
           <CardContent className="py-12 text-center">
             <div className="flex justify-center mb-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-                <Zap className="h-6 w-6 text-primary" />
+                <Zap className="h-6 w-6 text-teal-light" />
               </div>
             </div>
             <h3 className="text-lg font-medium mb-2">No automations yet</h3>

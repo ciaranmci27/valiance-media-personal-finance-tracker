@@ -370,7 +370,7 @@ export function ExpenseDetailContent({
         className="grid grid-cols-2 sm:grid-cols-3 gap-px rounded-xl overflow-hidden glass-card"
         {...hoverProps}
       >
-        <div className="bg-card/50 p-4 sm:p-5 text-center">
+        <div className="bg-white/[0.03] p-4 sm:p-5 text-center">
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
             <DollarSign className="h-4 w-4" />
             <span className="text-sm font-medium">Amount</span>
@@ -386,15 +386,15 @@ export function ExpenseDetailContent({
           )}
           <p className="text-xs text-muted-foreground mt-1">{frequencyLabels[frequency]}</p>
         </div>
-        <div className="bg-card/50 p-4 sm:p-5 text-center border-l sm:border-x border-border/50">
+        <div className="bg-white/[0.03] p-4 sm:p-5 text-center border-l sm:border-x border-white/[0.06]">
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
             <Calendar className="h-4 w-4" />
             <span className="text-sm font-medium">Monthly</span>
           </div>
-          <p className="text-xl sm:text-2xl font-bold tabular-nums text-primary">{displayMonthly}</p>
+          <p className="text-xl sm:text-2xl font-bold tabular-nums text-teal-light">{displayMonthly}</p>
           <p className="text-xs text-muted-foreground mt-1">Per month</p>
         </div>
-        <div className="hidden sm:block bg-card/50 p-5 text-center">
+        <div className="hidden sm:block bg-white/[0.03] p-5 text-center">
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
             <TrendingUp className="h-4 w-4" />
             <span className="text-sm font-medium">Annual</span>
@@ -451,20 +451,20 @@ export function ExpenseDetailContent({
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="w-full">
                 <label className="block text-sm font-medium text-foreground mb-1.5">Frequency</label>
-                <div className="w-full rounded-lg border border-input bg-card px-4 py-2.5 text-sm">
+                <div className="w-full rounded-lg border border-border bg-input px-4 py-2.5 text-sm">
                   {frequencyLabels[frequency]}
                 </div>
               </div>
               <div className="w-full">
                 <label className="block text-sm font-medium text-foreground mb-1.5">Type</label>
-                <div className="w-full rounded-lg border border-input bg-card px-4 py-2.5 text-sm">
+                <div className="w-full rounded-lg border border-border bg-input px-4 py-2.5 text-sm">
                   {expenseType === "personal" ? "Personal" : siteConfig.companyName}
                 </div>
               </div>
             </div>
             <div className="w-full">
               <label className="block text-sm font-medium text-foreground mb-1.5">Category</label>
-              <div className="w-full rounded-lg border border-input bg-card px-4 py-2.5 text-sm">
+              <div className="w-full rounded-lg border border-border bg-input px-4 py-2.5 text-sm">
                 {category ? EXPENSE_CATEGORIES[category] : "—"}
               </div>
             </div>
@@ -487,7 +487,7 @@ export function ExpenseDetailContent({
           />
         ) : (
           <div
-            className="px-4 py-4 rounded-xl glass-card min-h-[100px] cursor-pointer hover:bg-secondary/30 transition-colors"
+            className="px-4 py-4 rounded-xl glass-card min-h-[100px] cursor-pointer hover:bg-secondary transition-colors"
             onClick={() => setIsEditing(true)}
           >
             <p className={cn("text-sm whitespace-pre-wrap", !expense.notes && "text-muted-foreground italic")}>

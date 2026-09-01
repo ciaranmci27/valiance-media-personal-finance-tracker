@@ -133,7 +133,7 @@ export function AddExpenseContent() {
 
       {/* Financial Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-px rounded-xl overflow-hidden glass-card">
-        <div className="bg-card/50 p-4 sm:p-5 text-center">
+        <div className="bg-white/[0.03] p-4 sm:p-5 text-center">
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
             <DollarSign className="h-4 w-4" />
             <span className="text-sm font-medium">Amount</span>
@@ -146,17 +146,17 @@ export function AddExpenseContent() {
           />
           <p className="text-xs text-muted-foreground mt-1">{frequencyLabels[frequency]}</p>
         </div>
-        <div className="bg-card/50 p-4 sm:p-5 text-center border-l sm:border-x border-border/50">
+        <div className="bg-white/[0.03] p-4 sm:p-5 text-center border-l sm:border-x border-white/[0.06]">
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
             <Calendar className="h-4 w-4" />
             <span className="text-sm font-medium">Monthly</span>
           </div>
-          <p className="text-xl sm:text-2xl font-bold tabular-nums text-primary">
+          <p className="text-xl sm:text-2xl font-bold tabular-nums text-teal-light">
             {amount > 0 ? formatClean(monthly) : "$0"}
           </p>
           <p className="text-xs text-muted-foreground mt-1">Per month</p>
         </div>
-        <div className="hidden sm:block bg-card/50 p-5 text-center">
+        <div className="hidden sm:block bg-white/[0.03] p-5 text-center">
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
             <TrendingUp className="h-4 w-4" />
             <span className="text-sm font-medium">Annual</span>

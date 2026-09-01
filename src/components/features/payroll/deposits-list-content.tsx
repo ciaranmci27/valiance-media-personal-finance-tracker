@@ -325,7 +325,7 @@ export function DepositsListContent({
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <Landmark className="h-5 w-5 text-primary" aria-hidden="true" />
+            <Landmark className="h-5 w-5 text-teal-light" aria-hidden="true" />
           </div>
           <div>
             <h1 className="text-2xl font-bold">Tax Deposits</h1>
@@ -526,7 +526,7 @@ function DepositRow({
         aria-controls={panelId}
         onClick={onToggleHistory}
         onKeyDown={handleRowKeyDown}
-        className="border-t border-border hover:bg-secondary/20 focus-visible:outline-none focus-visible:bg-secondary/30"
+        className="border-t border-border hover:bg-secondary focus-visible:outline-none focus-visible:bg-secondary/30"
       >
         <td className="px-4 py-3 font-medium">
           <div className="flex items-center gap-2 flex-wrap">
@@ -747,7 +747,7 @@ function PaymentInstructions({
   if (!destination) {
     const isState = deposit.deposit_type.startsWith("state_");
     return (
-      <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+      <div className="rounded-lg border border-border bg-secondary p-3 text-xs text-muted-foreground space-y-1">
         <div className="text-foreground font-medium">
           No payment portal configured
         </div>
@@ -759,7 +759,7 @@ function PaymentInstructions({
         {isState && (
           <Link
             href="/payroll/config/states"
-            className="inline-flex items-center gap-1 text-primary hover:underline"
+            className="inline-flex items-center gap-1 text-teal-light hover:underline"
           >
             Open state config
             <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
@@ -780,7 +780,7 @@ function PaymentInstructions({
       )}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0 space-y-0.5">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-primary">
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-teal-light">
             How to pay this deposit
           </div>
           <div className="text-sm font-medium text-foreground">
@@ -832,7 +832,7 @@ function SourceRunsList({ runIds }: { runIds: string[] }) {
           <Link
             key={id}
             href={`/payroll/runs/${id}`}
-            className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs text-foreground hover:bg-primary/10 hover:text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs text-foreground hover:bg-primary/10 hover:text-teal-light transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             Pay run {idx + 1}
             <ArrowUpRight className="h-3 w-3" aria-hidden="true" />
@@ -862,7 +862,7 @@ function StatusBadge({
       ? "bg-success/10 text-success"
       : status === "late"
         ? "bg-error/10 text-error"
-        : "bg-primary/10 text-primary";
+        : "bg-primary/10 text-teal-light";
   return (
     <span
       className={cn(

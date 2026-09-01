@@ -75,7 +75,7 @@ function StatusDot({ status }: { status: AccountStatusType }) {
     online: { color: "bg-success", label: "Online", pulse: "animate-pulse" },
     offline: { color: "bg-error", label: "Offline", pulse: "" },
     key_error: { color: "bg-warning", label: "Key Error", pulse: "" },
-    checking: { color: "bg-muted-foreground/60", label: "Checking", pulse: "animate-pulse" },
+    checking: { color: "bg-[rgba(var(--ink),0.35)]", label: "Checking", pulse: "animate-pulse" },
   }[status];
 
   return (
@@ -372,7 +372,7 @@ export function SmtpSettingsContent({ encryptionConfigured }: Props) {
                       type="button"
                       onClick={() => copyEnvLine(generatedKey, setCopied)}
                       aria-label={copied ? "Copied" : "Click to copy env line"}
-                      className="group relative block w-full cursor-pointer rounded-lg border border-border/60 bg-muted/30 p-3 text-left font-mono text-xs leading-relaxed transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      className="group relative block w-full cursor-pointer rounded-lg border border-white/[0.06] bg-secondary p-3 text-left font-mono text-xs leading-relaxed transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                     >
                       <span className="block whitespace-pre-wrap break-all pr-8">
                         SMTP_ENCRYPTION_KEY={generatedKey}
@@ -407,9 +407,9 @@ export function SmtpSettingsContent({ encryptionConfigured }: Props) {
       <div className="space-y-4 max-w-2xl mx-auto">
         {header}
         <div className="glass-card rounded-xl p-4 space-y-3">
-          <div className="h-4 w-40 rounded bg-muted animate-pulse" />
-          <div className="h-3 w-64 rounded bg-muted animate-pulse" />
-          <div className="h-3 w-52 rounded bg-muted animate-pulse" />
+          <div className="h-4 w-40 rounded bg-secondary animate-pulse" />
+          <div className="h-3 w-64 rounded bg-secondary animate-pulse" />
+          <div className="h-3 w-52 rounded bg-secondary animate-pulse" />
         </div>
       </div>
     );
@@ -578,7 +578,7 @@ export function SmtpSettingsContent({ encryptionConfigured }: Props) {
             />
           )}
 
-          <div className="flex items-center gap-2 pt-2 border-t border-border/50">
+          <div className="flex items-center gap-2 pt-2 border-t border-white/[0.06]">
             <Button onClick={handleSave} disabled={saving}>
               {saving ? "Saving..." : editingId ? "Update account" : "Create account"}
             </Button>
@@ -622,7 +622,7 @@ export function SmtpSettingsContent({ encryptionConfigured }: Props) {
                         {account.label}
                       </h3>
                       {account.isDefault && (
-                        <span className="text-[10px] font-semibold uppercase tracking-wider rounded-full px-2 py-0.5 bg-primary/10 text-primary">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider rounded-full px-2 py-0.5 bg-primary/10 text-teal-light">
                           Primary
                         </span>
                       )}
@@ -676,7 +676,7 @@ export function SmtpSettingsContent({ encryptionConfigured }: Props) {
                 </div>
 
                 {testingId === account.id && (
-                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border/50">
+                  <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/[0.06]">
                     <Input
                       type="email"
                       placeholder="Recipient email"
@@ -763,7 +763,7 @@ function KeyRecoveryBanner({
           <p className="text-sm font-semibold text-foreground">Encryption key issue</p>
           <p className="text-xs text-muted-foreground mt-0.5">
             Unable to decrypt account passwords. Your{" "}
-            <code className="font-mono rounded bg-muted px-1 py-0.5 text-xs">
+            <code className="font-mono rounded bg-secondary px-1 py-0.5 text-xs">
               SMTP_ENCRYPTION_KEY
             </code>{" "}
             may have changed or is missing.
@@ -779,7 +779,7 @@ function KeyRecoveryBanner({
             className="glass-card rounded-lg p-3 flex items-start gap-3 text-left hover:border-primary/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 shrink-0">
-              <Search className="h-4 w-4 text-primary" aria-hidden="true" />
+              <Search className="h-4 w-4 text-teal-light" aria-hidden="true" />
             </div>
             <div>
               <p className="text-sm font-medium text-foreground">Recover existing key</p>
@@ -814,9 +814,9 @@ function KeyRecoveryBanner({
               <p className="text-sm font-medium text-foreground mb-1">Locate your original key</p>
               <p className="text-xs text-muted-foreground">
                 Check{" "}
-                <code className="font-mono rounded bg-muted px-1 py-0.5 text-xs">.env.local</code>,
+                <code className="font-mono rounded bg-secondary px-1 py-0.5 text-xs">.env.local</code>,
                 your hosting provider, or deployment settings for{" "}
-                <code className="font-mono rounded bg-muted px-1 py-0.5 text-xs">
+                <code className="font-mono rounded bg-secondary px-1 py-0.5 text-xs">
                   SMTP_ENCRYPTION_KEY
                 </code>
                 .
@@ -832,7 +832,7 @@ function KeyRecoveryBanner({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2 pt-2 border-t border-border/50">
+          <div className="flex items-center gap-2 pt-2 border-t border-white/[0.06]">
             <Button variant="outline" size="sm" onClick={() => onPath(null)}>
               <ArrowLeftCircle className="h-3.5 w-3.5" aria-hidden="true" />
               Back
@@ -872,7 +872,7 @@ function KeyRecoveryBanner({
                     type="button"
                     onClick={onCopy}
                     aria-label={copied ? "Copied" : "Click to copy env line"}
-                    className="group relative block w-full cursor-pointer rounded-lg border border-border/60 bg-muted/30 p-3 text-left font-mono text-xs leading-relaxed transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    className="group relative block w-full cursor-pointer rounded-lg border border-white/[0.06] bg-secondary p-3 text-left font-mono text-xs leading-relaxed transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                   >
                     <span className="block whitespace-pre-wrap break-all pr-8">
                       SMTP_ENCRYPTION_KEY={recoveryKey}
@@ -905,7 +905,7 @@ function KeyRecoveryBanner({
             </>
           )}
 
-          <div className="flex items-center pt-2 border-t border-border/50">
+          <div className="flex items-center pt-2 border-t border-white/[0.06]">
             <Button variant="outline" size="sm" onClick={onReset}>
               <ArrowLeftCircle className="h-3.5 w-3.5" aria-hidden="true" />
               Back

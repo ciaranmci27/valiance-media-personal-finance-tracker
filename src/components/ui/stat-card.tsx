@@ -84,7 +84,7 @@ export function StatCard({
     >
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs lg:text-sm text-muted-foreground font-medium">{title}</p>
+          <p className="text-xs lg:text-sm text-zinc-500 font-medium">{title}</p>
           <p
             className={cn(
               "text-2xl lg:text-3xl font-bold tracking-tight leading-none mt-0.5 currency",
@@ -137,7 +137,7 @@ export function StatCard({
             )}
             <span>{displayPercentage}</span>
           </div>
-          <span className="text-xs text-muted-foreground">vs last month</span>
+          <span className="text-xs text-zinc-500">vs last month</span>
         </div>
       )}
     </div>

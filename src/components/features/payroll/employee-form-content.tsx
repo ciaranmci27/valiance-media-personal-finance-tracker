@@ -655,7 +655,7 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <UserCircle className="h-5 w-5 text-primary" aria-hidden="true" />
+              <UserCircle className="h-5 w-5 text-teal-light" aria-hidden="true" />
             </div>
             <div>
               <h1 className="text-2xl font-bold">
@@ -1295,7 +1295,7 @@ function SchedulePreview(props: SchedulePreviewProps) {
 
   if (!preview) {
     return (
-      <div className="rounded-lg border border-border/50 bg-muted/20 p-4 text-sm text-muted-foreground">
+      <div className="rounded-lg border border-white/[0.06] bg-muted p-4 text-sm text-muted-foreground">
         Set a pay amount, frequency, and anchor date above to preview the
         schedule.
       </div>
@@ -1313,7 +1313,7 @@ function SchedulePreview(props: SchedulePreviewProps) {
   return (
     <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
       <div className="flex items-start gap-2">
-        <div className="text-xs font-semibold uppercase tracking-wider text-primary">
+        <div className="text-xs font-semibold uppercase tracking-wider text-teal-light">
           Schedule preview
         </div>
       </div>
@@ -1454,7 +1454,7 @@ function StateElectionFields({
             No {stateCode} tax config loaded for {taxYear}. Add one in{" "}
             <Link
               href="/payroll/config/states"
-              className="font-medium text-primary hover:underline"
+              className="font-medium text-teal-light hover:underline"
             >
               Payroll Settings
             </Link>{" "}

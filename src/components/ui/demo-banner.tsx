@@ -9,10 +9,10 @@ import { Info } from "lucide-react";
  */
 export function DemoBanner() {
   return (
-    <div className="fixed top-0 right-0 left-0 lg:left-60 z-40 h-9 bg-primary/10 backdrop-blur-sm border-b border-primary/20 px-4">
+    <div className="fixed top-0 right-0 left-0 lg:left-60 z-40 h-9 bg-primary/15 backdrop-blur-sm border-b border-primary/30 px-4">
       <div className="flex h-full items-center justify-center gap-2 text-sm">
-        <Info className="h-4 w-4 text-primary shrink-0" />
-        <span className="text-primary font-medium">
+        <Info className="h-4 w-4 text-teal-light shrink-0" />
+        <span className="text-teal-light font-medium">
           Demo Mode
         </span>
         <span className="text-muted-foreground hidden sm:inline">

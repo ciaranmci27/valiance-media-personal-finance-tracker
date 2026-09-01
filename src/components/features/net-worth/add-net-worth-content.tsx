@@ -211,7 +211,7 @@ export function AddNetWorthContent({
       <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-px rounded-xl overflow-hidden glass-card">
         {/* Month Selector */}
         <div className={cn(
-          "bg-card/50 p-3 sm:p-5 flex flex-col items-center justify-center transition-colors",
+          "bg-white/[0.03] p-3 sm:p-5 flex flex-col items-center justify-center transition-colors",
           hasConflict && "bg-error/5"
         )}>
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
@@ -273,7 +273,7 @@ export function AddNetWorthContent({
         </div>
 
         {/* Net Worth Amount */}
-        <div className="bg-card/50 p-3 sm:p-5 text-center border-t min-[360px]:border-t-0 min-[360px]:border-l border-border/50 flex flex-col items-center justify-center">
+        <div className="bg-white/[0.03] p-3 sm:p-5 text-center border-t min-[360px]:border-t-0 min-[360px]:border-l border-white/[0.06] flex flex-col items-center justify-center">
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
             <DollarSign className="h-4 w-4" />
             <span className="text-sm font-medium">Net Worth</span>

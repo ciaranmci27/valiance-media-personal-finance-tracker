@@ -221,7 +221,7 @@ export function NotificationDropdown({
           <div
             ref={panelRef}
             style={{ left: panelPos.left, top: panelPos.top, width: PANEL_WIDTH }}
-            className="fixed z-[60] max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-card shadow-lg overflow-hidden"
+            className="fixed z-[60] max-w-[calc(100vw-2rem)] rounded-lg border border-white/10 bg-card shadow-[var(--shadow-overlay)] overflow-hidden"
           >
             {/* Header */}
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -229,7 +229,7 @@ export function NotificationDropdown({
               {unreadCount > 0 && (
                 <button
                   onClick={handleMarkAllAsRead}
-                  className="text-xs text-primary hover:underline"
+                  className="text-xs text-teal-light hover:underline"
                 >
                   Mark all as read
                 </button>
@@ -239,13 +239,15 @@ export function NotificationDropdown({
             {/* Notifications List */}
             <div className="max-h-96 overflow-y-auto">
               {isLoading ? (
-                <div className="py-8 text-center text-muted-foreground">
+                <div className="py-8 text-center text-zinc-500">
                   <div className="animate-spin h-5 w-5 border-2 border-primary border-t-transparent rounded-full mx-auto mb-2" />
                   Loading...
                 </div>
               ) : notifications.length === 0 ? (
-                <div className="py-8 text-center text-muted-foreground">
-                  <Bell className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <div className="py-8 text-center text-zinc-500">
+                  <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-white/[0.06]">
+                    <Bell className="h-5 w-5" aria-hidden />
+                  </div>
                   <p className="text-sm">No notifications yet</p>
                 </div>
               ) : (
@@ -256,21 +258,21 @@ export function NotificationDropdown({
                       onClick={() => handleNotificationClick(notification)}
                       className={cn(
                         "w-full text-left px-4 py-3 hover:bg-secondary/50 transition-colors",
-                        !notification.is_read && "bg-primary/5"
+                        !notification.is_read && "bg-primary/10"
                       )}
                     >
                       <div className="flex items-start gap-2">
                         <div
                           className={cn(
                             "flex h-8 w-8 items-center justify-center rounded-lg shrink-0",
-                            !notification.is_read ? "bg-primary/10" : "bg-muted"
+                            !notification.is_read ? "bg-primary/15" : "bg-white/[0.06]"
                           )}
                         >
                           <Zap
                             className={cn(
                               "h-4 w-4",
                               !notification.is_read
-                                ? "text-primary"
+                                ? "text-teal-light"
                                 : "text-muted-foreground"
                             )}
                           />
@@ -285,11 +287,11 @@ export function NotificationDropdown({
                             {notification.title}
                           </p>
                           {notification.message && (
-                            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
+                            <p className="text-xs text-zinc-500 line-clamp-2 mt-0.5">
                               {notification.message}
                             </p>
                           )}
-                          <p className="text-xs text-muted-foreground mt-1">
+                          <p className="text-xs text-zinc-500 mt-1">
                             {formatDate(notification.created_at)}
                           </p>
                         </div>

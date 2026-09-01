@@ -125,7 +125,7 @@ export function FormViewerShell({
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <Icon className="h-5 w-5 text-primary" aria-hidden="true" />
+            <Icon className="h-5 w-5 text-teal-light" aria-hidden="true" />
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-bold">{title}</h1>
@@ -324,7 +324,7 @@ function StatusBadge({ status }: { status: string | null }) {
   }
   if (status === "generated") {
     return (
-      <span className="inline-flex items-center rounded-md bg-primary/10 text-primary px-2 py-1 text-xs font-medium">
+      <span className="inline-flex items-center rounded-md bg-primary/10 text-teal-light px-2 py-1 text-xs font-medium">
         {formStatusLabel("generated")}
       </span>
     );

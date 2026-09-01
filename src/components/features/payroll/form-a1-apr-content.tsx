@@ -155,7 +155,7 @@ function FormA1AprLayout({ data, year }: { data: FormA1AprData; year: number }) 
                     <td className="px-3 py-2">
                       <Link
                         href={`/payroll/forms/a1-qrt/${year}/${i + 1}`}
-                        className="text-primary hover:underline"
+                        className="text-teal-light hover:underline"
                       >
                         Q{i + 1}
                       </Link>

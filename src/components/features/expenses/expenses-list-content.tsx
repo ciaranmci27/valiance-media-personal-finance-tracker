@@ -105,11 +105,11 @@ function ExpenseCard({
     <div className="relative">
       {isFirstPaused && (
         <div className="flex items-center gap-3 mb-3 mt-2">
-          <div className="flex-1 border-t border-dashed border-border/50" />
-          <span className="text-[10px] font-medium text-muted-foreground bg-muted/80 border border-border px-2 py-0.5 rounded-full uppercase tracking-wider">
+          <div className="flex-1 border-t border-dashed border-white/[0.06]" />
+          <span className="text-[10px] font-medium text-muted-foreground bg-secondary border border-border px-2 py-0.5 rounded-full uppercase tracking-wider">
             Inactive
           </span>
-          <div className="flex-1 border-t border-dashed border-border/50" />
+          <div className="flex-1 border-t border-dashed border-white/[0.06]" />
         </div>
       )}
       <div
@@ -117,7 +117,7 @@ function ExpenseCard({
         onTouchStart={hoverProps.onMouseEnter}
         onTouchEnd={hoverProps.onMouseLeave}
         className={cn(
-          "glass-card rounded-xl p-4 cursor-pointer transition-all duration-300",
+          "glass-card glass-card-interactive rounded-xl p-4 cursor-pointer transition-all duration-300",
           "hover:border-primary/30 active:scale-[0.98]",
           "animate-fade-up",
           `stagger-${Math.min(index + 1, 6)}`,
@@ -181,7 +181,7 @@ function ExpenseCard({
         </div>
 
         {/* Amount Details */}
-        <div className="border-t border-border/50 pt-3">
+        <div className="border-t border-white/[0.06] pt-3">
           <div className="grid grid-cols-3 gap-2">
             <div>
               <span className="text-xs text-muted-foreground block mb-0.5">Amount</span>
@@ -268,9 +268,9 @@ function ExpenseRow({
     <tr
       onClick={handleRowClick}
       className={cn(
-        "transition-all duration-300 hover:bg-secondary/50 cursor-pointer animate-fade-up",
+        "transition-all duration-300 hover:bg-secondary cursor-pointer animate-fade-up",
         `stagger-${Math.min(index + 1, 6)}`,
-        isPaused && "bg-foreground/[0.03] text-muted-foreground",
+        isPaused && "bg-[rgba(var(--ink),0.03)] text-muted-foreground",
         isFirstPaused && "relative border-t-border/50"
       )}
       style={isFirstPaused ? { borderTopStyle: 'dashed' } : undefined}
@@ -279,7 +279,7 @@ function ExpenseRow({
       <td className="px-4 py-3 align-middle">
         {isFirstPaused && (
           <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-10">
-            <span className="text-[10px] font-medium text-muted-foreground bg-muted/80 border border-border px-2 py-0.5 rounded-full uppercase tracking-wider">
+            <span className="text-[10px] font-medium text-muted-foreground bg-secondary border border-border px-2 py-0.5 rounded-full uppercase tracking-wider">
               Inactive
             </span>
           </div>
@@ -522,10 +522,18 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
   ];
 
   return (
-    <div className="space-y-4">
-      <PageHeader title="Fixed Expenses" />
+    <div className="space-y-5 lg:space-y-6">
+      <PageHeader
+        title="Fixed Expenses"
+        subtitle={
+          <span className="hidden sm:inline">
+            {expenses.filter((e) => e.is_active).length} active expense
+            {expenses.filter((e) => e.is_active).length !== 1 && "s"}
+          </span>
+        }
+      />
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 lg:gap-4 lg:grid-cols-4">
         <StatCard
           title="Total Monthly"
           value={allTotals.monthly}
@@ -568,7 +576,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
         </div>
 
         {/* Desktop: Button tabs */}
-        <div className="hidden min-[600px]:flex items-center gap-1 rounded-lg border border-border bg-card p-1">
+        <div className="hidden min-[600px]:flex items-center gap-1 rounded-lg bg-[rgba(var(--ink),0.05)] p-1 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]">
           {tabs.map((tab) => (
             <button
               key={tab.value}
@@ -587,7 +595,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                   "rounded-full px-1.5 py-0.5 text-xs",
                   activeTab === tab.value
                     ? "bg-primary-foreground/20 text-primary-foreground"
-                    : "bg-muted text-muted-foreground"
+                    : "bg-secondary text-muted-foreground"
                 )}
               >
                 {tab.count}
@@ -616,7 +624,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
               className={cn(
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 sortByName
-                  ? "bg-primary/10 text-primary"
+                  ? "bg-primary/10 text-teal-light"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -628,7 +636,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
               className={cn(
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 !sortByName && sortColumn === "amount"
-                  ? "bg-primary/10 text-primary"
+                  ? "bg-primary/10 text-teal-light"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -645,7 +653,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
               className={cn(
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 !sortByName && sortColumn === "monthly"
-                  ? "bg-primary/10 text-primary"
+                  ? "bg-primary/10 text-teal-light"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -827,7 +835,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                 </tbody>
                 {filteredExpenses.length > 0 && (
                   <tfoot>
-                    <tr className="border-t-2 border-border bg-muted/30">
+                    <tr className="border-t-2 border-border bg-secondary">
                       <td
                         colSpan={5}
                         className="px-4 py-3 text-sm font-medium text-muted-foreground"
@@ -861,7 +869,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
           {/* Category Breakdown Chart */}
           <Card className="h-fit">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base font-medium">Category Breakdown</CardTitle>
+              <CardTitle className="text-base font-semibold">Category Breakdown</CardTitle>
             </CardHeader>
             <CardContent>
               <CategoryBreakdownChart categoryTotals={categoryTotals} />
@@ -872,7 +880,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
           {showTypeChart && (
             <Card className="h-fit">
               <CardHeader className="pb-2">
-                <CardTitle className="text-base font-medium">
+                <CardTitle className="text-base font-semibold">
                   Type Breakdown
                 </CardTitle>
               </CardHeader>
@@ -889,7 +897,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
           {showTrendChart && (
             <Card className="h-fit">
               <CardHeader className="pb-2">
-                <CardTitle className="text-base font-medium">
+                <CardTitle className="text-base font-semibold">
                   Expense Trend
                 </CardTitle>
               </CardHeader>

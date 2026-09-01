@@ -126,7 +126,7 @@ export function CurrentCyclePanel({ runs, deposits }: Props) {
               "flex h-10 w-10 items-center justify-center rounded-xl flex-shrink-0",
               allDone
                 ? "bg-success/15 text-success"
-                : "bg-primary/10 text-primary",
+                : "bg-primary/10 text-teal-light",
             )}
             aria-hidden="true"
           >
@@ -391,7 +391,7 @@ function CycleStatusPill({
           ? "Deposits pending"
           : "In progress";
   return (
-    <span className="inline-flex items-center rounded-md bg-primary/10 text-primary px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
+    <span className="inline-flex items-center rounded-md bg-primary/10 text-teal-light px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
       {label}
     </span>
   );

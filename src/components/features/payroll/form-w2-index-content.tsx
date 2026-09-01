@@ -35,7 +35,7 @@ export function FormW2IndexContent({ year, employees }: Props) {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <FileText className="h-5 w-5 text-primary" aria-hidden="true" />
+            <FileText className="h-5 w-5 text-teal-light" aria-hidden="true" />
           </div>
           <div>
             <h1 className="text-2xl font-bold">W-2 Forms - {year}</h1>
@@ -49,7 +49,7 @@ export function FormW2IndexContent({ year, employees }: Props) {
       {withRuns.length === 0 && withoutRuns.length === 0 && (
         <div className="glass-card rounded-xl p-10 text-center text-sm text-muted-foreground">
           No employees on file for {year}. Add employees in the{" "}
-          <Link href="/payroll/employees" className="text-primary hover:underline">
+          <Link href="/payroll/employees" className="text-teal-light hover:underline">
             employee roster
           </Link>{" "}
           first.
@@ -109,7 +109,7 @@ function EmployeeRow({
     <Link
       href={href}
       className={cn(
-        "rounded-lg border border-border p-3 flex items-center gap-3 transition-colors hover:border-primary/30 hover:bg-secondary/30",
+        "rounded-lg border border-border p-3 flex items-center gap-3 transition-colors hover:border-primary/30 hover:bg-secondary",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         muted && "opacity-70",
       )}
@@ -119,7 +119,7 @@ function EmployeeRow({
           "flex h-9 w-9 items-center justify-center rounded-lg",
           status === "filed"
             ? "bg-success/10 text-success"
-            : "bg-primary/10 text-primary",
+            : "bg-primary/10 text-teal-light",
         )}
         aria-hidden="true"
       >

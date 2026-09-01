@@ -58,8 +58,8 @@ export function AppearanceSettingsContent() {
       <div className="flex flex-wrap items-center justify-between gap-y-2">
         <div className="flex items-center gap-3">
           <MobileMenuButton />
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#C5A68F]/10">
-            <Palette className="h-5 w-5 text-[#C5A68F]" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-copper/10">
+            <Palette className="h-5 w-5 text-copper" />
           </div>
           <div>
             <h1 className="text-2xl font-bold">Appearance</h1>
@@ -96,7 +96,7 @@ export function AppearanceSettingsContent() {
                 key={t.value}
                 onClick={() => handleThemeChange(t.value)}
                 className={cn(
-                  "group relative glass-card rounded-xl p-5 transition-all duration-200 text-left",
+                  "group relative glass-card glass-card-interactive rounded-xl p-5 text-left",
                   isSelected
                     ? "border-primary/50 bg-primary/5"
                     : "hover:border-primary/30 hover:scale-[1.01]"
@@ -121,7 +121,7 @@ export function AppearanceSettingsContent() {
                   <div>
                     <h3 className={cn(
                       "font-semibold transition-colors",
-                      isSelected ? "text-primary" : "text-foreground"
+                      isSelected ? "text-teal-light" : "text-foreground"
                     )}>
                       {t.label}
                     </h3>
@@ -146,7 +146,7 @@ export function AppearanceSettingsContent() {
         </div>
 
         <div className="glass-card rounded-xl p-6">
-          <div className="rounded-lg border border-border bg-background/50 p-4">
+          <div className="rounded-lg border border-border bg-white/[0.03] p-4">
             <div className="space-y-3">
               {/* Mock header */}
               <div className="flex items-center gap-3">
@@ -164,11 +164,11 @@ export function AppearanceSettingsContent() {
                 <div className="h-16 rounded-lg bg-primary/10 flex items-center justify-center">
                   <div className="h-6 w-6 rounded bg-primary/30" />
                 </div>
-                <div className="h-16 rounded-lg bg-muted flex items-center justify-center">
+                <div className="h-16 rounded-lg bg-secondary flex items-center justify-center">
                   <div className="h-6 w-6 rounded bg-muted-foreground/20" />
                 </div>
-                <div className="h-16 rounded-lg bg-[#C5A68F]/10 flex items-center justify-center">
-                  <div className="h-6 w-6 rounded bg-[#C5A68F]/30" />
+                <div className="h-16 rounded-lg bg-copper/10 flex items-center justify-center">
+                  <div className="h-6 w-6 rounded bg-copper/30" />
                 </div>
               </div>
 

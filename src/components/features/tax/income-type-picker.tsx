@@ -57,10 +57,10 @@ function getOptions(): IncomeTypeOption[] {
 }
 
 const BADGE_STYLES: Record<IncomeType, string> = {
-  "1099": "bg-primary/15 text-primary border-primary/25",
-  w2: "bg-muted text-muted-foreground border-border",
+  "1099": "bg-primary/15 text-teal-light border-primary/25",
+  w2: "bg-secondary text-muted-foreground border-border",
   k1: "bg-copper/15 text-copper border-copper/25",
-  qualified_dividend: "bg-primary/8 text-primary border-primary/20",
+  qualified_dividend: "bg-primary/8 text-teal-light border-primary/20",
   retirement: "bg-copper/8 text-copper border-copper/20",
 };
 

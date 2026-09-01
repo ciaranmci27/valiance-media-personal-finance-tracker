@@ -19,8 +19,8 @@ interface IncomeBreakdownChartProps {
 
 // Threshold for grouping small sources into "Other" (5% of total absolute value)
 const OTHER_THRESHOLD = 0.05;
-const OTHER_COLOR = "#6b7280"; // Gray
-const NEGATIVE_COLOR = "#C4686E"; // Muted coral-red for losses (balanced with teal/copper palette)
+const OTHER_COLOR = "#71717A"; // Gray
+const NEGATIVE_COLOR = "var(--color-error)"; // Muted coral-red for losses (balanced with teal/copper palette)
 
 interface ChartDataItem {
   name: string;
@@ -107,7 +107,7 @@ export function IncomeBreakdownChart({ data, isRevealed: externalRevealed, size 
       const item = payload[0].payload as ChartDataItem;
       const percentage = ((item.value / absoluteTotal) * 100).toFixed(1);
       return (
-        <div className="glass-card rounded-lg p-3 shadow-lg border border-border">
+        <div className="rounded-lg bg-card p-3 border border-white/[0.08] shadow-[var(--shadow-overlay)]">
           <div className="flex items-center gap-2 mb-1">
             <div
               className="w-2 h-2 rounded-full"
@@ -122,7 +122,7 @@ export function IncomeBreakdownChart({ data, isRevealed: externalRevealed, size 
             <span className="tabular-nums font-medium" style={item.isNegative ? { color: NEGATIVE_COLOR } : undefined}>
               {showValues ? formatCurrency(item.actualValue, { compact: true }) : "•••••"}
             </span>
-            <span className="text-muted-foreground ml-2">
+            <span className="text-zinc-500 ml-2">
               {showValues ? `(${percentage}%)` : "(••%)"}
             </span>
           </p>
@@ -135,7 +135,7 @@ export function IncomeBreakdownChart({ data, isRevealed: externalRevealed, size 
   if (data.length === 0 || absoluteTotal === 0) {
     return (
       <div className={isCompact ? "h-[200px]" : "h-[250px]"} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span className="text-muted-foreground">No income data for this month</span>
+        <span className="text-zinc-500">No income data for this month</span>
       </div>
     );
   }
@@ -194,7 +194,7 @@ export function IncomeBreakdownChart({ data, isRevealed: externalRevealed, size 
             <p className={`${isCompact ? "text-xl" : "text-2xl"} font-bold currency`} style={netTotal < 0 ? { color: NEGATIVE_COLOR } : undefined}>
               {showValues ? formatCurrency(netTotal, { compact: true }) : "•••••"}
             </p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-zinc-500">
               {netTotal < 0 ? "Net Loss" : "Net Income"}
             </p>
           </div>
@@ -211,7 +211,7 @@ export function IncomeBreakdownChart({ data, isRevealed: externalRevealed, size 
                 style={{ backgroundColor: item.color }}
               />
               <span
-                className="text-muted-foreground truncate"
+                className="text-zinc-500 truncate"
                 style={item.isNegative ? { color: NEGATIVE_COLOR } : undefined}
               >
                 {item.name}
@@ -219,7 +219,7 @@ export function IncomeBreakdownChart({ data, isRevealed: externalRevealed, size 
             </div>
           ))}
           {hiddenCount > 0 && (
-            <div className="flex items-center text-xs text-muted-foreground">
+            <div className="flex items-center text-xs text-zinc-500">
               +{hiddenCount} more
             </div>
           )}
@@ -233,7 +233,7 @@ export function IncomeBreakdownChart({ data, isRevealed: externalRevealed, size 
                 style={{ backgroundColor: item.color }}
               />
               <span
-                className="text-muted-foreground"
+                className="text-zinc-500"
                 style={item.isNegative ? { color: NEGATIVE_COLOR } : undefined}
               >
                 {item.name}
@@ -241,7 +241,7 @@ export function IncomeBreakdownChart({ data, isRevealed: externalRevealed, size 
             </div>
           ))}
           {hiddenCount > 0 && (
-            <span className="text-xs text-muted-foreground">+{hiddenCount} more</span>
+            <span className="text-xs text-zinc-500">+{hiddenCount} more</span>
           )}
         </div>
       )}

@@ -11,19 +11,19 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          "bg-primary text-primary-foreground shadow-md hover:bg-teal-light active:scale-[0.98]",
+          "liquid-primary active:scale-[0.98]",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-md hover:bg-destructive/90 active:scale-[0.98]",
+          "bg-red-600/90 text-white hover:bg-red-600 active:scale-[0.98]",
         outline:
           "border border-border bg-transparent hover:bg-secondary hover:text-secondary-foreground active:scale-[0.98]",
         secondary:
-          "bg-secondary text-secondary-foreground shadow-sm hover:bg-secondary/80 active:scale-[0.98]",
+          "liquid-glass active:scale-[0.98]",
         ghost:
           "hover:bg-secondary hover:text-secondary-foreground",
         link:
-          "text-primary underline-offset-4 hover:underline",
+          "text-teal-light underline-offset-4 hover:underline",
         glass:
-          "glass-card text-foreground hover:border-teal/30 active:scale-[0.98]",
+          "liquid-glass active:scale-[0.98]",
       },
       size: {
         default: "h-10 px-4 py-2",

@@ -22,13 +22,13 @@ const CATEGORY_COLORS: Record<ExpenseCategory, string> = {
   housing: "hsl(167, 21%, 46%)",      // teal darker
   transport: "hsl(26, 29%, 57%)",     // copper darker
   utilities: "hsl(200, 40%, 50%)",    // blue
-  health: "hsl(142, 40%, 45%)",       // green
+  health: "var(--color-success)",       // green
   entertainment: "hsl(280, 40%, 55%)", // purple
   subscriptions: "hsl(340, 45%, 55%)", // pink
   software: "hsl(210, 50%, 50%)",     // bright blue
   hosting: "hsl(180, 35%, 45%)",      // cyan
   marketing: "hsl(35, 60%, 50%)",     // orange
-  fees: "hsl(0, 45%, 55%)",           // red
+  fees: "var(--color-error)",           // red
   services: "hsl(260, 35%, 55%)",     // violet
   contractors: "hsl(100, 35%, 45%)",  // lime
   payroll: "hsl(220, 45%, 55%)",      // indigo
@@ -64,7 +64,7 @@ export function CategoryBreakdownChart({
       const item = payload[0].payload;
       const percentage = total > 0 ? ((item.value / total) * 100).toFixed(1) : 0;
       return (
-        <div className="glass-card rounded-lg p-3 shadow-lg border border-border">
+        <div className="rounded-lg bg-card p-3 border border-white/[0.08] shadow-[var(--shadow-overlay)]">
           <div className="flex items-center gap-2 mb-1">
             <div
               className="w-2 h-2 rounded-full"
@@ -76,7 +76,7 @@ export function CategoryBreakdownChart({
             <span className="tabular-nums font-medium">
               {showValues ? formatCurrency(item.value) : "•••••"}
             </span>
-            <span className="text-muted-foreground ml-2">
+            <span className="text-zinc-500 ml-2">
               {showValues ? `(${percentage}%)` : "(••%)"}
             </span>
           </p>
@@ -88,7 +88,7 @@ export function CategoryBreakdownChart({
 
   if (total === 0) {
     return (
-      <div className="h-[280px] flex items-center justify-center text-muted-foreground">
+      <div className="h-[280px] flex items-center justify-center text-zinc-500">
         No category data
       </div>
     );
@@ -136,7 +136,7 @@ export function CategoryBreakdownChart({
           <p className="text-lg font-bold tracking-tight currency text-foreground">
             {showValues ? formatCompactCurrency(total) : "•••••"}
           </p>
-          <p className="text-xs text-muted-foreground">{chartData.length} Categories</p>
+          <p className="text-xs text-zinc-500">{chartData.length} Categories</p>
         </div>
       </div>
 
@@ -151,14 +151,14 @@ export function CategoryBreakdownChart({
                 style={{ backgroundColor: item.color }}
               />
               <span className="text-foreground">{item.name}</span>
-              <span className="text-muted-foreground">
+              <span className="text-zinc-500">
                 {showValues ? `${percentage}%` : "••%"}
               </span>
             </div>
           );
         })}
         {chartData.length > 4 && (
-          <span className="text-xs text-muted-foreground">+{chartData.length - 4} more</span>
+          <span className="text-xs text-zinc-500">+{chartData.length - 4} more</span>
         )}
       </div>
     </div>

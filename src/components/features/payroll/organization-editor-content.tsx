@@ -184,7 +184,7 @@ export function OrganizationEditorContent({ initial }: Props) {
       <div className="flex items-center gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <Building2 className="h-5 w-5 text-primary" aria-hidden="true" />
+            <Building2 className="h-5 w-5 text-teal-light" aria-hidden="true" />
           </div>
           <div>
             <h1 className="text-2xl font-bold">Organization</h1>

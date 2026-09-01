@@ -17,7 +17,7 @@ interface ExpenseHistoryChartProps {
   history: ExpenseHistory[];
 }
 
-const TEAL_COLOR = "hsl(167, 21%, 56%)";
+const TEAL_COLOR = "var(--color-teal-light)";
 
 export function ExpenseHistoryChart({ history }: ExpenseHistoryChartProps) {
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
@@ -54,13 +54,13 @@ export function ExpenseHistoryChart({ history }: ExpenseHistoryChartProps) {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (
-        <div className="glass-card rounded-lg p-3 shadow-lg border border-border">
-          <p className="text-xs text-muted-foreground mb-1">{data.label}</p>
+        <div className="rounded-lg bg-card p-3 border border-white/[0.08] shadow-[var(--shadow-overlay)]">
+          <p className="text-xs text-zinc-500 mb-1">{data.label}</p>
           <p className="text-sm">
             <span className="tabular-nums font-medium text-primary">
               {showValues ? formatCurrency(data.amount) : "•••••"}
             </span>
-            <span className="text-muted-foreground ml-1.5 text-xs">/{data.frequency}</span>
+            <span className="text-zinc-500 ml-1.5 text-xs">/{data.frequency}</span>
           </p>
         </div>
       );
@@ -86,14 +86,14 @@ export function ExpenseHistoryChart({ history }: ExpenseHistoryChartProps) {
             dataKey="label"
             axisLine={false}
             tickLine={false}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "#71717A", fontSize: 11 }}
             dy={5}
             interval="preserveStartEnd"
           />
           <YAxis
             axisLine={false}
             tickLine={false}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
+            tick={{ fill: "#71717A", fontSize: 10 }}
             tickFormatter={(value) => {
               if (!showValues) return "•••";
               if (value >= 1000) {

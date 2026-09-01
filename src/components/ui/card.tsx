@@ -15,7 +15,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
         "rounded-xl border transition-all duration-200",
         glass
           ? "glass-card"
-          : "bg-card text-card-foreground border-border shadow-sm",
+          : "bg-[var(--background-subtle)] text-card-foreground border-white/10 shadow-[var(--shadow-card)]",
         className
       )}
       {...props}

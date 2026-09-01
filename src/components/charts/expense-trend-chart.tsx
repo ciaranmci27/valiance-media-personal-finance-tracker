@@ -17,7 +17,7 @@ interface ExpenseTrendChartProps {
   history: ExpenseHistory[];
 }
 
-const TEAL_COLOR = "hsl(167, 21%, 56%)";
+const TEAL_COLOR = "var(--color-teal-light)";
 
 export function ExpenseTrendChart({ history }: ExpenseTrendChartProps) {
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
@@ -121,13 +121,13 @@ export function ExpenseTrendChart({ history }: ExpenseTrendChartProps) {
   const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) => {
     if (active && payload && payload.length) {
       return (
-        <div className="glass-card rounded-lg p-3 shadow-lg border border-border">
+        <div className="rounded-lg bg-card p-3 border border-white/[0.08] shadow-[var(--shadow-overlay)]">
           <p className="text-sm font-medium text-foreground mb-1">{label}</p>
           <p className="text-sm">
             <span className="tabular-nums font-medium text-primary">
               {showValues ? formatCurrency(payload[0].value) : "•••••"}
             </span>
-            <span className="text-muted-foreground ml-2">/month</span>
+            <span className="text-zinc-500 ml-2">/month</span>
           </p>
         </div>
       );
@@ -137,7 +137,7 @@ export function ExpenseTrendChart({ history }: ExpenseTrendChartProps) {
 
   if (chartData.length === 0) {
     return (
-      <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
+      <div className="h-[200px] flex items-center justify-center text-zinc-500 text-sm">
         No historical data available
       </div>
     );
@@ -157,14 +157,14 @@ export function ExpenseTrendChart({ history }: ExpenseTrendChartProps) {
             dataKey="label"
             axisLine={false}
             tickLine={false}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "#71717A", fontSize: 11 }}
             dy={5}
             interval="preserveStartEnd"
           />
           <YAxis
             axisLine={false}
             tickLine={false}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }}
+            tick={{ fill: "#71717A", fontSize: 10 }}
             tickFormatter={(value) => {
               if (!showValues) return "•••";
               if (value >= 1000) {

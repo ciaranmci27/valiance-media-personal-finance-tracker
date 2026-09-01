@@ -106,7 +106,7 @@ export function AccountSettingsContent({ user }: AccountSettingsContentProps) {
         <div className="flex items-center gap-3">
           <MobileMenuButton />
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <UserIcon className="h-5 w-5 text-primary" />
+            <UserIcon className="h-5 w-5 text-teal-light" />
           </div>
           <div>
             <h1 className="text-2xl font-bold">Account</h1>
@@ -158,7 +158,7 @@ export function AccountSettingsContent({ user }: AccountSettingsContentProps) {
           <form onSubmit={handleUpdateEmail} className="space-y-4">
             <div className="flex items-start gap-4">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 shrink-0">
-                <Mail className="h-5 w-5 text-primary" />
+                <Mail className="h-5 w-5 text-teal-light" />
               </div>
               <div className="flex-1 space-y-4">
                 <div>
@@ -205,8 +205,8 @@ export function AccountSettingsContent({ user }: AccountSettingsContentProps) {
         <div className="glass-card rounded-xl p-6">
           <form onSubmit={handleUpdatePassword} className="space-y-4">
             <div className="flex items-start gap-4">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#C5A68F]/10 shrink-0">
-                <Lock className="h-5 w-5 text-[#C5A68F]" />
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-copper/10 shrink-0">
+                <Lock className="h-5 w-5 text-copper" />
               </div>
               <div className="flex-1 space-y-4">
                 <p className="text-sm text-muted-foreground">

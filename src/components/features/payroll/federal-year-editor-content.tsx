@@ -409,8 +409,8 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#C5A68F]/10">
-              <Landmark className="h-5 w-5 text-[#C5A68F]" aria-hidden="true" />
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-copper/10">
+              <Landmark className="h-5 w-5 text-copper" aria-hidden="true" />
             </div>
             <div>
               <h1 className="text-2xl font-bold">{year} Federal Tax Config</h1>

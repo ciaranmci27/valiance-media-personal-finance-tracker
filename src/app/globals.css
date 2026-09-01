@@ -5,6 +5,11 @@
 
 @import "tailwindcss";
 
+/* Bind the `dark:` variant to the data-theme system (matches the app; the
+   Tailwind v4 default follows prefers-color-scheme, which is decoupled from
+   the in-app theme toggle). */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 /* ============================================================================
    VALIANCE ADMIN - GLASSMORPHIC DESIGN SYSTEM
    A refined, data-focused aesthetic with frosted glass elements
@@ -15,19 +20,15 @@
    ============================================================================ */
 
 :root {
-  /* Brand Colors */
-  --teal: 167 21% 45%;
-  --teal-light: 167 21% 56%;
-  --teal-dark: 167 21% 37%;
-  --copper: 26 29% 67%;
-  --copper-light: 26 29% 76%;
-  --copper-dark: 26 29% 56%;
-
-  /* Semantic Colors */
-  --success: 167 21% 45%; /* Teal - matches brand palette */
-  --warning: 38 92% 50%;
-  --error: 354 42% 59%; /* Muted coral-red #C4686E - fits teal/copper palette */
-  --info: 199 89% 48%;
+  /* Brand Colors - the app's brand scale values verbatim
+     (app brand-500 / brand-300 / brand-400 / brand-600 / copper).
+     --teal-light is remapped darker in the light theme (like the app's
+     brand-300 text shade), so it lives in the theme blocks below too. */
+  --teal: #5B8A8A;
+  --teal-light: #8DB3B3;
+  --teal-mid: #749E9E;
+  --teal-dark: #4A7171;
+  --copper: #C5A68F;
 
   /* Typography (families come from next/font variables set on <html>) */
   --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, -apple-system, sans-serif;
@@ -38,125 +39,241 @@
   --transition-base: 250ms cubic-bezier(0.4, 0, 0.2, 1);
   --transition-slow: 400ms cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* Glass Effect */
+  /* Glass Effect (app values verbatim) */
   --glass-blur: 22px;
   --glass-saturate: 150%;
 }
 
-/* Dark Theme (Default) */
+/* Dark Theme (Default)
+   Every value below is the app's design-system value verbatim (surfaces,
+   text tiers, alpha hairlines, white-alpha wells) so the two apps composite
+   identically. Tokens are FULL COLORS, not HSL triplets - alpha values like
+   the border could never be expressed as triplets, which is exactly where
+   the old approximations drifted from the app. */
 :root,
 [data-theme="dark"] {
+  color-scheme: dark;
+
   /* RGB triplet behind white/black-alpha effects (hover borders, scrollbars);
      flips per theme so alpha tints invert automatically */
   --ink: 255, 255, 255;
+  --color-white: #FFFFFF;
+
+  /* Brand text shade re-assert (light mode darkens it; this lets a nested
+     dark subtree such as the sidebar keep the true shade) */
+  --teal-light: #8DB3B3;
+  --teal-mid: #749E9E;
+
+  /* Semantic colors - the app's palette (emerald/amber/red/blue), remapped
+     per theme exactly like the app's ramps. --destructive is the deeper
+     red-600 the app uses for solid destructive fills. */
+  --success: #34D399;
+  --warning: #F59E0B;
+  --error: #F87171;
+  --info: #3B82F6;
+
+  /* Neutral + semantic utility ramps re-asserted so the light-mode remaps
+     below can never leak into a nested dark subtree (app verbatim) */
+  --color-zinc-100: #F4F4F5;
+  --color-zinc-200: #E4E4E7;
+  --color-zinc-300: #D4D4D8;
+  --color-zinc-400: #A1A1AA;
+  --color-zinc-600: #52525B;
+
+  --color-emerald-300: #6EE7B7; --color-emerald-400: #34D399; --color-emerald-500: #10B981;
+  --color-green-300: #86EFAC;   --color-green-400: #4ADE80;   --color-green-500: #22C55E;
+  --color-amber-300: #FCD34D;   --color-amber-400: #FBBF24;   --color-amber-500: #F59E0B;
+  --color-red-300: #FCA5A5;     --color-red-400: #F87171;     --color-red-500: #EF4444;
+  --color-rose-300: #FDA4AF;    --color-rose-400: #FB7185;    --color-rose-500: #F43F5E;
+  --color-orange-300: #FDBA74;  --color-orange-400: #FB923C;  --color-orange-500: #F97316;
+  --color-blue-300: #93C5FD;    --color-blue-400: #60A5FA;    --color-blue-500: #3B82F6;
+  --color-sky-300: #7DD3FC;     --color-sky-400: #38BDF8;     --color-sky-500: #0EA5E9;
+  --color-violet-300: #C4B5FD;  --color-violet-400: #A78BFA;  --color-violet-500: #8B5CF6;
+  --color-purple-300: #D8B4FE;  --color-purple-400: #C084FC;  --color-purple-500: #A855F7;
+  --color-teal-300: #5EEAD4;    --color-teal-400: #2DD4BF;    --color-teal-500: #14B8A6;
 
   /* Base is deliberately deeper than the glass panels so cards sit lighter
-     than the canvas and the glass reads as glass */
-  --background: 225 20% 4%;
-  --background-subtle: 240 12% 8%;
-  --foreground: 240 5% 96%;
-  --foreground-muted: 240 5% 65%;
+     than the canvas and the glass reads as glass (app --color-surface) */
+  --background: #08090C;
+  --background-subtle: #14151A;   /* app surface-raised */
+  --foreground: #F4F4F5;          /* app text-primary */
+  --foreground-muted: #A1A1AA;
 
-  --card: 231 12% 10%;
-  --card-foreground: 240 5% 96%;
-  --card-border: 228 8% 16%;
+  /* Admin's bg-card styles overlays (dialogs, dropdowns, tooltips) - maps
+     to the app's surface-overlay */
+  --card: #16171D;
+  --card-foreground: #F4F4F5;
+  --card-border: rgba(255, 255, 255, 0.08);
 
-  --popover: 231 12% 10%;
-  --popover-foreground: 240 5% 96%;
+  --popover: #16171D;
+  --popover-foreground: #F4F4F5;
 
   --primary: var(--teal);
-  --primary-foreground: 0 0% 100%;
+  --primary-foreground: #FFFFFF;
 
-  --secondary: 230 11% 13%;
-  --secondary-foreground: 240 5% 96%;
+  /* Wells, chips, and hover fills - the app's white-alpha idiom */
+  --secondary: rgba(255, 255, 255, 0.06);
+  --secondary-foreground: #F4F4F5;
 
-  --muted: 231 11% 11%;
-  --muted-foreground: 240 5% 65%;
+  --muted: rgba(255, 255, 255, 0.04);
+  --muted-foreground: #A1A1AA;    /* app text-secondary */
 
-  --accent: var(--teal);
-  --accent-foreground: 0 0% 100%;
+  /* Neutral hover surface (stock shadcn semantics; NOT the brand color -
+     dialog close buttons etc. use data-[state=open]:bg-accent) */
+  --accent: rgba(255, 255, 255, 0.06);
+  --accent-foreground: #F4F4F5;
 
-  --destructive: var(--error);
-  --destructive-foreground: 0 0% 100%;
+  /* Solid destructive fill = app's red-600; --error stays the text shade */
+  --destructive: #DC2626;
+  --destructive-foreground: #FFFFFF;
 
-  --border: 228 8% 16%;
-  --input: 231 11% 11%;
-  --ring: var(--teal);
+  --border: rgba(255, 255, 255, 0.08);  /* app surface-border, true alpha */
+  --input: rgba(255, 255, 255, 0.03);   /* app input-bg */
+  /* Soft focus ring for ring-* utilities (app input-ring: brand @ 30%);
+     the :focus-visible outline uses the solid brand-400 shade separately */
+  --ring: color-mix(in srgb, var(--teal) 30%, transparent);
 
-  /* Glass specific - panels sit LIGHTER than the base */
+  /* Glass specific - panels sit LIGHTER than the base (app values verbatim) */
   --glass-bg: rgba(26, 28, 35, 0.55);
+  --glass-bg-strong: rgba(17, 19, 25, 0.66);
   --glass-border: rgba(255, 255, 255, 0.08);
   --glass-highlight: rgba(255, 255, 255, 0.09);
 
   /* Ambient back-light: brand-derived radials (teal top-left, copper
-     top-right, teal bottom) instead of a single teal wash */
+     top-right, teal bottom), app strengths verbatim */
   --gradient-bg:
-    radial-gradient(58% 48% at 12% -6%, color-mix(in srgb, hsl(var(--teal)) 11%, transparent), transparent 60%),
-    radial-gradient(46% 42% at 96% 4%, color-mix(in srgb, hsl(var(--copper)) 6%, transparent), transparent 55%),
-    radial-gradient(70% 55% at 50% 116%, color-mix(in srgb, hsl(var(--teal)) 7%, transparent), transparent 62%);
+    radial-gradient(58% 48% at 12% -6%, color-mix(in srgb, var(--teal) 11%, transparent), transparent 60%),
+    radial-gradient(46% 42% at 96% 4%, color-mix(in srgb, var(--copper) 6%, transparent), transparent 55%),
+    radial-gradient(70% 55% at 50% 116%, color-mix(in srgb, var(--teal) 7%, transparent), transparent 62%);
 
-  /* Shadows */
+  /* Shadows (app values verbatim) */
   --shadow-card: 0 4px 24px -6px rgba(0, 0, 0, 0.55);
   --shadow-card-hover: 0 10px 40px -10px rgba(0, 0, 0, 0.65);
+  --shadow-overlay: 0 16px 48px -12px rgba(0, 0, 0, 0.7);
 }
 
-/* Light Theme */
+/* Light Theme - the app's light block values verbatim */
 [data-theme="light"] {
+  color-scheme: light;
+
   --ink: 24, 24, 27;
+  --color-white: #18181B;
 
-  --background: 220 12% 96%;
-  --background-subtle: 220 10% 92%;
-  --foreground: 240 6% 10%;
-  --foreground-muted: 240 4% 34%;
+  /* Brand text shade darkened for legibility on white (app brand-300 -> 700) */
+  --teal-light: #3A5959;
+  --teal-mid: #4A7171;
 
-  --card: 0 0% 100%;
-  --card-foreground: 240 6% 10%;
-  --card-border: 240 6% 89%;
+  /* Semantic colors, light (app's -700-tier remaps) */
+  --success: #047857;
+  --warning: #B45309;
+  --error: #B91C1C;
+  --info: #1D4ED8;
 
-  --popover: 0 0% 100%;
-  --popover-foreground: 240 6% 10%;
+  /* Neutral + semantic utility ramps (app light remaps verbatim) */
+  --color-zinc-100: #18181B;
+  --color-zinc-200: #27272A;
+  --color-zinc-300: #3F3F46;
+  --color-zinc-400: #52525B;
+  --color-zinc-600: #A1A1AA;
+
+  --color-emerald-300: #047857; --color-emerald-400: #047857; --color-emerald-500: #047857;
+  --color-green-300: #15803D;   --color-green-400: #15803D;   --color-green-500: #15803D;
+  --color-amber-300: #B45309;   --color-amber-400: #B45309;   --color-amber-500: #B45309;
+  --color-red-300: #B91C1C;     --color-red-400: #B91C1C;     --color-red-500: #B91C1C;
+  --color-rose-300: #BE123C;    --color-rose-400: #BE123C;    --color-rose-500: #BE123C;
+  --color-orange-300: #C2410C;  --color-orange-400: #C2410C;  --color-orange-500: #C2410C;
+  --color-blue-300: #1D4ED8;    --color-blue-400: #1D4ED8;    --color-blue-500: #1D4ED8;
+  --color-sky-300: #0369A1;     --color-sky-400: #0369A1;     --color-sky-500: #0369A1;
+  --color-violet-300: #6D28D9;  --color-violet-400: #6D28D9;  --color-violet-500: #6D28D9;
+  --color-purple-300: #7E22CE;  --color-purple-400: #7E22CE;  --color-purple-500: #7E22CE;
+  --color-teal-300: #0F766E;    --color-teal-400: #0F766E;    --color-teal-500: #0F766E;
+
+  --background: #F4F5F7;          /* app light surface */
+  --background-subtle: #FFFFFF;   /* app light surface-raised */
+  --foreground: #18181B;          /* app light text-primary */
+  --foreground-muted: #52525B;
+
+  --card: #FFFFFF;                /* app light surface-overlay */
+  --card-foreground: #18181B;
+  --card-border: rgba(0, 0, 0, 0.10);
+
+  --popover: #FFFFFF;
+  --popover-foreground: #18181B;
 
   --primary: var(--teal);
-  --primary-foreground: 0 0% 100%;
+  --primary-foreground: #FFFFFF;
 
-  --secondary: 220 8% 92%;
-  --secondary-foreground: 240 6% 20%;
+  --secondary: rgba(0, 0, 0, 0.05);
+  --secondary-foreground: #18181B;
 
-  --muted: 220 8% 93%;
-  --muted-foreground: 240 4% 34%;
+  --muted: rgba(0, 0, 0, 0.04);
+  --muted-foreground: #52525B;    /* app light text-secondary */
 
-  --accent: var(--teal);
-  --accent-foreground: 0 0% 100%;
+  --accent: rgba(0, 0, 0, 0.05);
+  --accent-foreground: #18181B;
 
-  --destructive: var(--error);
-  --destructive-foreground: 0 0% 100%;
+  --destructive: #B91C1C;
+  --destructive-foreground: #FFFFFF;
 
-  --border: 240 6% 89%;
-  --input: 220 10% 98%;
-  --ring: var(--teal);
+  --border: rgba(0, 0, 0, 0.10);  /* app light surface-border */
+  --input: rgba(0, 0, 0, 0.02);   /* app light input-bg */
+  --ring: color-mix(in srgb, var(--teal) 30%, transparent);
 
-  /* Glass specific - lighter */
+  /* Glass specific (app light values verbatim) */
   --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-bg-strong: rgba(255, 255, 255, 0.82);
   --glass-border: rgba(0, 0, 0, 0.10);
   --glass-highlight: rgba(255, 255, 255, 0.70);
 
-  /* Ambient back-light - subtler in light mode */
-  --gradient-bg:
-    radial-gradient(58% 48% at 12% -6%, color-mix(in srgb, hsl(var(--teal)) 7%, transparent), transparent 60%),
-    radial-gradient(46% 42% at 96% 4%, color-mix(in srgb, hsl(var(--copper)) 4%, transparent), transparent 55%),
-    radial-gradient(70% 55% at 50% 116%, color-mix(in srgb, hsl(var(--teal)) 4%, transparent), transparent 62%);
+  /* Ambient back-light: same radials as dark (the app does not soften them
+     in light mode - --gradient-bg is inherited from the base block) */
 
-  /* Shadows - much subtler for light mode */
+  /* Shadows (app light values verbatim) */
   --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 20px -8px rgba(16, 24, 40, 0.12);
   --shadow-card-hover: 0 10px 32px -10px rgba(16, 24, 40, 0.18);
+  --shadow-overlay: 0 16px 48px -12px rgba(16, 24, 40, 0.20);
+}
+
+/* Keep white ink on saturated fills in light mode (app ink-guard, extended
+   with the admin's token-named fills). Word-match (~=) so hover:/alpha
+   variants are unaffected. */
+[class~="bg-primary"], [class~="bg-destructive"],
+[class~="bg-teal"], [class~="bg-teal-dark"],
+[class~="bg-brand-500"], [class~="bg-brand-600"], [class~="bg-brand-700"],
+[class~="bg-red-500"], [class~="bg-red-600"], [class~="bg-red-600/90"],
+[class~="bg-emerald-500"], [class~="bg-emerald-600"], [class~="bg-amber-500"],
+[class~="bg-blue-600"],
+[class~="bg-zinc-900"], [class~="bg-zinc-800"] {
+  --color-white: #FFFFFF;
+  --ink: 255, 255, 255;
+}
+
+/* Data-viz keeps its vivid shades in both themes (app verbatim) */
+.chart-vivid {
+  --color-emerald-300: #6EE7B7; --color-emerald-400: #34D399; --color-emerald-500: #10B981;
+  --color-green-300: #86EFAC;   --color-green-400: #4ADE80;   --color-green-500: #22C55E;
+  --color-sky-300: #7DD3FC;     --color-sky-400: #38BDF8;     --color-sky-500: #0EA5E9;
+  --color-amber-300: #FCD34D;   --color-amber-400: #FBBF24;   --color-amber-500: #F59E0B;
+  --color-violet-300: #C4B5FD;  --color-violet-400: #A78BFA;  --color-violet-500: #8B5CF6;
+  --color-teal-300: #5EEAD4;    --color-teal-400: #2DD4BF;    --color-teal-500: #14B8A6;
+  --color-rose-300: #FDA4AF;    --color-rose-400: #FB7185;    --color-rose-500: #F43F5E;
+  --color-red-300: #FCA5A5;     --color-red-400: #F87171;     --color-red-500: #EF4444;
+  --color-blue-300: #93C5FD;    --color-blue-400: #60A5FA;    --color-blue-500: #3B82F6;
 }
 
 /* ============================================================================
    BASE STYLES
    ============================================================================ */
 
-* {
-  border-color: hsl(var(--border));
+/* Default hairline border color. MUST live in @layer base: an unlayered rule
+   outranks every Tailwind border-color utility (layered declarations lose to
+   unlayered ones), which silently killed all tinted borders app-wide. */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border);
+  }
 }
 
 /* Disable text selection on UI elements for app-like feel */
@@ -213,48 +330,41 @@ button:not(:disabled),
 
 body {
   font-family: var(--font-sans);
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
-  line-height: 1.6;
+  background-color: var(--background);
+  color: var(--foreground);
+  /* No line-height override: inherit the preflight 1.5 like the app, so text
+     blocks share the same vertical metrics in both apps. */
   min-height: 100vh;
 }
 
-/* Background gradient overlay */
+/* Background gradient overlay (app verbatim: no compositor promotion).
+   The old translateZ(0) promotions here were a workaround for the Chromium
+   backdrop-filter tile-seam artifact; with no live backdrop-filter sampling
+   these layers (see the glass NOTE below), the artifact's mechanism is gone
+   and the promotion is dead weight the app never had. */
 body::before {
   content: '';
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 100vh;
+  inset: 0;
   background: var(--gradient-bg);
   pointer-events: none;
-  z-index: 0;
-  /* Promote to a stable compositor layer. These fixed layers sit inside the
-     backdrop of every .glass-card blur; left unpromoted, Chrome re-rasterizes
-     them in tiles whenever content below repaints (chart hover), and the tile
-     seams show up as rectangular bands inside the blurred cards. */
-  transform: translateZ(0);
+  z-index: -2; /* app stacking: below all content, above body background */
 }
 
 /* Film grain over the canvas - keeps large dark surfaces from reading flat.
-   Sits at the same layer as the gradient (behind z-10 content); glass panels
-   pick it up through their backdrop blur. Plain low opacity, NO blend mode:
-   mix-blend-mode inside a backdrop-filter's backdrop is a known Chromium
-   artifact trigger (same rectangular seams as above). */
+   mix-blend-mode: overlay matches the app exactly AND is load-bearing for
+   color parity: a plain white-alpha veil here lightens the blue-hued #08090C
+   canvas into a visible tint, while overlay noise contributes ~nothing on a
+   near-black canvas. */
 body::after {
   content: '';
   position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 100vh;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 140px 140px;
-  opacity: 0.02;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: 0.035;
+  mix-blend-mode: overlay;
   pointer-events: none;
-  z-index: 0;
-  transform: translateZ(0);
+  z-index: -1; /* app stacking */
 }
 
 /* Hide native number input spinners */
@@ -293,70 +403,219 @@ input[type="number"] {
 }
 
 .currency-positive {
-  color: hsl(var(--success));
+  color: var(--success);
 }
 
 .currency-negative {
-  color: hsl(var(--error));
+  color: var(--error);
 }
 
 /* ============================================================================
    GLASS MORPHISM UTILITIES
    ============================================================================ */
 
-/* NOTE: -webkit-backdrop-filter must come BEFORE the standard property.
-   Lightning CSS (Turbopack) folds the alias into the same logical property
-   and keeps only the last declaration, so standard-first order shipped
-   webkit-only CSS and silently disabled the blur in Chrome. */
+/* NOTE on backdrop-filter order - this is load-bearing for PIXEL PARITY with
+   the app, verified against both apps' served CSS:
+   With the standard property FIRST and -webkit- LAST (the app's order),
+   Lightning CSS folds the pair and ships ONLY `-webkit-backdrop-filter`,
+   which Chromium does not implement (CSS.supports('-webkit-backdrop-filter',
+   'blur(2px)') is false). The app - the design reference - therefore renders
+   every glass surface as a FLAT translucent fill in Chrome: no blur, no
+   saturate. Safari still blurs via the -webkit- declaration.
+   The reversed order (-webkit- first) ships a live standard `backdrop-filter`,
+   which (a) diverges from the app - saturate(150%) amplifies the ambient
+   teal/copper radials behind every panel into a visible tint - and (b) enables
+   Chromium's backdrop-filter + blended-fixed-layer compositing artifact
+   (random rectangular repaint bands over cards). Keep the app's order so both
+   apps fold identically and composite identically in every browser. */
 .glass {
   background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--glass-border);
 }
 
 .glass-subtle {
   background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(12px) saturate(150%);
   backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
 }
 
 .glass-strong {
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(30px) saturate(200%);
-  backdrop-filter: blur(30px) saturate(200%);
+  background: var(--glass-bg-strong, var(--glass-bg));
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  border: 1px solid var(--glass-border);
 }
 
-/* Glass card. No inset top-highlight line: the extra 1px inner edge read as
-   a doubled border next to the app's cards, which use border + shadow only. */
+/* Glass card - STATIC, like the app's. No inset highlight, no hover: hover
+   lift/brighten is opt-in via .glass-card-interactive so non-clickable
+   panels do not react to the pointer. */
 .glass-card {
   background: var(--glass-bg);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
   border: 1px solid var(--glass-border);
   box-shadow: var(--shadow-card);
+}
+
+/* Opt-in interactive card (app verbatim) */
+.glass-card-interactive {
   transition: border-color 0.2s ease, box-shadow 0.2s ease,
     transform 0.2s cubic-bezier(0.2, 1, 0.3, 1);
 }
 
-.glass-card:hover {
+.glass-card-interactive:hover {
   border-color: rgba(var(--ink), 0.16);
   box-shadow: var(--shadow-card-hover);
   transform: translateY(-1px);
+}
+
+/* Card hover with brand glow (app verbatim) */
+.card-lift {
+  transition: box-shadow 0.18s ease, transform 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.card-lift:hover {
+  box-shadow: var(--shadow-card-hover),
+    0 0 24px -10px color-mix(in srgb, var(--teal) 45%, transparent);
+  transform: translateY(-1px);
+}
+
+/* Strong brand inset ring (app verbatim; the soft 28% variant is below) */
+.glow-brand {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--teal) 34%, transparent);
+}
+
+/* Primary button surface: satin brand fill (app verbatim) */
+.liquid-primary {
+  background-color: var(--teal-dark);
+  color: #fff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.22),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.liquid-primary:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.38),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.22),
+    0 2px 8px -1px rgba(0, 0, 0, 0.4);
+}
+
+/* Secondary button surface: frosted glass pill (app verbatim) */
+.liquid-glass {
+  background: rgba(var(--ink), 0.055);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  color: var(--foreground);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--ink), 0.12),
+    inset 0 0 0 1px rgba(var(--ink), 0.08);
+}
+
+.liquid-glass:hover {
+  background: rgba(var(--ink), 0.09);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--ink), 0.16),
+    inset 0 0 0 1px rgba(var(--ink), 0.14);
+}
+
+/* Unify every inline solid-teal button with the component's primary look
+   (app verbatim, extended with the admin's bg-teal fill class). */
+button.bg-brand-600, a.bg-brand-600,
+button.bg-brand-500, a.bg-brand-500,
+button.bg-teal, a.bg-teal {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.30),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.22),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Frost secondary/utility buttons (app verbatim). Inline action buttons that
+   use the neutral well backgrounds get the glass rim treatment so they read
+   as the same family as .liquid-glass. Only <button>/<a> with the background
+   as a BASE class match (the leading space / start-of-string guards keep
+   `hover:bg-white/...` ghost buttons out); cards, rows, and chips are
+   div/span/tr, so they're never touched. The backdrop-filter pair folds to
+   the dead -webkit- form exactly like the glass rules above - the LIVE part
+   in Chrome is the inset rim box-shadow (and the bg override below). */
+:is(button, a)[class*=" bg-white/[0.0"],
+:is(button, a)[class^="bg-white/[0.0"],
+:is(button, a)[class*=" bg-white/5"] {
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(var(--ink), 0.10), inset 0 0 0 1px rgba(var(--ink), 0.06);
+}
+:is(button, a)[class*=" bg-[#14151A]"],
+:is(button, a)[class^="bg-[#14151A]"] {
+  background-color: rgba(var(--ink), 0.05);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(var(--ink), 0.10), inset 0 0 0 1px rgba(var(--ink), 0.06);
+}
+
+/* Segmented control (app verbatim; heights match the Button sizes) */
+.seg-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 3px;
+  border-radius: 11px;
+  background: rgba(var(--ink), 0.045);
+  box-shadow: inset 0 0 0 1px rgba(var(--ink), 0.06);
+}
+
+.seg-track.seg-sm { height: 32px; border-radius: 10px; }
+.seg-track.seg-lg { height: 44px; border-radius: 13px; }
+
+.seg-item {
+  height: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  padding: 0 13px;
+  border-radius: 8px;
+  background: transparent;
+  white-space: nowrap;
+  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.seg-item:hover { color: var(--foreground); }
+
+.seg-item.is-active {
+  color: var(--foreground);
+  background: rgba(var(--ink), 0.09);
+  box-shadow: inset 0 1px 0 rgba(var(--ink), 0.16), 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* Divider color for stacked children (app verbatim) */
+.divide-app > * + * {
+  border-color: var(--border);
 }
 
 /* Sidebar rail: opaque surface base with the translucent glass fill painted
    over it, so it matches the glass look without letting a light page bleed
    through (the rail stays dark in both themes via data-theme="dark"). */
 .glass-sidebar {
-  background-color: hsl(var(--background));
+  background-color: var(--background);
   background-image: linear-gradient(var(--glass-bg), var(--glass-bg));
-  border-right: 1px solid hsl(var(--border));
+  border-right: 1px solid var(--border);
   box-shadow: 10px 0 34px -22px rgba(0, 0, 0, 0.6);
 }
 
 /* Soft inset brand ring for active sidebar items */
 .glow-brand-soft {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, hsl(var(--teal)) 28%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--teal) 28%, transparent);
 }
 
 /* Thin white-alpha scrollbar for the always-dark sidebar */
@@ -504,7 +763,8 @@ input[type="number"] {
   .stagger-4, .stagger-5, .stagger-6 {
     animation-delay: 0ms !important;
   }
-  .glass-card:hover {
+  .glass-card-interactive:hover,
+  .card-lift:hover {
     transform: none;
   }
   *, *::before, *::after {
@@ -547,19 +807,20 @@ input[type="number"] {
    FOCUS STYLES
    ============================================================================ */
 
-:focus-visible {
-  outline: 2px solid hsl(var(--ring));
-  outline-offset: 2px;
+/* In @layer base so outline-none utilities can override (app parity);
+   solid brand-400 like the app's focus ring. */
+@layer base {
+  *:focus-visible {
+    outline: 2px solid var(--teal-mid);
+    outline-offset: 2px;
+  }
 }
 
 /* ============================================================================
    SELECTION STYLES
    ============================================================================ */
 
-::selection {
-  background: hsl(var(--primary) / 0.3);
-  color: hsl(var(--foreground));
-}
+/* No ::selection rule: the app uses the browser default highlight. */
 
 /* ============================================================================
    CHART STYLING
@@ -567,12 +828,13 @@ input[type="number"] {
 
 .recharts-cartesian-grid-horizontal line,
 .recharts-cartesian-grid-vertical line {
-  stroke: hsl(var(--border));
+  stroke: var(--border);
   stroke-opacity: 0.5;
 }
 
 .recharts-text {
-  fill: hsl(var(--muted-foreground));
+  /* The app's dimmest text tier (zinc-500), solid - not an alpha mix */
+  fill: #71717A;
   font-size: 11px;
   font-weight: 500;
 }
@@ -586,11 +848,14 @@ input[type="number"] {
    ============================================================================ */
 
 .skeleton {
+  /* Rails at 6% ink with a brighter 10% sweep (the app's skeletons are
+     bg-white/10); the old --muted-based gradient was 2-4% white with the
+     highlight DARKER than the rails - invisible and inverted */
   background: linear-gradient(
     90deg,
-    hsl(var(--muted)) 0%,
-    hsl(var(--muted) / 0.5) 50%,
-    hsl(var(--muted)) 100%
+    rgba(var(--ink), 0.06) 0%,
+    rgba(var(--ink), 0.10) 50%,
+    rgba(var(--ink), 0.06) 100%
   );
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
@@ -602,40 +867,49 @@ input[type="number"] {
    ============================================================================ */
 
 @theme {
-  --color-background: hsl(var(--background));
-  --color-foreground: hsl(var(--foreground));
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
-  --color-popover: hsl(var(--popover));
-  --color-popover-foreground: hsl(var(--popover-foreground));
-  --color-primary: hsl(var(--primary));
-  --color-primary-foreground: hsl(var(--primary-foreground));
-  --color-secondary: hsl(var(--secondary));
-  --color-secondary-foreground: hsl(var(--secondary-foreground));
-  --color-muted: hsl(var(--muted));
-  --color-muted-foreground: hsl(var(--muted-foreground));
-  --color-accent: hsl(var(--accent));
-  --color-accent-foreground: hsl(var(--accent-foreground));
-  --color-destructive: hsl(var(--destructive));
-  --color-destructive-foreground: hsl(var(--destructive-foreground));
-  --color-border: hsl(var(--border));
-  --color-input: hsl(var(--input));
-  --color-ring: hsl(var(--ring));
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 
   /* Brand colors */
-  --color-teal: hsl(var(--teal));
-  --color-teal-light: hsl(var(--teal-light));
-  --color-teal-dark: hsl(var(--teal-dark));
-  --color-copper: hsl(var(--copper));
+  --color-teal: var(--teal);
+  --color-teal-light: var(--teal-light);
+  --color-teal-mid: var(--teal-mid);
+  --color-teal-dark: var(--teal-dark);
+  --color-copper: var(--copper);
+
+  /* Full app brand scale, for 1:1 markup portability */
+  --color-brand-50: #F0F5F5;
+  --color-brand-100: #D9E6E6;
+  --color-brand-200: #B3CCCC;
+  --color-brand-300: var(--teal-light);
+  --color-brand-400: var(--teal-mid);
+  --color-brand-500: var(--teal);
+  --color-brand-600: var(--teal-dark);
+  --color-brand-700: #3A5959;
 
   /* Semantic */
-  --color-success: hsl(var(--success));
-  --color-warning: hsl(var(--warning));
-  --color-error: hsl(var(--error));
-  --color-info: hsl(var(--info));
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-error: var(--error);
+  --color-info: var(--info);
 
-  /* Border radius */
-  --radius-lg: 12px;
-  --radius-md: 8px;
-  --radius-sm: 4px;
+  /* No custom radius scale: the app uses stock Tailwind radii, so overriding
+     rounded-lg/md/sm here made every admin corner chunkier than the app's. */
 }

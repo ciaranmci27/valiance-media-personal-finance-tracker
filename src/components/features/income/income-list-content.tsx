@@ -91,7 +91,7 @@ function IncomeCard({
       onTouchStart={hoverProps.onMouseEnter}
       onTouchEnd={hoverProps.onMouseLeave}
       className={cn(
-        "glass-card rounded-xl p-4 cursor-pointer transition-all duration-300",
+        "glass-card glass-card-interactive rounded-xl p-4 cursor-pointer transition-all duration-300",
         "hover:border-primary/30 active:scale-[0.98]",
         "animate-fade-up",
         `stagger-${Math.min(index + 1, 6)}`
@@ -101,7 +101,7 @@ function IncomeCard({
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 shrink-0">
-            <Calendar className="h-4 w-4 text-primary" />
+            <Calendar className="h-4 w-4 text-teal-light" />
           </div>
           <div>
             <span className="font-semibold text-foreground block">
@@ -117,7 +117,7 @@ function IncomeCard({
           <span
             className={cn(
               "tabular-nums font-semibold text-lg",
-              total < 0 ? "text-error" : "text-primary"
+              total < 0 ? "text-error" : "text-teal-light"
             )}
           >
             {getMaskedValue(formatCurrency(total), isHidden, isRevealed, currencyMask)}
@@ -127,7 +127,7 @@ function IncomeCard({
 
       {/* Source Breakdown */}
       {sourcesWithAmounts.length > 0 && (
-        <div className="border-t border-border/50 pt-3 space-y-2">
+        <div className="border-t border-white/[0.06] pt-3 space-y-2">
           {sourcesWithAmounts.map(({ source, amount }) => (
             <div key={source.id} className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -193,7 +193,7 @@ function IncomeRow({
         hoverProps.onMouseLeave?.();
       }}
       className={cn(
-        "transition-all duration-300 hover:bg-secondary/50 cursor-pointer animate-fade-up",
+        "transition-all duration-300 hover:bg-secondary cursor-pointer animate-fade-up",
         `stagger-${Math.min(index + 1, 6)}`
       )}
     >
@@ -227,7 +227,7 @@ function IncomeRow({
       <td
         className={cn(
           "px-4 py-3 align-middle text-right tabular-nums font-medium min-w-[140px]",
-          total < 0 ? "text-error" : "text-primary"
+          total < 0 ? "text-error" : "text-teal-light"
         )}
       >
         {getMaskedValue(formatCurrency(total), isHidden, isRevealed, currencyMask)}
@@ -403,10 +403,17 @@ export function IncomeListContent({
   ];
 
   return (
-    <div className="space-y-4">
-      <PageHeader title="Income" />
+    <div className="space-y-5 lg:space-y-6">
+      <PageHeader
+        title="Income"
+        subtitle={
+          <span className="hidden sm:inline">
+            {entries.length} month{entries.length !== 1 && "s"} tracked
+          </span>
+        }
+      />
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 lg:gap-4 lg:grid-cols-4">
         <StatCard
           title={selectedYear === "all" ? "Total Income" : `${selectedYear} Income`}
           value={totals.yearTotal}
@@ -450,7 +457,7 @@ export function IncomeListContent({
         </div>
 
         {/* Desktop: Button tabs */}
-        <div className="hidden min-[700px]:flex items-center gap-1 rounded-lg border border-border bg-card p-1">
+        <div className="hidden min-[700px]:flex items-center gap-1 rounded-lg bg-[rgba(var(--ink),0.05)] p-1 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]">
           {yearTabs.slice(0, 5).map((tab) => (
             <button
               key={tab.value}
@@ -499,7 +506,7 @@ export function IncomeListContent({
               className={cn(
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 sortColumn === "month"
-                  ? "bg-primary/10 text-primary"
+                  ? "bg-primary/10 text-teal-light"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -516,7 +523,7 @@ export function IncomeListContent({
               className={cn(
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 sortColumn === "total"
-                  ? "bg-primary/10 text-primary"
+                  ? "bg-primary/10 text-teal-light"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -551,7 +558,7 @@ export function IncomeListContent({
                 <span className="text-sm font-medium text-muted-foreground">
                   {selectedYear === "all" ? "Total Income" : `${selectedYear} Total`}
                 </span>
-                <span className="tabular-nums font-bold text-lg text-primary">
+                <span className="tabular-nums font-bold text-lg text-teal-light">
                   <MaskedValue value={formatCurrency(currentTotal)} />
                 </span>
               </div>
@@ -638,7 +645,7 @@ export function IncomeListContent({
                 </tbody>
                 {filteredEntries.length > 0 && (
                   <tfoot>
-                    <tr className="border-t-2 border-border bg-muted/30">
+                    <tr className="border-t-2 border-border bg-secondary">
                       <td
                         colSpan={activeSources.length + 1}
                         className="px-4 py-3 text-sm font-medium text-muted-foreground"
@@ -671,7 +678,7 @@ export function IncomeListContent({
             {showSourceChart && (
               <Card className="h-fit" {...chartHoverProps}>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base font-medium transition-all duration-200">
+                  <CardTitle className="text-base font-semibold transition-all duration-200">
                     {chartTitle}
                   </CardTitle>
                 </CardHeader>
@@ -685,7 +692,7 @@ export function IncomeListContent({
             {showTrendChart && (
               <Card className="h-fit">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base font-medium">
+                  <CardTitle className="text-base font-semibold">
                     Income Trend
                   </CardTitle>
                 </CardHeader>

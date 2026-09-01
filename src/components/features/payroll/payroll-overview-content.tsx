@@ -260,7 +260,7 @@ export function PayrollOverviewContent({
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <Users2 className="h-5 w-5 text-primary" aria-hidden="true" />
+            <Users2 className="h-5 w-5 text-teal-light" aria-hidden="true" />
           </div>
           <div>
             <h1 className="text-2xl font-bold">Payroll</h1>
@@ -321,7 +321,7 @@ export function PayrollOverviewContent({
           {upcomingWindows.windows.length > 0 && (
             <Link
               href="/payroll/run"
-              className="text-xs text-primary hover:underline flex-shrink-0 mt-1"
+              className="text-xs text-teal-light hover:underline flex-shrink-0 mt-1"
             >
               View all
             </Link>
@@ -335,7 +335,7 @@ export function PayrollOverviewContent({
                   No active employees yet.{" "}
                   <Link
                     href="/payroll/employees/new"
-                    className="text-primary hover:underline"
+                    className="text-teal-light hover:underline"
                   >
                     Add your first
                   </Link>
@@ -346,7 +346,7 @@ export function PayrollOverviewContent({
                   All active employees have schedule errors.{" "}
                   <Link
                     href="/payroll/employees"
-                    className="text-primary hover:underline"
+                    className="text-teal-light hover:underline"
                   >
                     Fix pay configuration
                   </Link>
@@ -366,10 +366,10 @@ export function PayrollOverviewContent({
                   <Link
                     key={w.id}
                     href={href}
-                    className="flex items-center justify-between gap-3 flex-wrap text-sm hover:bg-secondary/30 rounded-md -mx-2 px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    className="flex items-center justify-between gap-3 flex-wrap text-sm hover:bg-secondary rounded-md -mx-2 px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                   >
                     <div className="flex items-center gap-3 min-w-0">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary flex-shrink-0">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-teal-light flex-shrink-0">
                         <CalendarDays className="h-4 w-4" aria-hidden="true" />
                       </div>
                       <div className="min-w-0">
@@ -404,7 +404,7 @@ export function PayrollOverviewContent({
                     with schedule issues.{" "}
                     <Link
                       href="/payroll/run"
-                      className="text-primary hover:underline"
+                      className="text-teal-light hover:underline"
                     >
                       Review
                     </Link>
@@ -491,7 +491,7 @@ export function PayrollOverviewContent({
             </div>
             <Link
               href="/payroll/deposits"
-              className="text-xs text-primary hover:underline flex-shrink-0 mt-1"
+              className="text-xs text-teal-light hover:underline flex-shrink-0 mt-1"
             >
               View all
             </Link>
@@ -542,7 +542,7 @@ export function PayrollOverviewContent({
             </div>
             <Link
               href="/payroll/forms"
-              className="text-xs text-primary hover:underline flex-shrink-0 mt-1"
+              className="text-xs text-teal-light hover:underline flex-shrink-0 mt-1"
             >
               View all
             </Link>
@@ -555,7 +555,7 @@ export function PayrollOverviewContent({
                 <Link
                   key={s.id}
                   href={s.href}
-                  className="flex items-center justify-between gap-3 flex-wrap text-sm hover:bg-secondary/30 rounded-md -mx-2 px-2 py-1.5"
+                  className="flex items-center justify-between gap-3 flex-wrap text-sm hover:bg-secondary rounded-md -mx-2 px-2 py-1.5"
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <FormStatusBadge isDraft={isDraft} />
@@ -646,7 +646,7 @@ function DueBadge({ dueDate, today }: { dueDate: string; today: string }) {
   const variantClasses: Record<typeof variant, string> = {
     error: "bg-error/10 text-error",
     warning: "bg-warning/10 text-warning",
-    primary: "bg-primary/10 text-primary",
+    primary: "bg-primary/10 text-teal-light",
     muted: "bg-secondary text-muted-foreground",
   };
 
@@ -699,7 +699,7 @@ function NavCard({
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
     >
-      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+      <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-teal-light">
         {icon}
       </div>
       <div className="flex-1 min-w-0">

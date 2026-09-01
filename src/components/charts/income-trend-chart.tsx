@@ -14,8 +14,8 @@ import { useMaskedHover } from "@/components/ui/masked-value";
 import type { IncomeEntry, IncomeAmount } from "@/types/database";
 
 // Colors
-const POSITIVE_COLOR = "hsl(167, 21%, 51%)"; // Teal
-const NEGATIVE_COLOR = "#C4686E"; // Muted coral-red for losses
+const POSITIVE_COLOR = "var(--color-teal)"; // Teal
+const NEGATIVE_COLOR = "var(--color-error)"; // Muted coral-red for losses
 
 interface IncomeTrendChartProps {
   entries: IncomeEntry[];
@@ -81,7 +81,7 @@ export function IncomeTrendChart({
       const color = value >= 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
 
       return (
-        <div className="glass-card rounded-lg p-3 shadow-lg border border-border">
+        <div className="rounded-lg bg-card p-3 border border-white/[0.08] shadow-[var(--shadow-overlay)]">
           <p className="text-sm font-medium text-foreground mb-1">
             {formatMonthShort(item.month)}
           </p>
@@ -98,7 +98,7 @@ export function IncomeTrendChart({
 
   if (chartData.length === 0) {
     return (
-      <div className="h-[200px] flex items-center justify-center text-muted-foreground">
+      <div className="h-[200px] flex items-center justify-center text-zinc-500">
         No trend data
       </div>
     );
@@ -133,13 +133,13 @@ export function IncomeTrendChart({
             tickFormatter={xTickFormatter}
             axisLine={false}
             tickLine={false}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "#71717A", fontSize: 11 }}
             tickMargin={8}
           />
           <YAxis
             axisLine={false}
             tickLine={false}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "#71717A", fontSize: 11 }}
             tickFormatter={(value) =>
               showValues ? formatCurrency(value, { compact: true }) : "•••"
             }
@@ -159,7 +159,7 @@ export function IncomeTrendChart({
                 cy={cy}
                 r={4}
                 fill={payload.total >= 0 ? POSITIVE_COLOR : NEGATIVE_COLOR}
-                stroke="hsl(var(--background))"
+                stroke="var(--color-card)"
                 strokeWidth={2}
               />
             )}

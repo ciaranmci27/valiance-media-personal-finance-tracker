@@ -808,10 +808,10 @@ function StatusPill({ status }: { status: PayrollRun["status"] }) {
     status === "paid"
       ? "bg-success/10 text-success"
       : status === "finalized"
-        ? "bg-primary/10 text-primary"
+        ? "bg-primary/10 text-teal-light"
         : status === "voided"
           ? "bg-error/10 text-error"
-          : "bg-muted text-muted-foreground";
+          : "bg-secondary text-muted-foreground";
   return (
     <span
       className={cn(
@@ -933,7 +933,7 @@ function HistoryIcon({ type }: { type: PayrollRunEventType }) {
   const map: Record<PayrollRunEventType, React.ReactNode> = {
     created: <Circle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />,
     updated: <Circle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />,
-    finalized: <FileCheck2 className="h-3.5 w-3.5 text-primary" aria-hidden="true" />,
+    finalized: <FileCheck2 className="h-3.5 w-3.5 text-teal-light" aria-hidden="true" />,
     paid: <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />,
     voided: <XCircle className="h-3.5 w-3.5 text-error" aria-hidden="true" />,
     deleted: <Trash2 className="h-3.5 w-3.5 text-error" aria-hidden="true" />,
@@ -1034,7 +1034,7 @@ function ApproveStepLine({
   return (
     <li className="flex items-start gap-2.5">
       <span
-        className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary flex-shrink-0"
+        className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-teal-light flex-shrink-0"
         aria-hidden="true"
       >
         {icon}
@@ -1128,7 +1128,7 @@ function WhatsNextPanel({
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2">
               <div
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-primary"
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary/10 text-teal-light"
                 aria-hidden="true"
               >
                 <ArrowRight className="h-4 w-4" />
@@ -1448,7 +1448,7 @@ function DepositList({
             {linked ? (
               <Link
                 href="/payroll/deposits"
-                className="flex items-center justify-between gap-2 flex-wrap text-xs rounded-md -mx-1 px-1 py-0.5 hover:bg-secondary/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                className="flex items-center justify-between gap-2 flex-wrap text-xs rounded-md -mx-1 px-1 py-0.5 hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               >
                 {inner}
               </Link>

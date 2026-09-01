@@ -159,7 +159,7 @@ function FormW3Layout({ data, year }: { data: FormW3Data; year: number }) {
           This W-3 sums the{" "}
           <Link
             href={`/payroll/forms/w2/${year}`}
-            className="text-primary hover:underline"
+            className="text-teal-light hover:underline"
           >
             {data.w2_count} W-2 form{data.w2_count === 1 ? "" : "s"}
           </Link>{" "}

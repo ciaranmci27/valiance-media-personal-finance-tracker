@@ -612,7 +612,7 @@ export function AutomationDetailContent({
                 "inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium",
                 automation.is_active
                   ? "bg-success/10 text-success"
-                  : "bg-muted text-muted-foreground"
+                  : "bg-secondary text-muted-foreground"
               )}
             >
               {automation.is_active ? (
@@ -686,11 +686,11 @@ export function AutomationDetailContent({
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
                 {isScheduleTrigger ? (
-                  <Calendar className="h-5 w-5 text-primary" />
+                  <Calendar className="h-5 w-5 text-teal-light" />
                 ) : isPayrollTrigger ? (
-                  <CalendarClock className="h-5 w-5 text-primary" />
+                  <CalendarClock className="h-5 w-5 text-teal-light" />
                 ) : (
-                  <MousePointerClick className="h-5 w-5 text-primary" />
+                  <MousePointerClick className="h-5 w-5 text-teal-light" />
                 )}
               </div>
               <div>
@@ -709,7 +709,7 @@ export function AutomationDetailContent({
         <Card className="animate-fade-up stagger-2">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-secondary">
                 {isScheduleTrigger ? (
                   <Repeat className="h-5 w-5 text-muted-foreground" />
                 ) : isPayrollTrigger ? (
@@ -744,7 +744,7 @@ export function AutomationDetailContent({
         <Card className="animate-fade-up stagger-3">
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-secondary">
                 <History className="h-5 w-5 text-muted-foreground" />
               </div>
               <div>
@@ -766,10 +766,10 @@ export function AutomationDetailContent({
             <Card className="animate-fade-up">
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-medium">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-teal-light text-sm font-medium">
                     1
                   </div>
-                  <CardTitle className="text-base font-medium flex items-center gap-2">
+                  <CardTitle className="text-base font-semibold flex items-center gap-2">
                     <Zap className="h-4 w-4 text-muted-foreground" />
                     Basic Information
                   </CardTitle>
@@ -799,11 +799,11 @@ export function AutomationDetailContent({
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               {isEditing && (
-                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-medium">
+                <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-teal-light text-sm font-medium">
                   2
                 </div>
               )}
-              <CardTitle className="text-base font-medium flex items-center gap-2">
+              <CardTitle className="text-base font-semibold flex items-center gap-2">
                 <MousePointerClick className="h-4 w-4 text-muted-foreground" />
                 Trigger
               </CardTitle>
@@ -811,7 +811,7 @@ export function AutomationDetailContent({
           </CardHeader>
           <CardContent>
             {isEditing && isPayrollTrigger ? (
-              <div className="rounded-lg border border-border bg-muted/30 p-4 text-sm text-muted-foreground space-y-2">
+              <div className="rounded-lg border border-border bg-secondary p-4 text-sm text-muted-foreground space-y-2">
                 <p className="text-foreground font-medium">
                   Payroll event triggers aren&apos;t editable here yet.
                 </p>
@@ -820,7 +820,7 @@ export function AutomationDetailContent({
                   and create a new one. (Name, description, and actions can
                   still be edited.)
                 </p>
-                <p className="pt-2 border-t border-border/50 text-xs">
+                <p className="pt-2 border-t border-white/[0.06] text-xs">
                   <span className="text-foreground font-medium">
                     Current setup:
                   </span>{" "}
@@ -847,15 +847,15 @@ export function AutomationDetailContent({
                       "flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left",
                       triggerType === "manual"
                         ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/50 hover:bg-secondary/50"
+                        : "border-border hover:border-primary/50 hover:bg-secondary"
                     )}
                   >
                     <div
                       className={cn(
                         "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
                         triggerType === "manual"
-                          ? "bg-primary/10 text-primary"
-                          : "bg-muted text-muted-foreground"
+                          ? "bg-primary/10 text-teal-light"
+                          : "bg-secondary text-muted-foreground"
                       )}
                     >
                       <MousePointerClick className="h-5 w-5" />
@@ -875,15 +875,15 @@ export function AutomationDetailContent({
                       "flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left",
                       triggerType === "schedule"
                         ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/50 hover:bg-secondary/50"
+                        : "border-border hover:border-primary/50 hover:bg-secondary"
                     )}
                   >
                     <div
                       className={cn(
                         "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
                         triggerType === "schedule"
-                          ? "bg-primary/10 text-primary"
-                          : "bg-muted text-muted-foreground"
+                          ? "bg-primary/10 text-teal-light"
+                          : "bg-secondary text-muted-foreground"
                       )}
                     >
                       <Calendar className="h-5 w-5" />
@@ -916,7 +916,7 @@ export function AutomationDetailContent({
                             className={cn(
                               "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
                               frequency === opt.value
-                                ? "border-primary bg-primary/10 text-primary"
+                                ? "border-primary bg-primary/10 text-teal-light"
                                 : "border-border hover:border-primary/50 hover:bg-secondary"
                             )}
                           >
@@ -988,7 +988,7 @@ export function AutomationDetailContent({
                             className={cn(
                               "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
                               durationType === type
-                                ? "border-primary bg-primary/10 text-primary"
+                                ? "border-primary bg-primary/10 text-teal-light"
                                 : "border-border hover:border-primary/50 hover:bg-secondary"
                             )}
                           >
@@ -1101,11 +1101,11 @@ export function AutomationDetailContent({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
                 {isEditing && (
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-primary text-sm font-medium">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-teal-light text-sm font-medium">
                     3
                   </div>
                 )}
-                <CardTitle className="text-base font-medium flex items-center gap-2">
+                <CardTitle className="text-base font-semibold flex items-center gap-2">
                   <Zap className="h-4 w-4 text-muted-foreground" />
                   Actions ({isEditing ? actions.length : automation.automation_actions.length})
                 </CardTitle>
@@ -1225,7 +1225,7 @@ export function AutomationDetailContent({
                                       <FileText className="h-3.5 w-3.5 text-muted-foreground" />
                                       <label className="text-sm font-medium">Email Body</label>
                                     </div>
-                                    <div className="flex items-center gap-1 p-1 bg-muted rounded-lg">
+                                    <div className="flex items-center gap-1 p-1 bg-secondary rounded-lg">
                                       <button
                                         type="button"
                                         onClick={() =>
@@ -1237,7 +1237,7 @@ export function AutomationDetailContent({
                                         className={cn(
                                           "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
                                           ((action.config as EmailActionConfig).format || "text") === "text"
-                                            ? "bg-background text-foreground shadow-sm"
+                                            ? "bg-[rgba(var(--ink),0.09)] text-foreground shadow-[inset_0_1px_0_rgba(var(--ink),0.16)]"
                                             : "text-muted-foreground hover:text-foreground"
                                         )}
                                       >
@@ -1255,7 +1255,7 @@ export function AutomationDetailContent({
                                         className={cn(
                                           "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
                                           (action.config as EmailActionConfig).format === "html"
-                                            ? "bg-background text-foreground shadow-sm"
+                                            ? "bg-[rgba(var(--ink),0.09)] text-foreground shadow-[inset_0_1px_0_rgba(var(--ink),0.16)]"
                                             : "text-muted-foreground hover:text-foreground"
                                         )}
                                       >
@@ -1292,7 +1292,7 @@ export function AutomationDetailContent({
                                     <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
                                     <span>Additional Options</span>
                                     {((action.config as EmailActionConfig).cc || (action.config as EmailActionConfig).bcc || (action.config as EmailActionConfig).replyTo) && (
-                                      <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+                                      <span className="text-xs bg-primary/10 text-teal-light px-1.5 py-0.5 rounded">
                                         configured
                                       </span>
                                     )}
@@ -1439,7 +1439,7 @@ export function AutomationDetailContent({
                     return (
                       <div
                         key={action.id}
-                        className="flex items-start gap-3 p-3 rounded-lg bg-muted/50"
+                        className="flex items-start gap-3 p-3 rounded-lg bg-secondary"
                       >
                         <div
                           className={cn(
@@ -1490,7 +1490,7 @@ export function AutomationDetailContent({
       <Card className="animate-fade-up">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base font-medium flex items-center gap-2">
+            <CardTitle className="text-base font-semibold flex items-center gap-2">
               <History className="h-4 w-4" />
               Recent Runs
             </CardTitle>

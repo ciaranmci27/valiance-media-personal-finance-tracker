@@ -85,7 +85,7 @@ export function FormsListContent({ forms, currentYear }: Props) {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <FileCheck2 className="h-5 w-5 text-primary" aria-hidden="true" />
+            <FileCheck2 className="h-5 w-5 text-teal-light" aria-hidden="true" />
           </div>
           <div>
             <h1 className="text-2xl font-bold">Tax Forms</h1>
@@ -239,14 +239,14 @@ function FormSlotCard({ slot }: { slot: Slot }) {
       ? "bg-success/10 text-success"
       : overdue
         ? "bg-error/10 text-error"
-        : "bg-primary/10 text-primary",
+        : "bg-primary/10 text-teal-light",
   );
 
   return (
     <Link
       href={slot.href}
       className={cn(
-        "rounded-lg border border-border p-3 flex items-center gap-3 transition-colors hover:border-primary/30 hover:bg-secondary/30",
+        "rounded-lg border border-border p-3 flex items-center gap-3 transition-colors hover:border-primary/30 hover:bg-secondary",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
     >

@@ -180,7 +180,7 @@ function CustomSelect({
           // and scroll work when CustomSelect is used inside a dialog.
           pointerEvents: "auto",
         }}
-        className="py-1 border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto bg-card"
+        className="py-1 border border-white/10 rounded-lg shadow-[var(--shadow-overlay)] max-h-60 overflow-y-auto bg-card"
       >
         {options.map((option, index) => {
           // Render group headers as non-clickable dividers
@@ -189,7 +189,7 @@ function CustomSelect({
               <div
                 key={`header-${option.value}`}
                 className={cn(
-                  "px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground",
+                  "px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500",
                   index > 0 && "mt-1 border-t border-border pt-2"
                 )}
               >
@@ -210,12 +210,12 @@ function CustomSelect({
                 "w-full flex items-center justify-between text-left text-sm transition-colors cursor-pointer",
                 optionPadding,
                 isSelected
-                  ? "bg-primary/10 text-primary"
+                  ? "bg-primary/15 text-teal-light"
                   : "text-foreground hover:bg-secondary"
               )}
             >
               <span>{option.label}</span>
-              {isSelected && <Check className="h-4 w-4 text-primary" />}
+              {isSelected && <Check className="h-4 w-4 text-teal-light" />}
             </button>
           );
         })}
@@ -254,21 +254,22 @@ function CustomSelect({
           aria-expanded={isOpen}
           aria-required={required || undefined}
           className={cn(
-            "w-full rounded-lg border border-border bg-input text-foreground transition-colors duration-200",
+            "w-full rounded-lg border border-[rgba(var(--ink),0.10)] bg-input text-foreground transition-colors duration-200",
             "text-left cursor-pointer inline-flex items-center justify-between",
-            "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background focus:border-transparent",
+            "hover:border-[rgba(var(--ink),0.18)]",
+            "focus:outline-none focus:ring-2 focus:ring-ring focus:border-teal",
             "disabled:cursor-not-allowed disabled:opacity-50",
             buttonPadding,
-            error && "border-error focus:ring-error",
-            isOpen && "ring-2 ring-ring ring-offset-2 ring-offset-background border-transparent"
+            error && "border-red-400 focus:ring-[rgba(248,113,113,0.25)]",
+            isOpen && "ring-2 ring-ring border-teal"
           )}
         >
-          <span className={selectedOption ? "text-foreground" : "text-muted-foreground"}>
+          <span className={selectedOption ? "text-foreground" : "text-zinc-500"}>
             {selectedOption ? selectedOption.label : placeholder}
           </span>
           <ChevronDown
             className={cn(
-              "h-4 w-4 text-muted-foreground transition-transform duration-200",
+              "h-4 w-4 text-zinc-500 transition-transform duration-200",
               isOpen && "rotate-180"
             )}
           />

@@ -88,7 +88,7 @@ function NetWorthCard({
       onTouchEnd={hoverProps.onMouseLeave}
       {...hoverProps}
       className={cn(
-        "glass-card rounded-xl p-4 cursor-pointer transition-all duration-300",
+        "glass-card glass-card-interactive rounded-xl p-4 cursor-pointer transition-all duration-300",
         "hover:border-primary/30 active:scale-[0.98]",
         "animate-fade-up",
         `stagger-${Math.min(index + 1, 6)}`
@@ -98,7 +98,7 @@ function NetWorthCard({
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 shrink-0">
-            <Calendar className="h-4 w-4 text-primary" />
+            <Calendar className="h-4 w-4 text-teal-light" />
           </div>
           <span className="font-semibold text-foreground">
             {formatMonth(entry.date)}
@@ -108,7 +108,7 @@ function NetWorthCard({
           <span
             className={cn(
               "tabular-nums font-semibold text-lg",
-              Number(entry.amount) < 0 ? "text-error" : "text-primary"
+              Number(entry.amount) < 0 ? "text-error" : "text-teal-light"
             )}
           >
             {displayAmount}
@@ -118,7 +118,7 @@ function NetWorthCard({
 
       {/* Change + Notes */}
       {(prevEntry || entry.notes) && (
-        <div className="border-t border-border/50 pt-3 mt-3 space-y-2">
+        <div className="border-t border-white/[0.06] pt-3 mt-3 space-y-2">
           {prevEntry && (
             <div className="flex items-center justify-between">
               <span className="text-sm text-muted-foreground">Change</span>
@@ -197,7 +197,7 @@ function NetWorthRow({
     <tr
       onClick={handleRowClick}
       className={cn(
-        "transition-all duration-300 hover:bg-secondary/50 cursor-pointer animate-fade-up",
+        "transition-all duration-300 hover:bg-secondary cursor-pointer animate-fade-up",
         `stagger-${Math.min(index + 1, 6)}`
       )}
       {...hoverProps}
@@ -210,7 +210,7 @@ function NetWorthRow({
       <td
         className={cn(
           "px-4 py-3 align-middle text-right tabular-nums font-medium min-w-[140px]",
-          Number(entry.amount) < 0 ? "text-error" : "text-primary"
+          Number(entry.amount) < 0 ? "text-error" : "text-teal-light"
         )}
       >
         {displayAmount}
@@ -397,10 +397,17 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
   ];
 
   return (
-    <div className="space-y-4">
-      <PageHeader title="Net Worth" />
+    <div className="space-y-5 lg:space-y-6">
+      <PageHeader
+        title="Net Worth"
+        subtitle={
+          <span className="hidden sm:inline">
+            {entries.length} monthly snapshot{entries.length !== 1 && "s"}
+          </span>
+        }
+      />
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 lg:gap-4 lg:grid-cols-4">
         <StatCard
           title="Current Net Worth"
           value={current ? Number(current.amount) : 0}
@@ -445,7 +452,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
         </div>
 
         {/* Desktop: Button tabs */}
-        <div className="hidden min-[700px]:flex items-center gap-1 rounded-lg border border-border bg-card p-1">
+        <div className="hidden min-[700px]:flex items-center gap-1 rounded-lg bg-[rgba(var(--ink),0.05)] p-1 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]">
           {yearTabs.slice(0, 6).map((tab) => (
             <button
               key={tab.value}
@@ -494,7 +501,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
               className={cn(
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 sortColumn === "date"
-                  ? "bg-primary/10 text-primary"
+                  ? "bg-primary/10 text-teal-light"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -511,7 +518,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
               className={cn(
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 sortColumn === "amount"
-                  ? "bg-primary/10 text-primary"
+                  ? "bg-primary/10 text-teal-light"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -528,7 +535,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
               className={cn(
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 sortColumn === "change"
-                  ? "bg-primary/10 text-primary"
+                  ? "bg-primary/10 text-teal-light"
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
@@ -659,7 +666,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                 </tbody>
                 {filteredEntries.length > 0 && (
                   <tfoot>
-                    <tr className="border-t-2 border-border bg-muted/30">
+                    <tr className="border-t-2 border-border bg-secondary">
                       <td className="px-4 py-3 text-sm font-medium text-muted-foreground">
                         {selectedYear === "all" ? "Period Change" : `${selectedYear} Change`}
                       </td>
@@ -702,7 +709,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
             {showTrendChart && (
               <Card className="h-fit" {...trendChartHoverProps}>
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base font-medium">
+                  <CardTitle className="text-base font-semibold">
                     Net Worth Trend
                   </CardTitle>
                 </CardHeader>
@@ -716,7 +723,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
             {showChangeChart && (
               <Card className="h-fit">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base font-medium">
+                  <CardTitle className="text-base font-semibold">
                     Monthly Change
                   </CardTitle>
                 </CardHeader>

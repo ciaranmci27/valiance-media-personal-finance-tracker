@@ -52,12 +52,12 @@ interface TrashSettingsContentProps {
 type ItemType = "income_sources" | "income_entries" | "expenses" | "net_worth" | "automations" | "expense_history" | "tax_estimates";
 
 const itemConfig: Record<ItemType, { icon: React.ElementType; label: string; color: string }> = {
-  income_sources: { icon: DollarSign, label: "Income Sources", color: "text-primary bg-primary/10" },
-  income_entries: { icon: Calendar, label: "Income Entries", color: "text-[#C5A68F] bg-[#C5A68F]/10" },
+  income_sources: { icon: DollarSign, label: "Income Sources", color: "text-teal-light bg-primary/10" },
+  income_entries: { icon: Calendar, label: "Income Entries", color: "text-copper bg-copper/10" },
   expenses: { icon: Receipt, label: "Expenses", color: "text-error bg-error/10" },
   net_worth: { icon: TrendingUp, label: "Net Worth", color: "text-success bg-success/10" },
   automations: { icon: Zap, label: "Automations", color: "text-amber-500 bg-amber-500/10" },
-  expense_history: { icon: History, label: "Expense History", color: "text-muted-foreground bg-muted" },
+  expense_history: { icon: History, label: "Expense History", color: "text-muted-foreground bg-secondary" },
   tax_estimates: { icon: Calculator, label: "Tax Estimates", color: "text-violet-500 bg-violet-500/10" },
 };
 
@@ -183,7 +183,7 @@ export function TrashSettingsContent({
       {totalDeleted === 0 ? (
         /* Empty State */
         <div className="glass-card rounded-xl p-12 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-muted mx-auto mb-4">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-secondary mx-auto mb-4">
             <Package className="h-8 w-8 text-muted-foreground" />
           </div>
           <h3 className="font-medium mb-1">Trash is empty</h3>
@@ -212,7 +212,7 @@ export function TrashSettingsContent({
                   <div
                     key={`${item.type}-${item.id}`}
                     className={cn(
-                      "flex items-center gap-4 p-4 transition-colors hover:bg-secondary/30",
+                      "flex items-center gap-4 p-4 transition-colors hover:bg-secondary",
                       isLoading && "opacity-50"
                     )}
                   >

@@ -1,15 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { TrendingUp, Wallet, PiggyBank, DollarSign, Plus, Calendar, ChevronDown, Check } from "lucide-react";
-import { createPortal } from "react-dom";
+import { TrendingUp, Wallet, PiggyBank, DollarSign, Plus } from "lucide-react";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { IncomeChart } from "@/components/charts/income-chart";
 import { NetWorthChart } from "@/components/charts/net-worth-chart";
 import { IncomeBreakdownChart } from "@/components/charts/income-breakdown-chart";
-import { formatCurrency, toMonthlyAmount, cn, formatMonth, formatMonthShort } from "@/lib/utils";
+import { formatCurrency, toMonthlyAmount, cn, formatMonth } from "@/lib/utils";
 import { MaskedValue, useMaskedHover } from "@/components/ui/masked-value";
 import { PageHeader } from "@/components/layout/page-header";
 import { siteConfig } from "@/config/site";
@@ -17,181 +16,6 @@ import type { IncomeEntry, IncomeSource, IncomeAmount, Expense, ExpenseHistory, 
 
 // Chart range options
 type ChartRange = "6mo" | "12mo" | "all";
-
-// Period selector component with custom dropdown
-function PeriodSelector({
-  months,
-  selectedMonth,
-  onMonthChange,
-}: {
-  months: string[];
-  selectedMonth: string;
-  onMonthChange: (month: string) => void;
-}) {
-  const [isDropdownOpen, setIsDropdownOpen] = React.useState(false);
-  const [dropdownPosition, setDropdownPosition] = React.useState<{ top: number; left: number; width: number } | null>(null);
-  const customButtonRef = React.useRef<HTMLButtonElement>(null);
-  const dropdownRef = React.useRef<HTMLDivElement>(null);
-
-  // Quick select options
-  const latestMonth = months[0];
-  const previousMonth = months[1];
-  const customMonths = months.slice(2); // Exclude this month and last month
-
-  // Check if current selection is a custom month (not this/last month)
-  const isCustomMonth = selectedMonth !== latestMonth && selectedMonth !== previousMonth;
-
-  // Calculate dropdown position
-  const updateDropdownPosition = React.useCallback(() => {
-    if (customButtonRef.current) {
-      const rect = customButtonRef.current.getBoundingClientRect();
-      setDropdownPosition({
-        top: rect.bottom + window.scrollY + 4,
-        left: rect.left + window.scrollX,
-        width: Math.max(rect.width, 160), // Minimum width for readability
-      });
-    }
-  }, []);
-
-  // Update position when dropdown opens
-  React.useLayoutEffect(() => {
-    if (isDropdownOpen) {
-      updateDropdownPosition();
-    }
-  }, [isDropdownOpen, updateDropdownPosition]);
-
-  // Update position on scroll/resize
-  React.useEffect(() => {
-    if (!isDropdownOpen) return;
-    const handlePositionUpdate = () => updateDropdownPosition();
-    window.addEventListener("scroll", handlePositionUpdate, true);
-    window.addEventListener("resize", handlePositionUpdate);
-    return () => {
-      window.removeEventListener("scroll", handlePositionUpdate, true);
-      window.removeEventListener("resize", handlePositionUpdate);
-    };
-  }, [isDropdownOpen, updateDropdownPosition]);
-
-  // Close dropdown when clicking outside
-  React.useEffect(() => {
-    if (!isDropdownOpen) return;
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (!customButtonRef.current?.contains(target) && !dropdownRef.current?.contains(target)) {
-        setIsDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isDropdownOpen]);
-
-  // Close on escape key
-  React.useEffect(() => {
-    if (!isDropdownOpen) return;
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsDropdownOpen(false);
-    };
-    document.addEventListener("keydown", handleEscape);
-    return () => document.removeEventListener("keydown", handleEscape);
-  }, [isDropdownOpen]);
-
-  const handleCustomSelect = (month: string) => {
-    onMonthChange(month);
-    setIsDropdownOpen(false);
-  };
-
-  // Render portal dropdown
-  const renderDropdown = () => {
-    if (!isDropdownOpen || !dropdownPosition || typeof document === "undefined") return null;
-
-    return createPortal(
-      <div
-        ref={dropdownRef}
-        role="listbox"
-        style={{
-          position: "absolute",
-          top: dropdownPosition.top,
-          left: dropdownPosition.left,
-          width: dropdownPosition.width,
-          zIndex: 99999,
-        }}
-        className="py-1 border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto bg-card"
-      >
-        {customMonths.map((month) => {
-          const isSelected = month === selectedMonth;
-          return (
-            <button
-              key={month}
-              type="button"
-              role="option"
-              aria-selected={isSelected}
-              onClick={() => handleCustomSelect(month)}
-              className={cn(
-                "w-full px-3 py-2 flex items-center justify-between text-left text-sm transition-colors cursor-pointer",
-                isSelected
-                  ? "bg-primary/10 text-primary"
-                  : "text-foreground hover:bg-secondary"
-              )}
-            >
-              <span>{formatMonthShort(month)}</span>
-              {isSelected && <Check className="h-4 w-4 text-primary" />}
-            </button>
-          );
-        })}
-      </div>,
-      document.body
-    );
-  };
-
-  return (
-    <div className="flex items-center gap-2">
-      <Calendar className="h-4 w-4 text-muted-foreground hidden sm:block" />
-      <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1 flex-wrap">
-        <button
-          onClick={() => onMonthChange(latestMonth)}
-          className={cn(
-            "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
-            selectedMonth === latestMonth
-              ? "bg-primary text-primary-foreground"
-              : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-          )}
-        >
-          This Month
-        </button>
-        {previousMonth && (
-          <button
-            onClick={() => onMonthChange(previousMonth)}
-            className={cn(
-              "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
-              selectedMonth === previousMonth
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-            )}
-          >
-            Last Month
-          </button>
-        )}
-        {/* Only show Custom if there are months beyond this/last month */}
-        {customMonths.length > 0 && (
-          <button
-            ref={customButtonRef}
-            onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-            className={cn(
-              "px-3 py-1.5 text-sm font-medium rounded-md transition-colors inline-flex items-center gap-1",
-              isCustomMonth
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-            )}
-          >
-            {isCustomMonth ? formatMonthShort(selectedMonth) : "Custom"}
-            <ChevronDown className={cn("h-3 w-3 transition-transform", isDropdownOpen && "rotate-180")} />
-          </button>
-        )}
-        {renderDropdown()}
-      </div>
-    </div>
-  );
-}
 
 // Chart range toggle component
 function ChartRangeToggle({
@@ -208,15 +32,15 @@ function ChartRangeToggle({
   ];
 
   return (
-    <div className="flex items-center gap-1 rounded-md border border-border bg-card/50 p-0.5">
+    <div className="flex items-center gap-0.5 rounded-lg bg-[rgba(var(--ink),0.05)] p-0.5 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]">
       {options.map((option) => (
         <button
           key={option.value}
           onClick={() => onChange(option.value)}
           className={cn(
-            "px-2 py-1 text-xs font-medium rounded transition-colors",
+            "px-2 py-1 text-xs font-medium rounded-md transition-colors",
             value === option.value
-              ? "bg-secondary text-foreground"
+              ? "bg-[rgba(var(--ink),0.09)] text-foreground shadow-[inset_0_1px_0_rgba(var(--ink),0.16)]"
               : "text-muted-foreground hover:text-foreground"
           )}
         >
@@ -245,7 +69,7 @@ function ChartCard({
     <Card className={className} {...hoverProps}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-medium">{title}</CardTitle>
+          <CardTitle className="text-base font-semibold">{title}</CardTitle>
           {rightContent}
         </div>
       </CardHeader>
@@ -279,8 +103,8 @@ export function DashboardContent({
     [incomeEntries]
   );
 
-  // State for period selection and chart ranges
-  const [selectedMonth, setSelectedMonth] = React.useState(availableMonths[0] || "");
+  // Stats always show the latest month (the period selector was removed)
+  const selectedMonth = availableMonths[0] || "";
   const [incomeChartRange, setIncomeChartRange] = React.useState<ChartRange>("12mo");
   const [netWorthChartRange, setNetWorthChartRange] = React.useState<ChartRange>("12mo");
 
@@ -440,27 +264,14 @@ export function DashboardContent({
   const firstName = siteConfig.realName.split(" ")[0];
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-5 lg:space-y-6">
       <PageHeader
         title={`${greeting}, ${firstName}`}
         subtitle="Here's where things stand today."
       />
 
-      {/* Header with Period Selector */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div className="flex items-center gap-4">
-          {availableMonths.length > 0 && (
-            <PeriodSelector
-              months={availableMonths}
-              selectedMonth={selectedMonth}
-              onMonthChange={setSelectedMonth}
-            />
-          )}
-        </div>
-      </div>
-
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 lg:gap-4 lg:grid-cols-4">
         <StatCard
           title="Monthly Income"
           value={selectedMonthTotal}
@@ -549,7 +360,7 @@ export function DashboardContent({
         <Card>
           <CardHeader className="pb-2">
             <div className="flex items-baseline justify-between">
-              <CardTitle className="text-base font-medium">Expense Summary</CardTitle>
+              <CardTitle className="text-base font-semibold">Expense Summary</CardTitle>
               <span className="text-xs text-muted-foreground">per month</span>
             </div>
           </CardHeader>
@@ -579,7 +390,7 @@ export function DashboardContent({
               </div>
               <div className="flex items-center justify-between pt-2">
                 <p className="font-medium text-muted-foreground">Total Monthly</p>
-                <p className="text-xl font-bold currency text-primary">
+                <p className="text-xl font-bold currency text-teal-light">
                   <MaskedValue value={formatCurrency(totalMonthlyExpenses)} />
                 </p>
               </div>

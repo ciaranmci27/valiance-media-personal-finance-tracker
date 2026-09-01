@@ -93,7 +93,7 @@ export function EmployeesListContent({ employees }: Props) {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <Users2 className="h-5 w-5 text-primary" aria-hidden="true" />
+              <Users2 className="h-5 w-5 text-teal-light" aria-hidden="true" />
             </div>
             <div>
               <h1 className="text-2xl font-bold">Employees</h1>
@@ -136,7 +136,7 @@ export function EmployeesListContent({ employees }: Props) {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-1 w-fit">
+      <div className="flex items-center gap-1 rounded-lg bg-[rgba(var(--ink),0.05)] p-1 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)] w-fit">
         {tabs.map((tab) => (
           <button
             key={tab.value}
@@ -155,7 +155,7 @@ export function EmployeesListContent({ employees }: Props) {
                 "rounded-full px-1.5 py-0.5 text-xs",
                 activeTab === tab.value
                   ? "bg-primary-foreground/20 text-primary-foreground"
-                  : "bg-muted text-muted-foreground",
+                  : "bg-secondary text-muted-foreground",
               )}
             >
               {tab.count}
@@ -168,7 +168,7 @@ export function EmployeesListContent({ employees }: Props) {
       {filtered.length === 0 ? (
         <div className="glass-card rounded-xl p-10 text-center space-y-3">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <UserPlus className="h-6 w-6 text-primary" aria-hidden="true" />
+            <UserPlus className="h-6 w-6 text-teal-light" aria-hidden="true" />
           </div>
           <h3 className="text-base font-semibold text-foreground">
             {activeTab === "terminated"
@@ -208,7 +208,7 @@ export function EmployeesListContent({ employees }: Props) {
               )}
             >
               <div className="flex items-center gap-4">
-                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary font-semibold">
+                <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-teal-light font-semibold">
                   {initialsOf(employee.first_name, employee.last_name)}
                 </div>
                 <div className="flex-1 min-w-0">
@@ -263,7 +263,7 @@ function StatusBadge({ status }: { status: "active" | "terminated" }) {
     );
   }
   return (
-    <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded bg-muted text-muted-foreground">
+    <span className="px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded bg-secondary text-muted-foreground">
       Terminated
     </span>
   );

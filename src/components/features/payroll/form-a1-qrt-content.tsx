@@ -155,7 +155,7 @@ function FormA1QrtLayout({ data }: { data: FormA1QrtData }) {
           that are marked as paid in the{" "}
           <Link
             href="/payroll/deposits"
-            className="text-primary hover:underline inline-flex items-center gap-1"
+            className="text-teal-light hover:underline inline-flex items-center gap-1"
           >
             <Landmark className="h-3 w-3" aria-hidden="true" />
             deposits ledger

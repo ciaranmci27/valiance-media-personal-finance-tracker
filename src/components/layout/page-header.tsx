@@ -82,7 +82,7 @@ export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
         <div className="flex items-center gap-3 min-w-0">
           <MobileMenuButton />
           <div className="min-w-0">
-            <h1 className="text-2xl lg:text-[26px] font-bold text-foreground tracking-tight leading-tight truncate">
+            <h1 className="text-2xl lg:text-[26px] font-bold text-white tracking-tight leading-tight truncate">
               {title}
             </h1>
             {subtitle && (

@@ -506,14 +506,14 @@ function WorkflowNode({
               "flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium",
               isComplete
                 ? "bg-success/10 text-success"
-                : "bg-primary/10 text-primary"
+                : "bg-primary/10 text-teal-light"
             )}
           >
             {isComplete ? <Check className="h-4 w-4" /> : number}
           </div>
           <div className="flex items-center gap-2">
             <Icon className="h-4 w-4 text-muted-foreground" />
-            <CardTitle className="text-base font-medium">{title}</CardTitle>
+            <CardTitle className="text-base font-semibold">{title}</CardTitle>
           </div>
         </div>
       </CardHeader>
@@ -833,7 +833,7 @@ export function AutomationFormContent() {
       <div className="flex items-center gap-3">
         <MobileMenuButton />
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-          <Zap className="h-5 w-5 text-primary" />
+          <Zap className="h-5 w-5 text-teal-light" />
         </div>
         <div>
           <h1 className="text-2xl font-bold">New Automation</h1>
@@ -900,15 +900,15 @@ export function AutomationFormContent() {
                   "flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left",
                   triggerType === "manual"
                     ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/50 hover:bg-secondary/50"
+                    : "border-border hover:border-primary/50 hover:bg-secondary"
                 )}
               >
                 <div
                   className={cn(
                     "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
                     triggerType === "manual"
-                      ? "bg-primary/10 text-primary"
-                      : "bg-muted text-muted-foreground"
+                      ? "bg-primary/10 text-teal-light"
+                      : "bg-secondary text-muted-foreground"
                   )}
                 >
                   <MousePointerClick className="h-5 w-5" />
@@ -928,15 +928,15 @@ export function AutomationFormContent() {
                   "flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left",
                   triggerType === "schedule"
                     ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/50 hover:bg-secondary/50"
+                    : "border-border hover:border-primary/50 hover:bg-secondary"
                 )}
               >
                 <div
                   className={cn(
                     "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
                     triggerType === "schedule"
-                      ? "bg-primary/10 text-primary"
-                      : "bg-muted text-muted-foreground"
+                      ? "bg-primary/10 text-teal-light"
+                      : "bg-secondary text-muted-foreground"
                   )}
                 >
                   <Calendar className="h-5 w-5" />
@@ -957,15 +957,15 @@ export function AutomationFormContent() {
                     "flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left",
                     triggerType === "payroll_event"
                       ? "border-primary bg-primary/5"
-                      : "border-border hover:border-primary/50 hover:bg-secondary/50"
+                      : "border-border hover:border-primary/50 hover:bg-secondary"
                   )}
                 >
                   <div
                     className={cn(
                       "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
                       triggerType === "payroll_event"
-                        ? "bg-primary/10 text-primary"
-                        : "bg-muted text-muted-foreground"
+                        ? "bg-primary/10 text-teal-light"
+                        : "bg-secondary text-muted-foreground"
                     )}
                   >
                     <CalendarClock className="h-5 w-5" />
@@ -1089,10 +1089,10 @@ export function AutomationFormContent() {
                     "rounded-lg border p-4 space-y-1.5",
                     payrollPreview
                       ? "border-primary/20 bg-primary/5"
-                      : "border-border bg-muted/20"
+                      : "border-border bg-muted"
                   )}
                 >
-                  <div className="text-xs font-semibold uppercase tracking-wider text-primary">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-teal-light">
                     Next fire
                   </div>
                   {payrollPreview ? (
@@ -1138,7 +1138,7 @@ export function AutomationFormContent() {
                 </div>
 
                 {/* Template variables hint */}
-                <div className="rounded-lg border border-border bg-muted/20 p-3 text-xs text-muted-foreground space-y-1">
+                <div className="rounded-lg border border-border bg-muted p-3 text-xs text-muted-foreground space-y-1">
                   <div className="font-semibold text-foreground">
                     Template variables you can use in email / notification
                     bodies:
@@ -1165,7 +1165,7 @@ export function AutomationFormContent() {
                         className={cn(
                           "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
                           durationType === type
-                            ? "border-primary bg-primary/10 text-primary"
+                            ? "border-primary bg-primary/10 text-teal-light"
                             : "border-border hover:border-primary/50 hover:bg-secondary"
                         )}
                       >
@@ -1223,7 +1223,7 @@ export function AutomationFormContent() {
                         className={cn(
                           "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
                           frequency === opt.value
-                            ? "border-primary bg-primary/10 text-primary"
+                            ? "border-primary bg-primary/10 text-teal-light"
                             : "border-border hover:border-primary/50 hover:bg-secondary"
                         )}
                       >
@@ -1301,7 +1301,7 @@ export function AutomationFormContent() {
                         className={cn(
                           "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
                           durationType === type
-                            ? "border-primary bg-primary/10 text-primary"
+                            ? "border-primary bg-primary/10 text-teal-light"
                             : "border-border hover:border-primary/50 hover:bg-secondary"
                         )}
                       >
@@ -1359,7 +1359,7 @@ export function AutomationFormContent() {
               <button
                 type="button"
                 onClick={() => addAction("email")}
-                className="flex items-start gap-3 p-4 rounded-lg border-2 border-dashed border-border hover:border-primary/50 hover:bg-secondary/50 transition-all text-left"
+                className="flex items-start gap-3 p-4 rounded-lg border-2 border-dashed border-border hover:border-primary/50 hover:bg-secondary transition-all text-left"
               >
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10 text-blue-500 shrink-0">
                   <Mail className="h-5 w-5" />
@@ -1375,7 +1375,7 @@ export function AutomationFormContent() {
               <button
                 type="button"
                 onClick={() => addAction("notification")}
-                className="flex items-start gap-3 p-4 rounded-lg border-2 border-dashed border-border hover:border-primary/50 hover:bg-secondary/50 transition-all text-left"
+                className="flex items-start gap-3 p-4 rounded-lg border-2 border-dashed border-border hover:border-primary/50 hover:bg-secondary transition-all text-left"
               >
                 <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10 text-amber-500 shrink-0">
                   <Bell className="h-5 w-5" />
@@ -1396,7 +1396,7 @@ export function AutomationFormContent() {
                   Configured Actions ({actions.length})
                 </p>
                 {actions.map((action, index) => (
-                  <Card key={action.id} className="border-border/50">
+                  <Card key={action.id} className="border-white/[0.06]">
                     <CardContent className="p-4">
                       <div className="flex items-start gap-3">
                         <div className="flex flex-col items-center gap-1 pt-1">
@@ -1480,7 +1480,7 @@ export function AutomationFormContent() {
                                     <FileText className="h-3.5 w-3.5 text-muted-foreground" />
                                     <label className="text-sm font-medium">Email Body</label>
                                   </div>
-                                  <div className="flex items-center gap-1 p-1 bg-muted rounded-lg">
+                                  <div className="flex items-center gap-1 p-1 bg-secondary rounded-lg">
                                     <button
                                       type="button"
                                       onClick={() =>
@@ -1492,7 +1492,7 @@ export function AutomationFormContent() {
                                       className={cn(
                                         "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
                                         ((action.config as EmailActionConfig).format || "text") === "text"
-                                          ? "bg-background text-foreground shadow-sm"
+                                          ? "bg-[rgba(var(--ink),0.09)] text-foreground shadow-[inset_0_1px_0_rgba(var(--ink),0.16)]"
                                           : "text-muted-foreground hover:text-foreground"
                                       )}
                                     >
@@ -1510,7 +1510,7 @@ export function AutomationFormContent() {
                                       className={cn(
                                         "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
                                         (action.config as EmailActionConfig).format === "html"
-                                          ? "bg-background text-foreground shadow-sm"
+                                          ? "bg-[rgba(var(--ink),0.09)] text-foreground shadow-[inset_0_1px_0_rgba(var(--ink),0.16)]"
                                           : "text-muted-foreground hover:text-foreground"
                                       )}
                                     >
@@ -1576,7 +1576,7 @@ Your Team`
                                   <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
                                   <span>Additional Options</span>
                                   {((action.config as EmailActionConfig).cc || (action.config as EmailActionConfig).bcc || (action.config as EmailActionConfig).replyTo) && (
-                                    <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+                                    <span className="text-xs bg-primary/10 text-teal-light px-1.5 py-0.5 rounded">
                                       configured
                                     </span>
                                   )}

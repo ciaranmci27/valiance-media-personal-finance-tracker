@@ -14,8 +14,8 @@ import { formatCurrency, formatMonthShort, computeChartTicks } from "@/lib/utils
 import { usePrivacy } from "@/contexts/privacy-context";
 
 // Colors
-const POSITIVE_COLOR = "#C5A68F"; // Copper
-const NEGATIVE_COLOR = "#C4686E"; // Muted coral-red for losses
+const POSITIVE_COLOR = "var(--color-teal)"; // Copper
+const NEGATIVE_COLOR = "var(--color-error)"; // Muted coral-red for losses
 
 interface NetWorthChartProps {
   data: Array<{
@@ -65,7 +65,7 @@ export function NetWorthChart({ data, isRevealed: externalRevealed }: NetWorthCh
       const color = value >= 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
 
       return (
-        <div className="glass-card rounded-lg p-3 shadow-lg border border-border">
+        <div className="rounded-lg bg-card p-3 border border-white/[0.08] shadow-[var(--shadow-overlay)]">
           <p className="font-medium text-foreground mb-1">
             {formatMonthShort(label)}
           </p>
@@ -86,7 +86,7 @@ export function NetWorthChart({ data, isRevealed: externalRevealed }: NetWorthCh
 
   if (data.length === 0) {
     return (
-      <div className="h-[250px] flex items-center justify-center text-muted-foreground">
+      <div className="h-[250px] flex items-center justify-center text-zinc-500">
         No net worth data available
       </div>
     );
@@ -118,14 +118,14 @@ export function NetWorthChart({ data, isRevealed: externalRevealed }: NetWorthCh
           <CartesianGrid
             strokeDasharray="3 3"
             vertical={false}
-            stroke="hsl(var(--border))"
+            stroke="var(--color-border)"
             opacity={0.5}
           />
           <XAxis
             dataKey="date"
             ticks={axisTicks}
             tickFormatter={tickFormatter}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "#71717A", fontSize: 11 }}
             tickLine={false}
             axisLine={false}
             dy={10}
@@ -133,7 +133,7 @@ export function NetWorthChart({ data, isRevealed: externalRevealed }: NetWorthCh
           />
           <YAxis
             tickFormatter={(value) => showValues ? formatCurrency(value, { compact: true }) : "•••"}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "#71717A", fontSize: 11 }}
             tickLine={false}
             axisLine={false}
             width={48}
@@ -152,7 +152,7 @@ export function NetWorthChart({ data, isRevealed: externalRevealed }: NetWorthCh
                 cy={cy}
                 r={4}
                 fill={payload.amount >= 0 ? POSITIVE_COLOR : NEGATIVE_COLOR}
-                stroke="hsl(var(--background))"
+                stroke="var(--color-card)"
                 strokeWidth={2}
               />
             )}

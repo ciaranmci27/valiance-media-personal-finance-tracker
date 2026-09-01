@@ -22,8 +22,8 @@ interface ExpenseBreakdownChartProps {
   isRevealed?: boolean;
 }
 
-const TEAL_COLOR = "hsl(167, 21%, 56%)"; // teal-light
-const COPPER_COLOR = "hsl(26, 29%, 67%)"; // copper
+const TEAL_COLOR = "var(--color-teal-light)"; // teal-light
+const COPPER_COLOR = "var(--color-copper)"; // copper
 
 export function ExpenseBreakdownChart({
   personal,
@@ -45,7 +45,7 @@ export function ExpenseBreakdownChart({
       const item = payload[0].payload;
       const percentage = total > 0 ? ((item.value / total) * 100).toFixed(1) : 0;
       return (
-        <div className="glass-card rounded-lg p-3 shadow-lg border border-border">
+        <div className="rounded-lg bg-card p-3 border border-white/[0.08] shadow-[var(--shadow-overlay)]">
           <div className="flex items-center gap-2 mb-1">
             <div
               className="w-2 h-2 rounded-full"
@@ -57,7 +57,7 @@ export function ExpenseBreakdownChart({
             <span className="tabular-nums font-medium">
               {showValues ? formatCurrency(item.value) : "•••••"}
             </span>
-            <span className="text-muted-foreground ml-2">
+            <span className="text-zinc-500 ml-2">
               {showValues ? `(${percentage}%)` : "(••%)"}
             </span>
           </p>
@@ -69,7 +69,7 @@ export function ExpenseBreakdownChart({
 
   if (total === 0) {
     return (
-      <div className="h-[280px] flex items-center justify-center text-muted-foreground">
+      <div className="h-[280px] flex items-center justify-center text-zinc-500">
         No expense data
       </div>
     );
@@ -114,7 +114,7 @@ export function ExpenseBreakdownChart({
           <p className="text-lg font-bold tracking-tight currency text-foreground">
             {showValues ? formatCompactCurrency(total) : "•••••"}
           </p>
-          <p className="text-xs text-muted-foreground">Total Monthly</p>
+          <p className="text-xs text-zinc-500">Total Monthly</p>
         </div>
       </div>
 
@@ -130,7 +130,7 @@ export function ExpenseBreakdownChart({
               />
               <div>
                 <span className="text-foreground font-medium">{item.name}</span>
-                <span className="text-muted-foreground ml-2">
+                <span className="text-zinc-500 ml-2">
                   {showValues ? `${percentage}%` : "••%"}
                 </span>
               </div>

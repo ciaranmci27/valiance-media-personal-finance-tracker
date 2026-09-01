@@ -15,8 +15,8 @@ import { usePrivacy } from "@/contexts/privacy-context";
 import type { IncomeSource } from "@/types/database";
 
 // Colors
-const POSITIVE_COLOR = "#5B8A8A"; // Teal
-const NEGATIVE_COLOR = "#C4686E"; // Muted coral-red for losses
+const POSITIVE_COLOR = "var(--color-teal)"; // Teal
+const NEGATIVE_COLOR = "var(--color-error)"; // Muted coral-red for losses
 
 interface IncomeChartProps {
   data: Array<{
@@ -120,7 +120,7 @@ export function IncomeChart({ data, sources, isRevealed: externalRevealed }: Inc
       const color = value >= 0 ? POSITIVE_COLOR : NEGATIVE_COLOR;
 
       return (
-        <div className="glass-card rounded-lg p-3 shadow-lg border border-border">
+        <div className="rounded-lg bg-card p-3 border border-white/[0.08] shadow-[var(--shadow-overlay)]">
           <p className="font-medium text-foreground mb-2">
             {formatMonthShort(label)}
           </p>
@@ -134,7 +134,7 @@ export function IncomeChart({ data, sources, isRevealed: externalRevealed }: Inc
                       className="w-2 h-2 rounded-full"
                       style={{ backgroundColor: entryColor }}
                     />
-                    <span className="text-muted-foreground capitalize">
+                    <span className="text-zinc-500 capitalize">
                       {entry.dataKey === "total" ? "Total" : entry.dataKey}
                     </span>
                   </div>
@@ -177,13 +177,13 @@ export function IncomeChart({ data, sources, isRevealed: externalRevealed }: Inc
           <CartesianGrid
             strokeDasharray="3 3"
             vertical={false}
-            stroke="hsl(var(--border))"
+            stroke="var(--color-border)"
             opacity={0.5}
           />
           <XAxis
             dataKey="month"
             tickFormatter={(value) => formatMonthShort(value)}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "#71717A", fontSize: 11 }}
             tickLine={false}
             axisLine={false}
             dy={10}
@@ -192,7 +192,7 @@ export function IncomeChart({ data, sources, isRevealed: externalRevealed }: Inc
           />
           <YAxis
             tickFormatter={(value) => showValues ? formatYAxisTick(value) : "•••"}
-            tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 11 }}
+            tick={{ fill: "#71717A", fontSize: 11 }}
             tickLine={false}
             axisLine={false}
             dx={-5}
@@ -212,7 +212,7 @@ export function IncomeChart({ data, sources, isRevealed: externalRevealed }: Inc
                 cy={cy}
                 r={4}
                 fill={payload.total >= 0 ? POSITIVE_COLOR : NEGATIVE_COLOR}
-                stroke="hsl(var(--background))"
+                stroke="var(--color-card)"
                 strokeWidth={2}
               />
             )}

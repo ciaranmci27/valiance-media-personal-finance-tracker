@@ -61,13 +61,13 @@ export function PayrollEncryptionGuard() {
 
         <p className="mb-6 text-sm leading-relaxed text-muted-foreground">
           Payroll stores encrypted SSN data. Set the{" "}
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">
+          <code className="rounded bg-secondary px-1.5 py-0.5 font-mono text-xs">
             AES_ENCRYPTION_KEY
           </code>{" "}
           environment variable before using this feature.
         </p>
 
-        <div className="mb-6 space-y-4 rounded-xl border border-border/60 bg-muted/30 p-4">
+        <div className="mb-6 space-y-4 rounded-xl border border-white/[0.06] bg-secondary p-4">
           <div>
             <div className="mb-2 flex items-center justify-between gap-3">
               <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">

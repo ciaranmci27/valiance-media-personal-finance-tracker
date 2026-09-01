@@ -191,7 +191,7 @@ export function Tooltip({
     >
       <div
         className={cn(
-          "relative text-foreground bg-card rounded-md shadow-lg border border-border",
+          "relative text-foreground bg-card rounded-md border border-white/10 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.7)]",
           wide
             ? "px-3 py-2 text-xs leading-relaxed max-w-[280px]"
             : "px-2.5 py-1.5 text-xs font-medium whitespace-nowrap",

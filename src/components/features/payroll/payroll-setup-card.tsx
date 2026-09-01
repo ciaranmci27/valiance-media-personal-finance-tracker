@@ -162,7 +162,7 @@ export function PayrollSetupCard({ onComplete }: PayrollSetupCardProps) {
         <div className="text-center space-y-2">
           <div className="flex justify-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-              <Building2 className="h-6 w-6 text-primary" aria-hidden="true" />
+              <Building2 className="h-6 w-6 text-teal-light" aria-hidden="true" />
             </div>
           </div>
           <h2 className="text-xl font-semibold text-foreground">
@@ -175,7 +175,7 @@ export function PayrollSetupCard({ onComplete }: PayrollSetupCardProps) {
 
         {/* Step indicator */}
         <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20 text-primary font-semibold">
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-primary/20 text-teal-light font-semibold">
             <Check className="h-3 w-3" aria-hidden="true" />
           </span>
           <span>Encryption key</span>

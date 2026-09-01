@@ -792,8 +792,15 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
   ].filter(Boolean);
 
   return (
-    <div className="space-y-4 animate-fade-up">
-      <PageHeader title="Tax Estimator" />
+    <div className="space-y-5 lg:space-y-6 animate-fade-up">
+      <PageHeader
+        title="Tax Estimator"
+        subtitle={
+          <span className="hidden sm:inline">
+            Federal and state estimates for {selectedYear}
+          </span>
+        }
+      />
       {/* Filters Row */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {/* Profile summary + settings link */}
@@ -849,7 +856,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
               size="sm"
             />
           </div>
-          <div className="hidden sm:flex rounded-lg border border-border bg-card/50 p-0.5">
+          <div className="hidden sm:flex gap-0.5 rounded-lg bg-[rgba(var(--ink),0.05)] p-0.5 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]">
             {yearTabs.map((year) => (
               <button
                 key={year}
@@ -870,7 +877,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
 
       {/* Stat Cards */}
       {breakdown && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
           <StatCard
             title="Federal Tax"
             value={federalTaxTotal}
@@ -904,7 +911,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
             <CardHeader className="px-4 pt-3 pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <DollarSign className="h-4 w-4 text-primary" />
+                  <DollarSign className="h-4 w-4 text-teal-light" />
                   Income Sources
                 </CardTitle>
                 <AddIncomePopover
@@ -980,8 +987,8 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                           className={cn(
                             "shrink-0 h-8 px-1.5 inline-flex items-center text-[10px] font-semibold uppercase tracking-wider rounded border cursor-pointer transition-colors",
                             source.subject_to_se
-                              ? "bg-primary/15 text-primary border-primary/25"
-                              : "bg-muted text-muted-foreground/40 border-border line-through"
+                              ? "bg-primary/15 text-teal-light border-primary/25"
+                              : "bg-secondary text-muted-foreground/40 border-border line-through"
                           )}
                         >
                           SE
@@ -998,8 +1005,8 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                             className={cn(
                               "shrink-0 h-8 px-1.5 inline-flex items-center text-[10px] font-semibold uppercase tracking-wider rounded border cursor-pointer transition-colors",
                               source.materially_participates
-                                ? "bg-primary/15 text-primary border-primary/25"
-                                : "bg-muted text-muted-foreground/40 border-border line-through"
+                                ? "bg-primary/15 text-teal-light border-primary/25"
+                                : "bg-secondary text-muted-foreground/40 border-border line-through"
                             )}
                           >
                             Active
@@ -1013,7 +1020,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                           <button
                             type="button"
                             onClick={() => toggleTaxpayer(source.id)}
-                            className="shrink-0 h-8 px-1.5 inline-flex items-center text-[10px] font-semibold uppercase tracking-wider rounded border cursor-pointer transition-colors bg-muted text-muted-foreground border-border hover:text-foreground"
+                            className="shrink-0 h-8 px-1.5 inline-flex items-center text-[10px] font-semibold uppercase tracking-wider rounded border cursor-pointer transition-colors bg-secondary text-muted-foreground border-border hover:text-foreground"
                           >
                             {(source.taxpayer ?? "self") === "self" ? "You" : "Spouse"}
                           </button>
@@ -1115,7 +1122,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
             <CardHeader className="px-4 pt-3 pb-2">
               <div className="flex items-center justify-between">
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <TrendingUp className="h-4 w-4 text-primary" />
+                  <TrendingUp className="h-4 w-4 text-teal-light" />
                   Capital Gains & Losses
                 </CardTitle>
                 <Button
@@ -1168,7 +1175,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                       className={cn(
                         "shrink-0 h-8 px-2 inline-flex items-center rounded-md text-xs font-medium transition-colors",
                         gain.term === "long"
-                          ? "bg-primary/10 text-primary"
+                          ? "bg-primary/10 text-teal-light"
                           : "bg-warning/10 text-warning"
                       )}
                     >
@@ -1200,7 +1207,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
           <Card glass>
             <CardHeader className="px-4 pt-3 pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
-                <Calculator className="h-4 w-4 text-primary" />
+                <Calculator className="h-4 w-4 text-teal-light" />
                 Deductions
               </CardTitle>
             </CardHeader>
@@ -1386,7 +1393,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
           <Card glass>
             <CardHeader className="px-4 pt-3 pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
-                <CreditCard className="h-4 w-4 text-primary" />
+                <CreditCard className="h-4 w-4 text-teal-light" />
                 Payments & Withholdings
               </CardTitle>
             </CardHeader>
@@ -1476,7 +1483,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
           <Card glass>
             <CardHeader className="px-4 pt-3 pb-2">
               <CardTitle className="flex items-center gap-2 text-base">
-                <StickyNote className="h-4 w-4 text-primary" />
+                <StickyNote className="h-4 w-4 text-teal-light" />
                 Notes
               </CardTitle>
             </CardHeader>
@@ -1521,7 +1528,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
 const ACCENT_CLASSES = {
   primary: {
     border: "border-l-primary",
-    header: "text-primary",
+    header: "text-teal-light",
     footer: "bg-primary/5 border-t-primary/20",
   },
   copper: {
@@ -1956,7 +1963,7 @@ function CalculationResults({
         >
           {/* Header */}
           <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-            <DollarSign className="h-4 w-4 text-primary" />
+            <DollarSign className="h-4 w-4 text-teal-light" />
             <span className="text-base font-semibold text-foreground">
               Payments & Remaining
             </span>
@@ -1972,7 +1979,7 @@ function CalculationResults({
                   <Tooltip content="Employee-side Social Security (6.2%) and Medicare (1.45%) are withheld from each paycheck by your employer and remitted on Form 941, so they're automatically credited as paid here.">
                     <span className="flex items-center gap-1 cursor-help">
                       FICA Auto-Withheld
-                      <span className="text-[9px] uppercase tracking-wider rounded bg-primary/10 text-primary px-1 py-px">
+                      <span className="text-[9px] uppercase tracking-wider rounded bg-primary/10 text-teal-light px-1 py-px">
                         Auto
                       </span>
                     </span>
@@ -2135,7 +2142,7 @@ function PaymentRow({
           className={cn(
             "shrink-0 h-8 px-2 inline-flex items-center rounded-md text-xs font-medium transition-colors",
             payment.type === "federal"
-              ? "bg-primary/10 text-primary"
+              ? "bg-primary/10 text-teal-light"
               : "bg-secondary text-foreground"
           )}
         >
@@ -2198,7 +2205,7 @@ function CopyableValue({
       type="button"
       onClick={handleCopy}
       className={cn(
-        "tabular-nums cursor-pointer rounded px-1 -mx-1 transition-colors hover:bg-secondary/60 active:scale-95",
+        "tabular-nums cursor-pointer rounded px-1 -mx-1 transition-colors hover:bg-secondary active:scale-95",
         className
       )}
       title="Click to copy"
