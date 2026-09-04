@@ -24,16 +24,18 @@ import type {
 } from "@/types/payroll";
 
 import {
-  BRAND,
-  EMAIL_FONT_STACK,
+  EMAIL,
+  FONT_MONO,
+  accentPalette,
   emailLayout,
   escapeHtml,
-  formatUSD,
+  footerLine,
   heading,
-  kvRow,
-  mutedText,
+  kvRows,
+  label,
+  metaLine,
   paragraph,
-  summaryTable,
+  tile,
 } from "../shared";
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -76,8 +78,9 @@ export function buildPayStubEmail(ctx: PayStubContext): BuiltEmail {
 
   const html = emailLayout({
     preheader,
-    companyName: employer,
+    siteName: employer,
     body: renderHtmlBody({ run, employee, organization, ytd, periodLabel, payDateLabel }),
+    footerHtml: renderFooter(organization),
   });
 
   const text = renderPlainText({ run, employee, organization, ytd, periodLabel, payDateLabel });
@@ -92,113 +95,88 @@ interface RenderArgs extends PayStubContext {
   payDateLabel: string;
 }
 
+type Row = { label: string; value: string; strong?: boolean };
+
 function renderHtmlBody(args: RenderArgs): string {
   const { run, employee, organization, ytd, periodLabel, payDateLabel } = args;
 
   const employeeName = `${employee.first_name} ${employee.last_name}`.trim();
   const rateOfPay = describeRateOfPay(employee);
-  const employerAddress = formatAddressInline(organization.address);
+  const teal = accentPalette();
 
-  const earnings = summaryTable(
-    [
-      kvRow("Gross pay", formatUSD(run.gross_pay), { bold: true }),
-      rateOfPay ? kvRow("Rate of pay", rateOfPay) : "",
-    ].join(""),
+  const netPay = tile(
+    `${label("Net pay", { color: teal.bright })}<p style="margin: 0; font-family: ${FONT_MONO}; font-size: 32px; line-height: 1.1; font-weight: 300; letter-spacing: -0.02em; color: ${EMAIL.ink};">${escapeHtml(formatUSD(run.net_pay))}</p>`,
+    { tone: "teal" },
   );
 
-  const deductionRows = buildDeductionRows(run);
-  const deductions = summaryTable(
-    [
-      ...deductionRows,
-      kvRow("Total deductions", formatUSD(totalDeductions(run)), { bold: true, divider: true }),
-    ].join(""),
-  );
+  const statement = kvRows([
+    { label: "Employee", value: employeeName },
+    { label: "Employer", value: organization.legal_name },
+    { label: "Pay period", value: periodLabel },
+    { label: "Pay date", value: payDateLabel },
+  ]);
 
-  const netRow = summaryTable(kvRow("Net pay", formatUSD(run.net_pay), { bold: true }));
+  const thisPeriod = kvRows([
+    { label: "Gross pay", value: formatUSD(run.gross_pay), strong: true },
+    ...(rateOfPay ? [{ label: "Rate of pay", value: rateOfPay }] : []),
+    ...buildDeductionRows(run),
+    { label: "Total deductions", value: formatUSD(totalDeductions(run)) },
+    { label: "Net pay", value: formatUSD(run.net_pay), strong: true },
+  ]);
 
-  const ytdRows = summaryTable(
-    [
-      kvRow("YTD gross", formatUSD(ytd.gross_pay)),
-      kvRow("YTD federal income tax", formatUSD(ytd.federal_income_tax)),
-      kvRow("YTD state income tax", formatUSD(ytd.state_income_tax)),
-      kvRow(
-        "YTD Social Security",
-        formatUSD(ytd.social_security_employee),
-      ),
-      kvRow(
-        "YTD Medicare",
-        formatUSD(ytd.medicare_employee + ytd.additional_medicare),
-      ),
-      ytd.state_disability_employee > 0
-        ? kvRow("YTD state disability", formatUSD(ytd.state_disability_employee))
-        : "",
-      ytd.pre_tax_deductions > 0
-        ? kvRow("YTD pre-tax deductions", formatUSD(ytd.pre_tax_deductions))
-        : "",
-      ytd.post_tax_deductions > 0
-        ? kvRow("YTD post-tax deductions", formatUSD(ytd.post_tax_deductions))
-        : "",
-      kvRow("YTD net pay", formatUSD(ytd.net_pay), { bold: true, divider: true }),
-    ].join(""),
-  );
+  const yearToDate = kvRows([
+    { label: "Gross", value: formatUSD(ytd.gross_pay) },
+    { label: "Federal income tax", value: formatUSD(ytd.federal_income_tax) },
+    { label: "State income tax", value: formatUSD(ytd.state_income_tax) },
+    { label: "Social Security", value: formatUSD(ytd.social_security_employee) },
+    { label: "Medicare", value: formatUSD(ytd.medicare_employee + ytd.additional_medicare) },
+    ...(ytd.state_disability_employee > 0
+      ? [{ label: "State disability", value: formatUSD(ytd.state_disability_employee) }]
+      : []),
+    ...(ytd.pre_tax_deductions > 0
+      ? [{ label: "Pre-tax deductions", value: formatUSD(ytd.pre_tax_deductions) }]
+      : []),
+    ...(ytd.post_tax_deductions > 0
+      ? [{ label: "Post-tax deductions", value: formatUSD(ytd.post_tax_deductions) }]
+      : []),
+    { label: "Net pay", value: formatUSD(ytd.net_pay), strong: true },
+  ]);
 
   const runTypeNote =
     run.run_type === "off_cycle"
-      ? mutedText("This is an off-cycle payment (bonus or supplemental).")
+      ? paragraph("This is an off-cycle payment (bonus or supplemental).", { muted: true, size: 13 })
       : run.run_type === "correction"
-      ? mutedText("This statement reflects a correction to a prior run.")
-      : "";
+        ? paragraph("This statement reflects a correction to a prior run.", { muted: true, size: 13 })
+        : "";
 
   return [
-    heading("Your pay stub"),
+    heading("Your pay stub is", "ready."),
+    metaLine([organization.legal_name, periodLabel]),
     paragraph(
       `Hi ${escapeHtml(employee.first_name)}, your pay for the period <strong>${escapeHtml(periodLabel)}</strong> has been issued. Net pay was deposited on <strong>${escapeHtml(payDateLabel)}</strong>.`,
     ),
     runTypeNote,
-
-    sectionLabel("Employer"),
+    netPay,
+    statement,
+    label("This pay period"),
+    thisPeriod,
+    label("Year to date"),
+    yearToDate,
     paragraph(
-      `<strong>${escapeHtml(organization.legal_name)}</strong>${employerAddress ? `<br/>${escapeHtml(employerAddress)}` : ""}`,
-    ),
-
-    sectionLabel("Employee"),
-    paragraph(`<strong>${escapeHtml(employeeName)}</strong>`),
-
-    sectionLabel("Pay period"),
-    paragraph(
-      `${escapeHtml(periodLabel)}<br/>Pay date: ${escapeHtml(payDateLabel)}`,
-    ),
-
-    sectionLabel("Earnings"),
-    earnings,
-
-    sectionLabel("Deductions and withholdings"),
-    deductions,
-
-    sectionLabel("Net pay"),
-    netRow,
-
-    sectionLabel("Year to date"),
-    ytdRows,
-
-    mutedText(
       "This is an automated earnings statement. Keep it for your records. If any detail looks incorrect, contact your employer right away.",
+      { muted: true, size: 13 },
     ),
   ].join("");
 }
 
-function sectionLabel(label: string): string {
-  return `
-    <p style="
-      margin: 24px 0 6px 0;
-      font-family: ${EMAIL_FONT_STACK};
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.8px;
-      color: ${BRAND.tealDark};
-    ">${escapeHtml(label)}</p>
-  `;
+/** Employer name and address, required on the statement, live in the footer. */
+function renderFooter(organization: OrganizationConfig): string {
+  const address = formatAddressInline(organization.address);
+  const issuer = address ? `${organization.legal_name}, ${address}` : organization.legal_name;
+  return [
+    footerLine(`Issued by ${escapeHtml(issuer)}. This is an automated message; replies are not monitored.`),
+    footerLine(`&copy; ${new Date().getFullYear()} ${escapeHtml(organization.legal_name)}`),
+  ].join("");
 }
 
 // ─── Plain text body ──────────────────────────────────────────────────────────
@@ -249,24 +227,24 @@ function renderPlainText(args: RenderArgs): string {
 
 // ─── Deduction row builders ───────────────────────────────────────────────────
 
-function buildDeductionRows(run: PayrollRun): string[] {
-  const rows: string[] = [];
+function buildDeductionRows(run: PayrollRun): Row[] {
+  const rows: Row[] = [];
 
   if (run.federal_income_tax > 0)
-    rows.push(kvRow("Federal income tax", formatUSD(run.federal_income_tax)));
+    rows.push({ label: "Federal income tax", value: formatUSD(run.federal_income_tax) });
   if (run.state_income_tax > 0)
-    rows.push(kvRow("State income tax", formatUSD(run.state_income_tax)));
+    rows.push({ label: "State income tax", value: formatUSD(run.state_income_tax) });
   if (run.social_security_employee > 0)
-    rows.push(kvRow("Social Security (6.2%)", formatUSD(run.social_security_employee)));
+    rows.push({ label: "Social Security (6.2%)", value: formatUSD(run.social_security_employee) });
   if (run.medicare_employee > 0)
-    rows.push(kvRow("Medicare (1.45%)", formatUSD(run.medicare_employee)));
+    rows.push({ label: "Medicare (1.45%)", value: formatUSD(run.medicare_employee) });
   if (run.additional_medicare > 0)
-    rows.push(kvRow("Additional Medicare (0.9%)", formatUSD(run.additional_medicare)));
+    rows.push({ label: "Additional Medicare (0.9%)", value: formatUSD(run.additional_medicare) });
   if (run.state_disability_employee > 0)
-    rows.push(kvRow("State disability", formatUSD(run.state_disability_employee)));
+    rows.push({ label: "State disability", value: formatUSD(run.state_disability_employee) });
 
   for (const line of splitOtherWithholdings(run.other_withholdings)) {
-    rows.push(kvRow(line.label, formatUSD(line.amount)));
+    rows.push({ label: line.label, value: formatUSD(line.amount) });
   }
 
   return rows;
@@ -313,6 +291,15 @@ function totalDeductions(run: PayrollRun): number {
 }
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────
+
+function formatUSD(amount: number): string {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
 
 function formatDate(iso: string): string {
   const [y, m, d] = iso.split("-").map(Number);

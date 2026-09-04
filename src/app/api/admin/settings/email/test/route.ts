@@ -4,17 +4,10 @@ import { requireAuth } from "@/lib/admin/require-auth";
 import { createClient } from "@/lib/supabase/server";
 import { decrypt, isEncryptionConfigured } from "@/lib/email/crypto";
 import { rowToAccount, type EmailAccountRow } from "@/lib/email/types";
+import { buildSmtpTestEmail } from "@/lib/email/templates/smtp-test";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
 
 export async function POST(request: NextRequest) {
   const auth = await requireAuth();
@@ -89,31 +82,21 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const safeLabel = escapeHtml(account.label);
-    const safeHost = escapeHtml(account.host);
-    const safeFromEmail = escapeHtml(account.fromEmail);
-    const sentAt = new Date().toISOString();
+    const email = buildSmtpTestEmail({
+      label: account.label,
+      host: account.host,
+      port: account.port,
+      fromEmail: account.fromEmail,
+      sentAt: new Date().toISOString(),
+    });
 
     const info = await transport.sendMail({
       from: `"${account.fromName}" <${account.fromEmail}>`,
       replyTo: account.replyTo || undefined,
       to: body.recipientEmail,
-      subject: "Test Email: SMTP Configuration",
-      html: `
-        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 32px;">
-          <h2 style="margin: 0 0 16px 0; color: #111;">SMTP Test Successful</h2>
-          <p style="color: #555; line-height: 1.6; margin: 0 0 16px 0;">
-            This is a test email from your admin panel. If you&rsquo;re reading this, your SMTP account
-            <strong>&ldquo;${safeLabel}&rdquo;</strong> is configured correctly.
-          </p>
-          <div style="background: #f5f5f5; border-radius: 8px; padding: 16px; font-size: 13px; color: #666;">
-            <p style="margin: 0 0 4px 0;"><strong>Host:</strong> ${safeHost}:${account.port}</p>
-            <p style="margin: 0 0 4px 0;"><strong>From:</strong> ${safeFromEmail}</p>
-            <p style="margin: 0;"><strong>Sent at:</strong> ${sentAt}</p>
-          </div>
-        </div>
-      `,
-      text: `SMTP Test Successful\n\nThis is a test email from your admin panel. Your SMTP account "${account.label}" is configured correctly.\n\nHost: ${account.host}:${account.port}\nFrom: ${account.fromEmail}\nSent at: ${sentAt}`,
+      subject: email.subject,
+      html: email.html,
+      text: email.text,
     });
 
     return NextResponse.json({
