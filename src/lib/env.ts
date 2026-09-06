@@ -29,6 +29,9 @@ export const isLocalOrTestEnv = LOCAL_OR_TEST_ENVS.has(APP_ENV);
 // don't reach Deno.
 export const PAYROLL_ENABLED = process.env.NEXT_PUBLIC_PAYROLL_ENABLED === 'true';
 
+// Stays disabled until the accounting schema and owner are provisioned.
+export const ACCOUNTING_ENABLED = process.env.NEXT_PUBLIC_ACCOUNTING_ENABLED === 'true';
+
 export const DISABLE_ADMIN_AUTH = process.env.DISABLE_ADMIN_AUTH === 'true';
 export const ADMIN_ALLOWED_EMAILS = optional(process.env.ADMIN_ALLOWED_EMAILS);
 

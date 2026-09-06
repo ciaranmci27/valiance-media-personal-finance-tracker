@@ -12,11 +12,13 @@ interface DashboardLayoutProps {
   children: React.ReactNode;
   /** Initial privacy state from server (read from cookie during SSR) */
   initialPrivacyHidden: boolean;
+  accountingTestMode?: boolean;
 }
 
 export function DashboardLayout({
   children,
   initialPrivacyHidden,
+  accountingTestMode=false,
 }: DashboardLayoutProps) {
   const isDemo = isDemoMode();
 
@@ -25,12 +27,12 @@ export function DashboardLayout({
       <div className="min-h-screen">
         <Sidebar />
         <div className="relative z-10 lg:ml-60">
-          {isDemo && <DemoBanner />}
+          {isDemo && !accountingTestMode && <DemoBanner />}
           <main
             className={cn(
               "px-4 lg:px-6 pb-6 pt-5 lg:pt-7",
               // Clear the fixed h-9 announcement bar
-              isDemo && "pt-14 lg:pt-16"
+              isDemo && !accountingTestMode && "pt-14 lg:pt-16"
             )}
           >
             {children}

@@ -12,6 +12,7 @@ import {
   ReceiptText,
   PiggyBank,
   Landmark,
+  BookOpen,
   Users2,
   Zap,
   Layers,
@@ -20,7 +21,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
-import { PAYROLL_ENABLED } from "@/lib/env";
+import { PAYROLL_ENABLED, ACCOUNTING_ENABLED } from "@/lib/env";
 
 interface NavItem {
   title: string;
@@ -63,6 +64,7 @@ const navItems: NavItem[] = [
         },
       ]
     : []),
+  ...(ACCOUNTING_ENABLED ? [{ title: "Accounting", href: "/accounting", icon: BookOpen }] : []),
   {
     title: "Automations",
     href: "/automations",
