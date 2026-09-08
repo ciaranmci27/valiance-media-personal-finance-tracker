@@ -517,21 +517,9 @@ BEGIN
 END $fn$;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA accounting FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION accounting.operate(jsonb),accounting.transactions(jsonb,jsonb),accounting.entry_detail(uuid),accounting.descriptor_key(text) TO authenticated;
--- Seed system roles by purpose. Names are generic and may be renamed without losing their role.
-INSERT INTO accounting.accounts(name,type,subtype,system_purpose) VALUES
- ('Uncategorized income','income','uncategorized','uncategorized_income'),
- ('Uncategorized expense','expense','uncategorized','uncategorized_expense'),
- ('Opening retained earnings','equity','retained_earnings','opening_retained_earnings'),
- ('Transfers in transit','asset','transit','transfers_in_transit'),
- ('Undeposited funds','asset','undeposited','undeposited_funds'),
- ('Due to shareholder','liability','loan','due_to_shareholder'),
- ('Owner distributions','equity','owner_equity','distributions'),
- ('Owner contributions','equity','owner_equity','contributions'),
- ('Officer wages','expense','payroll_expense','officer_wages'),
- ('Employer payroll taxes','expense','payroll_expense','employer_payroll_taxes'),
- ('Merchant fees','expense','operating_expense','merchant_fees');
-INSERT INTO accounting.accounts(name,type,subtype) VALUES
- ('Cash on hand','asset','cash'),('Business checking','asset','bank'),('Business credit card','liability','card'),
- ('Service revenue','income','revenue'),('Software','expense','operating_expense'),('Office expenses','expense','operating_expense');
+-- No accounts are seeded. The chart comes from the owner's own data (the Wave
+-- import creates accounts with Wave's classification) or from the Accounts
+-- screen, where system roles such as transfers in transit and the two
+-- uncategorized accounts are assigned by purpose.
 -- ACCOUNTING LEDGER END
 COMMIT;

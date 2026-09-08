@@ -28,8 +28,14 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { SectionHeader } from "@/components/ui/section-header";
 import { CustomSelect } from "@/components/ui/select";
 import { Tooltip } from "@/components/ui/tooltip";
-import type { AccountingAccount } from "@/lib/accounting/contracts";
-import type { AccountProfile } from "@/lib/accounting/workflows";
+import type {
+  AccountingAccount,
+  AccountType,
+} from "@/lib/accounting/contracts";
+import type {
+  AccountProfile,
+  WorkflowCommand,
+} from "@/lib/accounting/workflows";
 import type {
   CsvOptions,
   ParsedImportGroup,
@@ -53,13 +59,68 @@ import {
 } from "@/lib/accounting/imports/comparison";
 import { countLabel, dateLabel, enumLabel, money } from "./format";
 
+/** A Wave account as the ledger export classifies it. */
+type WaveProposal = {
+  name: string;
+  type: string;
+  subtype: string;
+  external_names: { wave: string };
+};
 type Inspection = {
   headers: string[];
   samples: string[][];
   rowCount: number;
   fileHash: string;
   values: Record<string, string[]>;
+  adapter?: "wave";
+  accountProposals?: WaveProposal[];
 };
+const NEW_ACCOUNT = "new";
+/** Wave's fixed export columns. The server maps them by Wave account name. */
+const waveMapping = (accounts: Record<string, string>) => ({
+  group: "Transaction ID",
+  date: "Transaction Date",
+  memo: "Transaction Description",
+  account: "Account Name",
+  debit: "Debit Amount (Two Column Approach)",
+  credit: "Credit Amount (Two Column Approach)",
+  lineMemo: "Transaction Line Description",
+  stableGroupIds: true,
+  accounts,
+});
+/** An account already carrying the Wave name, else an unarchived account of the same type and name, else a new account. */
+function defaultWaveMap(
+  proposals: WaveProposal[],
+  accounts: AccountingAccount[],
+  profiles: AccountProfile[],
+) {
+  const byWave = new Map(
+    profiles.flatMap((p) =>
+      p.external_names?.wave
+        ? [[p.external_names.wave, p.account_id] as const]
+        : [],
+    ),
+  );
+  return Object.fromEntries(
+    proposals.map((p) => {
+      const name = p.name.trim().toLowerCase();
+      const match = accounts.find(
+        (a) =>
+          !a.is_archived &&
+          a.account_type === p.type &&
+          a.name.trim().toLowerCase() === name,
+      );
+      return [p.name, byWave.get(p.name) ?? match?.id ?? NEW_ACCOUNT];
+    }),
+  );
+}
+/** Subtypes the Wave parser insists on, so collections and payroll clearing keep their meaning. */
+function waveSubtypeFilter(subtype: string): ((s: string) => boolean) | null {
+  if (subtype === "receivable") return (s) => s === "receivable";
+  if (subtype === "payroll_liability")
+    return (s) => s === "payroll_liability" || s === "other";
+  return null;
+}
 type Preview = {
   fileHash: string;
   mappingHash: string;
@@ -738,6 +799,7 @@ export function AccountingImports({
             <ImportWizard
               accounts={accounts}
               profiles={profiles}
+              onRefresh={onRefresh}
               onDone={async (id) => {
                 setWizard(false);
                 setBatchId(id);
@@ -896,10 +958,12 @@ function ImportWizard({
   accounts,
   profiles,
   onDone,
+  onRefresh,
 }: {
   accounts: AccountingAccount[];
   profiles: AccountProfile[];
   onDone: (id: string) => Promise<void>;
+  onRefresh: () => Promise<void>;
 }) {
   const [file, setFile] = useState<File | null>(null),
     [options, setOptions] = useState<CsvOptions>(initialOptions),
@@ -917,6 +981,8 @@ function ImportWizard({
       "deposits_positive",
     ),
     [stable, setStable] = useState(false),
+    [waveMap, setWaveMap] = useState<Record<string, string>>({}),
+    [waveSaved, setWaveSaved] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [progress, setProgress] = useState("");
@@ -926,7 +992,108 @@ function ImportWizard({
     groups: string[];
   } | null>(null);
   const active = useRef(false);
-  const command = useAccountingCommand();
+  const command = useAccountingCommand(onRefresh);
+  const proposals = inspection?.accountProposals ?? [];
+  const profileById = new Map(profiles.map((p) => [p.account_id, p]));
+  const accountById = new Map(accounts.map((a) => [a.id, a]));
+  const waveOptions = (p: WaveProposal) => {
+    const allow = waveSubtypeFilter(p.subtype);
+    return [
+      {
+        value: NEW_ACCOUNT,
+        label: "Create as a new account",
+        detail: `${enumLabel(p.type)} · ${enumLabel(p.subtype)}`,
+      },
+      ...accounts
+        .filter(
+          (a) =>
+            !a.is_archived &&
+            a.account_type === p.type &&
+            (!allow || allow(profileById.get(a.id)?.subtype ?? "")),
+        )
+        .map((a) => ({
+          value: a.id,
+          label: a.code ? `${a.code} · ${a.name}` : a.name,
+          group: enumLabel(profileById.get(a.id)?.subtype ?? "other"),
+          keywords: profileById.get(a.id)?.external_names?.wave,
+        })),
+    ];
+  };
+  /** True until the chosen account carries this Wave name. */
+  const waveChange = (p: WaveProposal) => {
+    const id = waveMap[p.name];
+    return (
+      !id ||
+      id === NEW_ACCOUNT ||
+      profileById.get(id)?.external_names?.wave !== p.name
+    );
+  };
+  const wavePending = proposals.filter(waveChange);
+  const waveDuplicates = proposals
+    .map((p) => waveMap[p.name])
+    .filter((id, i, all) => id && id !== NEW_ACCOUNT && all.indexOf(id) !== i)
+    .map((id) => accountById.get(id)?.name ?? id);
+  const waveReady =
+    proposals.length > 0 &&
+    (waveSaved || wavePending.length === 0) &&
+    waveDuplicates.length === 0;
+  const waveStatus = (p: WaveProposal) =>
+    waveMap[p.name] === NEW_ACCOUNT
+      ? "new account"
+      : waveChange(p)
+        ? "will be linked"
+        : "linked";
+  async function saveWaveMapping() {
+    const created: Record<string, string> = {};
+    const seeds = wavePending
+      .filter((p) => waveMap[p.name] === NEW_ACCOUNT)
+      .map((p) => {
+        const id = crypto.randomUUID();
+        created[p.name] = id;
+        return {
+          id,
+          name: p.name.slice(0, 120),
+          code: "",
+          account_type: p.type as AccountType,
+          normal_side: (p.type === "asset" || p.type === "expense"
+            ? "debit"
+            : "credit") as "debit" | "credit",
+          subtype: p.subtype,
+          external_names: { wave: p.name },
+        };
+      });
+    const commands: WorkflowCommand[] = [];
+    for (let i = 0; i < seeds.length; i += 100)
+      commands.push({
+        type: "chart.seed",
+        id: crypto.randomUUID(),
+        accounts: seeds.slice(i, i + 100),
+      });
+    for (const p of wavePending) {
+      const id = waveMap[p.name];
+      if (!id || id === NEW_ACCOUNT) continue;
+      const account = accountById.get(id),
+        profile = profileById.get(id);
+      if (!account || !profile) continue;
+      commands.push({
+        type: "account.update",
+        id,
+        expected_version: profile.version,
+        name: account.name,
+        code: account.code ?? "",
+        purpose: profile.purpose,
+        cash_kind: profile.cash_kind,
+        parent_account_id: profile.parent_account_id,
+        subtype: profile.subtype,
+        is_archived: account.is_archived,
+        external_names: { wave: p.name },
+      });
+    }
+    const result = await command.executeMany(commands);
+    if (result.failed) return;
+    setWaveMap({ ...waveMap, ...created });
+    setWaveSaved(true);
+  }
   const bankIds = new Set(
     profiles.filter((p) => p.cash_kind !== "none").map((p) => p.account_id),
   );
@@ -983,6 +1150,10 @@ function ImportWizard({
       form.set("phase", phase);
       form.set("options", JSON.stringify(options));
       form.set("mode", mode);
+      const wave =
+        inspection?.adapter === "wave" ||
+        (phase === "inspect" && source === "wave");
+      form.set("adapter", wave ? "wave" : "csv");
       const amountColumns = signed
         ? { amount: columns.amount }
         : {
@@ -992,25 +1163,33 @@ function ImportWizard({
       form.set(
         "mapping",
         JSON.stringify(
-          mode === "journal"
-            ? {
-                group: columns.group,
-                date: columns.date,
-                memo: columns.memo,
-                account: columns.account,
-                ...amountColumns,
-                lineMemo: columns.lineMemo || undefined,
-                stableGroupIds: stable,
-                accounts: accountMap,
-              }
-            : {
-                date: columns.date,
-                description: columns.memo,
-                ...amountColumns,
-                externalId: columns.group || undefined,
-                sign,
-                accountId: bankAccount,
-              },
+          wave
+            ? waveMapping(
+                Object.fromEntries(
+                  Object.entries(waveMap).filter(
+                    ([, id]) => id !== NEW_ACCOUNT,
+                  ),
+                ),
+              )
+            : mode === "journal"
+              ? {
+                  group: columns.group,
+                  date: columns.date,
+                  memo: columns.memo,
+                  account: columns.account,
+                  ...amountColumns,
+                  lineMemo: columns.lineMemo || undefined,
+                  stableGroupIds: stable,
+                  accounts: accountMap,
+                }
+              : {
+                  date: columns.date,
+                  description: columns.memo,
+                  ...amountColumns,
+                  externalId: columns.group || undefined,
+                  sign,
+                  accountId: bankAccount,
+                },
         ),
       );
       const response = await fetch("/api/accounting/imports", {
@@ -1025,6 +1204,16 @@ function ImportWizard({
         setPreview(null);
         setColumns({});
         setAccountMap({});
+        setWaveSaved(false);
+        setWaveMap(
+          result.adapter === "wave"
+            ? defaultWaveMap(result.accountProposals ?? [], accounts, profiles)
+            : {},
+        );
+        if (result.adapter === "wave") {
+          setSource("wave");
+          setMode("journal");
+        }
       } else {
         setPreview(result);
         ids.current = {
@@ -1276,7 +1465,7 @@ function ImportWizard({
         <CustomSelect
           id="import-mode"
           label="Import type"
-          disabled={!!inspection}
+          disabled={!!inspection || source === "wave"}
           value={mode}
           onChange={(value) => setMode(value as typeof mode)}
           options={[
@@ -1295,7 +1484,11 @@ function ImportWizard({
           label="Source"
           disabled={!!inspection}
           value={source}
-          onChange={(value) => setSource(value as typeof source)}
+          onChange={(value) => {
+            setSource(value as typeof source);
+            // Wave exports are complete journals; bank mode has no meaning for them.
+            if (value === "wave") setMode("journal");
+          }}
           options={[
             { value: "wave", label: "Wave" },
             { value: "csv", label: "Other CSV" },
@@ -1376,6 +1569,7 @@ function ImportWizard({
           <div className="glass-card flex items-center justify-between rounded-xl p-4">
             <p className="text-sm">
               {file?.name} · {inspection.rowCount} rows
+              {inspection.adapter === "wave" && " · Wave ledger"}
             </p>
             <Button
               variant="ghost"
@@ -1385,176 +1579,259 @@ function ImportWizard({
               Change file
             </Button>
           </div>
-          <DataTable
-            columns={sampleColumns}
-            data={sampleRows}
-            keyExtractor={(row) => String(row.index)}
-            mobileCard={sampleCard}
-          />
-          <div className="grid gap-4 sm:grid-cols-3">
-            <CustomSelect
-              id="csv-date-format"
-              label="Date format"
-              value={options.dateFormat}
-              onChange={(value) =>
-                setOptions({
-                  ...options,
-                  dateFormat: value as CsvOptions["dateFormat"],
-                })
-              }
-              options={[
-                { value: "yyyy-mm-dd", label: "YYYY-MM-DD" },
-                { value: "mm/dd/yyyy", label: "MM/DD/YYYY" },
-                { value: "dd/mm/yyyy", label: "DD/MM/YYYY" },
-              ]}
-            />
-            <CustomSelect
-              id="csv-decimal"
-              label="Decimal separator"
-              value={options.decimal}
-              onChange={(value) =>
-                setOptions({
-                  ...options,
-                  decimal: value as CsvOptions["decimal"],
-                })
-              }
-              options={[
-                { value: ".", label: "Period (123.45)" },
-                { value: ",", label: "Comma (123,45)" },
-              ]}
-            />
-            <CustomSelect
-              id="csv-thousands"
-              label="Thousands separator"
-              value={options.thousands}
-              onChange={(value) =>
-                setOptions({
-                  ...options,
-                  thousands: value as CsvOptions["thousands"],
-                })
-              }
-              options={[
-                { value: "", label: "None" },
-                { value: ",", label: "Comma" },
-                { value: ".", label: "Period" },
-                { value: " ", label: "Space" },
-              ]}
-            />
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {column("date", "Transaction date")}
-            {column(
-              "memo",
-              mode === "journal" ? "Shared journal description" : "Description",
-            )}
-            {column(
-              "group",
-              mode === "journal" ? "Journal group ID" : "Source transaction ID",
-              mode === "bank",
-            )}
-            {mode === "journal" ? (
-              column("account", "Source account")
-            ) : (
-              <SearchableSelect
-                label="Bank or card account"
-                visibleLabel="Bank or card account"
-                value={bankAccount}
-                onChange={setBankAccount}
-                placeholder="Choose account"
-                options={bankAccountOptions}
+          {inspection.adapter === "wave" ? (
+            <section className="rounded-lg border border-border p-4">
+              <SectionHeader
+                label="Map Wave accounts"
+                count={proposals.length}
               />
-            )}
-          </div>
-          <Checkbox
-            checked={signed}
-            onChange={setSigned}
-            label="File uses one signed amount column"
-          />
-          <div className="grid gap-4 sm:grid-cols-2">
-            {signed ? (
-              column("amount", "Signed amount")
-            ) : (
-              <>
-                {column(
-                  "debit",
-                  mode === "journal" ? "Debit" : "Withdrawal",
-                  true,
-                )}
-                {column(
-                  "credit",
-                  mode === "journal" ? "Credit" : "Deposit",
-                  true,
-                )}
-              </>
-            )}
-            {mode === "bank" && signed && (
-              <CustomSelect
-                id="bank-sign"
-                label="Positive amounts mean"
-                value={sign}
-                onChange={(value) => setSign(value as typeof sign)}
-                options={[
-                  {
-                    value: "deposits_positive",
-                    label: "Deposits / card payments and refunds",
-                  },
-                  {
-                    value: "withdrawals_positive",
-                    label: "Withdrawals / card purchases",
-                  },
-                ]}
-              />
-            )}
-            {mode === "journal" && column("lineMemo", "Line description", true)}
-          </div>
-          {mode === "journal" && (
-            <>
-              <Checkbox
-                className="items-start text-left"
-                checked={stable}
-                onChange={setStable}
-                label={
-                  <span className="block">
-                    Group IDs are stable across repeated exports
-                    <span className="block text-xs font-normal text-muted-foreground">
-                      Leave unchecked for export row numbers or IDs that are
-                      regenerated.
-                    </span>
-                  </span>
-                }
-              />
-              {sourceAccounts.length > 500 ? (
-                <p className="text-sm text-error">
-                  This column has more than 500 values. Verify that you selected
-                  the account column.
-                </p>
-              ) : (
-                sourceAccounts.length > 0 && (
-                  <section className="rounded-lg border border-border p-4">
-                    <SectionHeader
-                      label="Map accounts"
-                      count={sourceAccounts.length}
+              <p className="mb-4 text-xs text-muted-foreground">
+                Each Wave account name is saved on the book account that takes
+                its history. Accounts already carrying the name, or sharing it,
+                are preselected. Anything else becomes a new account with
+                Wave&apos;s classification.
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {proposals.map((p) => (
+                  <div key={p.name} className="glass-card rounded-xl p-3">
+                    <SearchableSelect
+                      label={`Book account for ${p.name}`}
+                      visibleLabel={p.name}
+                      value={waveMap[p.name] ?? ""}
+                      onChange={(value) => {
+                        setWaveMap({ ...waveMap, [p.name]: value });
+                        setWaveSaved(false);
+                        setPreview(null);
+                      }}
+                      placeholder="Choose account"
+                      options={waveOptions(p)}
+                      helperText={`Wave: ${enumLabel(p.type)} · ${enumLabel(p.subtype)} · ${waveStatus(p)}`}
                     />
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {sourceAccounts.map((label) => (
-                        <SearchableSelect
-                          key={label}
-                          label={`Account for ${label || "(blank)"}`}
-                          visibleLabel={label || "(blank)"}
-                          value={accountMap[label] ?? ""}
-                          onChange={(value) =>
-                            setAccountMap({
-                              ...accountMap,
-                              [label]: value,
-                            })
-                          }
-                          placeholder="Choose account"
-                          options={accountOptions}
+                  </div>
+                ))}
+              </div>
+              {waveDuplicates.length > 0 && (
+                <p role="alert" className="mt-3 text-sm text-error">
+                  Each Wave account needs its own book account:{" "}
+                  {[...new Set(waveDuplicates)].join(", ")}.
+                </p>
+              )}
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+                <span role="status" className="text-sm text-muted-foreground">
+                  {countLabel(
+                    wavePending.filter((p) => waveMap[p.name] === NEW_ACCOUNT)
+                      .length,
+                    "new account",
+                  )}{" "}
+                  ·{" "}
+                  {countLabel(
+                    wavePending.filter((p) => waveMap[p.name] !== NEW_ACCOUNT)
+                      .length,
+                    "account",
+                  )}{" "}
+                  to link · {proposals.length - wavePending.length} linked
+                </span>
+                <Button
+                  variant="outline"
+                  disabled={
+                    busy ||
+                    command.busy ||
+                    waveSaved ||
+                    wavePending.length === 0 ||
+                    waveDuplicates.length > 0
+                  }
+                  loading={command.busy}
+                  onClick={() => void saveWaveMapping()}
+                >
+                  <Check size={16} aria-hidden="true" />
+                  Save account mapping
+                </Button>
+              </div>
+              {command.error && (
+                <p role="alert" className="mt-3 text-sm text-error">
+                  {command.error}
+                </p>
+              )}
+            </section>
+          ) : (
+            <>
+              <DataTable
+                columns={sampleColumns}
+                data={sampleRows}
+                keyExtractor={(row) => String(row.index)}
+                mobileCard={sampleCard}
+              />
+              <div className="grid gap-4 sm:grid-cols-3">
+                <CustomSelect
+                  id="csv-date-format"
+                  label="Date format"
+                  value={options.dateFormat}
+                  onChange={(value) =>
+                    setOptions({
+                      ...options,
+                      dateFormat: value as CsvOptions["dateFormat"],
+                    })
+                  }
+                  options={[
+                    { value: "yyyy-mm-dd", label: "YYYY-MM-DD" },
+                    { value: "mm/dd/yyyy", label: "MM/DD/YYYY" },
+                    { value: "dd/mm/yyyy", label: "DD/MM/YYYY" },
+                  ]}
+                />
+                <CustomSelect
+                  id="csv-decimal"
+                  label="Decimal separator"
+                  value={options.decimal}
+                  onChange={(value) =>
+                    setOptions({
+                      ...options,
+                      decimal: value as CsvOptions["decimal"],
+                    })
+                  }
+                  options={[
+                    { value: ".", label: "Period (123.45)" },
+                    { value: ",", label: "Comma (123,45)" },
+                  ]}
+                />
+                <CustomSelect
+                  id="csv-thousands"
+                  label="Thousands separator"
+                  value={options.thousands}
+                  onChange={(value) =>
+                    setOptions({
+                      ...options,
+                      thousands: value as CsvOptions["thousands"],
+                    })
+                  }
+                  options={[
+                    { value: "", label: "None" },
+                    { value: ",", label: "Comma" },
+                    { value: ".", label: "Period" },
+                    { value: " ", label: "Space" },
+                  ]}
+                />
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {column("date", "Transaction date")}
+                {column(
+                  "memo",
+                  mode === "journal"
+                    ? "Shared journal description"
+                    : "Description",
+                )}
+                {column(
+                  "group",
+                  mode === "journal"
+                    ? "Journal group ID"
+                    : "Source transaction ID",
+                  mode === "bank",
+                )}
+                {mode === "journal" ? (
+                  column("account", "Source account")
+                ) : (
+                  <SearchableSelect
+                    label="Bank or card account"
+                    visibleLabel="Bank or card account"
+                    value={bankAccount}
+                    onChange={setBankAccount}
+                    placeholder="Choose account"
+                    options={bankAccountOptions}
+                  />
+                )}
+              </div>
+              <Checkbox
+                checked={signed}
+                onChange={setSigned}
+                label="File uses one signed amount column"
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                {signed ? (
+                  column("amount", "Signed amount")
+                ) : (
+                  <>
+                    {column(
+                      "debit",
+                      mode === "journal" ? "Debit" : "Withdrawal",
+                      true,
+                    )}
+                    {column(
+                      "credit",
+                      mode === "journal" ? "Credit" : "Deposit",
+                      true,
+                    )}
+                  </>
+                )}
+                {mode === "bank" && signed && (
+                  <CustomSelect
+                    id="bank-sign"
+                    label="Positive amounts mean"
+                    value={sign}
+                    onChange={(value) => setSign(value as typeof sign)}
+                    options={[
+                      {
+                        value: "deposits_positive",
+                        label: "Deposits / card payments and refunds",
+                      },
+                      {
+                        value: "withdrawals_positive",
+                        label: "Withdrawals / card purchases",
+                      },
+                    ]}
+                  />
+                )}
+                {mode === "journal" &&
+                  column("lineMemo", "Line description", true)}
+              </div>
+              {mode === "journal" && (
+                <>
+                  <Checkbox
+                    className="items-start text-left"
+                    checked={stable}
+                    onChange={setStable}
+                    label={
+                      <span className="block">
+                        Group IDs are stable across repeated exports
+                        <span className="block text-xs font-normal text-muted-foreground">
+                          Leave unchecked for export row numbers or IDs that are
+                          regenerated.
+                        </span>
+                      </span>
+                    }
+                  />
+                  {sourceAccounts.length > 500 ? (
+                    <p className="text-sm text-error">
+                      This column has more than 500 values. Verify that you
+                      selected the account column.
+                    </p>
+                  ) : (
+                    sourceAccounts.length > 0 && (
+                      <section className="rounded-lg border border-border p-4">
+                        <SectionHeader
+                          label="Map accounts"
+                          count={sourceAccounts.length}
                         />
-                      ))}
-                    </div>
-                  </section>
-                )
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {sourceAccounts.map((label) => (
+                            <SearchableSelect
+                              key={label}
+                              label={`Account for ${label || "(blank)"}`}
+                              visibleLabel={label || "(blank)"}
+                              value={accountMap[label] ?? ""}
+                              onChange={(value) =>
+                                setAccountMap({
+                                  ...accountMap,
+                                  [label]: value,
+                                })
+                              }
+                              placeholder="Choose account"
+                              options={accountOptions}
+                            />
+                          ))}
+                        </div>
+                      </section>
+                    )
+                  )}
+                </>
               )}
             </>
           )}
@@ -1581,7 +1858,8 @@ function ImportWizard({
               busy ||
               !cashConfirmed ||
               !scope.trim() ||
-              sourceAccounts.length > 500
+              sourceAccounts.length > 500 ||
+              (inspection.adapter === "wave" && !waveReady)
             }
             onClick={() => void parse("preview")}
           >

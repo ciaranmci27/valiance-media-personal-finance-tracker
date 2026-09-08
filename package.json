@@ -27,7 +27,7 @@
     "build:accounting": "tsx scripts/build-accounting.ts",
     "lint:accounting": "eslint --config eslint.accounting.config.mjs src/lib/accounting src/components/features/accounting src/app/api/accounting \"src/app/(dashboard)/accounting\" scripts/verify-accounting.ts scripts/verify-accounting-db.ts",
     "format:accounting": "prettier --write \"src/lib/accounting/**/*.ts\" \"src/components/features/accounting/**/*.{ts,tsx}\" \"src/app/(dashboard)/accounting/page.tsx\" \"src/app/api/accounting/**/*.ts\" \"scripts/*accounting*.ts\" eslint.accounting.config.mjs",
-    "test:accounting:history": "tsx scripts/verify-accounting-history.ts && tsx scripts/verify-accounting-history-imports.ts",
+    "test:accounting:history": "tsx scripts/verify-accounting-history.ts && tsx scripts/verify-accounting-history-imports.ts && tsx scripts/verify-accounting-wave-reports.ts",
     "test:accounting:transfers": "tsx scripts/verify-accounting-transfers.ts",
     "test:accounting:bank": "tsx scripts/verify-accounting-bank-matching.ts",
     "test:accounting:rules": "tsx scripts/verify-accounting-rules.ts",

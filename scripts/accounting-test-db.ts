@@ -29,6 +29,23 @@ export async function accountingTestDb(
     await db.exec(
       "INSERT INTO public.business_profile(legal_name,entity_type,tax_classification) VALUES('Valiance Media LLC','llc','s_corp') ON CONFLICT DO NOTHING",
     );
+    // Production seeds no accounts; the suites expect the system roles an
+    // owner assigns on the Accounts screen, so the fixture creates them here.
+    await db.exec(`INSERT INTO accounting.accounts(name,type,subtype,system_purpose) VALUES
+      ('Uncategorized income','income','uncategorized','uncategorized_income'),
+      ('Uncategorized expense','expense','uncategorized','uncategorized_expense'),
+      ('Opening retained earnings','equity','retained_earnings','opening_retained_earnings'),
+      ('Transfers in transit','asset','transit','transfers_in_transit'),
+      ('Undeposited funds','asset','undeposited','undeposited_funds'),
+      ('Due to shareholder','liability','loan','due_to_shareholder'),
+      ('Owner distributions','equity','owner_equity','distributions'),
+      ('Owner contributions','equity','owner_equity','contributions'),
+      ('Officer wages','expense','payroll_expense','officer_wages'),
+      ('Employer payroll taxes','expense','payroll_expense','employer_payroll_taxes'),
+      ('Merchant fees','expense','operating_expense','merchant_fees');
+      INSERT INTO accounting.accounts(name,type,subtype) VALUES
+      ('Cash on hand','asset','cash'),('Business checking','asset','bank'),('Business credit card','liability','card'),
+      ('Service revenue','income','revenue'),('Software','expense','operating_expense'),('Office expenses','expense','operating_expense');`);
     await db.query("INSERT INTO auth.users(id) VALUES($1)", [fixtureOwner]);
     await db.query(
       "INSERT INTO accounting.settings(owner_user_id) VALUES($1)",

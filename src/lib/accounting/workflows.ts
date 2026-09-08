@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { commandSchema, dateSchema } from "./contracts";
+import { commandSchema, dateSchema, type AccountType } from "./contracts";
 import { readCents } from "./money";
 import { importCommandSchema } from "./imports/contracts";
 import { closeCommandSchema } from "./close";
@@ -313,6 +313,11 @@ export const extendedCommandSchema = z.union([
                 normal_side: z.enum(["debit", "credit"]),
                 purpose: z.string().max(80).optional(),
                 cash_kind: cashKind.optional(),
+                subtype: z.string().max(100).optional(),
+                external_names: z
+                  .object({ wave: z.string().trim().min(1).max(250) })
+                  .strict()
+                  .optional(),
               })
               .strict(),
           )
@@ -386,6 +391,9 @@ export interface AccountProfile {
   cash_kind: z.infer<typeof cashKind>;
   parent_account_id: string | null;
   subtype: string;
+  type?: AccountType;
+  /** Names this account carries in other systems, such as its Wave account name. */
+  external_names?: { wave?: string };
 }
 export interface Party {
   id: string;

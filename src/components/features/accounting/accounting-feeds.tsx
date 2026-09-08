@@ -163,12 +163,16 @@ export function AccountingFeeds({
             keeps its source, date, and original evidence.
           </p>
         </div>
+        {/* One SimpleFIN connection is the norm; once it exists, adding another steps back. */}
         <Button
+          variant={state?.connections.length ? "ghost" : "default"}
           disabled={demo || !config?.ready || !!busy}
           onClick={() => setConnect("new")}
         >
           <Plus size={16} aria-hidden="true" />
-          Connect SimpleFIN
+          {state?.connections.length
+            ? "Add another connection"
+            : "Connect SimpleFIN"}
         </Button>
       </div>
       {(error || cmd.error) && (
@@ -568,22 +572,27 @@ export function AccountingFeeds({
             Recent sync activity
           </summary>
           <div className="mt-4 divide-y divide-border">
-            {state.runs.map((run) => (
-              <div key={run.id} className="py-3 text-xs">
-                <div className="flex flex-wrap justify-between gap-2">
-                  <span>
-                    {timestampLabel(run.started_at)} ·{" "}
-                    {run.actor_kind === "worker"
-                      ? "Background worker"
-                      : "Owner request"}
-                  </span>
-                  <span>{enumLabel(run.status)}</span>
+            {/* The view lists one row per audit update of a run; show each run once, latest first. */}
+            {state.runs
+              .filter(
+                (run, i, all) => all.findIndex((r) => r.id === run.id) === i,
+              )
+              .map((run) => (
+                <div key={run.id} className="py-3 text-xs">
+                  <div className="flex flex-wrap justify-between gap-2">
+                    <span>
+                      {timestampLabel(run.started_at)} ·{" "}
+                      {run.actor_kind === "worker"
+                        ? "Background worker"
+                        : "Owner request"}
+                    </span>
+                    <span>{enumLabel(run.status)}</span>
+                  </div>
+                  {run.error && (
+                    <p className="mt-1 text-muted-foreground">{run.error}</p>
+                  )}
                 </div>
-                {run.error && (
-                  <p className="mt-1 text-muted-foreground">{run.error}</p>
-                )}
-              </div>
-            ))}
+              ))}
           </div>
         </details>
       )}

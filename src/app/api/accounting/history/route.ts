@@ -6,7 +6,7 @@ import {
 } from "@/lib/accounting/server/access";
 import { sameOrigin } from "@/lib/accounting/server/request-origin";
 import { boundedBytes } from "@/lib/accounting/server/request-body";
-import { historyPreviewSchema } from "@/lib/accounting/history";
+import { historyCompareSchema } from "@/lib/accounting/history";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -42,7 +42,8 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const parsed = historyPreviewSchema.safeParse(value);
+  // Either the manual monthly and account controls, or a source report's totals.
+  const parsed = historyCompareSchema.safeParse(value);
   if (!parsed.success)
     return NextResponse.json(
       {
@@ -50,13 +51,11 @@ export async function POST(req: NextRequest) {
       },
       { status: 400 },
     );
-  const { data, error } = await readAccounting(client, "history-preview", {
-    p_from: parsed.data.from,
-    p_to: parsed.data.to,
-    p_monthly: parsed.data.monthly,
-    p_accounts: parsed.data.accounts,
-    p_totals: parsed.data.totals,
-  });
+  const { data, error } = await readAccounting(
+    client,
+    "history-preview",
+    parsed.data,
+  );
   if (error)
     return NextResponse.json(
       { error: accountingError(error.message) },

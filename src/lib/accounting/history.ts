@@ -42,13 +42,44 @@ const controls = {
   accounts,
   totals,
 };
+const oneYear = (v: { from: string; to: string }) =>
+  v.from <= v.to && v.from.slice(0, 4) === v.to.slice(0, 4);
+const kind = z.enum(["opening_balances", "annual_totals"]);
+/** Totals a source profit and loss or balance sheet states for one year. */
+const expectedTotals = z
+  .object({
+    income_cents: cents.optional(),
+    expense_cents: cents.optional(),
+    net_income_cents: cents.optional(),
+    cost_of_goods_sold_cents: cents.optional(),
+    gross_profit_cents: cents.optional(),
+    operating_expense_cents: cents.optional(),
+    assets_cents: cents.optional(),
+    liabilities_cents: cents.optional(),
+    equity_total_cents: cents.optional(),
+  })
+  .strict();
 export const historyPreviewSchema = z
   .object(controls)
   .strict()
-  .refine(
-    (v) => v.from <= v.to && v.from.slice(0, 4) === v.to.slice(0, 4),
-    "Compare one calendar-year scope at a time.",
-  );
+  .refine(oneYear, "Compare one calendar-year scope at a time.");
+/** Report-level comparison: the books against a source report's stated totals. */
+export const historyTotalsSchema = z
+  .object({
+    from: dateSchema,
+    to: dateSchema,
+    kind,
+    expected: expectedTotals.refine(
+      (v) => Object.keys(v).length > 0,
+      "Load at least one source report.",
+    ),
+  })
+  .strict()
+  .refine(oneYear, "Compare one calendar-year scope at a time.");
+export const historyCompareSchema = z.union([
+  historyPreviewSchema,
+  historyTotalsSchema,
+]);
 export const historyCommandSchema = z.discriminatedUnion("type", [
   z.object({type:z.literal("history.lock"),id,expected_revision:revision,history_id:id,reason:reason.optional()}).strict(),
   z
@@ -68,10 +99,28 @@ export const historyCommandSchema = z.discriminatedUnion("type", [
     type:z.literal('history.check'),id,expected_revision:revision.optional(),fiscal_year:z.number().int().min(1900).max(2100),kind:z.enum(['opening_balances','annual_totals']),
     from:dateSchema,to:dateSchema,document_id:id,reason,explanation:z.string().trim().max(3000).optional(),
     report_kind:z.enum(['profit_loss','balance_sheet']).optional(),basis:z.literal('cash').optional(),source_report_type:z.string().max(100).optional(),
-    expected:z.object({income_cents:cents.optional(),expense_cents:cents.optional(),net_income_cents:cents.optional(),cost_of_goods_sold_cents:cents.optional(),gross_profit_cents:cents.optional(),operating_expense_cents:cents.optional(),assets_cents:cents.optional(),liabilities_cents:cents.optional(),equity_total_cents:cents.optional(),monthly:monthly.optional(),accounts:accounts.optional(),totals:totals.optional()}).strict().refine(v=>Object.keys(v).length>0),
+    expected:expectedTotals.extend({monthly:monthly.optional(),accounts:accounts.optional(),totals:totals.optional()}).strict().refine(v=>Object.keys(v).length>0),
   }).strict(),
 ]);
 export type HistoryControls = z.infer<typeof historyPreviewSchema>;
+export type HistoryTotals = z.infer<typeof historyTotalsSchema>;
+export type HistoryTotalKey = keyof HistoryTotals["expected"];
+/** Result of a report-level comparison. Amounts are cents as strings. */
+export interface HistoryTotalsPreview {
+  from: string;
+  to: string;
+  revision: string;
+  ready: boolean;
+  partial_year: boolean;
+  scope_ended: boolean;
+  differences: number;
+  source_errors: number;
+  drafts: number;
+  /** The books' figures for every key the source report stated. */
+  actual: Record<string, string>;
+  /** Books minus source, per stated key. */
+  difference: Record<string, string>;
+}
 export interface HistoryPreview {
   scope_ended: boolean;
   entity_verified: boolean;
@@ -116,22 +165,24 @@ export interface HistoryView {
   revision: string;
   years: { year: number; classification: string }[];
   checks: {
-    eligible_months: number;
-    locked_months: string[];
     id: string;
+    fiscal_year: number;
+    kind: "opening_balances" | "annual_totals";
+    status: "matches" | "explained" | "mismatch";
+    /** Source controls as recorded, plus the compared from and to dates. */
+    expected: Record<string, unknown>;
+    /** The books' figures at the time of the check. */
+    actual: Record<string, unknown>;
+    /** Books minus source per stated key, or a legacy difference count. */
+    difference: Record<string, unknown>;
+    explanation: string;
+    checked_at: string;
     from_date: string;
     to_date: string;
     source_document_id: string;
-    revision: string;
-    explanation: string;
     created_at: string;
+    /** True once a later posting or a mismatch made this check stale. */
     invalidated: boolean;
-    controls: {
-      monthly: HistoryControls["monthly"];
-      totals: HistoryControls["totals"];
-      proof: HistoryPreview;
-    };
-    account_controls: HistoryControls["accounts"];
   }[];
   excluded: {
     id: string;

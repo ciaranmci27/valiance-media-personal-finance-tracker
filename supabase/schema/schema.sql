@@ -5966,25 +5966,6 @@ CREATE POLICY "accounting_private_upload" ON storage.objects AS PERMISSIVE FOR I
 
 INSERT INTO public.business_profile(legal_name,entity_type,tax_classification) VALUES ('Valiance Media LLC','llc','s_corp');
 
-INSERT INTO accounting.accounts(name,type,subtype,system_purpose) VALUES
- ('Business checking','asset','bank',NULL),
- ('Business credit card','liability','card',NULL),
- ('Cash on hand','asset','cash',NULL),
- ('Due to shareholder','liability','loan','due_to_shareholder'),
- ('Employer payroll taxes','expense','payroll_expense','employer_payroll_taxes'),
- ('Merchant fees','expense','operating_expense','merchant_fees'),
- ('Office expenses','expense','operating_expense',NULL),
- ('Officer wages','expense','payroll_expense','officer_wages'),
- ('Opening retained earnings','equity','retained_earnings','opening_retained_earnings'),
- ('Owner contributions','equity','owner_equity','contributions'),
- ('Owner distributions','equity','owner_equity','distributions'),
- ('Service revenue','income','revenue',NULL),
- ('Software','expense','operating_expense',NULL),
- ('Transfers in transit','asset','transit','transfers_in_transit'),
- ('Uncategorized expense','expense','uncategorized','uncategorized_expense'),
- ('Uncategorized income','income','uncategorized','uncategorized_income'),
- ('Undeposited funds','asset','undeposited','undeposited_funds');
-
 INSERT INTO storage.buckets(id,name,public,file_size_limit,allowed_mime_types) VALUES ('accounting-private','accounting-private','f','26214400','{application/pdf,image/png,image/jpeg,image/webp,text/csv,application/zip}');
 
 SET check_function_bodies = true;
