@@ -1,6 +1,23 @@
 import "server-only";
-import { Pool } from "pg";
+import { createRequire } from "node:module";
+import path from "node:path";
+import type { Pool } from "pg";
 import { isLocalOrTestEnv } from "@/lib/env";
+
+/**
+ * The Postgres driver serves only the local fixture database, so it is
+ * resolved through Node's own loader on first use rather than imported.
+ * A static import made Turbopack externalize `pg` under a hashed alias that
+ * the Vercel function could not find at runtime, which broke every page
+ * that touched the accounting client. Production never sets
+ * ACCOUNTING_TEST_DATABASE_URL, so this function never runs there.
+ */
+function loadPool(): typeof import("pg").Pool {
+  const requireFromApp = createRequire(
+    path.join(process.cwd(), "package.json"),
+  );
+  return (requireFromApp("pg") as typeof import("pg")).Pool;
+}
 
 const allowed = new Map<string, readonly string[]>([
   ["context", ["view", "params"]],
@@ -49,7 +66,8 @@ function fixtureClient(service: boolean) {
       "The accounting test database must be an explicit local fixture database.",
     );
   }
-  pool ??= new Pool({
+  const PgPool = loadPool();
+  pool ??= new PgPool({
     connectionString: url,
     max: 5,
     connectionTimeoutMillis: 5000,

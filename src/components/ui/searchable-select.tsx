@@ -29,6 +29,12 @@ export interface SearchableSelectProps {
   /** Text shown when the search matches nothing. */
   emptyText?: string;
   className?: string;
+  /**
+   * Replaces the trigger's default chrome (height, border, background) with
+   * the caller's own, for triggers that are themselves a card or a row.
+   * Focus, open and disabled states still apply.
+   */
+  triggerClassName?: string;
   triggerId?: string;
   disabled?: boolean;
   required?: boolean;
@@ -56,6 +62,7 @@ export function SearchableSelect({
   placeholder = "Choose...",
   emptyText = "No matching options.",
   className,
+  triggerClassName,
   triggerId,
   disabled,
   required,
@@ -126,11 +133,15 @@ export function SearchableSelect({
               "flex w-full min-w-0 items-center justify-between gap-2 rounded-lg text-left text-sm transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
               "disabled:cursor-not-allowed disabled:opacity-50",
-              compact
-                ? "px-2 py-1.5 hover:bg-secondary"
-                : "h-10 border bg-input px-3 py-2 hover:border-[rgba(var(--ink),0.18)]",
-              !compact && (error ? "border-error" : "border-border"),
-              open && !compact && "border-teal ring-2 ring-ring",
+              triggerClassName ??
+                (compact
+                  ? "px-2 py-1.5 hover:bg-secondary"
+                  : "h-10 border bg-input px-3 py-2 hover:border-[rgba(var(--ink),0.18)]"),
+              !compact &&
+                !triggerClassName &&
+                (error ? "border-error" : "border-border"),
+              open && !compact && "ring-2 ring-ring",
+              open && !compact && !triggerClassName && "border-teal",
             )}
           >
             {children ?? (

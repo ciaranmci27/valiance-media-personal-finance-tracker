@@ -860,7 +860,8 @@ export function AccountingTransactions({
                 }),
             ]}
             onChange={(v) => changed(() => setAccount(v))}
-            className="glass-card min-h-[60px] rounded-xl px-4"
+            className="w-full"
+            triggerClassName="glass-card min-h-[60px] rounded-xl px-4 hover:border-[rgba(var(--ink),0.18)]"
           >
             <div className="flex min-w-0 flex-1 items-center gap-3">
               <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-teal-light">
