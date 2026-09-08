@@ -52,13 +52,15 @@ async function main() {
     networkCalls = 0;
   const rpc: FeedRpc = async (command) => {
     calls.push(command);
-    if (command.type === "lease")
+    if (command.action === "lease")
       return {
         id: command.run_id,
-        ciphertext: "opaque ciphertext",
+        acquired: true,
+        access_url_encrypted: "opaque ciphertext",
         identities,
       };
-    if (command.type === "finish") return { complete: command.complete };
+    if (command.action === "complete")
+      return { complete: command.complete ?? true };
     return { id: command.id };
   };
   const options = {
@@ -70,8 +72,8 @@ async function main() {
   };
   let transport: ProviderTransport = async (url) => {
     networkCalls++;
-    check(calls.at(-1)?.type, "request");
-    check(url.searchParams.get("version"), "2");
+    check(calls[0]?.action, "lease");
+    check(url.searchParams.get("version"), "1");
     check(url.searchParams.get("account"), "bank-" + networkCalls);
     return {
       status: 200,
@@ -97,10 +99,12 @@ async function main() {
   check(result.complete, false);
   check(result.received, 2);
   check(
-    calls.filter((c) => c.type === "window.begin").map((c) => c.complete),
+    calls
+      .filter((c) => c.partial)
+      .map((c) => (c.accounts as { complete: boolean }[])[0].complete),
     [false, true],
   );
-  check(calls.filter((c) => c.type === "window.finish").length, 2);
+  check(calls.filter((c) => c.partial).length, 2);
   check(JSON.stringify(result).includes("secret"), false);
   calls = [];
   networkCalls = 0;
@@ -117,10 +121,10 @@ async function main() {
   result = await syncSimpleFin({ ...options, transport });
   check(result.complete, false);
   check(
-    calls.some((c) => c.type === "window.begin"),
+    calls.some((c) => c.partial),
     false,
   );
-  check(calls.at(-1)?.type, "finish");
+  check(calls.at(-1)?.action, "complete");
   calls = [];
   transport = async () => ({
     status: 200,
@@ -134,10 +138,19 @@ async function main() {
   result = await syncSimpleFin({ ...options, discover: true, transport });
   check(result.received, 0);
   check(
-    calls.some((c) => c.type === "window.append"),
+    calls.some(
+      (c) =>
+        c.partial &&
+        (c.accounts as { transactions: unknown[] }[])[0].transactions.length >
+          0,
+    ),
     false,
   );
-  check(calls.find((c) => c.type === "window.begin")?.expected_count, 0);
+  check(
+    (calls.find((c) => c.partial)?.accounts as { transactions: unknown[] }[])[0]
+      .transactions.length,
+    0,
+  );
   calls = [];
   transport = async () => ({
     status: 200,
@@ -151,7 +164,12 @@ async function main() {
   result = await syncSimpleFin({ ...options, transport });
   check(result.complete, false);
   check(
-    calls.some((c) => c.type === "window.append"),
+    calls.some(
+      (c) =>
+        c.partial &&
+        (c.accounts as { transactions: unknown[] }[])[0].transactions.length >
+          0,
+    ),
     false,
   );
   calls = [];
@@ -165,7 +183,7 @@ async function main() {
     (e: unknown) => e instanceof SimpleFinError && e.code === "access_revoked",
   );
   checks++;
-  check(calls.at(-1)?.type, "fail");
+  check(calls.at(-1)?.action, "fail");
   check(JSON.stringify(calls).includes("credential"), false);
   calls = [];
   await assert.rejects(
@@ -182,7 +200,7 @@ async function main() {
   checks++;
   check(JSON.stringify(calls).includes("private key content"), false);
   check(
-    calls.some((c) => c.type === "request"),
+    calls.some((c) => c.partial),
     false,
   );
   calls = [];
@@ -197,10 +215,7 @@ async function main() {
     }),
   });
   const failStorage: FeedRpc = async (c) => {
-    if (
-      c.type === "window.append" &&
-      calls.filter((c) => c.type === "request").length === 2
-    )
+    if (c.partial && calls.filter((c) => c.partial).length === 1)
       throw new Error("storage failure");
     return rpc(c);
   };
@@ -209,8 +224,8 @@ async function main() {
     /Saved observations and checkpoints were retained/,
   );
   checks++;
-  check(calls.filter((c) => c.type === "window.finish").length, 1);
-  check(calls.at(-1)?.type, "fail");
+  check(calls.filter((c) => c.partial).length, 1);
+  check(calls.at(-1)?.action, "fail");
   const base = "ACCOUNTING_SYNTHETIC_CRYPTO_KEY";
   process.env[base] = "synthetic-test-only-key-material-111111111111";
   process.env[base + "_V2"] = "synthetic-test-only-key-material-222222222222";

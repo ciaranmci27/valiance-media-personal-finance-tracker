@@ -1,16 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
-import {
-  ArrowRight,
-  ArrowLeftRight,
-  Plus,
-  Link2,
-  Undo2,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
+import { ArrowRight, ArrowLeftRight, Plus, Link2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
 import {
   Dialog,
   DialogContent,
@@ -25,11 +19,13 @@ import type {
 } from "@/lib/accounting/contracts";
 import type { AccountProfile } from "@/lib/accounting/workflows";
 import type { TransferGroup, TransfersView } from "@/lib/accounting/transfers";
-import { formatCents, parseUsd } from "@/lib/accounting/money";
+import { parseUsd } from "@/lib/accounting/money";
+import { AccountingPicker } from "./accounting-picker";
+import { dateLabel, money } from "./format";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 
-const selectStyle =
-  "mt-1 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm";
+const TRANSFERS_PAGE = 50;
+
 export function AccountingTransfers({
   from,
   to,
@@ -96,17 +92,17 @@ export function AccountingTransfers({
             disabled={demo || !data}
             onClick={() => setForm("link")}
           >
-            <Link2 size={15} />
+            <Link2 size={15} aria-hidden="true" />
             Link existing
           </Button>
           <Button disabled={demo || !data} onClick={() => setForm("create")}>
-            <Plus size={15} />
+            <Plus size={15} aria-hidden="true" />
             Record transfer
           </Button>
         </div>
       </div>
       {error && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-error">
           {error}
         </p>
       )}
@@ -132,6 +128,7 @@ export function AccountingTransfers({
           <div className="p-10 text-center">
             <ArrowLeftRight
               size={24}
+              aria-hidden="true"
               className="mx-auto mb-3 text-muted-foreground"
             />
             <h3 className="font-medium">No linked transfers in this range</h3>
@@ -152,13 +149,13 @@ export function AccountingTransfers({
                   <p className="font-medium">{g.memo}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                     <span>{g.from_name}</span>
-                    <ArrowRight size={14} />
+                    <ArrowRight size={14} aria-hidden="true" />
                     <span>{g.to_name}</span>
                   </div>
                 </div>
                 <div className="text-right">
                   <MaskedValue
-                    value={formatCents(g.amount_cents)}
+                    value={money(g.amount_cents)}
                     className="font-mono tabular-nums"
                   />
                   <p className="mt-1 text-xs text-muted-foreground">
@@ -171,19 +168,21 @@ export function AccountingTransfers({
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
-                <button
-                  className="text-primary hover:underline"
+                <Button
+                  variant="link"
+                  className="h-auto p-0 text-xs"
                   onClick={() => onEntry(g.outgoing_entry_id)}
                 >
-                  Out {g.outgoing_date}
-                </button>
+                  Out {dateLabel(g.outgoing_date)}
+                </Button>
                 {g.outgoing_entry_id !== g.incoming_entry_id && (
-                  <button
-                    className="text-primary hover:underline"
+                  <Button
+                    variant="link"
+                    className="h-auto p-0 text-xs"
                     onClick={() => onEntry(g.incoming_entry_id)}
                   >
-                    In {g.incoming_date}
-                  </button>
+                    In {dateLabel(g.incoming_date)}
+                  </Button>
                 )}
                 {g.status === "posted" && (
                   <Button
@@ -192,7 +191,7 @@ export function AccountingTransfers({
                     className="ml-auto"
                     onClick={() => setReverse(g)}
                   >
-                    <Undo2 size={14} />
+                    <Undo2 size={14} aria-hidden="true" />
                     Reverse transfer
                   </Button>
                 )}
@@ -200,32 +199,14 @@ export function AccountingTransfers({
             </div>
           ))
         )}
-        {data && data.total > 50 && (
-          <div className="flex items-center justify-between border-t border-border p-4 text-sm">
-            <span>
-              {offset + 1}–{Math.min(offset + 50, data.total)} of {data.total}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                aria-label="Previous transfers"
-                disabled={!offset}
-                onClick={() => setOffset((o) => Math.max(0, o - 50))}
-              >
-                <ChevronLeft size={16} />
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                aria-label="Next transfers"
-                disabled={offset + 50 >= data.total}
-                onClick={() => setOffset((o) => o + 50)}
-              >
-                <ChevronRight size={16} />
-              </Button>
-            </div>
-          </div>
+        {data && (
+          <Pagination
+            className="border-t border-border"
+            offset={offset}
+            limit={TRANSFERS_PAGE}
+            total={data.total}
+            onChange={setOffset}
+          />
         )}
       </section>
       {form && data && (
@@ -278,12 +259,19 @@ function TransferForm({
     [inEntry, setInEntry] = useState<JournalEntry | null>(null),
     [dirty, setDirty] = useState(false);
   const command = useAccountingCommand();
-  const close = () => {
-    if (
-      !command.busy &&
-      (!dirty || window.confirm("Discard this unsaved transfer?"))
-    )
-      onClose();
+  const { confirm, dialog } = useConfirmationDialog();
+  const close = async () => {
+    if (command.busy) return;
+    if (dirty) {
+      const ok = await confirm({
+        title: "Discard this unsaved transfer?",
+        description: "Nothing has been posted yet.",
+        confirmLabel: "Discard",
+        variant: "warning",
+      });
+      if (!ok) return;
+    }
+    onClose();
   };
   let cents: bigint | null = null;
   try {
@@ -310,6 +298,10 @@ function TransferForm({
     (mode === "create"
       ? cents !== null && cents > BigInt(0) && !!outDate && !!inDate
       : linkValid);
+  const accountOptions = (exclude?: string) =>
+    accounts
+      .filter((a) => a.id !== exclude && (mode === "link" || !a.is_archived))
+      .map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }));
   async function save() {
     if (!valid) return;
     const common = {
@@ -346,7 +338,7 @@ function TransferForm({
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open) close();
+        if (!open) void close();
       }}
     >
       <DialogContent className="max-h-[90dvh] max-w-3xl overflow-y-auto">
@@ -364,50 +356,30 @@ function TransferForm({
         </DialogHeader>
         <div className="mt-5 space-y-5" onChange={() => setDirty(true)}>
           <div className="grid gap-4 sm:grid-cols-2">
-            <label className="text-sm">
-              From account
-              <select
-                className={selectStyle}
-                value={fromAccount}
-                onChange={(e) => {
-                  setFromAccount(e.target.value);
-                  setOutEntry(null);
-                }}
-              >
-                <option value="">Choose bank, cash, or card</option>
-                {accounts
-                  .filter((a) => mode === "link" || !a.is_archived)
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.code} · {a.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <label className="text-sm">
-              To account
-              <select
-                className={selectStyle}
-                value={toAccount}
-                onChange={(e) => {
-                  setToAccount(e.target.value);
-                  setInEntry(null);
-                }}
-              >
-                <option value="">Choose bank, cash, or card</option>
-                {accounts
-                  .filter(
-                    (a) =>
-                      a.id !== fromAccount &&
-                      (mode === "link" || !a.is_archived),
-                  )
-                  .map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.code} · {a.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
+            <AccountingPicker
+              label="From account"
+              visibleLabel="From account"
+              placeholder="Choose bank, cash, or card"
+              value={fromAccount}
+              options={accountOptions()}
+              onChange={(value) => {
+                setFromAccount(value);
+                setOutEntry(null);
+                setDirty(true);
+              }}
+            />
+            <AccountingPicker
+              label="To account"
+              visibleLabel="To account"
+              placeholder="Choose bank, cash, or card"
+              value={toAccount}
+              options={accountOptions(fromAccount)}
+              onChange={(value) => {
+                setToAccount(value);
+                setInEntry(null);
+                setDirty(true);
+              }}
+            />
           </div>
           {mode === "create" ? (
             <>
@@ -481,18 +453,22 @@ function TransferForm({
               This transfer does not create income or expense.
             </p>
             {mode === "link" && outEntry && inEntry && !linkValid && (
-              <p className="mt-2 text-destructive">
+              <p className="mt-2 text-error">
                 Choose an outgoing decrease and an equal incoming increase.
               </p>
             )}
           </div>
           {command.error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-sm text-error">
               {command.error}
             </p>
           )}
           <div className="flex justify-end gap-2">
-            <Button variant="outline" disabled={command.busy} onClick={close}>
+            <Button
+              variant="outline"
+              disabled={command.busy}
+              onClick={() => void close()}
+            >
               Cancel
             </Button>
             <Button
@@ -506,6 +482,7 @@ function TransferForm({
             </Button>
           </div>
         </div>
+        {dialog}
       </DialogContent>
     </Dialog>
   );
@@ -591,7 +568,7 @@ function TransferEntryPicker({
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
           <p className="text-sm font-medium">{selected.memo}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {selected.entry_date}
+            {dateLabel(selected.entry_date)}
           </p>
           <Button size="sm" variant="ghost" onClick={() => onSelect(null)}>
             Change selection
@@ -600,22 +577,24 @@ function TransferEntryPicker({
       ) : (
         <div className="max-h-44 overflow-y-auto rounded-lg border border-border">
           {candidates.map((e) => (
-            <button
+            <Button
               type="button"
               key={e.id}
-              className="block w-full border-b border-border p-3 text-left text-sm last:border-0 hover:bg-secondary/40"
+              variant="ghost"
+              className="h-auto w-full flex-col items-stretch gap-1 whitespace-normal rounded-none border-b border-border p-3 text-left font-normal last:border-0"
               onClick={() => onSelect(e)}
             >
               <span className="block">{e.memo}</span>
-              <span className="mt-1 flex justify-between gap-2 text-xs text-muted-foreground">
-                <span>{e.entry_date}</span>
+              <span className="flex justify-between gap-2 text-xs text-muted-foreground">
+                <span>{dateLabel(e.entry_date)}</span>
                 <MaskedValue
-                  value={formatCents(
+                  className="tabular-nums"
+                  value={money(
                     e.lines.find((l) => l.account_id === account)!.amount_cents,
                   )}
                 />
               </span>
-            </button>
+            </Button>
           ))}
           {!candidates.length && (
             <p className="p-3 text-xs text-muted-foreground">
@@ -635,7 +614,7 @@ function TransferEntryPicker({
         </p>
       )}
       {error && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-error">
           {error}
         </p>
       )}
@@ -709,7 +688,7 @@ function ReverseTransfer({
             onChange={(e) => setReason(e.target.value)}
           />
           {command.error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-sm text-error">
               {command.error}
             </p>
           )}

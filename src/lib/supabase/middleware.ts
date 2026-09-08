@@ -6,6 +6,17 @@ import { NextResponse, type NextRequest } from "next/server";
  * This refreshes the auth token and handles redirects for protected routes
  */
 export async function updateSession(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  // These exact job endpoints authenticate their own bearer token; webhook
+  // receivers authenticate signatures. A browser session is not their identity.
+  if (
+    pathname === "/api/accounting/jobs/feeds" ||
+    pathname === "/api/accounting/jobs/tax" ||
+    pathname === "/api/webhooks" ||
+    pathname.startsWith("/api/webhooks/")
+  ) {
+    return NextResponse.next({ request });
+  }
   // In demo mode, skip authentication entirely
   if (process.env.NEXT_PUBLIC_DEMO_MODE === "true") {
     // Redirect login page to dashboard in demo mode
@@ -29,19 +40,25 @@ export async function updateSession(request: NextRequest) {
         getAll() {
           return request.cookies.getAll();
         },
-        setAll(cookiesToSet: { name: string; value: string; options?: Record<string, unknown> }[]) {
+        setAll(
+          cookiesToSet: {
+            name: string;
+            value: string;
+            options?: Record<string, unknown>;
+          }[],
+        ) {
           cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
+            request.cookies.set(name, value),
           );
           supabaseResponse = NextResponse.next({
             request,
           });
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            supabaseResponse.cookies.set(name, value, options),
           );
         },
       },
-    }
+    },
   );
 
   // IMPORTANT: Avoid writing any logic between createServerClient and
@@ -55,13 +72,19 @@ export async function updateSession(request: NextRequest) {
   // Define public routes that don't require authentication.
   // The invoice webhook receiver authenticates via HMAC signature (no session),
   // so it must not be redirected to /login.
-  const publicRoutes = ["/login", "/api/webhooks"];
-  const isPublicRoute = publicRoutes.some((route) =>
-    request.nextUrl.pathname.startsWith(route)
-  );
+  const isPublicRoute = pathname === "/login";
 
   // If user is not logged in and trying to access a protected route
   if (!user && !isPublicRoute) {
+    if (pathname.startsWith("/api/")) {
+      const response = NextResponse.json(
+        { error: "Sign in to access this resource." },
+        { status: 401, headers: { "Cache-Control": "no-store" } },
+      );
+      for (const cookie of supabaseResponse.cookies.getAll())
+        response.cookies.set(cookie);
+      return response;
+    }
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);

@@ -46,3 +46,6 @@ next-env.d.ts
 .playwright/
 
 .codex/
+
+# Local-only data (Wave exports, statements). Never commit.
+.local/

@@ -438,6 +438,33 @@ check("2026 Arizona verified unchanged at 2.5%",
   check("states without a dependent credit are unchanged", near(a.stateTax, b.stateTax));
 }
 
+// W-2 boxes1,3,5 and16 are distinct measures. Authority: IRS2026 W-2/W-3
+// instructions, https://www.irs.gov/instructions/iw2w3. The reviewed state override
+// is restricted to its own jurisdiction; unrelated manual sources stay unchanged.
+{
+  const officer: TaxIncomeSource = {...src("Officer",20000,"w2",false),wage_bases:{social_security:17000,medicare:17000,state:18000,state_code:"AZ"}};
+  const r=calc({income:[officer],cfg:c26,state:"AZ"});
+  check("W-2 federal income uses box1",near(r.agi,20000));
+  check("W-2 Social Security uses box3",near(r.ficaTax.ssTax,1054));
+  check("W-2 Medicare uses box5",near(r.ficaTax.medicareTax,246.5));
+  const stateReference=calc({income:[src("State reference",18000,"w2",false)],cfg:c26,state:"AZ"});
+  check("Reviewed AZ wages affect state income only",near(r.stateTax,stateReference.stateTax));
+  const other=calc({income:[officer],cfg:c26,state:"CA"}),otherReference=calc({income:[src("Reference",20000,"w2",false)],cfg:c26,state:"CA"});
+  check("A different state ignores the AZ wage override",near(other.stateTax,otherReference.stateTax));
+  const high:TaxIncomeSource={...src("Officer",180000,"w2",false),wage_bases:{social_security:180000,medicare:220000}};
+  const h=calc({income:[high],cfg:c26});
+  check("Additional Medicare uses Medicare wages",near(h.ficaTax.additionalMedicare,180));
+  check("Employer Additional Medicare credit uses Medicare wages",near(h.ficaAutoCredited-h.ficaTax.ssTax-h.ficaTax.medicareTax,180));
+  const capped:TaxIncomeSource={...src("W2",100000,"w2",false),wage_bases:{social_security:c26.ficaTax.ssWageBase,medicare:100000}};
+  const withSe=calc({income:[capped,src("SE",20000,"1099",true)],cfg:c26});
+  check("Schedule SE wage room uses Social Security wages",near(withSe.selfEmploymentTax.ssTax,0));
+  const joint=calc({income:[high,{...high,id:"spouse",taxpayer:"spouse"}],cfg:c26,status:"mfj"});
+  check("Distinct wage bases preserve per-spouse SS caps",near(joint.ficaTax.ssTax,22320));
+  check("Joint Additional Medicare combines box5 wages",near(joint.ficaTax.additionalMedicare,1710));
+  const exempt:TaxIncomeSource={...src("Exempt SS",10000,"w2",false),wage_bases:{social_security:0,medicare:10000}};
+  check("Zero Social Security base does not erase Medicare",near(calc({income:[exempt],cfg:c26}).ficaTax.medicareTax,145));
+}
+
 // ---------------------------------------------------------------------------
 // 10. Randomized invariants
 // ---------------------------------------------------------------------------

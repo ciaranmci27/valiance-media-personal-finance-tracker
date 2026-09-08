@@ -19,7 +19,7 @@ import {
   SimpleFinError,
 } from "@/lib/accounting/server/simplefin-transport";
 import { syncSimpleFin } from "@/lib/accounting/server/simplefin-sync";
-import { feedCommandSchema, type FeedData } from "@/lib/accounting/feeds";
+import { feedCommandSchema } from "@/lib/accounting/feeds";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 240;
@@ -83,9 +83,8 @@ export async function POST(req: NextRequest) {
     requireLiveFeed();
     if (body.action === "connect") {
       setupClaimUrl(body.token);
-      const saved = await client.rpc("acct_operate", {
-        p_key: body.key,
-        p_command: body.command,
+      const saved = await client.rpc("operate", {
+        command: { key: body.key, command: body.command },
       });
       if (saved.error)
         return NextResponse.json(
@@ -94,13 +93,19 @@ export async function POST(req: NextRequest) {
         );
       // This durable transition can succeed once. An uncertain HTTP response must
       // never cause the one-time provider claim to be sent again.
-      await feedServer({ type: "claim.send", id: body.command.claim_id });
+      await feedServer({
+        action: "claim.send",
+        id: body.command.id,
+        claim_id: body.command.claim_id,
+      });
       try {
         const access = await claimSimpleFin(body.token),
           ciphertext = encryptFeed(access);
         await feedServer({
-          type: "claim.complete",
-          id: body.command.claim_id,
+          action: "claim.complete",
+          id: body.command.id,
+          claim_id: body.command.claim_id,
+          key_version: Number(process.env.SIMPLEFIN_KEY_VERSION ?? "1"),
           ciphertext,
         });
       } catch (error) {
@@ -110,8 +115,9 @@ export async function POST(req: NextRequest) {
             : "The setup attempt stopped before completion. Disable the token in SimpleFIN and reconnect with a new token.";
         try {
           await feedServer({
-            type: "claim.fail",
-            id: body.command.claim_id,
+            action: "claim.fail",
+            id: body.command.id,
+            claim_id: body.command.claim_id,
             error: message,
           });
         } catch {
@@ -128,15 +134,9 @@ export async function POST(req: NextRequest) {
         { headers: { "Cache-Control": "no-store" } },
       );
     }
-    const context = await client.rpc("acct_feed_view");
-    if (context.error)
-      throw new SimpleFinError(
-        "context_failed",
-        "Refresh the connection before syncing.",
-      );
     const result = await syncSimpleFin({
       connectionId: body.id,
-      actorId: (context.data as FeedData).owner_id,
+      actorId: null,
       discover: body.action === "discover",
       rpc: feedServer,
       decrypt: decryptFeed,

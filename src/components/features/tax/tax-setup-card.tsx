@@ -1,7 +1,17 @@
 "use client";
 
 import * as React from "react";
-import { Calculator, Check, ChevronDown, ChevronRight, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
+import Link from "next/link";
+import {
+  Calculator,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Pencil,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +29,13 @@ import {
 } from "@/lib/tax/constants";
 import { STATE_OPTIONS } from "@/lib/tax/state-taxes";
 import type { BusinessType, TaxClassification } from "@/types/database";
+import {
+  describeTaxProfile,
+  estimatorBusinessType,
+  estimatorClassification,
+  loadBusinessProfile,
+  type BusinessProfile,
+} from "@/lib/business-profile";
 import { createTemplateIncomeSources } from "@/lib/tax/templates";
 
 // ============================================================================
@@ -48,7 +65,7 @@ export const TAX_CLASSIFICATION_LABELS: Record<TaxClassification, string> = {
 
 /** Returns classification options that are valid for the given business structure. */
 export function getClassificationOptions(
-  businessType: BusinessType
+  businessType: BusinessType,
 ): { value: string; label: string }[] {
   switch (businessType) {
     case "none":
@@ -75,7 +92,7 @@ export function getClassificationOptions(
 
 /** Returns the default classification for a given business structure. */
 export function getDefaultClassification(
-  businessType: BusinessType
+  businessType: BusinessType,
 ): TaxClassification | null {
   switch (businessType) {
     case "none":
@@ -116,23 +133,47 @@ interface TaxSetupWizardProps {
 // Wizard Component
 // ============================================================================
 
-export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) {
+export function TaxSetupCard({
+  onComplete,
+  selectedYear,
+}: TaxSetupWizardProps) {
   const router = useRouter();
 
   // Step tracking
   const [step, setStep] = React.useState<1 | 2>(1);
 
   // Base profile (Step 1)
-  const [filingStatus, setFilingStatus] = React.useState<FilingStatus>("single");
+  const [filingStatus, setFilingStatus] =
+    React.useState<FilingStatus>("single");
   const [state, setState] = React.useState<string>("");
   const [businessType, setBusinessType] = React.useState<BusinessType>("none");
-  const [taxClassification, setTaxClassification] = React.useState<TaxClassification | null>(null);
+  const [taxClassification, setTaxClassification] =
+    React.useState<TaxClassification | null>(null);
   const [dependents, setDependents] = React.useState(0);
+  // When a business profile exists it owns structure and classification.
+  const [businessProfile, setBusinessProfile] =
+    React.useState<BusinessProfile | null>(null);
+  React.useEffect(() => {
+    loadBusinessProfile()
+      .then((result) => {
+        if (result.status !== "ready") return;
+        setBusinessProfile(result.profile);
+        setBusinessType(estimatorBusinessType(result.profile));
+        setTaxClassification(estimatorClassification(result.profile));
+      })
+      .catch(() => {
+        /* Fall back to the manual selects. */
+      });
+  }, []);
 
   // Step 2 state
   const [eligibleYears, setEligibleYears] = React.useState<number[]>([]);
-  const [selectedYears, setSelectedYears] = React.useState<Set<number>>(new Set());
-  const [yearOverrides, setYearOverrides] = React.useState<Record<number, ProfileConfig>>({});
+  const [selectedYears, setSelectedYears] = React.useState<Set<number>>(
+    new Set(),
+  );
+  const [yearOverrides, setYearOverrides] = React.useState<
+    Record<number, ProfileConfig>
+  >({});
   const [expandedYear, setExpandedYear] = React.useState<number | null>(null);
   const [loadingYears, setLoadingYears] = React.useState(false);
   const [creating, setCreating] = React.useState(false);
@@ -232,7 +273,10 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
     };
   };
 
-  const updateYearOverride = (year: number, updates: Partial<ProfileConfig>) => {
+  const updateYearOverride = (
+    year: number,
+    updates: Partial<ProfileConfig>,
+  ) => {
     setYearOverrides((prev) => ({
       ...prev,
       [year]: { ...getProfileForYear(year), ...updates },
@@ -264,7 +308,7 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
     }
     if (!supportedYears.includes(year)) {
       setAddYearError(
-        `Tax rules for ${year} aren't loaded yet. Hang tight for an update, or add them yourself at src/lib/tax-core/years/${year}.ts. Loaded years: ${supportedYears.join(", ")}.`
+        `Tax rules for ${year} aren't loaded yet. Hang tight for an update, or add them yourself at src/lib/tax-core/years/${year}.ts. Loaded years: ${supportedYears.join(", ")}.`,
       );
       return;
     }
@@ -317,7 +361,10 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
             business_type: profile.businessType,
             tax_classification: profile.taxClassification,
             dependents: profile.dependents,
-            income_sources: createTemplateIncomeSources(profile.businessType, profile.taxClassification) as unknown as Record<string, unknown>[],
+            income_sources: createTemplateIncomeSources(
+              profile.businessType,
+              profile.taxClassification,
+            ) as unknown as Record<string, unknown>[],
             capital_gains: [] as unknown as Record<string, unknown>[],
             payments: [] as unknown as Record<string, unknown>[],
             additional_deductions: 0,
@@ -337,7 +384,9 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
     } catch (err) {
       console.error("Failed to create tax estimates", err);
       setCreateError(
-        err instanceof Error ? err.message : "Could not create these tax years. Please try again."
+        err instanceof Error
+          ? err.message
+          : "Could not create these tax years. Please try again.",
       );
       setCreating(false);
     }
@@ -388,31 +437,57 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                   label="State"
                   value={state}
                   onChange={setState}
-                  options={[{ value: "", label: "No State Tax" }, ...STATE_OPTIONS]}
+                  options={[
+                    { value: "", label: "No State Tax" },
+                    ...STATE_OPTIONS,
+                  ]}
                   placeholder="Select state"
                   size="sm"
                 />
-                <CustomSelect
-                  label="Business Structure"
-                  value={businessType}
-                  onChange={handleBusinessTypeChange}
-                  options={BUSINESS_TYPE_OPTIONS}
-                  size="sm"
-                />
-                {showClassification && (
-                  <CustomSelect
-                    label="Tax Classification"
-                    value={taxClassification ?? ""}
-                    onChange={(val) => setTaxClassification(val as TaxClassification)}
-                    options={classificationOptions}
-                    size="sm"
-                  />
+                {businessProfile ? (
+                  <div className="sm:col-span-2 rounded-lg border border-border bg-[rgba(var(--ink),0.03)] px-3 py-2.5 text-sm">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Business structure
+                    </p>
+                    <p className="mt-0.5 flex flex-wrap items-center gap-x-2">
+                      <span>{describeTaxProfile(businessProfile)}</span>
+                      <Link
+                        href="/settings/business"
+                        className="text-teal-light underline-offset-4 hover:underline"
+                      >
+                        Edit in Business settings
+                      </Link>
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <CustomSelect
+                      label="Business Structure"
+                      value={businessType}
+                      onChange={handleBusinessTypeChange}
+                      options={BUSINESS_TYPE_OPTIONS}
+                      size="sm"
+                    />
+                    {showClassification && (
+                      <CustomSelect
+                        label="Tax Classification"
+                        value={taxClassification ?? ""}
+                        onChange={(val) =>
+                          setTaxClassification(val as TaxClassification)
+                        }
+                        options={classificationOptions}
+                        size="sm"
+                      />
+                    )}
+                  </>
                 )}
                 <NumberInput
                   integer
                   label="Dependents"
                   value={dependents || ""}
-                  onChange={(e) => setDependents(Math.max(0, Number(e.target.value) || 0))}
+                  onChange={(e) =>
+                    setDependents(Math.max(0, Number(e.target.value) || 0))
+                  }
                   placeholder="0"
                   className="h-8 text-sm bg-input border-border"
                 />
@@ -422,9 +497,7 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
 
           {/* Continue */}
           <div className="flex justify-end">
-            <Button onClick={handleContinue}>
-              Continue
-            </Button>
+            <Button onClick={handleContinue}>Continue</Button>
           </div>
         </div>
       </div>
@@ -449,8 +522,9 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
             Tax Years Detected
           </h2>
           <p className="text-sm text-muted-foreground">
-            We found income data for {eligibleYears.length} {eligibleYears.length === 1 ? "year" : "years"}.
-            Select which years to set up and customize settings per year if needed.
+            We found income data for {eligibleYears.length}{" "}
+            {eligibleYears.length === 1 ? "year" : "years"}. Select which years
+            to set up and customize settings per year if needed.
           </p>
         </div>
 
@@ -467,15 +541,18 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                 const profile = getProfileForYear(year);
                 const isExpanded = expandedYear === year;
                 const isCustomized = !!yearOverrides[year];
-                const yearClassificationOptions = getClassificationOptions(profile.businessType);
-                const yearShowClassification = yearClassificationOptions.length > 1;
+                const yearClassificationOptions = getClassificationOptions(
+                  profile.businessType,
+                );
+                const yearShowClassification =
+                  yearClassificationOptions.length > 1;
 
                 return (
                   <div
                     key={year}
                     className={cn(
                       "glass-card rounded-xl overflow-hidden transition-all duration-200",
-                      !isSelected && "opacity-50"
+                      !isSelected && "opacity-50",
                     )}
                   >
                     {/* Year Header */}
@@ -489,14 +566,18 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                             "flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors",
                             isSelected
                               ? "border-primary bg-primary text-primary-foreground"
-                              : "border-muted-foreground/40 bg-transparent"
+                              : "border-muted-foreground/40 bg-transparent",
                           )}
                         >
                           {isSelected && <Check className="h-3 w-3" />}
                         </button>
-                        <span className="text-lg font-semibold text-foreground">{year}</span>
+                        <span className="text-lg font-semibold text-foreground">
+                          {year}
+                        </span>
                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <span>{FILING_STATUS_LABELS[profile.filingStatus]}</span>
+                          <span>
+                            {FILING_STATUS_LABELS[profile.filingStatus]}
+                          </span>
                           {profile.state && (
                             <>
                               <span className="text-border">·</span>
@@ -507,8 +588,14 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                             <>
                               <span className="text-border">·</span>
                               <span>
-                                {BUSINESS_TYPE_OPTIONS.find((o) => o.value === profile.businessType)?.label}
-                                {profile.taxClassification && profile.businessType === "llc" && profile.taxClassification !== "disregarded"
+                                {
+                                  BUSINESS_TYPE_OPTIONS.find(
+                                    (o) => o.value === profile.businessType,
+                                  )?.label
+                                }
+                                {profile.taxClassification &&
+                                profile.businessType === "llc" &&
+                                profile.taxClassification !== "disregarded"
                                   ? ` \u203A ${TAX_CLASSIFICATION_LABELS[profile.taxClassification]}`
                                   : ""}
                               </span>
@@ -524,7 +611,9 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                       <div className="flex items-center gap-1">
                         {isSelected && (
                           <button
-                            onClick={() => setExpandedYear(isExpanded ? null : year)}
+                            onClick={() =>
+                              setExpandedYear(isExpanded ? null : year)
+                            }
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -555,7 +644,9 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                             label="Filing Status"
                             value={profile.filingStatus}
                             onChange={(val) =>
-                              updateYearOverride(year, { filingStatus: val as FilingStatus })
+                              updateYearOverride(year, {
+                                filingStatus: val as FilingStatus,
+                              })
                             }
                             options={FILING_STATUS_OPTIONS}
                             size="sm"
@@ -566,7 +657,10 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                             onChange={(val) =>
                               updateYearOverride(year, { state: val || null })
                             }
-                            options={[{ value: "", label: "No State Tax" }, ...STATE_OPTIONS]}
+                            options={[
+                              { value: "", label: "No State Tax" },
+                              ...STATE_OPTIONS,
+                            ]}
                             placeholder="Select state"
                             size="sm"
                           />
@@ -602,7 +696,10 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                             value={profile.dependents || ""}
                             onChange={(e) =>
                               updateYearOverride(year, {
-                                dependents: Math.max(0, Number(e.target.value) || 0),
+                                dependents: Math.max(
+                                  0,
+                                  Number(e.target.value) || 0,
+                                ),
                               })
                             }
                             placeholder="0"
@@ -626,7 +723,9 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                     placeholder={`e.g. ${supportedYears[0] ?? 2026}`}
                     value={addYearValue}
                     onChange={(e) => {
-                      const digitsOnly = e.target.value.replace(/\D/g, "").slice(0, 4);
+                      const digitsOnly = e.target.value
+                        .replace(/\D/g, "")
+                        .slice(0, 4);
                       setAddYearValue(digitsOnly);
                       if (addYearError) setAddYearError(null);
                     }}
@@ -634,7 +733,12 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
                     className="h-8 w-28 text-sm"
                     autoFocus
                   />
-                  <Button size="sm" variant="ghost" onClick={addYear} className="h-8 text-xs">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={addYear}
+                    className="h-8 text-xs"
+                  >
                     Add
                   </Button>
                   <button
@@ -676,7 +780,10 @@ export function TaxSetupCard({ onComplete, selectedYear }: TaxSetupWizardProps) 
               >
                 Back
               </button>
-              <Button onClick={handleFinish} disabled={creating || selectedYears.size === 0}>
+              <Button
+                onClick={handleFinish}
+                disabled={creating || selectedYears.size === 0}
+              >
                 {creating && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
                 {selectedYears.size === 0
                   ? "Select at least one year"

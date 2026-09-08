@@ -17,28 +17,33 @@ async function main() {
     assert.deepEqual(a, b);
     checks++;
   };
-  const cmd = async (c: object, key = randomUUID()) =>
-    (
-      await db.query<{ r: { id: string; version: number } }>(
-        "SELECT acct_operate($1,$2::jsonb) r",
-        [key, JSON.stringify(c)],
-      )
-    ).rows[0].r;
-  type Review = {
-    revision: string;
-    remaining_cents: string;
-    group: { status: string; entry_id: string };
-    drafts: { id: string; version: number }[];
-    matches: { id: string; entry_id: string; release: unknown }[];
-    candidates: {
-      line_id: string;
-      entry_id: string;
-      available_cents: string;
-    }[];
+  const fail = async (work: () => Promise<unknown>, pattern: RegExp) => {
+    await assert.rejects(work, pattern);
+    checks++;
   };
+  const cmd = async (command: object, key = randomUUID()) =>
+    (
+      await db.query<{ r: any }>("SELECT accounting.operate($1) r", [
+        JSON.stringify({ key, command }),
+      ])
+    ).rows[0].r;
+  const all = async () =>
+    (await db.query<{ r: any }>("SELECT accounting.bank_review() r")).rows[0].r;
   const review = async (id: string) =>
-    (await db.query<{ r: Review }>("SELECT acct_bank_review($1) r", [id]))
+    (await all()).transactions.find((o: any) => o.id === id);
+  const detail = async (id: string) =>
+    (await db.query<{ r: any }>("SELECT accounting.entry_detail($1) r", [id]))
       .rows[0].r;
+  const remaining = async (id: string) => {
+    const o = await review(id);
+    return (
+      BigInt(o.amount_cents) -
+      o.matches.reduce(
+        (n: bigint, m: any) => n + BigInt(m.amount_cents),
+        BigInt("0"),
+      )
+    ).toString();
+  };
   const opts: CsvOptions = {
     delimiter: ",",
     headerRow: 0,
@@ -46,13 +51,13 @@ async function main() {
     decimal: ".",
     thousands: "",
   };
-  async function source(
+  const source = async (
     external: string,
     amount: string,
     provider = "csv",
-    memo = "Bank receipt",
-  ) {
-    const csv = `id,date,memo,amount\n${external},2026-01-12,${memo},${amount}`;
+    description = "Synthetic bank receipt",
+  ) => {
+    const csv = `id,date,memo,amount\n${external},2026-01-12,${description},${amount}`;
     const table = readCsv(csv, opts),
       groups = bankGroups(table, opts, {
         date: "date",
@@ -61,14 +66,14 @@ async function main() {
         externalId: "id",
         sign: "deposits_positive",
         accountId: account(1),
-      }),
-      batch = randomUUID(),
+      });
+    const batch = randomUUID(),
       group = randomUUID();
     await cmd({
       type: "import.create",
       id: batch,
       source_system: provider,
-      source_scope: "checking",
+      source_scope: "synthetic-checking",
       file_hash: table.fileHash,
       mapping_hash: createHash("sha256").update("mapping").digest("hex"),
       file_name: "synthetic.csv",
@@ -84,37 +89,39 @@ async function main() {
       expected_version: 1,
       groups: [{ ...groups[0], id: group, ordinal: 0 }],
     });
-    return { batch, group };
-  }
-  async function posting(amount: string, memo: string) {
-    const id = randomUUID();
-    await cmd({
-      type: "draft.save",
-      id,
+    return {
+      batch,
+      group,
+      observation: (await all()).transactions.find(
+        (o: any) => o.external_id === external,
+      ).id,
+    };
+  };
+  const posting = async (amount: string) =>
+    cmd({
+      type: "transaction.review",
+      id: randomUUID(),
       expected_version: 0,
       entry_date: "2026-01-12",
-      memo,
+      memo: "Synthetic receipt",
       lines: [
         { account_id: account(1), amount_cents: amount },
         { account_id: account(5), amount_cents: (-BigInt(amount)).toString() },
       ],
     });
-    await cmd({ type: "entry.post", id, expected_version: 1 });
-    return id;
-  }
   const match = async (
-    group: string,
-    line: string,
-    amount: string,
-    discard: object[] = [],
+    id: string,
+    line_id: string,
+    amount_cents: string,
+    discard_drafts: object[] = [],
   ) => ({
     type: "bank.match",
     id: randomUUID(),
-    group_id: group,
-    expected_revision: (await review(group)).revision,
-    allocations: [{ line_id: line, amount_cents: amount }],
-    discard_drafts: discard,
-    reason: "Reviewed synthetic matching and source overlap",
+    bank_transaction_id: id,
+    expected_revision: (await all()).revision,
+    allocations: [{ line_id, amount_cents }],
+    discard_drafts,
+    reason: "Reviewed synthetic evidence",
   });
   try {
     await cmd({
@@ -123,160 +130,155 @@ async function main() {
       accounts: fixtureAccounts.map((a) => ({
         ...a,
         cash_kind: a.id === account(1) ? "bank" : "none",
-        purpose:
-          a.id === account(5)
-            ? "uncategorized_income"
-            : a.id === account(6)
-              ? "uncategorized_expense"
-              : undefined,
       })),
     });
     const first = await source("receipt-500", "500.00");
+    const drawer = async () =>
+      (
+        await db.query<{ r: any }>("SELECT accounting.bank_review($1) r", [
+          JSON.stringify({ id: first.group }),
+        ])
+      ).rows[0].r;
+    check((await drawer()).group.id, first.group);
+    check((await drawer()).group.bank_transaction_id, first.observation);
+    check((await drawer()).remaining_cents, "50000");
+    check((await drawer()).drafts.length, 0);
     await cmd({
       type: "import.apply",
       id: first.batch,
       expected_version: 2,
       group_ids: [first.group],
     });
-    const originalDraft = (await review(first.group)).drafts[0];
-    const a = await posting("20000", "First $200 receipt"),
-      b = await posting("30000", "Second $300 receipt");
-    let r = await review(first.group);
-    const lineA = r.candidates.find((c) => c.entry_id === a)!.line_id,
-      lineB = r.candidates.find((c) => c.entry_id === b)!.line_id;
-    const partial = await match(first.group, lineA, "20000"),
-      key = randomUUID();
-    check(await cmd(partial, key), await cmd(partial, key));
-    check((await review(first.group)).remaining_cents, "30000");
-    await assert.rejects(
-      cmd({
-        type: "entry.post",
-        id: originalDraft.id,
-        expected_version: originalDraft.version,
-      }),
-      /ACCT_BANK_PARTIAL_REVIEW/,
+    const imported = (
+      await db.query<{ r: any }>("SELECT accounting.imports($1) r", [
+        first.batch,
+      ])
+    ).rows[0].r.groups[0];
+    const original = await detail(imported.entry_id);
+    check((await drawer()).drafts[0].id, original.id);
+    const a = await posting("20000"),
+      b = await posting("30000");
+    const lineA = (await detail(a.id)).lines.find(
+        (l: any) => l.account_id === account(1),
+      ).id,
+      lineB = (await detail(b.id)).lines.find(
+        (l: any) => l.account_id === account(1),
+      ).id;
+    // The draft owns the observation until it is explicitly discarded, even for partial replacement.
+    await fail(
+      async () => cmd(await match(first.observation, lineA, "20000")),
+      /ACCT_MATCH_OVERALLOCATED/,
     );
-    checks++;
-    await assert.rejects(
-      cmd(await match(first.group, lineB, "30000")),
-      /ACCT_REDUNDANT_DRAFT_APPROVAL/,
+    const partial = await match(first.observation, lineA, "20000", [
+      { id: original.id, expected_version: original.version },
+    ]);
+    const key = randomUUID();
+    const { bank_transaction_id: _observation, ...legacyPartial } = partial;
+    const groupPartial = { ...legacyPartial, group_id: first.group };
+    check(await cmd(groupPartial, key), await cmd(groupPartial, key));
+    check((await drawer()).remaining_cents, "30000");
+    check(await remaining(first.observation), "30000");
+    check((await detail(original.id)).status, "discarded");
+    await cmd(await match(first.observation, lineB, "30000"));
+    check(await remaining(first.observation), "0");
+    check((await review(first.observation)).review, "matched");
+    check((await review(first.observation)).matches.length, 2);
+    check(
+      (
+        await db.query<{ r: any }>(
+          "SELECT accounting.workspace('2026-01-01','2026-01-31') r",
+        )
+      ).rows[0].r.reports.income_cents,
+      "50000",
     );
-    checks++;
-    check((await review(first.group)).matches.length, 1);
-    r = await review(first.group);
-    await cmd(
-      await match(
-        first.group,
-        lineB,
-        "30000",
-        r.drafts.map((d) => ({ id: d.id, expected_version: d.version })),
-      ),
+    await fail(
+      async () => cmd(await match(first.observation, lineB, "1")),
+      /ACCT_MATCH_OVERALLOCATED|duplicate key/,
     );
-    r = await review(first.group);
-    check(r.remaining_cents, "0");
-    check(r.drafts.length, 0);
-    check(r.group.status, "duplicate");
-    const books = (
-      await db.query<{ r: { reports: { income_cents: string } } }>(
-        "SELECT acct_workspace($1,$2) r",
-        ["2026-01-01", "2026-01-31"],
-      )
-    ).rows[0].r;
-    check(books.reports.income_cents, "50000");
-    await assert.rejects(
-      cmd(await match(first.group, lineB, "1")),
-      /ACCT_ALLOCATION_EXCEEDED/,
-    );
-    checks++;
-    const repeated = await source(
-      "receipt-500",
-      "500.00",
-      "csv",
-      "Updated description with unchanged financial fields",
-    );
-    await cmd({
-      type: "bank.match",
-      id: randomUUID(),
-      group_id: repeated.group,
-      expected_revision: (await review(repeated.group)).revision,
-      allocations: [],
-      discard_drafts: [],
-      reason:
-        "Same provider identity and financial fields, retain revised description as evidence",
-    });
-    check((await review(repeated.group)).remaining_cents, "0");
-    check((await review(repeated.group)).group.status, "duplicate");
     const other = await source("different-id", "100.00");
-    await assert.rejects(
-      cmd(await match(other.group, lineA, "10000")),
-      /ACCT_ALLOCATION_EXCEEDED/,
+    await fail(
+      async () => cmd(await match(other.observation, lineA, "10000")),
+      /ACCT_MATCH_OVERALLOCATED/,
     );
-    checks++;
-    const wave = await source("wave-bank-id", "200.00", "wave");
-    await cmd(await match(wave.group, lineA, "20000"));
-    check((await review(wave.group)).remaining_cents, "0");
+    const changed = await source("receipt-500", "501.00");
+    const changes = (
+      await db.query<{ r: any }>("SELECT accounting.imports($1) r", [
+        changed.batch,
+      ])
+    ).rows[0].r;
+    check(changes.groups[0].status, "exception");
+    check((await review(first.observation)).amount_cents, "50000");
     await cmd({
       type: "entry.reverse",
-      id: a,
-      expected_version: 2,
+      id: a.id,
+      expected_version: a.version,
       entry_date: "2026-01-12",
-      reason: "Reverse matched receipt and reopen its evidence",
+      reason: "Reverse matched synthetic receipt",
     });
-    check((await review(first.group)).remaining_cents, "20000");
-    check((await review(wave.group)).remaining_cents, "20000");
-    check((await review(repeated.group)).group.status, "review");
-    const replacement = await posting("20000", "Corrected receipt");
-    r = await review(first.group);
-    await cmd(
-      await match(
-        first.group,
-        r.candidates.find((c) => c.entry_id === replacement)!.line_id,
-        "20000",
-      ),
+    check(await remaining(first.observation), "20000");
+    check((await review(first.observation)).review, "unmatched");
+    const replacement = await posting("20000"),
+      replacementLine = (await detail(replacement.id)).lines.find(
+        (l: any) => l.account_id === account(1),
+      ).id;
+    await cmd(await match(first.observation, replacementLine, "20000"));
+    check(await remaining(first.observation), "0");
+    const active = (await review(first.observation)).matches.find(
+      (m: any) => m.journal_line_id === lineB,
     );
-    check((await review(first.group)).remaining_cents, "0");
-    r = await review(first.group);
-    const active = r.matches.find((m) => m.entry_id === b && !m.release)!;
     await cmd({
       type: "bank.release",
       id: randomUUID(),
       match_id: active.id,
-      expected_revision: r.revision,
-      reason: "Explicit matching correction",
+      expected_revision: (await all()).revision,
+      reason: "Synthetic explicit release",
     });
-    check((await review(first.group)).remaining_cents, "30000");
-    const changed = await source("receipt-500", "501.00");
-    await assert.rejects(
-      cmd(await match(changed.group, lineB, "30000")),
-      /ACCT_BANK_SOURCE_CONFLICT/,
+    check(await remaining(first.observation), "30000");
+    // Independent corroboration has zero allocation and does not spend a line twice.
+    const standalone = await posting("15000"),
+      standaloneLine = (await detail(standalone.id)).lines.find(
+        (l: any) => l.account_id === account(1),
+      ).id;
+    const csv = await source("csv-150", "150.00"),
+      wave = await source("wave-150", "150.00", "wave");
+    await cmd(await match(csv.observation, standaloneLine, "15000"));
+    await cmd(await match(wave.observation, standaloneLine, "0"));
+    check((await review(wave.observation)).review, "matched");
+    check((await review(wave.observation)).matches[0].amount_cents, "0");
+    const primary = (await review(csv.observation)).matches[0];
+    await fail(
+      () =>
+        cmd({
+          type: "bank.release",
+          id: randomUUID(),
+          match_id: primary.id,
+          reason: "Cannot strand corroboration",
+        }),
+      /ACCT_RELEASE_CORROBORATION_FIRST/,
     );
-    checks++;
-    await db.exec("RESET ROLE");
-    check(
-      (
-        await db.query<{ status: string }>(
-          "SELECT status FROM acct_journal_entries WHERE id=$1",
-          [originalDraft.id],
-        )
-      ).rows[0].status,
-      "discarded",
+    await cmd({
+      type: "entry.reverse",
+      id: standalone.id,
+      expected_version: standalone.version,
+      entry_date: "2026-01-13",
+      reason: "Reopen both evidence sources",
+    });
+    check((await review(csv.observation)).review, "unmatched");
+    check((await review(wave.observation)).review, "unmatched");
+    await fail(
+      () => db.query("DELETE FROM accounting.bank_matches"),
+      /permission denied/,
     );
-    await assert.rejects(
-      db.query("DELETE FROM acct_bank_matches"),
-      /ACCT_APPEND_ONLY/,
-    );
-    checks++;
     await db.exec("SET ROLE anon");
-    await assert.rejects(review(first.group), /permission denied/);
-    checks++;
+    await fail(() => all(), /permission denied/);
     console.log(
-      `Partial bank allocation, overlap, draft resolution, and reversal: ${checks} assertions passed.`,
+      `Partial bank matching, draft replacement and corroborated reversals: ${checks} assertions passed.`,
     );
   } finally {
     await db.close();
   }
 }
 main().catch((e) => {
-  console.error(e instanceof Error ? e.message : e);
+  console.error(e.stack, e.where);
   process.exitCode = 1;
 });

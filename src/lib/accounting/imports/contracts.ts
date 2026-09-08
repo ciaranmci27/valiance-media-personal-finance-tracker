@@ -56,6 +56,8 @@ const group = z
     source_hash: hash,
     entry_date: dateSchema,
     memo: z.string().min(1).max(1000),
+    kind: z.enum(["opening", "manual"]).optional(),
+    exclusion_reason: z.string().trim().min(1).max(1000).optional(),
     lines: z
       .array(
         z
@@ -70,7 +72,7 @@ const group = z
     bank_account_id: id.optional(),
     bank_amount_cents: cents.optional(),
     raw: z.array(z.record(z.string(), z.string())).min(1).max(150),
-    errors: z.array(z.string()).length(0).optional(),
+    errors: z.array(z.string().max(1000)).max(150).optional(),
   })
   .strict();
 export const importCommandSchema = z.discriminatedUnion("type", [
@@ -110,6 +112,7 @@ export const importCommandSchema = z.discriminatedUnion("type", [
   z
     .object({ type: z.literal("import.finish"), id, expected_version: version })
     .strict(),
+  z.object({type: z.literal("import.resume"), id, expected_version: version}).strict(),
   z
     .object({
       type: z.literal("import.cancel"),
@@ -123,7 +126,7 @@ export const importCommandSchema = z.discriminatedUnion("type", [
       type: z.literal("import.resolve"),
       id,
       expected_version: version,
-      resolution: z.enum(["new", "match", "exclude"]),
+      resolution: z.enum(["new", "match", "exclude", "correct"]),
       entry_id: id.optional(),
       reason: z.string().trim().min(1).max(1000),
     })
@@ -143,7 +146,7 @@ export interface ImportBatch {
   expected_groups: number;
   from_date: string;
   to_date: string;
-  coverage_verified: boolean;
+  parity_status: "n/a" | "pending" | "verified" | "mismatch";
   error: string;
   created_at: string;
 }

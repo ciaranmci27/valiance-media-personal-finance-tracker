@@ -1,17 +1,17 @@
+import { loadAccountingWorkspace } from "@/lib/accounting/server/workspace";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { ACCOUNTING_ENABLED, isLocalOrTestEnv } from "@/lib/env";
 import { isDemoMode } from "@/lib/demo";
 import { getAccountingDemo } from "@/lib/accounting/demo";
 import {
-  accountingClient,
   accountingError,
 } from "@/lib/accounting/server/access";
 import {
   dateSchema,
   type AccountingWorkspace,
 } from "@/lib/accounting/contracts";
-import { AccountingBooks } from "@/components/features/accounting/accounting-books";
+import { AccountingBooks } from "@/components/features/accounting/accounting-shell";
 import { PageHeader } from "@/components/layout/page-header";
 import { AccountingSetup } from "@/components/features/accounting/accounting-setup";
 import { createClient } from "@/lib/supabase/server";
@@ -53,11 +53,10 @@ export default async function AccountingPage({
     problem = "Choose a valid report date range or entry link.";
   else {
     try {
-      const client = await accountingClient();
-      const result = await client.rpc("acct_workspace", {
-        p_from: from.data,
-        p_to: to.data,
-        p_entry_id: entry?.success ? entry.data : null,
+      const result = await loadAccountingWorkspace({
+        from: from.data,
+        to: to.data,
+        entry_id: entry?.success ? entry.data : null,
       });
       if (result.error) problem = accountingError(result.error.message);
       else data = result.data as AccountingWorkspace;

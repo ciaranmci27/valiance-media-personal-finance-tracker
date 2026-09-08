@@ -22,7 +22,10 @@ async function main() {
             outgoing_entry_id: string;
             incoming_entry_id: string;
           };
-        }>("SELECT acct_operate($1,$2::jsonb) r", [key, JSON.stringify(c)])
+        }>(
+          "SELECT accounting.operate(jsonb_build_object('key',$1::text,'command',$2::jsonb)) r",
+          [key, JSON.stringify(c)],
+        )
         .catch((e) => {
           throw new Error(`${JSON.stringify(c)}: ${e.message}`);
         })
@@ -30,7 +33,7 @@ async function main() {
   const rev = async () =>
     (
       await db.query<{ r: { revision: string } }>(
-        "SELECT acct_close_history() r",
+        "SELECT accounting.workspace('2026-01-01','2026-03-31') r",
       )
     ).rows[0].r.revision;
   const balance = async (date: string) =>
@@ -40,7 +43,7 @@ async function main() {
           balances: { id: string; ending_cents: string }[];
           reports: { income_cents: string; expense_cents: string };
         };
-      }>("SELECT acct_workspace($1,$2) r", ["2026-01-01", date])
+      }>("SELECT accounting.workspace($1,$2) r", ["2026-01-01", date])
     ).rows[0].r;
   const create = async (
     outgoing_date: string,
@@ -68,9 +71,15 @@ async function main() {
           : a.id === account(3)
             ? "card"
             : "none",
-        ...(a.id === account(2) ? { purpose: "transfers_in_transit" } : {}),
       })),
     });
+    const transit = (
+      await db.query<{ r: any }>(
+        "SELECT accounting.workspace('2026-01-01','2026-03-31') r",
+      )
+    ).rows[0].r.accounts.find(
+      (a: any) => a.purpose === "transfers_in_transit",
+    ).id;
     const same = await cmd(await create("2026-01-10", "2026-01-10"));
     check(same.outgoing_entry_id, same.incoming_entry_id);
     const crossCommand = await create("2026-01-31", "2026-02-02"),
@@ -78,40 +87,18 @@ async function main() {
       cross = await cmd(crossCommand, key);
     check(await cmd(crossCommand, key), cross);
     check(
-      (await balance("2026-01-31")).balances.find((a) => a.id === account(2))
+      (await balance("2026-01-31")).balances.find((a) => a.id === transit)
         ?.ending_cents,
       "50000",
     );
     check(
-      (await balance("2026-02-02")).balances.find((a) => a.id === account(2))
+      (await balance("2026-02-02")).balances.find((a) => a.id === transit)
         ?.ending_cents,
       "0",
     );
-    const clearing = (
-      await db.query<{ r: { rows: { residual_cents: string }[] } }>(
-        "SELECT acct_clearing_view($1,$2) r",
-        ["2026-01-31", account(2)],
-      )
-    ).rows[0].r;
-    check(
-      clearing.rows.map((r) => r.residual_cents),
-      ["50000"],
-    );
-    check(
-      (
-        await db.query<{ r: { rows: unknown[] } }>(
-          "SELECT acct_clearing_view($1,$2) r",
-          ["2026-02-02", account(2)],
-        )
-      ).rows[0].r.rows.length,
-      0,
-    );
     await cmd(await create("2026-03-02", "2026-02-28", 3));
     const early = await balance("2026-02-28");
-    check(
-      early.balances.find((a) => a.id === account(2))?.ending_cents,
-      "-50000",
-    );
+    check(early.balances.find((a) => a.id === transit)?.ending_cents, "-50000");
     check(
       early.balances.find((a) => a.id === account(3))?.ending_cents,
       "50000",
@@ -120,7 +107,7 @@ async function main() {
     const invalid = await create("2026-03-03", "2026-03-03");
     await assert.rejects(
       cmd({ ...invalid, to_account_id: account(5) }),
-      /ACCT_BANK_ACCOUNT_REQUIRED/,
+      /ACCT_INVALID_TRANSFER/,
     );
     checks++;
     check((await balance("2026-03-03")).reports.income_cents, "0");
@@ -128,7 +115,11 @@ async function main() {
       cmd({
         type: "entry.reverse",
         id: cross.outgoing_entry_id,
-        expected_version: 2,
+        expected_version: (
+          await db.query<{ r: any }>("SELECT accounting.entry_detail($1) r", [
+            cross.outgoing_entry_id,
+          ])
+        ).rows[0].r.version,
         entry_date: "2026-01-31",
         reason: "A single-leg reversal must roll back",
       }),
@@ -136,7 +127,7 @@ async function main() {
     );
     checks++;
     check(
-      (await balance("2026-01-31")).balances.find((a) => a.id === account(2))
+      (await balance("2026-01-31")).balances.find((a) => a.id === transit)
         ?.ending_cents,
       "50000",
     );
@@ -149,20 +140,23 @@ async function main() {
       reason: "Reverse both original bank movements atomically",
     });
     check(
-      (await balance("2026-01-31")).balances.find((a) => a.id === account(2))
+      (await balance("2026-01-31")).balances.find((a) => a.id === transit)
         ?.ending_cents,
       "0",
     );
-    const groups = (
-      await db.query<{ r: { groups: { id: string; status: string }[] } }>(
-        "SELECT acct_transfers_view($1,$2) r",
-        ["2026-01-01", "2026-03-31"],
-      )
-    ).rows[0].r.groups;
-    check(groups.find((g) => g.id === cross.id)?.status, "corrected");
+    check(
+      Boolean(
+        (
+          await db.query<{ r: any }>("SELECT accounting.entry_detail($1) r", [
+            cross.outgoing_entry_id,
+          ])
+        ).rows[0].r.reversed_by_entry_id,
+      ),
+      true,
+    );
     await assert.rejects(
       cmd({ ...crossCommand, id: randomUUID() }),
-      /ACCT_STALE_VERSION/,
+      /ACCT_STALE_REVISION/,
     );
     checks++;
     await assert.rejects(
@@ -182,15 +176,16 @@ async function main() {
     checks++;
     await db.exec("RESET ROLE");
     await assert.rejects(
-      db.query("UPDATE acct_transfer_groups SET amount_cents=1 WHERE id=$1", [
-        same.id,
-      ]),
-      /ACCT_APPEND_ONLY/,
+      db.query(
+        "UPDATE accounting.journal_entries SET transfer_group_id=gen_random_uuid() WHERE transfer_group_id=$1",
+        [same.id],
+      ),
+      /ACCT_TRANSFER_GROUP_IMMUTABLE|ACCT_IMMUTABLE_TRANSFER/,
     );
     checks++;
     await db.exec("SET ROLE anon");
     await assert.rejects(
-      db.query("SELECT acct_transfers_view($1,$2)", [
+      db.query("SELECT accounting.workspace($1,$2)", [
         "2026-01-01",
         "2026-03-31",
       ]),

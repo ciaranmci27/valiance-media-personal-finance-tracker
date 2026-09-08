@@ -44,6 +44,14 @@ export const commandSchema = z.discriminatedUnion("type", [
         "expense",
       ]),
       normal_side: z.enum(["debit", "credit"]),
+      cash_kind: z.enum(["none", "bank", "cash", "card"]).optional(),
+      purpose: z.string().trim().max(80).nullable().optional(),
+      parent_account_id: z.uuid().nullable().optional(),
+      subtype: z.string().trim().max(100).optional(),
+      external_names: z
+        .object({ wave: z.string().trim().min(1).max(250) })
+        .strict()
+        .optional(),
     })
     .strict(),
   z
@@ -65,7 +73,7 @@ export const commandSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
-      type: z.literal("draft.discard"),
+      type: z.enum(["draft.discard", "entry.discard"]),
       id: z.uuid(),
       expected_version: version,
       reason: z.string().trim().min(1).max(1000),
@@ -113,6 +121,13 @@ export interface JournalEntry {
   status: "draft" | "posted" | "discarded";
   version: number;
   primary_origin: string;
+  source_description: string | null;
+  descriptor_key: string | null;
+  prior_treatment: {
+    last_category: string | null;
+    payee_id: string | null;
+    count: number;
+  } | null;
   reverses_entry_id: string | null;
   reversed_by_entry_id: string | null;
   created_at: string;
@@ -132,20 +147,6 @@ export interface EntryContext {
     | "invoice_receipt"
     | "refund";
   payee_id?: string | null;
-  customer_id?: string | null;
-  project_id?: string | null;
-  business_line_id?: string | null;
-  payment_rail:
-    | "unknown"
-    | "ach"
-    | "check"
-    | "cash"
-    | "card"
-    | "third_party"
-    | "wire"
-    | "other";
-  contractor_treatment: "unreviewed" | "reportable" | "excluded";
-  contractor_reason: string;
 }
 export interface BalanceRow extends AccountingAccount {
   opening_cents: string;
@@ -163,6 +164,8 @@ export interface AccountingWorkspace {
   entries: JournalEntry[];
   entry_count: number;
   draft_count: number;
+  needs_review_count: number;
+  sync_due: boolean;
   balances: BalanceRow[];
   reports: {
     income_cents: string;

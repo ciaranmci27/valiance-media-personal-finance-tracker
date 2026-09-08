@@ -55,6 +55,9 @@ import { ImportIncomeModal } from "./import-income-modal";
 import { TaxSetupCard, TAX_CLASSIFICATION_LABELS } from "./tax-setup-card";
 import { IncomeTypePicker } from "./income-type-picker";
 import { AddIncomePopover } from "./add-income-popover";
+import { useAccountingTaxLink } from "./use-accounting-tax-link";
+import { applyTaxOverlay, validateTaxTargets } from "@/lib/accounting/tax-links";
+import { TaxAccountingStatus } from "./tax-accounting-status";
 
 // ============================================================================
 // Helpers
@@ -105,9 +108,11 @@ const BUSINESS_TYPE_LABELS: Record<BusinessType, string> = {
 
 interface TaxEstimatorContentProps {
   estimates: TaxEstimate[];
+  accountingAvailable?: boolean;
+  initialYear?: number;
 }
 
-export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
+export function TaxEstimatorContent({ estimates, accountingAvailable = false, initialYear }: TaxEstimatorContentProps) {
   const router = useRouter();
 
   // `estimates` is a server-render snapshot that never refreshes: there is no
@@ -154,6 +159,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
 
   // Current selected year
   const [selectedYear, setSelectedYear] = React.useState(() => {
+    if (initialYear && estimates.some(e => e.tax_year === initialYear) && getAvailableTaxYears().includes(initialYear)) return initialYear;
     if (yearTabs.length > 0) return yearTabs[0];
     const currentYear = new Date().getFullYear();
     const supported = getAvailableTaxYears();
@@ -267,12 +273,27 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
   const taxConfig = React.useMemo(() => getTaxYearConfig(selectedYear), [selectedYear]);
 
   // Live recalculation
+  const [accountingRefresh, setAccountingRefresh] = React.useState(0);
+  const accounting = useAccountingTaxLink(selectedYear, accountingAvailable, String(accountingRefresh));
+  const linkedCalculation = React.useMemo(() => {
+    const base = { income_sources: incomeSources, capital_gains: capitalGains, payments };
+    const view = accounting.view;
+    if (!view?.link?.enabled || !view.current || !view.snapshot || view.estimate?.id !== existingId) return { copy: base, issue: "", incomeIds: new Set<string>(), gainIds: new Set<string>(), paymentIds: new Set<string>() };
+    try {
+      validateTaxTargets({ ...base, tax_classification: taxClassification }, view.link.body);
+      if (view.link.body.payroll && state !== view.estimate.state) throw new Error("The personal state changed. Review the payroll link before applying its wage or withholding figures.");
+      const overlay = view.snapshot.payload.calculation.overlay;
+      return { copy: applyTaxOverlay(base, overlay, view.link.id), issue: "", incomeIds: new Set(overlay.income.map(r => r.id)), gainIds: new Set(overlay.gains.map(r => r.id)), paymentIds: new Set(overlay.payments.map(r => r.id)) };
+    } catch (e) { return { copy: base, issue: e instanceof Error ? e.message : "Review the linked targets.", incomeIds: new Set<string>(), gainIds: new Set<string>(), paymentIds: new Set<string>() }; }
+  }, [incomeSources, capitalGains, payments, accounting.view, existingId, taxClassification, state]);
+  const effectiveIncome = new Map(linkedCalculation.copy.income_sources.map(row => [row.id, row]));
+  const effectiveGains = new Map(linkedCalculation.copy.capital_gains.map(row => [row.id, row]));
   const breakdown: FullTaxBreakdown | null = React.useMemo(() => {
     if (!taxConfig) return null;
     return calculateFullTax(
-      incomeSources,
-      capitalGains,
-      payments,
+      linkedCalculation.copy.income_sources,
+      linkedCalculation.copy.capital_gains,
+      linkedCalculation.copy.payments,
       additionalDeductions,
       filingStatus,
       taxConfig,
@@ -291,7 +312,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
         spouseBlind,
       }
     );
-  }, [incomeSources, capitalGains, payments, additionalDeductions, filingStatus, taxConfig, state, dependents, otherDependents, additionalCredits, taxClassification, isSstb, businessW2Wages, businessPropertyBasis, taxpayerAge65, taxpayerBlind, spouseAge65, spouseBlind]);
+  }, [linkedCalculation.copy, additionalDeductions, filingStatus, taxConfig, state, dependents, otherDependents, additionalCredits, taxClassification, isSstb, businessW2Wages, businessPropertyBasis, taxpayerAge65, taxpayerBlind, spouseAge65, spouseBlind]);
 
   // The QBI wage/property limitation only bites once taxable income passes the
   // threshold, so those inputs stay hidden until they can change the answer.
@@ -687,6 +708,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
         } as TaxEstimate,
       }));
       setSaveError(null);
+      setAccountingRefresh(n => n + 1);
 
       // Only clear dirty if nothing changed while the request was in flight.
       // Otherwise leave it set so the debounce writes the newer edit too.
@@ -802,6 +824,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
         }
       />
       {/* Filters Row */}
+      {accountingAvailable && <TaxAccountingStatus year={selectedYear} state={accounting} issue={linkedCalculation.issue}/>}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {/* Profile summary + settings link */}
         <div className="flex items-center gap-2">
@@ -889,12 +912,12 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
             icon={<Calculator className="h-5 w-5" />}
           />
           <StatCard
-            title="Total Paid"
+            title="Annual Credits"
             value={breakdown.totalPaid}
             icon={<CreditCard className="h-5 w-5" />}
           />
           <StatCard
-            title="Net Remaining"
+            title="Projected Shortfall"
             value={breakdown.netRemaining}
             icon={<DollarSign className="h-5 w-5" />}
             trend={breakdown.netRemaining <= 0 ? "down" : "up"}
@@ -950,7 +973,8 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                 const isLinked = !!source.linked_source_id && !source.is_unlinked;
                 const isOverridden = !!source.linked_source_id && !!source.is_unlinked;
                 const isManual = !source.linked_source_id;
-                const fieldsDisabled = isLinked;
+                const booksLinked = linkedCalculation.incomeIds.has(source.id);
+                const fieldsDisabled = isLinked || booksLinked;
 
                 return (
                   <div
@@ -975,12 +999,12 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                           fieldsDisabled && "opacity-60"
                         )}
                       />
-                      <IncomeTypePicker
+                      {booksLinked ? <a href={`/accounting?view=manage&section=tax&tax_year=${selectedYear}&tax_tab=estimator`} className="rounded bg-primary/10 px-2 py-1 text-xs text-primary">Books</a> : <IncomeTypePicker
                         incomeType={source.income_type}
                         taxClassification={taxClassification}
                         onChange={(type) => handleIncomeTypeChange(source.id, type)}
-                      />
-                      {canHaveSeToggle(source.income_type) && (
+                      />}
+                      {!booksLinked && canHaveSeToggle(source.income_type) && (
                         <button
                           type="button"
                           onClick={() => toggleSe(source.id)}
@@ -1092,6 +1116,8 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                       )}
                       {isManual && (
                         <button
+                          disabled={booksLinked}
+                          aria-label={booksLinked ? "Unlink the books before removing this income" : "Remove income"}
                           onClick={() => removeIncome(source.id)}
                           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-error hover:bg-error/10 transition-colors order-1 sm:order-none"
                         >
@@ -1100,7 +1126,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                       )}
                       <NumberInput
                         placeholder="0"
-                        value={source.amount || ""}
+                        value={effectiveIncome.get(source.id)?.amount ?? source.amount}
                         onChange={(e) =>
                           updateIncome(source.id, "amount", Number(e.target.value) || 0)
                         }
@@ -1165,6 +1191,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                     />
                     <button
                       type="button"
+                      disabled={linkedCalculation.gainIds.has(gain.id)}
                       onClick={() =>
                         updateCapitalGain(
                           gain.id,
@@ -1184,6 +1211,8 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                   </div>
                   <div className="flex items-center gap-2 sm:contents">
                     <button
+                      disabled={linkedCalculation.gainIds.has(gain.id)}
+                      aria-label="Remove capital gain"
                       onClick={() => removeCapitalGain(gain.id)}
                       className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-error hover:bg-error/10 transition-colors order-1 sm:order-none"
                     >
@@ -1191,7 +1220,9 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                     </button>
                     <NumberInput
                       placeholder="0"
-                      value={gain.amount || ""}
+                      disabled={linkedCalculation.gainIds.has(gain.id)}
+                      title={linkedCalculation.gainIds.has(gain.id) ? "Linked from accounting books" : undefined}
+                      value={effectiveGains.get(gain.id)?.amount ?? gain.amount}
                       onChange={(e) =>
                         updateCapitalGain(gain.id, "amount", Number(e.target.value) || 0)
                       }
@@ -1425,12 +1456,13 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
                     <span>Amount</span>
                   </div>
                 )}
-                {payments
+                {linkedCalculation.copy.payments
                   .filter((p) => p.category !== "payment")
                   .map((payment) => (
                     <PaymentRow
                       key={payment.id}
                       payment={payment}
+                      readOnly={linkedCalculation.paymentIds.has(payment.id) || payment.id.startsWith("accounting-forecast:")}
                       onUpdate={updatePayment}
                       onRemove={removePayment}
                     />
@@ -1504,7 +1536,7 @@ export function TaxEstimatorContent({ estimates }: TaxEstimatorContentProps) {
 
         {/* Right: Calculation Results */}
         <div className="space-y-6">
-          {breakdown && <CalculationResults breakdown={breakdown} filingStatus={filingStatus} />}
+          {breakdown && <CalculationResults breakdown={breakdown} />}
         </div>
       </div>
 
@@ -1712,10 +1744,8 @@ function CollapsibleBracketTable({
 
 function CalculationResults({
   breakdown,
-  filingStatus,
 }: {
   breakdown: FullTaxBreakdown;
-  filingStatus: FilingStatus;
 }) {
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
   const mask = "$•••••";
@@ -1771,7 +1801,7 @@ function CalculationResults({
             <Row label="Self-Employment" value={fmtMasked(breakdown.seIncome)} sub />
           )}
           {breakdown.passiveIncome > 0 && (
-            <Row label="Passive K-1" value={fmtMasked(breakdown.passiveIncome)} sub />
+            <Row label="K-1 Income" value={fmtMasked(breakdown.passiveIncome)} sub />
           )}
 
           {hasCapitalGains && (
@@ -1973,12 +2003,12 @@ function CalculationResults({
             {/* Federal */}
             <div className="space-y-1">
               <Row label="Federal Liability" value={fmtMasked(breakdown.federalLiability)} />
-              <Row label="Federal Paid" value={fmtMasked(breakdown.totalFederalPaid)} sub />
+              <Row label="Federal Credits & Payments" value={fmtMasked(breakdown.totalFederalPaid)} sub />
               {breakdown.ficaAutoCredited > 0 && (
                 <div className="flex items-center justify-between pl-6 text-xs text-muted-foreground">
-                  <Tooltip content="Employee-side Social Security (6.2%) and Medicare (1.45%) are withheld from each paycheck by your employer and remitted on Form 941, so they're automatically credited as paid here.">
+                  <Tooltip content="This annual projection assumes the employer withholds the calculated employee Social Security and Medicare. It is a calculation credit, not proof of amounts already paid.">
                     <span className="flex items-center gap-1 cursor-help">
-                      FICA Auto-Withheld
+                      Assumed annual FICA credit
                       <span className="text-[9px] uppercase tracking-wider rounded bg-primary/10 text-teal-light px-1 py-px">
                         Auto
                       </span>
@@ -2029,7 +2059,7 @@ function CalculationResults({
             {(breakdown.stateLiability > 0 || breakdown.totalStatePaid > 0) && (
               <div className="space-y-1 border-t border-border/40 pt-2">
                 <Row label="State Liability" value={fmtMasked(breakdown.stateLiability)} />
-                <Row label="State Paid" value={fmtMasked(breakdown.totalStatePaid)} sub />
+                <Row label="State Payments & Withholding" value={fmtMasked(breakdown.totalStatePaid)} sub />
                 <div className="flex items-center justify-between pl-3 pt-0.5">
                   <span className={cn(
                     "font-medium text-sm",
@@ -2064,7 +2094,7 @@ function CalculationResults({
           >
             <div>
               <span className="font-semibold text-sm">
-                {isPaidInFull ? "Paid in Full" : isOverpaid ? "Refund Due" : "Total Remaining"}
+                {isPaidInFull ? "Projected Balance Zero" : isOverpaid ? "Projected Refund" : "Projected Shortfall"}
               </span>
               {isOverpaid && (
                 <p className="text-[11px] text-success mt-0.5">
@@ -2076,12 +2106,12 @@ function CalculationResults({
               )}
               {isPaidInFull && (
                 <p className="text-[11px] text-success mt-0.5">
-                  All taxes covered
+                  Annual credits cover the projected liability
                 </p>
               )}
               {!isOverpaid && !isPaidInFull && (
                 <p className="text-[11px] text-error mt-0.5">
-                  {fmt(breakdown.netRemaining)} still owed
+                  {fmt(breakdown.netRemaining)} projected due
                 </p>
               )}
             </div>
@@ -2119,12 +2149,15 @@ function PaymentRow({
   onUpdate,
   onRemove,
   showQuarter,
+  readOnly = false,
 }: {
   payment: TaxPaymentEntry;
   onUpdate: (id: string, field: keyof TaxPaymentEntry, value: string | number) => void;
   onRemove: (id: string) => void;
   showQuarter?: boolean;
+  readOnly?: boolean;
 }) {
+  if (readOnly) return <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-3"><div><p className="text-sm">{payment.label}</p><p className="mt-1 text-xs text-muted-foreground">{payment.timing === "forecast" ? "Projected future withholding" : `Verified actual withholding through ${payment.verified_through}`}{payment.document_id && payment.timing !== "forecast" && <> · <a href={`/api/accounting/documents?id=${payment.document_id}`} className="text-primary">Provider report</a></>}</p></div><MaskedValue value={formatCurrency(payment.amount)} className="font-mono text-sm"/></div>;
   return (
     <div className="flex flex-col gap-1.5 sm:grid sm:grid-cols-[1fr_auto_140px] sm:gap-2 sm:items-center rounded-md py-1 px-2 border-x-[3px] border-x-copper/50 border-y border-y-copper/20 bg-copper/[0.04]">
       <div className="flex items-center gap-1.5 min-w-0">

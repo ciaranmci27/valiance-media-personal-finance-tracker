@@ -1,3 +1,4 @@
+import { readAccounting } from "@/lib/accounting/server/read";
 import { NextRequest, NextResponse } from "next/server";
 import {
   accountingClient,
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
       },
       { status: 400 },
     );
-  const { data, error } = await client.rpc("acct_history_preview", {
+  const { data, error } = await readAccounting(client, "history-preview", {
     p_from: parsed.data.from,
     p_to: parsed.data.to,
     p_monthly: parsed.data.monthly,

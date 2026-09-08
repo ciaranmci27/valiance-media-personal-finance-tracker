@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
       { status: 503 },
     );
   try {
-    const due = (await feedServer({ type: "due" })) as string[];
+    const due = (await feedServer({ action: "due" })) as string[];
     if (!due.length)
       return NextResponse.json(
         { processed: 0 },

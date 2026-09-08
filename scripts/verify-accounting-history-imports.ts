@@ -23,23 +23,24 @@ async function main() {
       id: string;
       status: string;
       version: number;
-      coverage_verified: boolean;
+      parity_status: string;
     }[];
     groups: { id: string; status: string; version: number; entry_id: string }[];
   };
   const cmd = async (value: object, key = randomUUID()) =>
     (
       await db.query<{ r: { id: string; version: number } }>(
-        "SELECT acct_operate($1,$2::jsonb) r",
+        "SELECT accounting.operate(jsonb_build_object('key',$1::text,'command',$2::jsonb)) r",
         [key, JSON.stringify(value)],
       )
     ).rows[0].r;
   const state = async (id: string) =>
-    (await db.query<{ r: State }>("SELECT acct_imports($1) r", [id])).rows[0].r;
+    (await db.query<{ r: State }>("SELECT accounting.imports($1) r", [id]))
+      .rows[0].r;
   const rev = async () =>
     (
       await db.query<{ r: { revision: string } }>(
-        "SELECT acct_close_history() r",
+        "SELECT accounting.workspace('2025-01-01','2025-12-31') r",
       )
     ).rows[0].r.revision;
   const sha = (value: string) =>
@@ -76,6 +77,7 @@ async function main() {
   }));
   const accounts = [
       { account_id: fixtureAccountId(1), amount_cents: "108000" },
+      { account_id: fixtureAccountId(4), amount_cents: "-100000" },
       { account_id: fixtureAccountId(5), amount_cents: "-10000" },
       { account_id: fixtureAccountId(6), amount_cents: "2000" },
     ],
@@ -87,7 +89,7 @@ async function main() {
   const preview = async () =>
     (
       await db.query<{ r: { ready: boolean; source_errors: number } }>(
-        "SELECT acct_history_preview($1,$2,$3::jsonb,$4::jsonb,$5::jsonb) r",
+        "SELECT accounting.history_preview(jsonb_build_object('from',$1::text,'to',$2::text,'monthly',$3::jsonb,'accounts',$4::jsonb,'totals',$5::jsonb)) r",
         [
           "2025-01-01",
           "2025-12-31",
@@ -147,20 +149,7 @@ async function main() {
       accounts: fixtureAccounts.map((a) => ({
         ...a,
         cash_kind: a.id === fixtureAccountId(1) ? "bank" : "none",
-        ...(a.id === fixtureAccountId(4)
-          ? {
-              purpose: "opening_retained_earnings",
-              name: "Opening retained earnings",
-            }
-          : {}),
       })),
-    });
-    await cmd({
-      type: "year.configure",
-      id: randomUUID(),
-      year: 2025,
-      classification: "s_corp",
-      expected_revision: await rev(),
     });
     const doc = await document(source),
       imported = await create(source, doc, "history-import-fixture");
@@ -191,7 +180,7 @@ async function main() {
     check(
       (await state(imported.batch)).batches.find((b) => b.id === imported.batch)
         ?.status,
-      "staging",
+      "staged",
     );
     await cmd({
       type: "import.stage",
@@ -221,27 +210,6 @@ async function main() {
       id: imported.batch,
       expected_version: latest.version,
     });
-    check((await preview()).ready, false);
-    await cmd({
-      type: "history.disposition",
-      id: randomUUID(),
-      expected_revision: await rev(),
-      group_id: closing.id,
-      kind: "unsupported",
-      document_id: doc,
-      reason: "Keep unresolved until all source closing controls are checked",
-    });
-    check((await preview()).ready, false);
-    await cmd({
-      type: "history.disposition",
-      id: randomUUID(),
-      expected_revision: await rev(),
-      group_id: closing.id,
-      kind: "annual_closing",
-      document_id: doc,
-      reason:
-        "Closing lines exactly reverse every nominal balance; ordinary economic groups remain posted",
-    });
     check((await preview()).ready, true);
     await cmd({
       type: "history.verify",
@@ -259,8 +227,8 @@ async function main() {
     });
     check(
       (await state(imported.batch)).batches.find((b) => b.id === imported.batch)
-        ?.coverage_verified,
-      true,
+        ?.parity_status,
+      "verified",
     );
     const final = (await state(imported.batch)).batches.find(
       (b) => b.id === imported.batch,
@@ -292,46 +260,57 @@ async function main() {
       resolution: "exclude",
       reason: "Test an invalid normalization",
     });
+    // The new schema retains explicit exclusions as raw rows with a reason, not a disposition state machine.
+    const originalState = await state(imported.batch);
+    check(
+      originalState.groups.find((g) => g.id === closing.id)?.status,
+      "excluded",
+    );
+    await db.exec("RESET ROLE");
+    const raw = (
+      await db.query<{ reason: string }>(
+        "SELECT reason FROM accounting.import_rows WHERE id=$1",
+        [closing.id],
+      )
+    ).rows[0];
+    check(
+      raw.reason,
+      "Annual nominal closing retained as normalization evidence",
+    );
     await assert.rejects(
-      cmd({
-        type: "history.disposition",
-        id: randomUUID(),
-        expected_revision: await rev(),
-        group_id: bad.groups[0].id,
-        kind: "annual_closing",
-        document_id: badDoc,
-        reason: "An asset movement cannot be an annual nominal close",
-      }),
-      /ACCT_CLOSING_NORMALIZATION/,
+      db.query("UPDATE accounting.import_rows SET raw='{}' WHERE id=$1", [
+        closing.id,
+      ]),
+      /ACCT_IMMUTABLE_EVIDENCE/,
     );
     checks++;
-    check((await preview()).ready, false);
-    await db.exec("RESET ROLE");
-    check(
-      (
-        await db.query(
-          "SELECT id FROM acct_history_dispositions WHERE group_id=$1",
-          [closing.id],
-        )
-      ).rows.length,
-      2,
-    );
     await db.exec("SET ROLE authenticated");
-    const backup = (
-      await db.query<{
-        r: { version: number; history_dispositions: unknown[] };
-      }>("SELECT acct_books_backup() r")
+    const invalidControl = (
+      await db.query<{ r: { ready: boolean } }>(
+        "SELECT accounting.history_preview($1) r",
+        [
+          JSON.stringify({
+            from: "2025-01-01",
+            to: "2025-12-31",
+            expected: {
+              income_cents: "10000",
+              expense_cents: "2000",
+              net_income_cents: "8000",
+              assets_cents: "116000",
+            },
+          }),
+        ],
+      )
     ).rows[0].r;
-    check(backup.version, 9);
-    check(backup.history_dispositions.length, 2);
+    check(invalidControl.ready, false);
     console.log(
-      `Historical import coverage and normalization: ${checks} assertions passed.`,
+      `Historical import parity, explicit exclusions and immutable sources: ${checks} assertions passed.`,
     );
   } finally {
     await db.close();
   }
 }
 main().catch((e) => {
-  console.error(e instanceof Error ? e.message : e);
+  console.error(e);
   process.exitCode = 1;
 });

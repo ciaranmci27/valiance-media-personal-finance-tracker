@@ -4,6 +4,7 @@ import { parseUsd } from "../money";
 import { safeProviderMessage, SimpleFinError } from "./simplefin-transport";
 
 export const SIMPLEFIN_PROTOCOL = "2.0.0-draft-2026-03-19";
+export const SIMPLEFIN_V1_PROTOCOL = "1.0.7";
 export const SYNC_OVERLAP_SECONDS = 5 * 86400;
 export const SYNC_WINDOW_SECONDS = 90 * 86400;
 const identifier = z.string().min(1).max(500),
@@ -82,7 +83,7 @@ export interface FeedAccount {
   raw: Record<string, unknown>;
 }
 export interface FeedResponse {
-  protocol: typeof SIMPLEFIN_PROTOCOL;
+  protocol: typeof SIMPLEFIN_PROTOCOL | typeof SIMPLEFIN_V1_PROTOCOL;
   accounts: FeedAccount[];
   issues: ProviderIssue[];
   complete: boolean;
@@ -149,7 +150,7 @@ export function syncWindow(
 }
 export function postingDate(
   timestampSeconds: number,
-  zone: "UTC" | "America/Phoenix",
+  zone: string,
 ): string {
   if (
     !Number.isSafeInteger(timestampSeconds) ||
@@ -160,12 +161,18 @@ export function postingDate(
       "invalid_date",
       "The source transaction has no valid posted date.",
     );
-  const parts = new Intl.DateTimeFormat("en-CA", {
+  let formatter: Intl.DateTimeFormat;
+  try {
+    formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: zone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date(timestampSeconds * 1000));
+    });
+  } catch {
+    throw new SimpleFinError("invalid_timezone", "Choose a valid books timezone in Business settings.");
+  }
+  const parts = formatter.formatToParts(new Date(timestampSeconds * 1000));
   const part = (kind: string) => parts.find((p) => p.type === kind)!.value;
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
@@ -186,11 +193,41 @@ export function parseSimpleFin(
       "invalid_window",
       "SimpleFIN requests must use a positive window of at most 90 days.",
     );
-  const parsed = envelope.safeParse(raw);
+  const legacyEnvelope = z.object({
+    errors: z.array(z.string().max(10000)).max(2000),
+    accounts: z.array(z.unknown()).max(2000),
+  });
+  const legacyAccount = z.object({
+    org: z.object({
+      domain: identifier.optional(), name: identifier.optional(), id: identifier.optional(),
+      "sfin-url": z.string().min(1).max(8192),
+    }).refine((org) => Boolean(org.domain || org.name)),
+  }).passthrough();
+  const isV2 = raw !== null && typeof raw === "object" && ("errlist" in raw || "connections" in raw);
+  let normalized: unknown = raw;
+  if (!isV2) {
+    const legacy = legacyEnvelope.safeParse(raw);
+    if (legacy.success) {
+      const institutions = new Map<string, z.infer<typeof connection>>();
+      const accounts = legacy.data.accounts.map((source) => {
+        const item = legacyAccount.safeParse(source);
+        if (!item.success) return source;
+        const org = item.data.org;
+        const conn_id = `v1:${sourceHash([org["sfin-url"], org.domain ?? org.id ?? org.name])}`;
+        institutions.set(conn_id, {
+          conn_id, name: org.name ?? org.domain!, org_id: org.id ?? org.domain ?? org.name!,
+          sfin_url: org["sfin-url"],
+        });
+        return { ...item.data, conn_id };
+      });
+      normalized = { errors: legacy.data.errors, errlist: [], connections: [...institutions.values()], accounts };
+    }
+  }
+  const parsed = envelope.safeParse(normalized);
   if (!parsed.success)
     throw new SimpleFinError(
       "protocol_mismatch",
-      "The response does not match the pinned SimpleFIN version 2 contract. Coverage was not advanced.",
+      "The response does not match a supported SimpleFIN v1 or v2 envelope. Coverage was not advanced.",
     );
   const issues: ProviderIssue[] = parsed.data.errlist.map((e) => ({
     code: e.code,
@@ -410,7 +447,7 @@ export function parseSimpleFin(
     a.complete = a.issues.length === 0;
   }
   return {
-    protocol: SIMPLEFIN_PROTOCOL,
+    protocol: isV2 ? SIMPLEFIN_PROTOCOL : SIMPLEFIN_V1_PROTOCOL,
     accounts,
     issues,
     complete: issues.length === 0 && accounts.every((a) => a.complete),

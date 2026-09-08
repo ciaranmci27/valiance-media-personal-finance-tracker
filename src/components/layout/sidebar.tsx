@@ -169,9 +169,11 @@ export function Sidebar() {
             <Image
               src={siteConfig.logos.horizontalInverted}
               alt={siteConfig.companyName}
-              width={140}
-              height={36}
+              width={3443}
+              height={820}
+              sizes="152px"
               className="h-9 w-auto"
+              style={{ width: "auto", height: 36 }}
               priority
             />
           </Link>

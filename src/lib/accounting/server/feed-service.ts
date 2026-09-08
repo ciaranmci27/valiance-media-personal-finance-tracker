@@ -55,9 +55,10 @@ export function decryptFeed(cipher: string) {
     .href;
 }
 export const feedServer: FeedRpc = async (command) => {
-  const client = localAccountingFeedService() ?? getServiceClient();
-  const { data, error } = await client.rpc("acct_feed_server", {
-    p_command: command,
+  const client =
+    localAccountingFeedService() ?? getServiceClient().schema("accounting");
+  const { data, error } = await client.rpc("sync_server", {
+    command,
   });
   if (error) {
     const errors: Record<string, string> = {

@@ -48,6 +48,8 @@ export function getAccountingDemo(): AccountingWorkspace {
     accounts,
     entry_count: 9,
     draft_count: 0,
+    needs_review_count: 0,
+    sync_due: false,
     entries: fixtureEntries
       .slice(2)
       .map((e, i) => ({
@@ -57,6 +59,9 @@ export function getAccountingDemo(): AccountingWorkspace {
         status: "posted" as const,
         version: 2,
         primary_origin: "manual",
+        source_description: null,
+        descriptor_key: null,
+        prior_treatment: null,
         reverses_entry_id: null,
         reversed_by_entry_id: null,
         created_at: `${e.date}T12:00:00Z`,

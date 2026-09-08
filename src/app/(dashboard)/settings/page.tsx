@@ -1,5 +1,8 @@
 import Link from "next/link";
-import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
+import {
+  MobileMenuButton,
+  HeaderControls,
+} from "@/components/layout/page-header";
 import {
   User,
   Palette,
@@ -9,6 +12,7 @@ import {
   ChevronRight,
   Settings,
   Mail,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +21,28 @@ export const metadata = {
 };
 
 const settingsSections = [
+  {
+    title: "Business",
+    items: [
+      {
+        title: "Business",
+        description:
+          "Legal name, EIN, tax classification, books settings and contacts",
+        href: "/settings/business",
+        icon: Building2,
+        iconBg: "bg-primary/10",
+        iconColor: "text-teal-light",
+      },
+      {
+        title: "Tax years",
+        description: "Filing status and state for each tax year",
+        href: "/settings/tax",
+        icon: Calculator,
+        iconBg: "bg-copper/10",
+        iconColor: "text-copper",
+      },
+    ],
+  },
   {
     title: "Preferences",
     items: [
@@ -35,14 +61,6 @@ const settingsSections = [
         icon: Palette,
         iconBg: "bg-[#C5A68F]/10",
         iconColor: "text-[#C5A68F]",
-      },
-      {
-        title: "Tax Estimator",
-        description: "Filing profile and state tax settings",
-        href: "/settings/tax",
-        icon: Calculator,
-        iconBg: "bg-violet-500/10",
-        iconColor: "text-violet-500",
       },
     ],
   },
@@ -118,12 +136,16 @@ export default function SettingsPage() {
               {section.items.map((item) => {
                 const Icon = item.icon;
                 return (
-                  <Link key={item.href} href={item.href} className="block group">
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="block group"
+                  >
                     <div
                       className={cn(
                         "glass-card rounded-xl p-4 transition-all duration-200",
                         "hover:border-primary/30 hover:scale-[1.01]",
-                        "cursor-pointer"
+                        "cursor-pointer",
                       )}
                     >
                       <div className="flex items-center gap-4">
@@ -131,7 +153,7 @@ export default function SettingsPage() {
                           className={cn(
                             "flex h-11 w-11 items-center justify-center rounded-xl transition-transform duration-200",
                             "group-hover:scale-105",
-                            item.iconBg
+                            item.iconBg,
                           )}
                         >
                           <Icon className={cn("h-5 w-5", item.iconColor)} />

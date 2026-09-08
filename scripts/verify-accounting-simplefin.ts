@@ -107,7 +107,7 @@ async function main() {
     check(method, "GET");
     check(url.username, "");
     check(url.password, "");
-    check(url.searchParams.get("version"), "2");
+    check(url.searchParams.get("version"), "1");
     check(auth, `Basic ${Buffer.from("u:p:q").toString("base64")}`);
     return { status: 200, body: '{"ok":true}', retryAfter: null };
   };
@@ -174,6 +174,10 @@ async function main() {
     "2026-01-01",
   );
   await rejects(() => postingDate(0, "UTC"), "invalid_date");
+  check(postingDate(Date.parse("2026-01-01T17:00:00Z") / 1000, "America/Phoenix"), "2026-01-01");
+  check(postingDate(Date.parse("2026-01-01T00:00:00Z") / 1000, "America/Phoenix"), "2025-12-31");
+  check(postingDate(Date.parse("2026-07-01T04:30:00Z") / 1000, "America/New_York"), "2026-07-01");
+  await rejects(() => postingDate(1234567890, "Invalid/Zone"), "invalid_timezone");
   const conn = (id: string) => ({
     conn_id: id,
     name: "Synthetic institution",
@@ -285,6 +289,18 @@ async function main() {
     () => parseSimpleFin({ accounts: [] }, w, now),
     "protocol_mismatch",
   );
+  const { conn_id: unusedConnection, ...legacyAccount } = account();
+  void unusedConnection;
+  const legacy = { errors: [], accounts: [{ ...legacyAccount, org: { domain: "synthetic.example", "sfin-url": "https://synthetic.example/simplefin" } }] };
+  const legacyParsed = parseSimpleFin(legacy, w, now);
+  check(legacyParsed.protocol, "1.0.7");
+  check(legacyParsed.complete, true);
+  check(legacyParsed.accounts[0].transactions[0].amount_cents, "-1234");
+  check(legacyParsed.accounts[0].provider_account_id, "a");
+  check(legacyParsed.accounts[0].provider_connection_id, parseSimpleFin(legacy, w, now).accounts[0].provider_connection_id);
+  check(parseSimpleFin({ ...legacy, errors: ["Reconnect the bank"] }, w, now).complete, false);
+  check(parseSimpleFin({ errors: [], accounts: [] }, w, now).complete, true);
+  await rejects(() => parseSimpleFin({ ...legacy, errlist: [] }, w, now), "protocol_mismatch");
   check(
     sourceHash({ b: 1, a: { z: 2, x: 3 } }),
     sourceHash({ a: { x: 3, z: 2 }, b: 1 }),

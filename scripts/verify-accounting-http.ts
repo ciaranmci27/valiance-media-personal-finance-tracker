@@ -1,3 +1,4 @@
+import { fixtureDatabaseUrl, fixtureAppUrl } from "./accounting-fixture-target";
 import assert from "node:assert/strict";
 import { randomUUID, createHash } from "node:crypto";
 import { Client } from "pg";
@@ -5,24 +6,30 @@ import { fixtureAccountId } from "../src/lib/accounting/fixtures";
 
 // Exercise the actual Next.js request boundary against the marked fixture server.
 async function main() {
-  const base = "http://127.0.0.1:3108";
+  const base = fixtureAppUrl();
   let checks = 0;
   const check = (actual: unknown, expected: unknown) => {
     assert.deepEqual(actual, expected);
     checks++;
   };
   const db = new Client({
-    connectionString: "postgresql://postgres@127.0.0.1:5447/accounting_test",
+    connectionString: fixtureDatabaseUrl(),
   });
   await db.connect();
   try {
-    check((await db.query("SELECT label FROM acct_test_marker")).rows, [
+    check((await db.query("SELECT label FROM accounting_test_marker")).rows, [
       { label: "synthetic-local-accounting" },
     ]);
-    const response = await fetch(`${base}/accounting`);
+    const apiOnly = process.argv.includes("--api-only");
+    const response = await fetch(
+      `${base}/${apiOnly ? "api/accounting?from=2026-01-01&to=2026-12-31" : "accounting"}`,
+    );
     check(response.status, 200);
-    assert.match(await response.text(), /Isolated test books/);
-    checks++;
+    if (apiOnly) check(Array.isArray((await response.json()).entries), true);
+    else {
+      assert.match(await response.text(), /Isolated test books/);
+      checks++;
+    }
     check(
       (
         await fetch(`${base}/api/accounting`, {
@@ -273,8 +280,155 @@ async function main() {
       expected_version: entry.version,
       reason: "End HTTP fixture test",
     });
+    const waveRun = randomUUID();
+    const waveAccounts = { receivable: randomUUID(), equity: randomUUID() };
+    for (const [kind, account_type, subtype, normal_side] of [
+      ["receivable", "asset", "receivable", "debit"],
+      ["equity", "equity", "owner_equity", "credit"],
+    ] as const) {
+      await command({
+        type: "account.create",
+        id: waveAccounts[kind],
+        name: `Synthetic Wave ${kind} ${waveRun}`,
+        code: "",
+        account_type,
+        subtype,
+        normal_side,
+        external_names: { wave: `Synthetic Wave ${kind} ${waveRun}` },
+      });
+    }
+    const waveHeaders = [
+      "Transaction ID",
+      "Transaction Date",
+      "Account Name",
+      "Transaction Description",
+      "Transaction Line Description",
+      "Debit Amount (Two Column Approach)",
+      "Credit Amount (Two Column Approach)",
+      "Account Group",
+      "Account Type",
+      "Account ID",
+      " ",
+    ];
+    const waveRows = [
+      [
+        `HTTP-OPEN-${waveRun}`,
+        "2022-12-31",
+        `Synthetic Wave receivable ${waveRun}`,
+        "Synthetic carryover",
+        "",
+        "123.45",
+        "0",
+        "Asset",
+        "Receivable",
+        "",
+        "",
+      ],
+      [
+        `HTTP-OPEN-${waveRun}`,
+        "2022-12-31",
+        `Synthetic Wave equity ${waveRun}`,
+        "Synthetic carryover",
+        "",
+        "0",
+        "123.45",
+        "Equity",
+        "Retained Earnings: Profit",
+        "",
+        "",
+      ],
+      [
+        `HTTP-ZERO-${waveRun}`,
+        "2022-12-31",
+        `Synthetic Wave equity ${waveRun}`,
+        "Synthetic zero",
+        "",
+        "0",
+        "0",
+        "Equity",
+        "Retained Earnings: Profit",
+        "",
+        "",
+      ],
+    ];
+    const waveCsv = [waveHeaders, ...waveRows]
+      .map((row) => row.join(","))
+      .join("\n");
+    const waveMapping = {
+      group: "Transaction ID",
+      date: "Transaction Date",
+      memo: "Transaction Description",
+      account: "Account Name",
+      debit: "Debit Amount (Two Column Approach)",
+      credit: "Credit Amount (Two Column Approach)",
+      stableGroupIds: true,
+      accounts: {
+        [`Synthetic Wave receivable ${waveRun}`]: waveAccounts.receivable,
+        [`Synthetic Wave equity ${waveRun}`]: waveAccounts.equity,
+      },
+    };
+    const waveRequest = async (phase: string) => {
+      const form = new FormData();
+      form.set("file", new File([waveCsv], "synthetic-wave.csv"));
+      form.set("phase", phase);
+      form.set("mode", "journal");
+      form.set("options", JSON.stringify(options));
+      form.set("mapping", JSON.stringify(waveMapping));
+      const response = await fetch(`${base}/api/accounting/imports`, {
+        method: "POST",
+        headers: { Origin: base },
+        body: form,
+      });
+      const data = await response.json();
+      check(response.status, 200);
+      return data;
+    };
+    const waveInspection = await waveRequest("inspect");
+    check(waveInspection.adapter, "wave");
+    check(waveInspection.headers.at(-1), " ");
+    check(waveInspection.accountProposals[0].subtype, "receivable");
+    const wavePreview = await waveRequest("preview");
+    check(wavePreview.errorCount, 0);
+    check(wavePreview.groups[0].lines[0].amount_cents, "12345");
+    check(wavePreview.groups[1].lines, []);
+    check(typeof wavePreview.groups[1].exclusion_reason, "string");
+    const batch = randomUUID();
+    let imported = await command({
+      type: "import.create",
+      id: batch,
+      source_system: "wave",
+      source_scope: `synthetic-http-${waveRun}`,
+      file_hash: wavePreview.fileHash,
+      mapping_hash: wavePreview.mappingHash,
+      file_name: "synthetic-wave.csv",
+      mode: "journal",
+      basis: "cash",
+      expected_groups: 2,
+      from: "2022-12-31",
+      to: "2022-12-31",
+    });
+    const groups = wavePreview.groups.map(
+      (g: Record<string, unknown>, ordinal: number) => ({
+        ...g,
+        id: randomUUID(),
+        ordinal,
+      }),
+    );
+    imported = await command({
+      type: "import.stage",
+      id: batch,
+      expected_version: imported.version,
+      groups,
+    });
+    const applied = await command({
+      type: "import.apply",
+      id: batch,
+      expected_version: imported.version,
+      group_ids: groups.map((g: { id: string }) => g.id),
+    });
+    check(applied.posted, 1);
     console.log(
-      `Accounting HTTP and private evidence: ${checks} assertions passed.`,
+      `Accounting HTTP and private evidence: ${checks} assertions passed (${apiOnly ? "API only; page gate remains separate" : "including accounting page"}).`,
     );
   } finally {
     await db.end();

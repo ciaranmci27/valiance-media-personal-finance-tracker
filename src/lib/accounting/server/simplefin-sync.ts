@@ -16,8 +16,13 @@ type Identity = {
   checkpoint: string | null;
   resume_floor: string | null;
 };
-type Lease = { id: string; ciphertext: string; identities: Identity[] };
-/** No financial commands are available through this worker interface. */
+type Lease = {
+  id: string;
+  acquired: boolean;
+  access_url_encrypted: string;
+  identities: Identity[];
+};
+/** The service lease limits provider ingestion to the selected connection. */
 export async function syncSimpleFin(options: {
   connectionId: string;
   actorId: string | null;
@@ -32,18 +37,23 @@ export async function syncSimpleFin(options: {
     clock = options.now ?? (() => Math.floor(Date.now() / 1000)),
     started = clock();
   const lease = (await rpc({
-    type: "lease",
+    action: "lease",
     id: options.connectionId,
     run_id: runId,
     actor_id: options.actorId,
   })) as Lease;
+  if (!lease.acquired)
+    throw new SimpleFinError(
+      "sync_busy",
+      "A sync is already running or the connection needs attention.",
+    );
   let received = 0,
     complete = true;
   const errors: string[] = [];
   try {
     let access: string;
     try {
-      access = options.decrypt(lease.ciphertext);
+      access = options.decrypt(lease.access_url_encrypted);
     } catch {
       throw new SimpleFinError(
         "decryption_failed",
@@ -84,16 +94,6 @@ export async function syncSimpleFin(options: {
         );
         break;
       }
-      const requestId = randomUUID();
-      await rpc({
-        type: "request",
-        run_id: runId,
-        id: requestId,
-        identity_id: plan.identity?.id ?? null,
-        discovery: !plan.identity,
-        from: plan.window.start,
-        to: plan.window.end,
-      });
       const raw = await requestSimpleFin(
         access,
         {
@@ -131,37 +131,30 @@ export async function syncSimpleFin(options: {
           plan.identity && account.currency === "USD"
             ? account.transactions
             : [];
-        const windowId = randomUUID();
-        await rpc({
-          type: "window.begin",
-          run_id: runId,
-          request_id: requestId,
-          id: windowId,
-          provider_connection_id: account.provider_connection_id,
-          provider_account_id: account.provider_account_id,
-          name: account.name,
-          institution: account.institution,
-          currency: account.currency,
-          protocol: response.protocol,
-          response_hash: response.hash,
-          account_hash: account.hash,
-          balance_cents: account.balance_cents,
-          available_cents: account.available_cents,
-          balance_at: account.balance_at,
-          issues: account.issues,
-          complete: account.complete,
-          expected_count: transactions.length,
-        });
-        // Small transactions keep progress durable and bound PostgREST request size.
-        for (let offset = 0; offset < transactions.length; offset += 100)
-          await rpc({
-            type: "window.append",
+        // Each bounded chunk is durable. Only the final, complete chunk advances coverage.
+        for (
+          let offset = 0;
+          offset < Math.max(1, transactions.length);
+          offset += 100
+        ) {
+          const saved = (await rpc({
+            action: "complete",
+            id: options.connectionId,
             run_id: runId,
-            id: windowId,
-            offset,
-            transactions: transactions.slice(offset, offset + 100),
-          });
-        await rpc({ type: "window.finish", run_id: runId, id: windowId });
+            partial: true,
+            discovery: !!options.discover,
+            accounts: [
+              {
+                ...account,
+                raw: undefined,
+                transactions: transactions.slice(offset, offset + 100),
+                chunk_partial: offset + 100 < transactions.length,
+                through: plan.identity ? String(plan.window.end) : null,
+              },
+            ],
+          })) as { complete: boolean };
+          if (!saved.complete) complete = false;
+        }
         received += transactions.length;
         if (!account.complete) {
           complete = false;
@@ -174,7 +167,10 @@ export async function syncSimpleFin(options: {
       }
     }
     const finished = (await rpc({
-      type: "finish",
+      action: "complete",
+      id: options.connectionId,
+      accounts: [],
+      discovery: !!options.discover,
       run_id: runId,
       complete,
       error: safeProviderMessage([...new Set(errors)].join(" ")),
@@ -199,7 +195,11 @@ export async function syncSimpleFin(options: {
           );
     try {
       await rpc({
-        type: "fail",
+        action: "fail",
+        id: options.connectionId,
+        reconnect_required: ["access_revoked", "decryption_failed"].includes(
+          issue.code,
+        ),
         run_id: runId,
         code: issue.code,
         error: issue.message,

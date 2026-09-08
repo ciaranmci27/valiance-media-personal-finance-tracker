@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
-import { PGlite } from "@electric-sql/pglite";
+import { accountingTestDb } from "./accounting-test-db";
 import {
   fixtureOwner,
   fixtureAccounts,
@@ -11,7 +10,7 @@ import {
 import type { AccountingWorkspace } from "../src/lib/accounting/contracts";
 
 async function main() {
-  const db = new PGlite();
+  const db = await accountingTestDb();
   let checks = 0;
   const check = (actual: unknown, expected: unknown) => {
     assert.deepEqual(actual, expected);
@@ -23,10 +22,23 @@ async function main() {
   }
   const cmd = async (payload: object, key = randomUUID()) => {
     const r = await db.query<{ result: { id: string; version: number } }>(
-      "select public.acct_command($1,$2::jsonb) as result",
+      "select accounting.operate(jsonb_build_object('key',$1::uuid,'command',$2::jsonb)) as result",
       [key, JSON.stringify(payload)],
     );
     return r.rows[0].result;
+  };
+  const exportState = async <T = { r: unknown }>() => {
+    await db.exec("RESET ROLE");
+    try {
+      return await db.query<T>(`SELECT jsonb_build_object(
+      'settings',(SELECT to_jsonb(s)||jsonb_build_object('financial_revision',financial_revision::text) FROM accounting.settings s),
+      'entries',(SELECT coalesce(jsonb_agg(to_jsonb(e) ORDER BY id),'[]') FROM accounting.journal_entries e),
+      'lines',(SELECT coalesce(jsonb_agg(to_jsonb(l)||jsonb_build_object('amount_cents',amount_cents::text) ORDER BY id),'[]') FROM accounting.journal_lines l),
+      'audit',(SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('before_value',before,'after_value',after) ORDER BY id),'[]') FROM accounting.audit_log a),
+      'receipts',(SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY idempotency_key),'[]') FROM accounting.command_receipts c)) r`);
+    } finally {
+      await asOwner();
+    }
   };
   const asOwner = async () => {
     await db.exec("reset role; set role authenticated;");
@@ -35,35 +47,10 @@ async function main() {
     ]);
   };
   try {
-    // Only the Supabase auth contract is stubbed. All ledger SQL executes in PostgreSQL.
-    await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
-      create schema auth; create table auth.users(id uuid primary key);
-      create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
-      grant usage on schema auth to authenticated, anon, service_role;
-      grant execute on function auth.uid() to authenticated, anon, service_role;`);
-    const schema = await readFile(
-      new URL(
-        "../supabase/migrations/20260905203346_accounting_foundation.sql",
-        import.meta.url,
-      ),
-      "utf8",
-    );
-    const canonical = await readFile(
-      new URL("../supabase/schema/schema.sql", import.meta.url),
-      "utf8",
-    );
-    const block =
-      /-- ACCOUNTING FOUNDATION BEGIN[\s\S]*?-- ACCOUNTING FOUNDATION END/;
-    check(schema.match(block)?.[0], canonical.match(block)?.[0]);
-    await db.exec(schema);
-    await db.query("insert into auth.users(id) values($1),($2)", [
-      fixtureOwner,
+    await db.exec("RESET ROLE");
+    await db.query("INSERT INTO auth.users(id) VALUES($1)", [
       "10000000-0000-4000-8000-000000000002",
     ]);
-    await db.query(
-      "insert into public.acct_settings(owner_user_id,legal_name) values($1,'Synthetic company')",
-      [fixtureOwner],
-    );
     await asOwner();
     for (const a of fixtureAccounts)
       await cmd({ type: "account.create", ...a });
@@ -87,7 +74,7 @@ async function main() {
       const first = await cmd(save, key);
       check(await cmd(save, key), first);
       await rejected(
-        "select public.acct_command($1,$2::jsonb)",
+        "select accounting.operate(jsonb_build_object('key',$1::uuid,'command',$2::jsonb))",
         [key, JSON.stringify({ ...save, memo: "Different" })],
         /ACCT_IDEMPOTENCY_CONFLICT/,
       );
@@ -95,7 +82,7 @@ async function main() {
     }
     const report = (
       await db.query<{ result: AccountingWorkspace }>(
-        "select acct_workspace('2026-01-01','2026-02-28') as result",
+        "select accounting.workspace('2026-01-01','2026-02-28') as result",
       )
     ).rows[0].result;
     check(report.reports.net_income_cents, "75000");
@@ -111,7 +98,7 @@ async function main() {
     );
     const january = (
       await db.query<{ r: AccountingWorkspace }>(
-        "select acct_workspace('2026-01-01','2026-01-31') r",
+        "select accounting.workspace('2026-01-01','2026-01-31') r",
       )
     ).rows[0].r;
     check(
@@ -130,9 +117,9 @@ async function main() {
       ],
     };
     await cmd(draft);
-    const beforeFailure = (await db.query("select acct_export() as r")).rows;
+    const beforeFailure = (await exportState()).rows;
     await rejected(
-      "select acct_command($1,$2::jsonb)",
+      "select accounting.operate(jsonb_build_object('key',$1::uuid,'command',$2::jsonb))",
       [
         randomUUID(),
         JSON.stringify({
@@ -143,7 +130,7 @@ async function main() {
       ],
       /ACCT_UNBALANCED/,
     );
-    const afterFailure = (await db.query("select acct_export() as r")).rows;
+    const afterFailure = (await exportState()).rows;
     // The timestamp may change; all financial, audit, and receipt state must not.
     const stableExport = (rows: unknown) =>
       JSON.parse(
@@ -154,22 +141,22 @@ async function main() {
     check(stableExport(afterFailure), stableExport(beforeFailure));
     await cmd({ ...draft, expected_version: 1, memo: "Newer edit" });
     await rejected(
-      "select acct_command($1,$2::jsonb)",
+      "select accounting.operate(jsonb_build_object('key',$1::uuid,'command',$2::jsonb))",
       [randomUUID(), JSON.stringify({ ...draft, expected_version: 1 })],
       /ACCT_STALE_VERSION/,
     );
     await rejected(
-      "insert into public.acct_journal_entries(entry_date,memo,created_by) values('2026-01-01','Bypass',$1)",
+      "insert into accounting.journal_entries(entry_date,memo,created_by) values('2026-01-01','Bypass',$1)",
       [fixtureOwner],
       /permission denied/,
     );
     await rejected(
-      "select * from public.acct_journal_lines",
+      "select * from accounting.journal_lines",
       [],
       /permission denied/,
     );
     await rejected(
-      "select public.acct_require_open('2026-01-01')",
+      "select accounting.require_open('2026-01-01')",
       [],
       /permission denied/,
     );
@@ -177,97 +164,101 @@ async function main() {
       "10000000-0000-4000-8000-000000000002",
     ]);
     await rejected(
-      "select acct_workspace('2026-01-01','2026-12-31')",
+      "select accounting.workspace('2026-01-01','2026-12-31')",
       [],
       /ACCT_FORBIDDEN/,
     );
     await rejected(
-      "select acct_command($1,$2::jsonb)",
+      "select accounting.operate(jsonb_build_object('key',$1::uuid,'command',$2::jsonb))",
       [randomUUID(), JSON.stringify(draft)],
       /ACCT_FORBIDDEN/,
     );
     await db.exec("reset role; set role service_role;");
     await rejected(
-      "delete from public.acct_journal_lines",
+      "delete from accounting.journal_lines",
       [],
       /permission denied/,
     );
-    await rejected("select acct_export()", [], /permission denied/);
+    await rejected(
+      "select accounting.workspace('2026-01-01','2026-12-31')",
+      [],
+      /permission denied/,
+    );
     // Privileged DML still encounters the financial guards. An administrator
     // capable of disabling triggers remains outside the application trust boundary.
     await db.exec("reset role;");
     // Even a direct status transition cannot bypass the deferred balance check.
     await rejected(
-      "update acct_journal_entries set status='posted',posted_at=now() where id=$1",
+      "update accounting.journal_entries set status='posted',posted_at=now() where id=$1",
       [unbalancedId],
       /ACCT_UNBALANCED/,
     );
     check(
       (
         await db.query<{ status: string }>(
-          "select status from acct_journal_entries where id=$1",
+          "select status from accounting.journal_entries where id=$1",
           [unbalancedId],
         )
       ).rows[0].status,
       "draft",
     );
     await rejected(
-      "insert into acct_journal_lines(entry_id,account_id,amount_cents,sort_order) values($1,$2,100,20)",
+      "insert into accounting.journal_lines(entry_id,account_id,amount_cents,sort_order) values($1,$2,100,20)",
       [entryIds[0], fixtureAccountId(1)],
       /ACCT_IMMUTABLE/,
     );
     await rejected(
-      "update acct_journal_lines set amount_cents=amount_cents+1 where entry_id=$1",
+      "update accounting.journal_lines set amount_cents=amount_cents+1 where entry_id=$1",
       [entryIds[0]],
       /ACCT_IMMUTABLE/,
     );
     await rejected(
-      "delete from acct_journal_lines where entry_id=$1",
+      "delete from accounting.journal_lines where entry_id=$1",
       [entryIds[0]],
       /ACCT_IMMUTABLE/,
     );
     await rejected(
-      "update acct_journal_lines set entry_id=$1 where entry_id=$2",
+      "update accounting.journal_lines set entry_id=$1 where entry_id=$2",
       [unbalancedId, entryIds[0]],
       /ACCT_IMMUTABLE_IDENTITY/,
     );
     await rejected(
-      "update acct_journal_entries set entry_date='2026-03-01' where id=$1",
+      "update accounting.journal_entries set entry_date='2026-03-01' where id=$1",
       [entryIds[0]],
-      /ACCT_IMMUTABLE/,
+      /ACCT_POSTED_IMMUTABLE/,
     );
-    await rejected("delete from acct_audit_log", [], /ACCT_APPEND_ONLY/);
+    await rejected("delete from accounting.audit_log", [], /ACCT_APPEND_ONLY/);
     await rejected(
-      "delete from acct_journal_entries where id=$1",
+      "delete from accounting.journal_entries where id=$1",
       [unbalancedId],
       /ACCT_NO_HARD_DELETE/,
     );
     await rejected(
-      "delete from acct_accounts where id=$1",
+      "delete from accounting.accounts where id=$1",
       [fixtureAccountId(1)],
       /ACCT_NO_HARD_DELETE/,
     );
     await rejected(
-      "update acct_accounts set account_type='income' where id=$1",
+      "update accounting.accounts set type='income' where id=$1",
       [fixtureAccountId(1)],
       /ACCT_ACCOUNT_IN_USE/,
     );
     await rejected(
-      "update acct_accounts set is_archived=true where id=$1",
+      "update accounting.accounts set is_archived=true where id=$1",
       [fixtureAccountId(1)],
       /ACCT_ACCOUNT_IN_USE/,
     );
     await rejected(
-      "update acct_periods set is_locked=true,reason='Protect month' where month_start='2026-03-01'",
+      "update accounting.periods set status='locked',locked_at=now(),locked_by=auth.uid(),reopen_reason='Protect month' where month='2026-03-01'",
       [],
       /ACCT_DRAFTS_REMAIN/,
     );
     await db.exec(
-      "update acct_periods set is_locked=true,reason='Synthetic protected month' where month_start='2026-01-01'",
+      "update accounting.periods set status='locked',locked_at=now(),locked_by=auth.uid(),reopen_reason='Synthetic protected month' where month='2026-01-01'",
     );
     await asOwner();
     await rejected(
-      "select acct_command($1,$2::jsonb)",
+      "select accounting.operate(jsonb_build_object('key',$1::uuid,'command',$2::jsonb))",
       [
         randomUUID(),
         JSON.stringify({
@@ -279,7 +270,7 @@ async function main() {
       /ACCT_PERIOD_LOCKED/,
     );
     await rejected(
-      "select acct_command($1,$2::jsonb)",
+      "select accounting.operate(jsonb_build_object('key',$1::uuid,'command',$2::jsonb))",
       [
         randomUUID(),
         JSON.stringify({
@@ -302,7 +293,7 @@ async function main() {
     check(Boolean(reversal.id), true);
     const corrected = (
       await db.query<{ r: AccountingWorkspace }>(
-        "select acct_workspace('2026-01-01','2026-02-28') r",
+        "select accounting.workspace('2026-01-01','2026-02-28') r",
       )
     ).rows[0].r;
     check(corrected.reports.net_income_cents, "-125000");
@@ -316,7 +307,7 @@ async function main() {
       entryIds[2],
     );
     await rejected(
-      "select acct_command($1,$2::jsonb)",
+      "select accounting.operate(jsonb_build_object('key',$1::uuid,'command',$2::jsonb))",
       [
         randomUUID(),
         JSON.stringify({
@@ -330,13 +321,13 @@ async function main() {
       /ACCT_ALREADY_REVERSED/,
     );
     const exportData = (
-      await db.query<{
+      await exportState<{
         r: {
           lines: { amount_cents: string }[];
           entries: unknown[];
           audit: unknown[];
         };
-      }>("select acct_export() r")
+      }>()
     ).rows[0].r;
     check(
       exportData.lines.every((l) => typeof l.amount_cents === "string"),
@@ -369,7 +360,7 @@ async function main() {
     }
     const huge = (
       await db.query<{ r: AccountingWorkspace }>(
-        "select acct_workspace('2099-01-01','2099-12-31') r",
+        "select accounting.workspace('2099-01-01','2099-12-31') r",
       )
     ).rows[0].r;
     check(
@@ -378,7 +369,7 @@ async function main() {
     );
     check(huge.reports.balance_difference_cents, "0");
     const exact = (
-      await db.query<{
+      await exportState<{
         r: {
           settings: { financial_revision: string };
           lines: { amount_cents: string }[];
@@ -387,7 +378,7 @@ async function main() {
             after_value: Record<string, unknown> | null;
           }[];
         };
-      }>("select acct_export() r")
+      }>()
     ).rows[0].r;
     check(typeof exact.settings.financial_revision, "string");
     check(
@@ -409,12 +400,12 @@ async function main() {
     );
     await db.exec("reset role; set role anon;");
     await rejected(
-      "select acct_workspace('2026-01-01','2026-12-31')",
+      "select accounting.workspace('2026-01-01','2026-12-31')",
       [],
       /permission denied/,
     );
     await rejected(
-      "select acct_command($1,$2::jsonb)",
+      "select accounting.operate(jsonb_build_object('key',$1::uuid,'command',$2::jsonb))",
       [randomUUID(), JSON.stringify(draft)],
       /permission denied/,
     );

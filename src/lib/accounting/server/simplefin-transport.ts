@@ -340,7 +340,8 @@ export async function requestSimpleFin(
   url.username = "";
   url.password = "";
   url.pathname = url.pathname.replace(/\/$/, "") + "/accounts";
-  url.search = new URLSearchParams({ ...parameters, version: "2" }).toString();
+  // Use the stable protocol by default; the parser also accepts the v2 draft.
+  url.search = new URLSearchParams({ version: "1", ...parameters }).toString();
   const response = await transport(url, "GET", authorization);
   requireSuccess(response);
   try {

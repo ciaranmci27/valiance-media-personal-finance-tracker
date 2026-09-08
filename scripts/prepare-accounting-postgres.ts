@@ -1,5 +1,9 @@
+import { fixtureDatabaseUrl } from "./accounting-fixture-target";
 import { Client } from "pg";
-import { accountingMigrations } from "./accounting-schema";
+import {
+  accountingMigrations,
+  accountingTaxDependencySql,
+} from "./accounting-schema";
 import {
   fixtureOwner,
   fixtureAccounts,
@@ -9,22 +13,12 @@ import {
 import { randomUUID } from "node:crypto";
 
 async function main() {
-  const url =
-    process.env.ACCOUNTING_TEST_DATABASE_URL ??
-    "postgresql://postgres@127.0.0.1:5447/accounting_test";
-  const parsed = new URL(url);
-  if (
-    !["127.0.0.1", "localhost", "[::1]"].includes(parsed.hostname) ||
-    parsed.pathname !== "/accounting_test"
-  )
-    throw new Error(
-      "Only the dedicated local accounting_test database is allowed.",
-    );
+  const url = fixtureDatabaseUrl();
   const db = new Client({ connectionString: url });
   await db.connect();
   try {
     const exists = await db.query(
-      "SELECT to_regclass('public.acct_settings') AS configured",
+      "SELECT EXISTS(SELECT 1 FROM pg_tables WHERE schemaname NOT IN ('pg_catalog','information_schema')) AS configured",
     );
     if (exists.rows[0].configured)
       throw new Error(
@@ -34,14 +28,21 @@ async function main() {
       CREATE SCHEMA auth;CREATE TABLE auth.users(id uuid PRIMARY KEY);
       CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql STABLE AS $$ SELECT nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
       GRANT USAGE ON SCHEMA auth TO anon,authenticated,service_role;GRANT EXECUTE ON FUNCTION auth.uid() TO anon,authenticated,service_role;`);
+    await db.query(`CREATE SCHEMA storage;
+      CREATE TABLE storage.buckets(id text PRIMARY KEY,name text,public boolean DEFAULT false,file_size_limit bigint,allowed_mime_types text[]);
+      CREATE TABLE storage.objects(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),bucket_id text REFERENCES storage.buckets(id),name text,metadata jsonb DEFAULT '{}');
+      ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+      GRANT USAGE ON SCHEMA storage TO authenticated,anon;
+      GRANT SELECT,INSERT,UPDATE,DELETE ON storage.objects TO authenticated,anon;`);
+    await db.query(await accountingTaxDependencySql());
     for (const migration of await accountingMigrations())
       await db.query(migration.sql);
     await db.query(
-      "CREATE TABLE public.acct_test_marker (label text PRIMARY KEY CHECK(label='synthetic-local-accounting')); INSERT INTO public.acct_test_marker VALUES('synthetic-local-accounting'); REVOKE ALL ON public.acct_test_marker FROM PUBLIC,anon,authenticated,service_role;",
+      "CREATE TABLE public.accounting_test_marker (label text PRIMARY KEY CHECK(label='synthetic-local-accounting')); INSERT INTO public.accounting_test_marker VALUES('synthetic-local-accounting'); REVOKE ALL ON public.accounting_test_marker FROM PUBLIC,anon,authenticated,service_role;",
     );
     await db.query("INSERT INTO auth.users VALUES($1);", [fixtureOwner]);
     await db.query(
-      "INSERT INTO acct_settings(owner_user_id,legal_name) VALUES($1,'Synthetic review company')",
+      "INSERT INTO accounting.settings(owner_user_id) VALUES($1)",
       [fixtureOwner],
     );
     await db.query("SET ROLE authenticated");
@@ -49,10 +50,10 @@ async function main() {
       fixtureOwner,
     ]);
     const cmd = (data: object) =>
-      db.query("SELECT acct_execute($1,$2::jsonb)", [
-        randomUUID(),
-        JSON.stringify(data),
-      ]);
+      db.query(
+        "SELECT accounting.operate(jsonb_build_object('key',$1::text,'command',$2::jsonb))",
+        [randomUUID(), JSON.stringify(data)],
+      );
     await cmd({
       type: "chart.seed",
       id: randomUUID(),

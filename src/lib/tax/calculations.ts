@@ -239,25 +239,26 @@ export function calculateFicaTax(
   w2Income: number,
   seIncome: number,
   filingStatus: FilingStatus,
-  config: TaxYearConfig["ficaTax"]
+  config: TaxYearConfig["ficaTax"],
+  medicareWages: number = w2Income
 ): FicaTaxResult {
-  if (w2Income <= 0) {
+  if (w2Income <= 0 && medicareWages <= 0) {
     return { ssTax: 0, medicareTax: 0, additionalMedicare: 0, total: 0 };
   }
 
   // SS: 6.2% on W-2 wages, capped at shared wage base
-  const ssTaxableIncome = Math.min(w2Income, config.ssWageBase);
+  const ssTaxableIncome = Math.min(Math.max(0, w2Income), config.ssWageBase);
   const ssTax = ssTaxableIncome * config.ssRate;
 
   // Medicare: 1.45% on all W-2 wages (no cap)
-  const medicareTax = w2Income * config.medicareRate;
+  const medicareTax = Math.max(0, medicareWages) * config.medicareRate;
 
   // Additional Medicare: 0.9% on W-2 wages exceeding threshold
   // Only the W-2 portion here; SE calc handles its own Additional Medicare
   const threshold = config.additionalMedicareThreshold[filingStatus];
   const additionalMedicare =
-    w2Income > threshold
-      ? (w2Income - threshold) * config.additionalMedicareRate
+    medicareWages > threshold
+      ? (medicareWages - threshold) * config.additionalMedicareRate
       : 0;
 
   const total = ssTax + medicareTax + additionalMedicare;
@@ -544,6 +545,13 @@ export function calculateFullTax(
 
   // W-2 wages only (subject to FICA)
   const w2Income = sum(incomeSources.filter((s) => s.income_type === "w2" && !s.subject_to_se));
+  const wageMeasure = (s: TaxIncomeSource, field: "social_security" | "medicare") =>
+    s.wage_bases?.[field] ?? s.amount;
+  const allW2 = incomeSources.filter((s) => s.income_type === "w2" && !s.subject_to_se);
+  const medicareWages = allW2.reduce((total, s) => total + wageMeasure(s, "medicare"), 0);
+  const stateWageAdjustment = allW2.reduce((total, s) =>
+    total + (stateCode && s.wage_bases?.state_code === stateCode && s.wage_bases.state !== undefined
+      ? s.wage_bases.state - s.amount : 0), 0);
   const seIncome = sum(incomeSources.filter((s) => s.subject_to_se));
   const passiveIncome = sum(
     incomeSources.filter((s) => s.income_type === "k1" && !s.subject_to_se)
@@ -597,13 +605,15 @@ export function calculateFullTax(
 
   for (const who of people) {
     const rows = rowsFor(who);
-    const personW2 = sum(rows.filter((s) => s.income_type === "w2" && !s.subject_to_se));
+    const personW2Rows = rows.filter((s) => s.income_type === "w2" && !s.subject_to_se);
+    const personW2 = personW2Rows.reduce((total, s) => total + wageMeasure(s, "social_security"), 0);
+    const personMedicare = personW2Rows.reduce((total, s) => total + wageMeasure(s, "medicare"), 0);
     const personSe = sum(rows.filter((s) => s.subject_to_se));
 
     // Reuse the audited single-person helpers, then discard their Additional
     // Medicare component, which is re-derived below against the joint threshold.
     const personSeTax = calculateSelfEmploymentTax(personSe, personW2, filingStatus, config.seTax);
-    const personFica = calculateFicaTax(personW2, personSe, filingStatus, config.ficaTax);
+    const personFica = calculateFicaTax(personW2, personSe, filingStatus, config.ficaTax, personMedicare);
 
     seSsTax += personSeTax.ssTax;
     seMedicareTax += personSeTax.medicareTax;
@@ -614,15 +624,15 @@ export function calculateFullTax(
   }
 
   const addlMedicareThreshold = config.seTax.additionalMedicareThreshold[filingStatus];
-  const combinedEarnings = w2Income + seNetEarnings;
+  const combinedEarnings = medicareWages + seNetEarnings;
   const totalAdditionalMedicare =
     combinedEarnings > addlMedicareThreshold
       ? (combinedEarnings - addlMedicareThreshold) * config.seTax.additionalMedicareRate
       : 0;
   // Split for reporting: wages are reached before self-employment earnings.
   const w2AdditionalMedicare =
-    w2Income > addlMedicareThreshold
-      ? (w2Income - addlMedicareThreshold) * config.ficaTax.additionalMedicareRate
+    medicareWages > addlMedicareThreshold
+      ? (medicareWages - addlMedicareThreshold) * config.ficaTax.additionalMedicareRate
       : 0;
   const seAdditionalMedicare = Math.max(0, totalAdditionalMedicare - w2AdditionalMedicare);
 
@@ -667,7 +677,7 @@ export function calculateFullTax(
     qbiBusinessIncome = 0;
   } else if (taxClassification && qbiPassThroughClassifications.includes(taxClassification)) {
     // K-1 income is pass-through business income and qualifies even when it is not
-    // SE-taxed (an S Corp distribution, for example). A 1099 row only qualifies when
+    // SE-taxed (S corporation ordinary business income, for example). A 1099 row only qualifies when
     // it is SE-subject: non-SE 1099 rows are interest and dividends, which
     // IRC 199A(c)(3)(B) excludes from QBI and which this engine already counts as
     // investment income for NIIT below.
@@ -798,8 +808,8 @@ export function calculateFullTax(
 
   // 12. State tax (uses AGI + state's own standard deduction, not federal taxable income)
   const stateResult = calculateStateTax(
-    agi,
-    taxableIncome,
+    agi + stateWageAdjustment,
+    taxableIncome + stateWageAdjustment,
     stateCode,
     filingStatus,
     standardDeduction,
@@ -881,7 +891,7 @@ export function calculateFullTax(
   const additionalMedicareEmployerWithheld = w2Sources.reduce(
     (sum, src) =>
       sum +
-      Math.max(0, src.amount - employerAddlMedicareThreshold) *
+      Math.max(0, wageMeasure(src, "medicare") - employerAddlMedicareThreshold) *
         config.ficaTax.additionalMedicareRate,
     0
   );
@@ -892,7 +902,7 @@ export function calculateFullTax(
   // line 11). Crediting the liability figure instead would silently swallow it.
   const socialSecurityWithheld = w2Sources.reduce(
     (sum, src) =>
-      sum + Math.min(Math.max(0, src.amount), config.ficaTax.ssWageBase) * config.ficaTax.ssRate,
+      sum + Math.min(Math.max(0, wageMeasure(src, "social_security")), config.ficaTax.ssWageBase) * config.ficaTax.ssRate,
     0
   );
   const excessSocialSecurityWithheld = Math.max(0, socialSecurityWithheld - ficaTax.ssTax);

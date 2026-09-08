@@ -1,8 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
 import { CheckCircle2, ShieldCheck, ArrowUpRight } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import {
   Dialog,
   DialogContent,
@@ -10,8 +12,10 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { MaskedValue } from "@/components/ui/masked-value";
-import { parseUsd, formatCents } from "@/lib/accounting/money";
+import { CustomSelect } from "@/components/ui/select";
+import { parseUsd } from "@/lib/accounting/money";
 import type {
   HistoryControls,
   HistoryPreview,
@@ -19,6 +23,13 @@ import type {
 } from "@/lib/accounting/history";
 import { AccountingDocumentPicker } from "./accounting-document-picker";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+import {
+  dateLabel,
+  dateShortLabel,
+  enumLabel,
+  money,
+  monthLabel,
+} from "./format";
 
 const emptyTotals = {
   assets_cents: "0",
@@ -44,12 +55,17 @@ async function compareHistory(
 }
 function Money({ value }: { value: string | bigint }) {
   return (
-    <MaskedValue
-      value={formatCents(value)}
-      className="font-mono tabular-nums"
-    />
+    <MaskedValue value={money(value)} className="font-mono tabular-nums" />
   );
 }
+type MonthRow = HistoryPreview["monthly"][number];
+const monthKeys = [
+  "income_cents",
+  "expense_cents",
+  "net_income_cents",
+] as const;
+const monthFields = ["income", "expenses", "net income"];
+const monthHeaders = ["Source income", "Source expenses", "Source net income"];
 
 export function AccountingHistory({
   date,
@@ -72,17 +88,19 @@ export function AccountingHistory({
     [totals, setTotals] = useState<Record<string, string>>({}),
     [doc, setDoc] = useState(""),
     [reason, setReason] = useState(""),
-    [basis, setBasis] = useState(false),
-    [classification, setClassification] = useState("unverified");
+    [basis, setBasis] = useState(false);
   const [compared, setCompared] = useState<{
       controls: HistoryControls;
       result: HistoryPreview;
     } | null>(null),
     [verifyId, setVerifyId] = useState(() => crypto.randomUUID()),
-    [lock, setLock] = useState<HistoryView["checks"][number] | null>(null),
-    [disposition, setDisposition] = useState<
-      HistoryView["excluded"][number] | null
-    >(null);
+    [lock, setLock] = useState<HistoryView["checks"][number] | null>(null);
+  // What the source report proves: the opening balances of the first year on
+  // the books, or a later year's annual totals.
+  const [kind, setKind] = useState<"opening_balances" | "annual_totals">(
+      "annual_totals",
+    ),
+    [explanation, setExplanation] = useState("");
   const refresh = async () => {
     setTick((t) => t + 1);
     await onRefresh();
@@ -103,10 +121,6 @@ export function AccountingHistory({
       .then(([p, h]) => {
         setData(p);
         setHistory(h);
-        setClassification(
-          h.years.find((y) => y.year === Number(from.slice(0, 4)))
-            ?.classification ?? "unverified",
-        );
         setError("");
       })
       .catch((e) => {
@@ -126,6 +140,7 @@ export function AccountingHistory({
     setDoc("");
     setBasis(false);
     setReason("");
+    setExplanation("");
   }
   async function compare() {
     if (!data || busy) return;
@@ -180,9 +195,70 @@ export function AccountingHistory({
       setBusy(false);
     }
   }
+  const monthField = (m: MonthRow, i: number, id?: string) => {
+    const key = monthKeys[i];
+    return (
+      <>
+        <Input
+          id={id}
+          label={id ? monthHeaders[i] : undefined}
+          aria-label={
+            id ? undefined : `${monthLabel(m.from)} source ${monthFields[i]}`
+          }
+          inputMode="decimal"
+          placeholder="Enter source amount"
+          value={monthly[`${m.from}:${key}`] ?? ""}
+          onChange={(e) => {
+            setMonthly((v) => ({
+              ...v,
+              [`${m.from}:${key}`]: e.target.value,
+            }));
+            dirty();
+          }}
+        />
+        <p className="mt-2 text-xs text-muted-foreground">
+          Books: <Money value={m.actual[key]} />
+        </p>
+      </>
+    );
+  };
+  const monthlyColumns: DataTableColumn<MonthRow>[] = [
+    {
+      key: "period",
+      header: "Period",
+      className: "whitespace-nowrap align-top",
+      render: (m) => (
+        <>
+          <p className="font-medium">{monthLabel(m.from)}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {dateShortLabel(m.from)} through {dateShortLabel(m.to)}
+          </p>
+        </>
+      ),
+    },
+    ...monthHeaders.map((header, i) => ({
+      key: monthKeys[i],
+      header,
+      className: "min-w-44",
+      render: (m: MonthRow) => monthField(m, i),
+    })),
+  ];
+  const monthlyCard = (m: MonthRow) => (
+    <div className="glass-card rounded-xl p-4">
+      <p className="text-sm font-medium">{monthLabel(m.from)}</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        {dateShortLabel(m.from)} through {dateShortLabel(m.to)}
+      </p>
+      <div className="mt-3 space-y-3">
+        {monthKeys.map((key, i) => (
+          <div key={key}>{monthField(m, i, `${m.from}-${key}`)}</div>
+        ))}
+      </div>
+    </div>
+  );
   if (demo)
     return (
-      <div className="glass-card p-6 text-sm text-muted-foreground">
+      <div className="glass-card rounded-xl p-6 text-sm text-muted-foreground">
         Historical verification is available in the owner books.
       </div>
     );
@@ -206,7 +282,7 @@ export function AccountingHistory({
           Refresh book controls
         </Button>
       </div>
-      <section className="glass-card p-5">
+      <section className="glass-card rounded-xl p-5">
         <div className="grid gap-4 sm:grid-cols-2">
           <Input
             label="Source report starts"
@@ -240,7 +316,7 @@ export function AccountingHistory({
       {(error || command.error) && (
         <p
           role="alert"
-          className="rounded-lg border border-error/30 p-4 text-sm text-error"
+          className="rounded-lg border border-error/30 bg-error/10 p-4 text-sm text-error"
         >
           {error || command.error}
         </p>
@@ -250,7 +326,7 @@ export function AccountingHistory({
       )}
       {data && history && (
         <>
-          <section className="glass-card p-5">
+          <section className="glass-card rounded-xl p-5">
             <h3 className="font-semibold">1. Source evidence and entity</h3>
             <p className="mt-2 text-sm text-muted-foreground">
               Keep the source P&amp;L and balance sheet together in one
@@ -267,59 +343,42 @@ export function AccountingHistory({
                 label="Independent source reports"
               />
             </div>
-            <label className="mt-4 flex items-start gap-3 text-sm">
-              <input
-                type="checkbox"
-                className="mt-1"
-                checked={basis}
-                onChange={(e) => {
-                  setBasis(e.target.checked);
+            <div className="mt-4">
+              <CustomSelect
+                id="history-kind"
+                label="What the report proves"
+                value={kind}
+                onChange={(v) => {
+                  setKind(
+                    v === "opening_balances"
+                      ? "opening_balances"
+                      : "annual_totals",
+                  );
                   dirty();
                 }}
+                options={[
+                  {
+                    value: "annual_totals",
+                    label: "Annual totals for this year",
+                  },
+                  {
+                    value: "opening_balances",
+                    label: "Opening balances of the first year on the books",
+                  },
+                ]}
               />
-              <span>
-                I confirmed that these reports use cash-basis accounting and the
-                exact dates selected above.
-              </span>
-            </label>
-            <div className="mt-4 flex flex-wrap items-end gap-3">
-              <label className="min-w-48 flex-1 text-sm">
-                {from.slice(0, 4)} entity classification
-                <select
-                  className="mt-1 h-10 w-full rounded-lg border border-border bg-input px-3"
-                  value={classification}
-                  onChange={(e) => {
-                    setClassification(e.target.value);
-                    dirty();
-                  }}
-                >
-                  <option value="unverified">Unverified</option>
-                  <option value="s_corp">S corporation</option>
-                  <option value="other">Other classification</option>
-                </select>
-              </label>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={command.busy || classification === "unverified"}
-                onClick={async () => {
-                  await command.execute({
-                    type: "year.configure",
-                    id: crypto.randomUUID(),
-                    expected_revision: history.revision,
-                    year: Number(from.slice(0, 4)),
-                    classification: classification as
-                      | "s_corp"
-                      | "other"
-                      | "unverified",
-                  });
-                }}
-              >
-                Confirm year
-              </Button>
             </div>
+            <Checkbox
+              className="mt-4 items-start text-left"
+              checked={basis}
+              onChange={(checked) => {
+                setBasis(checked);
+                dirty();
+              }}
+              label="I confirmed that these reports use cash-basis accounting and the exact dates selected above."
+            />
           </section>
-          <section className="glass-card overflow-hidden">
+          <section className="glass-card overflow-hidden rounded-xl">
             <div className="border-b border-border p-5">
               <h3 className="font-semibold">2. Monthly P&amp;L controls</h3>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -327,58 +386,16 @@ export function AccountingHistory({
                 totals cannot hide a difference between months.
               </p>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[610px] text-sm">
-                <thead className="bg-secondary/30 text-left text-xs text-muted-foreground">
-                  <tr>
-                    <th className="p-4">Period</th>
-                    <th className="p-4">Source income</th>
-                    <th className="p-4">Source expenses</th>
-                    <th className="p-4">Source net income</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.monthly.map((m) => (
-                    <tr key={m.from} className="border-t border-border">
-                      <td className="p-4 align-top">
-                        <p className="font-medium">{m.from.slice(0, 7)}</p>
-                        <p className="mt-1 text-[11px] text-muted-foreground">
-                          {m.from.slice(8)} through {m.to.slice(8)}
-                        </p>
-                      </td>
-                      {(
-                        [
-                          "income_cents",
-                          "expense_cents",
-                          "net_income_cents",
-                        ] as const
-                      ).map((key, i) => (
-                        <td key={key} className="p-3">
-                          <Input
-                            aria-label={`${m.from.slice(0, 7)} source ${["income", "expenses", "net income"][i]}`}
-                            inputMode="decimal"
-                            placeholder="Enter source amount"
-                            value={monthly[`${m.from}:${key}`] ?? ""}
-                            onChange={(e) => {
-                              setMonthly((v) => ({
-                                ...v,
-                                [`${m.from}:${key}`]: e.target.value,
-                              }));
-                              dirty();
-                            }}
-                          />
-                          <p className="mt-2 text-[11px] text-muted-foreground">
-                            Books: <Money value={m.actual[key]} />
-                          </p>
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              columns={monthlyColumns}
+              data={data.monthly}
+              keyExtractor={(m) => m.from}
+              framed={false}
+              className="max-lg:p-4"
+              mobileCard={monthlyCard}
+            />
           </section>
-          <section className="glass-card overflow-hidden">
+          <section className="glass-card overflow-hidden rounded-xl">
             <div className="border-b border-border p-5">
               <h3 className="font-semibold">3. Mapped account controls</h3>
               <p className="mt-1 text-xs text-muted-foreground">
@@ -401,7 +418,7 @@ export function AccountingHistory({
                         {a.code} {a.name}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {a.account_type} · Books:{" "}
+                        {enumLabel(a.account_type)} · Books:{" "}
                         <Money
                           value={
                             BigInt(a.actual_cents) *
@@ -427,7 +444,7 @@ export function AccountingHistory({
                 ))}
             </div>
           </section>
-          <section className="glass-card p-5">
+          <section className="glass-card rounded-xl p-5">
             <h3 className="font-semibold">4. Balance-sheet totals</h3>
             <div className="mt-4 grid gap-4 sm:grid-cols-3">
               {[
@@ -494,7 +511,7 @@ export function AccountingHistory({
           </section>
           {compared && (
             <section
-              className={`glass-card p-5 ${compared.result.ready ? "border-teal-light/30" : ""}`}
+              className={`glass-card rounded-xl p-5 ${compared.result.ready ? "border-teal-light/30" : ""}`}
             >
               <div className="flex items-start gap-3">
                 <ShieldCheck
@@ -504,6 +521,7 @@ export function AccountingHistory({
                       : "text-muted-foreground"
                   }
                   size={22}
+                  aria-hidden="true"
                 />
                 <div>
                   <h3 className="font-semibold">
@@ -521,12 +539,10 @@ export function AccountingHistory({
                   <p className="mt-2 text-xs text-muted-foreground">
                     {!compared.result.scope_ended &&
                       "The selected scope extends beyond today. "}
-                    {!compared.result.entity_verified &&
-                      "Confirm the year’s entity classification. "}
                     {compared.result.partial_year
                       ? "Partial-year coverage"
                       : "Full calendar-year coverage"}{" "}
-                    · {from} to {to}
+                    · {dateLabel(from)} to {dateLabel(to)}
                   </p>
                 </div>
               </div>
@@ -552,13 +568,63 @@ export function AccountingHistory({
                     }
                   }}
                 >
-                  <CheckCircle2 size={15} />
+                  <CheckCircle2 size={15} aria-hidden="true" />
                   Accept verified coverage
                 </Button>
               )}
+              {!compared.result.ready && (
+                <div className="mt-4 space-y-4">
+                  <Input
+                    label="Explanation for the differences"
+                    maxLength={3000}
+                    value={explanation}
+                    onChange={(e) => setExplanation(e.target.value)}
+                    placeholder="Why the books and the source report differ"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Records this comparison with its evidence. With an
+                    explanation and no drafts or source exceptions it is saved
+                    as explained; otherwise it is saved as a mismatch.
+                  </p>
+                  <Button
+                    variant="outline"
+                    disabled={!doc || !reason.trim() || command.busy}
+                    loading={command.busy}
+                    onClick={async () => {
+                      const note = explanation.trim();
+                      if (
+                        await command.execute({
+                          type: "history.check",
+                          id: verifyId,
+                          expected_revision: compared.result.revision,
+                          fiscal_year: Number(
+                            compared.controls.from.slice(0, 4),
+                          ),
+                          kind,
+                          from: compared.controls.from,
+                          to: compared.controls.to,
+                          document_id: doc,
+                          reason,
+                          ...(note ? { explanation: note } : {}),
+                          expected: {
+                            monthly: compared.controls.monthly,
+                            accounts: compared.controls.accounts,
+                            totals: compared.controls.totals,
+                          },
+                        })
+                      ) {
+                        setCompared(null);
+                        setVerifyId(crypto.randomUUID());
+                      }
+                    }}
+                  >
+                    Record this comparison
+                  </Button>
+                </div>
+              )}
             </section>
           )}
-          <section className="glass-card overflow-hidden">
+          <section className="glass-card overflow-hidden rounded-xl">
             <div className="border-b border-border p-5">
               <h3 className="font-semibold">Saved verifications</h3>
             </div>
@@ -575,17 +641,15 @@ export function AccountingHistory({
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="text-sm font-medium">
-                      {h.from_date} to {h.to_date}
+                      {dateLabel(h.from_date)} to {dateLabel(h.to_date)}
                     </p>
-                    <span
-                      className={`text-xs ${h.invalidated ? "text-warning" : "text-teal-light"}`}
-                    >
+                    <Badge variant={h.invalidated ? "warning" : "info"}>
                       {h.invalidated
                         ? "Needs fresh comparison"
                         : h.controls.proof.partial_year
                           ? "Verified partial year"
                           : "Verified full year"}
-                    </span>
+                    </Badge>
                   </div>
                   <p className="mt-2 text-sm text-muted-foreground">
                     {h.explanation}
@@ -598,7 +662,7 @@ export function AccountingHistory({
                       rel="noreferrer"
                     >
                       Source reports
-                      <ArrowUpRight size={13} />
+                      <ArrowUpRight size={13} aria-hidden="true" />
                     </a>
                     <Button
                       variant="outline"
@@ -616,47 +680,13 @@ export function AccountingHistory({
                   {(h.locked_months ?? []).length > 0 && (
                     <p className="mt-3 text-xs text-teal-light">
                       Historical baselines locked:{" "}
-                      {h.locked_months.map((m) => m.slice(0, 7)).join(", ")}.
+                      {h.locked_months.map((m) => monthLabel(m)).join(", ")}.
                     </p>
                   )}
                 </div>
               ))
             )}
           </section>
-          {history.excluded.length > 0 && (
-            <section className="glass-card overflow-hidden">
-              <div className="border-b border-border p-5">
-                <h3 className="font-semibold">Excluded source groups</h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Economic or unsupported exclusions keep coverage incomplete.
-                  Annual closing normalization requires exact nominal-balance
-                  proof and evidence.
-                </p>
-              </div>
-              {history.excluded.map((g) => (
-                <div
-                  key={g.id}
-                  className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-5 text-sm last:border-0"
-                >
-                  <div>
-                    <p className="font-medium">{g.memo}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {g.entry_date} ·{" "}
-                      {g.disposition?.kind.replace("_", " ") ??
-                        "Unresolved exclusion"}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setDisposition(g)}
-                  >
-                    Review treatment
-                  </Button>
-                </div>
-              ))}
-            </section>
-          )}
         </>
       )}
       {lock && history && (
@@ -666,17 +696,6 @@ export function AccountingHistory({
           onClose={() => setLock(null)}
           onSaved={async () => {
             setLock(null);
-            await refresh();
-          }}
-        />
-      )}
-      {disposition && history && (
-        <DispositionForm
-          value={disposition}
-          revision={history.revision}
-          onClose={() => setDisposition(null)}
-          onSaved={async () => {
-            setDisposition(null);
             await refresh();
           }}
         />
@@ -708,10 +727,11 @@ function HistoryLock({
         <DialogHeader>
           <DialogTitle>Accept these historical month baselines?</DialogTitle>
           <DialogDescription>
-            Lock full calendar months inside {value.from_date} to{" "}
-            {value.to_date}, retaining this source-report parity proof. These
-            records are labeled historical baselines. No local statement matches
-            are invented, and no new opening balance is posted.
+            Lock full calendar months inside {dateLabel(value.from_date)} to{" "}
+            {dateLabel(value.to_date)}, retaining this source-report parity
+            proof. These records are labeled historical baselines. No local
+            statement matches are invented, and no new opening balance is
+            posted.
           </DialogDescription>
         </DialogHeader>
         {cmd.error && (
@@ -738,89 +758,6 @@ function HistoryLock({
             Lock covered full months
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-function DispositionForm({
-  value,
-  revision,
-  onClose,
-  onSaved,
-}: {
-  value: HistoryView["excluded"][number];
-  revision: string;
-  onClose: () => void;
-  onSaved: () => Promise<void>;
-}) {
-  const [id] = useState(() => crypto.randomUUID()),
-    [kind, setKind] = useState<"annual_closing" | "unsupported">("unsupported"),
-    [doc, setDoc] = useState(""),
-    [reason, setReason] = useState("");
-  const cmd = useAccountingCommand(onSaved);
-  return (
-    <Dialog
-      open
-      onOpenChange={(v) => {
-        if (!v && !cmd.busy) onClose();
-      }}
-    >
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Review excluded source treatment</DialogTitle>
-          <DialogDescription>
-            {value.memo} · {value.entry_date}. Retain the original source
-            evidence. A later treatment review preserves the earlier record and
-            invalidates affected parity checks.
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          className="space-y-4"
-          onSubmit={async (e) => {
-            e.preventDefault();
-            await cmd.execute({
-              type: "history.disposition",
-              id,
-              expected_revision: revision,
-              group_id: value.id,
-              kind,
-              document_id: doc,
-              reason,
-            });
-          }}
-        >
-          <label className="block text-sm">
-            Treatment
-            <select
-              className="mt-1 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm"
-              value={kind}
-              onChange={(e) => setKind(e.target.value as typeof kind)}
-            >
-              <option value="unsupported">
-                Unresolved or unsupported economic record
-              </option>
-              <option value="annual_closing">
-                Non-economic annual closing normalization
-              </option>
-            </select>
-          </label>
-          <AccountingDocumentPicker value={doc} onChange={setDoc} />
-          <Input
-            label="Source and treatment explanation"
-            required
-            maxLength={3000}
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-          />
-          {cmd.error && (
-            <p role="alert" className="text-sm text-error">
-              {cmd.error}
-            </p>
-          )}
-          <Button type="submit" disabled={!doc || cmd.busy} loading={cmd.busy}>
-            Save reviewed treatment
-          </Button>
-        </form>
       </DialogContent>
     </Dialog>
   );

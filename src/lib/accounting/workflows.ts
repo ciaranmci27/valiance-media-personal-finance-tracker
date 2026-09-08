@@ -6,10 +6,15 @@ import { closeCommandSchema } from "./close";
 import { historyCommandSchema } from "./history";
 import { transferCommandSchema } from "./transfers";
 import { bankCommandSchema } from "./bank-matching";
-import { retainedCommandSchema, retainedReviewSchema } from "./retained-review";
-import { statementCommandSchema } from "./statement-files";
 import { rulesCommandSchema } from "./rules";
 import { feedCommandSchema } from "./feeds";
+import { cashAllocationCommand, reportCaptureCommand } from "./reports";
+import { payrollCommandSchema } from "./payroll";
+import { taxWorkpaperCommandSchema } from "./tax-workpapers";
+import { taxLinkCommandSchema } from "./tax-links";
+import { registerCommandSchema } from "./registers";
+import { supportReportCommandSchema } from "./support-reports";
+import { booksPackageCommandSchema } from "./books-package";
 import type { RuleCandidate } from "./rules";
 
 const id = z.uuid();
@@ -63,30 +68,10 @@ const contextFields = {
       "owner",
       "loan",
       "asset",
-      "invoice_receipt",
       "refund",
     ])
     .default("manual"),
   payee_id: optionalId,
-  customer_id: optionalId,
-  project_id: optionalId,
-  business_line_id: optionalId,
-  payment_rail: z
-    .enum([
-      "unknown",
-      "ach",
-      "check",
-      "cash",
-      "card",
-      "third_party",
-      "wire",
-      "other",
-    ])
-    .default("unknown"),
-  contractor_treatment: z
-    .enum(["unreviewed", "reportable", "excluded"])
-    .default("unreviewed"),
-  contractor_reason: z.string().max(1000).default(""),
 };
 const registerFilterObject = z
   .object({
@@ -99,9 +84,16 @@ const registerFilterObject = z
       .enum(["wave", "simplefin", "csv", "manual", "internal"])
       .optional(),
     query: z.string().trim().max(200).optional(),
+    sort: z
+      .enum([
+        "date_desc",
+        "date_asc",
+        "amount_desc",
+        "amount_asc",
+        "description",
+      ])
+      .optional(),
     payee: id.optional(),
-    project: id.optional(),
-    business_line: id.optional(),
     missing_receipt: z.boolean().optional(),
     min_cents: z
       .string()
@@ -121,17 +113,117 @@ export const registerFilterSchema = registerFilterObject.refine(
 );
 export type RegisterFilter = z.infer<typeof registerFilterSchema>;
 export const extendedCommandSchema = z.union([
+  taxWorkpaperCommandSchema,
+  taxLinkCommandSchema,
+  registerCommandSchema,
+  supportReportCommandSchema,
+  booksPackageCommandSchema,
+  payrollCommandSchema,
   commandSchema,
   importCommandSchema,
   closeCommandSchema,
   historyCommandSchema,
   transferCommandSchema,
   bankCommandSchema,
-  retainedCommandSchema,
-  statementCommandSchema,
   rulesCommandSchema,
   feedCommandSchema,
+  cashAllocationCommand,
+  reportCaptureCommand,
   z.discriminatedUnion("type", [
+    z
+      .object({
+        type: z.literal("entry.categorize"),
+        id,
+        expected_version: version,
+        account_id: id,
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("entry.split"),
+        id,
+        expected_version: version,
+        splits: z
+          .array(
+            z.union([
+              z
+                .object({
+                  account_id: id,
+                  amount_cents: amount,
+                  memo: z.string().max(500).optional(),
+                })
+                .strict(),
+              z
+                .object({
+                  account_id: id,
+                  share_bps: z.number().int().min(1).max(9999),
+                  memo: z.string().max(500).optional(),
+                })
+                .strict(),
+            ]),
+          )
+          .min(2)
+          .max(99),
+      })
+      .strict(),
+    z.object({ type: z.literal("bank.sync_request"), id }).strict(),
+    z
+      .object({
+        type: z.literal("settings.save"),
+        id,
+        expected_version: version,
+        primary_system: z.enum(["wave", "admin"]).optional(),
+        primary_system_since: dateSchema.nullable().optional(),
+        transfer_window_days: z.number().int().min(0).max(30).optional(),
+        profile_version: version.optional(),
+        business_profile: z
+          .object({
+            legal_name: z.string().trim().min(1).max(200).optional(),
+            dba: z.string().nullable().optional(),
+            entity_type: z
+              .enum([
+                "llc",
+                "corporation",
+                "sole_proprietorship",
+                "partnership",
+              ])
+              .optional(),
+            ein: z
+              .string()
+              .regex(/^[0-9]{2}-?[0-9]{7}$/)
+              .nullable()
+              .optional(),
+            formation_date: dateSchema.nullable().optional(),
+            state_of_formation: z.string().nullable().optional(),
+            address: z.record(z.string(), z.string()).nullable().optional(),
+            phone: z.string().nullable().optional(),
+            email: z.email().nullable().optional(),
+            tax_classification: z
+              .enum(["disregarded", "s_corp", "c_corp", "partnership"])
+              .optional(),
+            tax_classification_since: z
+              .number()
+              .int()
+              .min(1900)
+              .max(2100)
+              .nullable()
+              .optional(),
+            home_state: z.string().nullable().optional(),
+            is_sstb: z.boolean().optional(),
+            fiscal_year_start_month: z.number().int().min(1).max(12).optional(),
+            books_timezone: z.string().min(1).max(100).optional(),
+            earliest_history_date: dateSchema.optional(),
+            owner_name: z.string().nullable().optional(),
+            owner_title: z.string().nullable().optional(),
+            accountant_name: z.string().nullable().optional(),
+            accountant_email: z.email().nullable().optional(),
+            default_email_account_id: optionalId,
+          })
+          .strict()
+          .optional(),
+      })
+      .strict(),
+
     z
       .object({
         type: z.literal("document.link"),
@@ -160,7 +252,7 @@ export const extendedCommandSchema = z.union([
       .strict(),
     z
       .object({
-        type: z.literal("transaction.save"),
+        type: z.enum(["transaction.save", "transaction.review"]),
         id,
         expected_version: version,
         entry_date: dateSchema,
@@ -169,27 +261,17 @@ export const extendedCommandSchema = z.union([
         context: z.object(contextFields).strict().optional(),
       })
       .strict(),
-    z
-      .object({
-        type: z.literal("dimension.save"),
-        id,
-        expected_version: version,
-        name,
-        kind: z.enum(["project", "business_line"]),
-        customer_id: optionalId,
-        is_archived: z.boolean().default(false),
-      })
-      .strict(),
+
     z
       .object({
         type: z.literal("preferences.save"),
         id,
         expected_version: version,
         legal_name: z.string().trim().min(1).max(200),
-        authority_mode: z.enum(["wave_primary", "parallel_pilot"]),
+        primary_system: z.enum(["wave", "admin"]).optional(),
+        primary_system_since: dateSchema.nullable().optional(),
         history_start: dateSchema.nullable(),
         transfer_window_days: z.number().int().min(0).max(30),
-        transit_alert_days: z.number().int().min(1).max(365),
       })
       .strict(),
     z
@@ -204,6 +286,10 @@ export const extendedCommandSchema = z.union([
         parent_account_id: optionalId,
         subtype: z.string().max(100).default(""),
         is_archived: z.boolean(),
+        external_names: z
+          .object({ wave: z.string().trim().min(1).max(250) })
+          .strict()
+          .optional(),
       })
       .strict(),
     z
@@ -245,7 +331,7 @@ export const extendedCommandSchema = z.union([
     z
       .object({
         type: z.literal("entry.correct"),
-        retained_review: retainedReviewSchema.optional(),
+
         reversal_date: dateSchema,
         id,
         expected_version: version,
@@ -278,31 +364,7 @@ export const extendedCommandSchema = z.union([
         is_archived: z.boolean().default(false),
       })
       .strict(),
-    z
-      .object({
-        type: z.literal("template.save"),
-        id,
-        expected_version: version,
-        name,
-        memo,
-        lines: lines.min(2),
-        is_archived: z.boolean().default(false),
-      })
-      .strict(),
-    z
-      .object({
-        type: z.literal("view.save"),
-        id,
-        expected_version: version,
-        name,
-        filters: registerFilterObject
-          .omit({ offset: true, limit: true, entry_id: true })
-          .refine(
-            (v) => !v.from || !v.to || v.from <= v.to,
-            "Choose a valid date range.",
-          ),
-      })
-      .strict(),
+
     z
       .object({
         type: z.literal("report.snapshot"),
@@ -336,40 +398,16 @@ export interface Party {
   notes: string;
   is_archived: boolean;
 }
-export interface JournalTemplate {
-  id: string;
-  version: number;
-  name: string;
-  memo: string;
-  lines: z.infer<typeof lines>;
-  is_archived: boolean;
-}
 export interface ManageData {
   profiles: AccountProfile[];
   parties: Party[];
-  dimensions: {
-    id: string;
-    version: number;
-    name: string;
-    kind: "project" | "business_line";
-    customer_id: string | null;
-    is_archived: boolean;
-  }[];
-  templates: JournalTemplate[];
-  views: {
-    id: string;
-    version: number;
-    name: string;
-    filters: Partial<RegisterFilter>;
-  }[];
   periods: { month_start: string; is_locked: boolean; reason: string }[];
   preferences: {
     version: number;
-    authority_mode: "wave_primary" | "parallel_pilot" | "admin_primary";
-    primary_from: string | null;
+    primary_system: "wave" | "admin";
+    primary_system_since: string | null;
     history_start: string | null;
     transfer_window_days: number;
-    transit_alert_days: number;
   } | null;
 }
 export interface EntryEvidence {

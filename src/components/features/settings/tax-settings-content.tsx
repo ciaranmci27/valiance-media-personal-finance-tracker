@@ -1,7 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
+import {
+  MobileMenuButton,
+  HeaderControls,
+} from "@/components/layout/page-header";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -37,7 +40,16 @@ import {
   getClassificationOptions,
   getDefaultClassification,
 } from "@/components/features/tax/tax-setup-card";
-import type { BusinessType, TaxClassification, TaxEstimate } from "@/types/database";
+import type {
+  BusinessType,
+  TaxClassification,
+  TaxEstimate,
+} from "@/types/database";
+import {
+  describeTaxProfile,
+  loadBusinessProfile,
+  type BusinessProfile,
+} from "@/lib/business-profile";
 
 const FILING_STATUS_OPTIONS = (
   Object.entries(FILING_STATUS_LABELS) as [FilingStatus, string][]
@@ -72,8 +84,20 @@ export function TaxSettingsContent() {
 
   const [loading, setLoading] = React.useState(true);
   const [yearProfiles, setYearProfiles] = React.useState<YearProfile[]>([]);
+  // Structure and classification live on the business profile once it exists.
+  const [businessProfile, setBusinessProfile] =
+    React.useState<BusinessProfile | null>(null);
+  React.useEffect(() => {
+    loadBusinessProfile()
+      .then((result) => {
+        if (result.status === "ready") setBusinessProfile(result.profile);
+      })
+      .catch(() => {
+        /* The per-year controls stay available when the profile cannot load. */
+      });
+  }, []);
   const [expandedYear, setExpandedYear] = React.useState<number | null>(
-    initialYear ? Number(initialYear) : null
+    initialYear ? Number(initialYear) : null,
   );
 
   // Per-year save state
@@ -130,8 +154,8 @@ export function TaxSettingsContent() {
   const updateYear = (taxYear: number, updates: Partial<YearProfile>) => {
     setYearProfiles((prev) =>
       prev.map((p) =>
-        p.taxYear === taxYear ? { ...p, ...updates, dirty: true } : p
-      )
+        p.taxYear === taxYear ? { ...p, ...updates, dirty: true } : p,
+      ),
     );
   };
 
@@ -148,7 +172,8 @@ export function TaxSettingsContent() {
         filing_status: profile.filingStatus,
         state: profile.state || null,
         business_type: profile.businessType,
-        tax_classification: profile.businessType === "none" ? null : profile.taxClassification,
+        tax_classification:
+          profile.businessType === "none" ? null : profile.taxClassification,
       };
 
       if (isDemoMode()) {
@@ -165,13 +190,18 @@ export function TaxSettingsContent() {
       }
 
       setYearProfiles((prev) =>
-        prev.map((p) => (p.taxYear === taxYear ? { ...p, dirty: false } : p))
+        prev.map((p) => (p.taxYear === taxYear ? { ...p, dirty: false } : p)),
       );
       setSavedYear(taxYear);
       setTimeout(() => setSavedYear(null), 2000);
     } catch (err) {
       console.error("Failed to save tax year profile", err);
-      toast("error", err instanceof Error ? err.message : "Could not save. Please try again.");
+      toast(
+        "error",
+        err instanceof Error
+          ? err.message
+          : "Could not save. Please try again.",
+      );
     } finally {
       setSavingYear(null);
     }
@@ -202,7 +232,8 @@ export function TaxSettingsContent() {
         filing_status: source.filingStatus,
         state: source.state || null,
         business_type: source.businessType,
-        tax_classification: source.businessType === "none" ? null : source.taxClassification,
+        tax_classification:
+          source.businessType === "none" ? null : source.taxClassification,
       };
 
       if (isDemoMode()) {
@@ -227,12 +258,15 @@ export function TaxSettingsContent() {
           businessType: source.businessType,
           taxClassification: source.taxClassification,
           dirty: false,
-        }))
+        })),
       );
       toast("success", `Applied ${sourceTaxYear} settings to all years`);
     } catch (err) {
       console.error("Failed to apply settings to all years", err);
-      toast("error", err instanceof Error ? err.message : "Could not apply to all years.");
+      toast(
+        "error",
+        err instanceof Error ? err.message : "Could not apply to all years.",
+      );
     } finally {
       setApplyingAll(false);
     }
@@ -247,7 +281,7 @@ export function TaxSettingsContent() {
     }
     if (!supportedYears.includes(year)) {
       setAddYearError(
-        `Tax rules for ${year} aren't loaded yet. Hang tight for an update, or add them yourself at src/lib/tax-core/years/${year}.ts. Loaded years: ${supportedYears.join(", ")}.`
+        `Tax rules for ${year} aren't loaded yet. Hang tight for an update, or add them yourself at src/lib/tax-core/years/${year}.ts. Loaded years: ${supportedYears.join(", ")}.`,
       );
       return;
     }
@@ -293,7 +327,8 @@ export function TaxSettingsContent() {
         // with a non-uuid value, which Postgres rejects as 22P02 while the UI
         // still renders a saved tick.
         if (error) throw error;
-        if (!data?.id) throw new Error("The year was not created. Please try again.");
+        if (!data?.id)
+          throw new Error("The year was not created. Please try again.");
         newId = data.id;
       }
 
@@ -303,12 +338,13 @@ export function TaxSettingsContent() {
         filingStatus: newRow.filing_status as FilingStatus,
         state: newRow.state ?? "",
         businessType: newRow.business_type as BusinessType,
-        taxClassification: newRow.tax_classification as TaxClassification | null,
+        taxClassification:
+          newRow.tax_classification as TaxClassification | null,
         dirty: false,
       };
 
       setYearProfiles((prev) =>
-        [...prev, newProfile].sort((a, b) => b.taxYear - a.taxYear)
+        [...prev, newProfile].sort((a, b) => b.taxYear - a.taxYear),
       );
       setExpandedYear(year);
       setShowAddYear(false);
@@ -316,7 +352,9 @@ export function TaxSettingsContent() {
       setAddYearError(null);
     } catch (err) {
       console.error("Failed to add tax year", err);
-      setAddYearError(err instanceof Error ? err.message : "Could not add this year.");
+      setAddYearError(
+        err instanceof Error ? err.message : "Could not add this year.",
+      );
     } finally {
       setAddingYear(false);
     }
@@ -331,7 +369,8 @@ export function TaxSettingsContent() {
 
     const confirmed = await confirm({
       title: `Delete ${taxYear} estimate?`,
-      description: "This tax year will be moved to trash. You can restore it later from Settings > Trash.",
+      description:
+        "This tax year will be moved to trash. You can restore it later from Settings > Trash.",
       confirmLabel: "Delete",
       variant: "danger",
     });
@@ -355,7 +394,10 @@ export function TaxSettingsContent() {
       if (expandedYear === taxYear) setExpandedYear(null);
     } catch (err) {
       console.error("Failed to delete tax year", err);
-      toast("error", err instanceof Error ? err.message : "Could not delete this year.");
+      toast(
+        "error",
+        err instanceof Error ? err.message : "Could not delete this year.",
+      );
     } finally {
       setDeletingYear(null);
     }
@@ -368,13 +410,13 @@ export function TaxSettingsContent() {
       <div className="flex flex-wrap items-center justify-between gap-y-2">
         <div className="flex items-center gap-3">
           <MobileMenuButton />
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10">
-            <Calculator className="h-5 w-5 text-violet-500" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-copper/10">
+            <Calculator className="h-5 w-5 text-copper" aria-hidden="true" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold">Tax Settings</h1>
+            <h1 className="text-2xl font-bold">Tax years</h1>
             <p className="text-sm text-muted-foreground">
-              Manage filing profiles for each tax year
+              Filing status and state for each tax year
             </p>
           </div>
         </div>
@@ -410,14 +452,16 @@ export function TaxSettingsContent() {
               const isExpanded = expandedYear === profile.taxYear;
               const isSaving = savingYear === profile.taxYear;
               const isSaved = savedYear === profile.taxYear;
-              const classOptions = getClassificationOptions(profile.businessType);
+              const classOptions = getClassificationOptions(
+                profile.businessType,
+              );
               const showClassification = classOptions.length > 1;
 
               // Summary line
               const businessLabel = (() => {
                 if (profile.businessType === "none") return undefined;
                 const structLabel = BUSINESS_TYPE_OPTIONS.find(
-                  (o) => o.value === profile.businessType
+                  (o) => o.value === profile.businessType,
                 )?.label;
                 if (
                   profile.taxClassification &&
@@ -524,31 +568,51 @@ export function TaxSettingsContent() {
                           placeholder="Select state"
                           size="sm"
                         />
-                        <CustomSelect
-                          label="Business Structure"
-                          value={profile.businessType}
-                          onChange={(val) => {
-                            const bt = val as BusinessType;
-                            updateYear(profile.taxYear, {
-                              businessType: bt,
-                              taxClassification: getDefaultClassification(bt),
-                            });
-                          }}
-                          options={BUSINESS_TYPE_OPTIONS}
-                          size="sm"
-                        />
-                        {showClassification && (
-                          <CustomSelect
-                            label="Tax Classification"
-                            value={profile.taxClassification ?? ""}
-                            onChange={(val) =>
-                              updateYear(profile.taxYear, {
-                                taxClassification: val as TaxClassification,
-                              })
-                            }
-                            options={classOptions}
-                            size="sm"
-                          />
+                        {businessProfile ? (
+                          <div className="sm:col-span-2 rounded-lg border border-border bg-[rgba(var(--ink),0.03)] px-3 py-2.5 text-sm">
+                            <p className="text-xs font-medium text-muted-foreground">
+                              Business structure
+                            </p>
+                            <p className="mt-0.5 flex flex-wrap items-center gap-x-2">
+                              <span>{describeTaxProfile(businessProfile)}</span>
+                              <Link
+                                href="/settings/business"
+                                className="text-teal-light underline-offset-4 hover:underline"
+                              >
+                                Edit in Business settings
+                              </Link>
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <CustomSelect
+                              label="Business Structure"
+                              value={profile.businessType}
+                              onChange={(val) => {
+                                const bt = val as BusinessType;
+                                updateYear(profile.taxYear, {
+                                  businessType: bt,
+                                  taxClassification:
+                                    getDefaultClassification(bt),
+                                });
+                              }}
+                              options={BUSINESS_TYPE_OPTIONS}
+                              size="sm"
+                            />
+                            {showClassification && (
+                              <CustomSelect
+                                label="Tax Classification"
+                                value={profile.taxClassification ?? ""}
+                                onChange={(val) =>
+                                  updateYear(profile.taxYear, {
+                                    taxClassification: val as TaxClassification,
+                                  })
+                                }
+                                options={classOptions}
+                                size="sm"
+                              />
+                            )}
+                          </>
                         )}
                       </div>
 
@@ -599,7 +663,9 @@ export function TaxSettingsContent() {
                   placeholder={`e.g. ${supportedYears[0] ?? 2026}`}
                   value={addYearValue}
                   onChange={(e) => {
-                    const digitsOnly = e.target.value.replace(/\D/g, "").slice(0, 4);
+                    const digitsOnly = e.target.value
+                      .replace(/\D/g, "")
+                      .slice(0, 4);
                     setAddYearValue(digitsOnly);
                     if (addYearError) setAddYearError(null);
                   }}

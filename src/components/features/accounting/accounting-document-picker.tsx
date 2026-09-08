@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import type {
   AccountingDocument,
   DocumentList,
@@ -12,10 +13,12 @@ export function AccountingDocumentPicker({
   value,
   onChange,
   label = "Supporting document",
+  required = true,
 }: {
   value: string;
   onChange: (id: string) => void;
   label?: string;
+  required?: boolean;
 }) {
   const [docs, setDocs] = useState<AccountingDocument[]>([]),
     [offset, setOffset] = useState(0),
@@ -47,24 +50,17 @@ export function AccountingDocumentPicker({
   }, [offset, tick]);
   return (
     <div className="space-y-3">
-      <label className="block text-sm">
-        {label}
-        <select
-          required
-          className="mt-1 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          <option value="">Select an uploaded document</option>
-          {docs
-            .filter((d) => d.state === "available")
-            .map((d) => (
-              <option key={d.id} value={d.id}>
-                {d.original_name}
-              </option>
-            ))}
-        </select>
-      </label>
+      <SearchableSelect
+        label={label}
+        visibleLabel={label}
+        required={required}
+        value={value}
+        onChange={onChange}
+        placeholder="Select an uploaded document"
+        options={docs
+          .filter((d) => d.state === "available")
+          .map((d) => ({ value: d.id, label: d.original_name }))}
+      />
       {docs.length < total && (
         <Button
           type="button"

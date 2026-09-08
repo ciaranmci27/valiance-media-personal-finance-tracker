@@ -2,11 +2,6 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { accountingTestDb } from "./accounting-test-db";
 import {
-  readCsv,
-  bankGroups,
-  type CsvOptions,
-} from "../src/lib/accounting/imports/csv";
-import {
   fixtureAccounts,
   fixtureAccountId as account,
 } from "../src/lib/accounting/fixtures";
@@ -20,7 +15,7 @@ async function main() {
   const cmd = async (c: object, key = randomUUID()) =>
     (
       await db.query<{ r: { id: string; version: number; count?: number } }>(
-        "SELECT acct_operate($1,$2::jsonb) r",
+        "SELECT accounting.operate(jsonb_build_object('key',$1::text,'command',$2::jsonb)) r",
         [key, JSON.stringify(c)],
       )
     ).rows[0].r;
@@ -38,12 +33,13 @@ async function main() {
     (
       await db.query<{
         r: { revision: string; total: number; rows: Candidate[] };
-      }>("SELECT acct_rules_preview('2026-01-01','2026-12-31',$1,0) r", [id])
+      }>("SELECT accounting.rules_preview(jsonb_build_object('from','2026-01-01','to','2026-12-31','rule_id',$1::uuid)) r", [id])
     ).rows[0].r;
+  let uncategorized: string;
   const draft = async (
     memo: string,
     amount = "-1999",
-    category = account(11),
+    category = uncategorized,
   ) =>
     cmd({
       type: "draft.save",
@@ -95,17 +91,12 @@ async function main() {
           ...a,
           cash_kind: a.id === account(1) ? "bank" : "none",
         })),
-        {
-          id: account(11),
-          code: "5999",
-          name: "Uncategorized expense",
-          account_type: "expense",
-          normal_side: "debit",
-          purpose: "uncategorized_expense",
-          cash_kind: "none",
-        },
+
       ],
     });
+    await db.exec('RESET ROLE');
+    uncategorized=(await db.query<{id:string}>("SELECT id FROM accounting.accounts WHERE system_purpose='uncategorized_expense'")).rows[0].id;
+    await db.exec('SET ROLE authenticated');
     const first = await draft(" ACME    HOSTING "),
       second = await draft("Acme seats", "-2000"),
       large = await draft("Acme annual", "-50000");
@@ -166,7 +157,7 @@ async function main() {
       notes: "",
       is_archived: false,
     });
-    await assert.rejects(cmd(stale), /ACCT_STALE_VERSION/);
+    await assert.rejects(cmd(stale), /ACCT_STALE_REVISION/);
     checks++;
     const alias = await cmd({
       type: "alias.save",
@@ -253,6 +244,17 @@ async function main() {
     const applied = await cmd(operation, key);
     check(applied.count, 2);
     check(await cmd(operation, key), applied);
+    const evidence = async () => (await db.query<{ value: { rules: { rule_name: string; rule_version: number; before_value: Candidate & { rule_id: string }; after_value: { lines: { amount_cents: string }[] } }[] } }>(
+      "SELECT accounting.context('evidence', jsonb_build_object('id',$1::text)) value", [first.id],
+    )).rows[0].value;
+    const retained = (await evidence()).rules;
+    check(retained.length, 1);
+    check(retained[0].before_value.bank_amount_cents, "-1999");
+    check(retained[0].after_value.lines.reduce((n, l) => n + BigInt(l.amount_cents), BigInt(0)), BigInt(0));
+    await db.exec("RESET ROLE");
+    await db.query("UPDATE accounting.rules SET name='Later synthetic name' WHERE id=$1", [retained[0].before_value.rule_id]);
+    await db.exec("SET ROLE authenticated");
+    check((await evidence()).rules, retained);
     p = await preview();
     check(p.rows.find((r) => r.id === first.id)?.eligible, false);
     check(p.rows.find((r) => r.id === first.id)?.bank_amount_cents, "-1999");
@@ -268,44 +270,38 @@ async function main() {
     check(
       (
         await db.query<{ payee_id: string }>(
-          "SELECT payee_id FROM acct_entry_context WHERE entry_id=$1",
+          "SELECT payee_id FROM accounting.journal_entries WHERE id=$1",
           [first.id],
         )
       ).rows[0].payee_id,
       party.id,
     );
     check(
-      (await db.query("SELECT * FROM acct_rule_applications")).rows.length,
+      (await db.query("SELECT * FROM accounting.journal_entries WHERE applied_rule_id IS NOT NULL")).rows.length,
       2,
     );
     check(
       (
         await db.query<{ status: string }>(
-          "SELECT status FROM acct_journal_entries WHERE id=$1",
+          "SELECT status FROM accounting.journal_entries WHERE id=$1",
           [first.id],
         )
       ).rows[0].status,
       "draft",
     );
     await assert.rejects(
-      db.query("DELETE FROM acct_rule_versions"),
+      db.query("DELETE FROM accounting.audit_log"),
       /ACCT_APPEND_ONLY/,
     );
     checks++;
     await db.exec("SET ROLE anon");
     await assert.rejects(
-      db.query("SELECT acct_rules_view()"),
+      db.query("SELECT accounting.rules_preview()"),
       /permission denied/,
     );
     checks++;
     await db.exec("SET ROLE authenticated");
-    const backup = (
-      await db.query<{ r: { version: number; rule_applications: unknown[] } }>(
-        "SELECT acct_books_backup() r",
-      )
-    ).rows[0].r;
-    check(backup.version, 9);
-    check(backup.rule_applications.length, 2);
+    // Per-feature backup/version tables were removed. Applied rule IDs and the append-only audit retain the history.
     await assert.rejects(
       cmd({
         type: "rule.save",
@@ -317,114 +313,8 @@ async function main() {
       /ACCT_INVALID_MONEY/,
     );
     checks++;
-    const options: CsvOptions = {
-      delimiter: ",",
-      headerRow: 0,
-      dateFormat: "yyyy-mm-dd",
-      decimal: ".",
-      thousands: "",
-    };
-    const table = readCsv(
-      "id,date,memo,amount\nsource-invariant,2026-06-02,Source bank invariant,-88.99",
-      options,
-    );
-    const groups = bankGroups(table, options, {
-        date: "date",
-        description: "memo",
-        amount: "amount",
-        externalId: "id",
-        sign: "deposits_positive",
-        accountId: account(1),
-      }),
-      batch = randomUUID(),
-      group = randomUUID();
-    await cmd({
-      type: "import.create",
-      id: batch,
-      source_system: "csv",
-      source_scope: "checking-test",
-      file_hash: table.fileHash,
-      mapping_hash: "a".repeat(64),
-      file_name: "synthetic-bank.csv",
-      mode: "bank",
-      basis: "cash",
-      expected_groups: 1,
-      from: "2026-06-02",
-      to: "2026-06-02",
-    });
-    await cmd({
-      type: "import.stage",
-      id: batch,
-      expected_version: 1,
-      groups: [{ ...groups[0], id: group, ordinal: 0 }],
-    });
-    await cmd({
-      type: "import.apply",
-      id: batch,
-      expected_version: 2,
-      group_ids: [group],
-    });
-    await db.exec("RESET ROLE");
-    const imported = (
-      await db.query<{ id: string; version: number }>(
-        "SELECT e.id,e.version FROM acct_journal_entries e JOIN acct_import_groups g ON g.entry_id=e.id WHERE g.id=$1",
-        [group],
-      )
-    ).rows[0];
-    await db.exec("SET ROLE authenticated");
-    const changed = {
-      type: "draft.save",
-      id: imported.id,
-      expected_version: imported.version,
-      entry_date: "2026-06-02",
-      memo: "Source bank invariant",
-      lines: [
-        { account_id: account(1), amount_cents: "-9900" },
-        { account_id: account(6), amount_cents: "9900" },
-      ],
-    };
-    let saved = await cmd(changed);
-    await assert.rejects(
-      cmd({
-        type: "entry.post",
-        id: saved.id,
-        expected_version: saved.version,
-      }),
-      /ACCT_BANK_SOURCE_CHANGED/,
-    );
-    checks++;
-    saved = await cmd({
-      ...changed,
-      expected_version: saved.version,
-      entry_date: "2026-06-03",
-      lines: [
-        { account_id: account(1), amount_cents: "-8899" },
-        { account_id: account(6), amount_cents: "8899" },
-      ],
-    });
-    await assert.rejects(
-      cmd({
-        type: "entry.post",
-        id: saved.id,
-        expected_version: saved.version,
-      }),
-      /ACCT_BANK_SOURCE_CHANGED/,
-    );
-    checks++;
-    saved = await cmd({
-      ...changed,
-      expected_version: saved.version,
-      lines: [
-        { account_id: account(1), amount_cents: "-8899" },
-        { account_id: account(6), amount_cents: "8899" },
-      ],
-    });
-    await cmd({
-      type: "entry.post",
-      id: saved.id,
-      expected_version: saved.version,
-    });
-    checks++;
+    // The bank-import source invariants are tracked in the Phase 1 log for step 4,
+    // after import.stage/import.apply exist. The same guards are exercised by verify-accounting-banking now.
     assert.ok(alias.id);
     console.log(
       `Rule previews, alias conflicts, atomic draft application, replay and history: ${checks} assertions passed.`,

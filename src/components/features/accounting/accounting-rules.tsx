@@ -1,15 +1,15 @@
 "use client";
 import { useEffect, useState } from "react";
-import {
-  Plus,
-  ArrowRight,
-  ChevronLeft,
-  ChevronRight,
-  SlidersHorizontal,
-} from "lucide-react";
+import { Plus, ArrowRight, SlidersHorizontal } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
 import { MaskedValue } from "@/components/ui/masked-value";
+import { Pagination } from "@/components/ui/pagination";
+import { CustomSelect } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -18,17 +18,21 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import type { AccountingWorkspace } from "@/lib/accounting/contracts";
-import type { ManageData } from "@/lib/accounting/workflows";
+import type { BooksMetadata } from "./types";
 import type {
   AccountingRule,
   PayeeAlias,
   RulesView,
   RulesPreview,
 } from "@/lib/accounting/rules";
-import { parseUsd, centsToDecimal, formatCents } from "@/lib/accounting/money";
+import { parseUsd, centsToDecimal } from "@/lib/accounting/money";
+import { AccountingPicker } from "./accounting-picker";
+import { dateLabel, enumLabel, money, timestampLabel } from "./format";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
-const selectStyle =
-  "mt-1 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm";
+
+const PREVIEW_PAGE = 100;
+const linkClass =
+  "rounded text-left transition-colors hover:text-teal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
 export function AccountingRules({
   data,
@@ -38,7 +42,7 @@ export function AccountingRules({
   onEntry,
 }: {
   data: AccountingWorkspace;
-  manage: ManageData;
+  manage: BooksMetadata;
   demo: boolean;
   onRefresh: () => Promise<void>;
   onEntry: (id: string) => void;
@@ -96,7 +100,7 @@ export function AccountingRules({
           from,
           to,
           ...(id ? { rule: id } : {}),
-          offset: String(offset * 100),
+          offset: String(offset * PREVIEW_PAGE),
         }),
       );
     } catch (e) {
@@ -119,6 +123,38 @@ export function AccountingRules({
   );
   const accountName = (id: string) =>
     data.accounts.find((a) => a.id === id)?.name ?? "Unknown account";
+  const aliasStatus = (a: PayeeAlias) => (
+    <Badge variant={a.enabled ? "success" : "default"} size="sm">
+      {a.enabled ? "Enabled" : "Paused"}
+    </Badge>
+  );
+  const aliasColumns: DataTableColumn<PayeeAlias>[] = [
+    {
+      key: "description",
+      header: "Bank description",
+      render: (a) => (
+        <button
+          type="button"
+          className={linkClass}
+          onClick={(e) => {
+            e.stopPropagation();
+            setAlias(a);
+          }}
+        >
+          {a.description}
+        </button>
+      ),
+    },
+    {
+      key: "match",
+      header: "Match",
+      render: (a) => (
+        <span className="text-muted-foreground">{enumLabel(a.match_mode)}</span>
+      ),
+    },
+    { key: "status", header: "Status", render: aliasStatus },
+    { key: "payee", header: "Payee", render: (a) => a.party_name },
+  ];
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap justify-between gap-3">
@@ -151,7 +187,7 @@ export function AccountingRules({
             })
           }
         >
-          <Plus size={15} />
+          <Plus size={15} aria-hidden="true" />
           New rule
         </Button>
       </div>
@@ -184,7 +220,7 @@ export function AccountingRules({
         </div>
         {!state?.rules.length ? (
           <div className="p-6 text-sm text-muted-foreground">
-            <SlidersHorizontal className="mb-3" size={22} />
+            <SlidersHorizontal className="mb-3" size={22} aria-hidden="true" />
             Create a rule for a recurring description, bank account, direction,
             and amount range.
           </div>
@@ -197,18 +233,22 @@ export function AccountingRules({
               <div>
                 <p className="font-medium">
                   {r.name}
-                  <span className="ml-2 rounded-full border border-border px-2 py-0.5 text-xs font-normal">
+                  <Badge
+                    variant={r.enabled ? "success" : "default"}
+                    size="sm"
+                    className="ml-2"
+                  >
                     {r.enabled ? "Enabled for drafts" : "Paused"}
-                  </span>
+                  </Badge>
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   Priority {r.priority} · {accountName(r.bank_account_id)} ·{" "}
-                  {r.description_mode}: {r.description}
+                  {enumLabel(r.description_mode)}: {r.description}
                 </p>
                 <p className="mt-1 text-xs">
                   {accountName(r.category_account_id)} ·{" "}
-                  <MaskedValue value={formatCents(r.min_cents)} /> to{" "}
-                  <MaskedValue value={formatCents(r.max_cents)} />
+                  <MaskedValue value={money(r.min_cents)} /> to{" "}
+                  <MaskedValue value={money(r.max_cents)} />
                 </p>
                 <details className="mt-2 text-xs">
                   <summary className="cursor-pointer text-muted-foreground">
@@ -220,17 +260,18 @@ export function AccountingRules({
                         <p>
                           Version {h.version} ·{" "}
                           {h.enabled ? "Enabled for drafts" : "Paused"} ·{" "}
-                          {new Date(h.created_at).toLocaleString()}
+                          {timestampLabel(h.created_at)}
                         </p>
                         <p className="mt-1 text-muted-foreground">{h.reason}</p>
                         <p className="mt-1">
-                          Priority {h.priority} · {h.description_mode}:{" "}
-                          {h.description} · {accountName(h.bank_account_id)} →{" "}
+                          Priority {h.priority} ·{" "}
+                          {enumLabel(h.description_mode)}: {h.description} ·{" "}
+                          {accountName(h.bank_account_id)} →{" "}
                           {accountName(h.category_account_id)}
                         </p>
                         <p>
-                          <MaskedValue value={formatCents(h.min_cents)} /> to{" "}
-                          <MaskedValue value={formatCents(h.max_cents)} />
+                          <MaskedValue value={money(h.min_cents)} /> to{" "}
+                          <MaskedValue value={money(h.max_cents)} />
                         </p>
                       </div>
                     ))}
@@ -315,26 +356,23 @@ export function AccountingRules({
               invalidate();
             }}
           />
-          <label className="text-sm">
-            Rule
-            <select
-              className={selectStyle}
-              value={ruleId}
-              disabled={loading || cmd.busy}
-              onChange={(e) => {
-                setRuleId(e.target.value);
-                invalidate();
-              }}
-            >
-              <option value="">All enabled rules</option>
-              {state?.rules.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                  {!r.enabled ? " (paused)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
+          <AccountingPicker
+            label="Rule"
+            visibleLabel="Rule"
+            value={ruleId}
+            disabled={loading || cmd.busy}
+            options={[
+              { value: "", label: "All enabled rules" },
+              ...(state?.rules.map((r) => ({
+                value: r.id,
+                label: `${r.name}${!r.enabled ? " (paused)" : ""}`,
+              })) ?? []),
+            ]}
+            onChange={(value) => {
+              setRuleId(value);
+              invalidate();
+            }}
+          />
         </div>
         <Button
           variant="outline"
@@ -362,18 +400,18 @@ export function AccountingRules({
               {preview.rows.map((row) => (
                 <div key={row.id} className="py-4">
                   <div className="flex gap-3">
-                    <input
-                      className="mt-1 h-4 w-4 shrink-0"
-                      type="checkbox"
+                    <Checkbox
+                      size="sm"
+                      className="mt-1 shrink-0"
                       aria-label={`Select ${row.memo}`}
                       checked={selected.has(row.id)}
                       disabled={
                         !row.eligible || !row.winner?.enabled || cmd.busy
                       }
-                      onChange={(e) => {
+                      onChange={(checked) => {
                         setSelected((previous) => {
                           const next = new Set(previous);
-                          if (e.target.checked) next.add(row.id);
+                          if (checked) next.add(row.id);
                           else next.delete(row.id);
                           return next;
                         });
@@ -383,23 +421,25 @@ export function AccountingRules({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap justify-between gap-2">
                         <button
-                          className="text-left text-sm font-medium hover:underline"
+                          type="button"
+                          className="rounded text-left text-sm font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           onClick={() => onEntry(row.id)}
                         >
                           {row.memo}
                         </button>
                         <MaskedValue
-                          className="font-mono text-sm"
-                          value={formatCents(row.bank_amount_cents)}
+                          className="font-mono text-sm tabular-nums"
+                          value={money(row.bank_amount_cents)}
                         />
                       </div>
                       <p className="mt-1 text-xs text-muted-foreground">
-                        {row.entry_date} · {accountName(row.bank_account_id)} ·{" "}
-                        {row.status}
+                        {dateLabel(row.entry_date)} ·{" "}
+                        {accountName(row.bank_account_id)} ·{" "}
+                        {enumLabel(row.status)}
                       </p>
                       <p className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                         {accountName(row.category_account_id)}
-                        <ArrowRight size={13} />
+                        <ArrowRight size={13} aria-hidden="true" />
                         {row.winner?.category_name ?? "No proposed category"}
                       </p>
                       <p className="mt-1 text-xs text-muted-foreground">
@@ -445,7 +485,8 @@ export function AccountingRules({
                                   : ""}
                               </span>
                               <MaskedValue
-                                value={formatCents(l.amount_cents)}
+                                className="tabular-nums"
+                                value={money(l.amount_cents)}
                               />
                             </p>
                           ))}
@@ -456,28 +497,13 @@ export function AccountingRules({
                 </div>
               ))}
             </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                size="icon"
-                variant="outline"
-                aria-label="Previous rule preview page"
-                disabled={!page || loading || cmd.busy}
-                onClick={() => void inspect(ruleId, page - 1)}
-              >
-                <ChevronLeft size={15} />
-              </Button>
-              <Button
-                size="icon"
-                variant="outline"
-                aria-label="Next rule preview page"
-                disabled={
-                  (page + 1) * 100 >= preview.total || loading || cmd.busy
-                }
-                onClick={() => void inspect(ruleId, page + 1)}
-              >
-                <ChevronRight size={15} />
-              </Button>
-            </div>
+            <Pagination
+              offset={page * PREVIEW_PAGE}
+              limit={PREVIEW_PAGE}
+              total={preview.total}
+              busy={loading || cmd.busy}
+              onChange={(offset) => void inspect(ruleId, offset / PREVIEW_PAGE)}
+            />
             {currentRule && !currentRule.enabled && (
               <div className="space-y-3 rounded-lg border border-border p-4">
                 <p className="text-sm">
@@ -490,14 +516,12 @@ export function AccountingRules({
                   onChange={(e) => setReason(e.target.value)}
                   maxLength={1000}
                 />
-                <label className="flex gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={reviewed}
-                    onChange={(e) => setReviewed(e.target.checked)}
-                  />
-                  I reviewed these conditions and the matching transactions.
-                </label>
+                <Checkbox
+                  className="items-start text-left"
+                  checked={reviewed}
+                  onChange={setReviewed}
+                  label="I reviewed these conditions and the matching transactions."
+                />
                 <Button
                   disabled={!reviewed || !reason.trim() || cmd.busy}
                   onClick={async () => {
@@ -530,19 +554,17 @@ export function AccountingRules({
                   {chosen.length === 1 ? "draft" : "drafts"}
                 </p>
                 <p className="text-sm">
-                  {chosen[0].entry_date} to{" "}
-                  {chosen[chosen.length - 1].entry_date} · Increases{" "}
-                  <MaskedValue value={formatCents(totals.increase)} /> ·
-                  Decreases <MaskedValue value={formatCents(totals.decrease)} />
+                  {dateLabel(chosen[0].entry_date)} to{" "}
+                  {dateLabel(chosen[chosen.length - 1].entry_date)} · Increases{" "}
+                  <MaskedValue value={money(totals.increase)} /> · Decreases{" "}
+                  <MaskedValue value={money(totals.decrease)} />
                 </p>
-                <label className="flex gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={reviewed}
-                    onChange={(e) => setReviewed(e.target.checked)}
-                  />
-                  I reviewed the proposed categories and payees.
-                </label>
+                <Checkbox
+                  className="items-start text-left"
+                  checked={reviewed}
+                  onChange={setReviewed}
+                  label="I reviewed the proposed categories and payees."
+                />
                 <Button
                   disabled={!reviewed || cmd.busy}
                   loading={cmd.busy}
@@ -598,30 +620,43 @@ export function AccountingRules({
               })
             }
           >
-            <Plus size={14} />
+            <Plus size={14} aria-hidden="true" />
             Add alias
           </Button>
         </div>
-        {!state?.aliases.length && (
-          <p className="p-5 text-sm text-muted-foreground">
-            No aliases yet. Add a payee in Payees & customers first.
-          </p>
-        )}
-        {state?.aliases.map((a) => (
-          <button
-            key={a.id}
-            className="flex w-full flex-wrap items-center justify-between gap-3 border-b border-border p-4 text-left text-sm last:border-0 hover:bg-secondary/30"
-            onClick={() => setAlias(a)}
-          >
-            <span>
-              {a.description}
-              <span className="mt-1 block text-xs text-muted-foreground">
-                {a.match_mode} · {a.enabled ? "Enabled" : "Paused"}
-              </span>
-            </span>
-            <span>{a.party_name}</span>
-          </button>
-        ))}
+        <div className="p-4 lg:p-0">
+          <DataTable<PayeeAlias>
+            framed={false}
+            columns={aliasColumns}
+            data={state?.aliases ?? []}
+            keyExtractor={(a) => a.id}
+            onRowClick={(a) => setAlias(a)}
+            emptyState="No aliases yet. Add a payee in Payees & customers first."
+            mobileCard={(a) => (
+              <div className="glass-card rounded-xl p-4 text-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <button
+                    type="button"
+                    className={`${linkClass} min-w-0 font-medium`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setAlias(a);
+                    }}
+                  >
+                    {a.description}
+                  </button>
+                  {aliasStatus(a)}
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">
+                    {enumLabel(a.match_mode)}
+                  </span>
+                  <span>{a.party_name}</span>
+                </div>
+              </div>
+            )}
+          />
+        </div>
       </section>
       {editor && (
         <RuleEditor
@@ -665,7 +700,7 @@ function RuleEditor({
 }: {
   rule: AccountingRule;
   data: AccountingWorkspace;
-  manage: ManageData;
+  manage: BooksMetadata;
   onClose: () => void;
   onSaved: (id: string) => Promise<void>;
 }) {
@@ -697,6 +732,9 @@ function RuleEditor({
             ),
         ),
     );
+  const payees = manage.parties
+    .filter((p) => !p.is_archived)
+    .map((p) => ({ value: p.id, label: p.name }));
   return (
     <Dialog
       open
@@ -769,34 +807,25 @@ function RuleEditor({
               value={value.priority}
               onChange={(e) => set("priority", Number(e.target.value))}
             />
-            <label className="text-sm">
-              Bank or card account
-              <select
-                required
-                className={selectStyle}
-                value={value.bank_account_id}
-                onChange={(e) => set("bank_account_id", e.target.value)}
-              >
-                <option value="">Choose account</option>
-                {banks.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-sm">
-              Description comparison
-              <select
-                className={selectStyle}
-                value={value.description_mode}
-                onChange={(e) => set("description_mode", e.target.value)}
-              >
-                <option value="exact">Exact normalized description</option>
-                <option value="prefix">Starts with</option>
-                <option value="contains">Contains</option>
-              </select>
-            </label>
+            <AccountingPicker
+              label="Bank or card account"
+              visibleLabel="Bank or card account"
+              required
+              placeholder="Choose account"
+              value={value.bank_account_id}
+              options={banks.map((a) => ({ value: a.id, label: a.name }))}
+              onChange={(v) => set("bank_account_id", v)}
+            />
+            <CustomSelect
+              label="Description comparison"
+              value={value.description_mode}
+              options={[
+                { value: "exact", label: "Exact normalized description" },
+                { value: "prefix", label: "Starts with" },
+                { value: "contains", label: "Contains" },
+              ]}
+              onChange={(v) => set("description_mode", v)}
+            />
             <Input
               label="Description text"
               required
@@ -804,34 +833,22 @@ function RuleEditor({
               value={value.description}
               onChange={(e) => set("description", e.target.value)}
             />
-            <label className="text-sm">
-              Movement direction
-              <select
-                className={selectStyle}
-                value={value.direction}
-                onChange={(e) => set("direction", e.target.value)}
-              >
-                <option value="decrease">Withdrawal / card charge</option>
-                <option value="increase">Deposit / card payment</option>
-              </select>
-            </label>
-            <label className="text-sm">
-              Only this payee
-              <select
-                className={selectStyle}
-                value={value.match_payee_id ?? ""}
-                onChange={(e) => set("match_payee_id", e.target.value || null)}
-              >
-                <option value="">Any payee</option>
-                {manage.parties
-                  .filter((p) => !p.is_archived)
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
+            <CustomSelect
+              label="Movement direction"
+              value={value.direction}
+              options={[
+                { value: "decrease", label: "Withdrawal / card charge" },
+                { value: "increase", label: "Deposit / card payment" },
+              ]}
+              onChange={(v) => set("direction", v)}
+            />
+            <AccountingPicker
+              label="Only this payee"
+              visibleLabel="Only this payee"
+              value={value.match_payee_id ?? ""}
+              options={[{ value: "", label: "Any payee" }, ...payees]}
+              onChange={(v) => set("match_payee_id", v || null)}
+            />
             <Input
               label="Minimum absolute amount"
               required
@@ -846,39 +863,25 @@ function RuleEditor({
               value={max}
               onChange={(e) => setMax(e.target.value)}
             />
-            <label className="text-sm">
-              Category to assign
-              <select
-                required
-                className={selectStyle}
-                value={value.category_account_id}
-                onChange={(e) => set("category_account_id", e.target.value)}
-              >
-                <option value="">Choose category</option>
-                {categories.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="text-sm">
-              Payee to assign
-              <select
-                className={selectStyle}
-                value={value.assign_payee_id ?? ""}
-                onChange={(e) => set("assign_payee_id", e.target.value || null)}
-              >
-                <option value="">Keep current or resolved alias</option>
-                {manage.parties
-                  .filter((p) => !p.is_archived)
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
+            <AccountingPicker
+              label="Category to assign"
+              visibleLabel="Category to assign"
+              required
+              placeholder="Choose category"
+              value={value.category_account_id}
+              options={categories.map((a) => ({ value: a.id, label: a.name }))}
+              onChange={(v) => set("category_account_id", v)}
+            />
+            <AccountingPicker
+              label="Payee to assign"
+              visibleLabel="Payee to assign"
+              value={value.assign_payee_id ?? ""}
+              options={[
+                { value: "", label: "Keep current or resolved alias" },
+                ...payees,
+              ]}
+              onChange={(v) => set("assign_payee_id", v || null)}
+            />
           </div>
           <p className="text-xs text-muted-foreground">
             Descriptions ignore case and repeated spaces. Amount bounds include
@@ -901,7 +904,9 @@ function RuleEditor({
             type="submit"
             className="w-full"
             loading={cmd.busy}
-            disabled={cmd.busy}
+            disabled={
+              cmd.busy || !value.bank_account_id || !value.category_account_id
+            }
           >
             Save for preview
           </Button>
@@ -917,7 +922,7 @@ function AliasEditor({
   onSaved,
 }: {
   alias: PayeeAlias;
-  manage: ManageData;
+  manage: BooksMetadata;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -953,42 +958,31 @@ function AliasEditor({
             });
           }}
         >
-          <label className="block text-sm">
-            Payee
-            <select
-              required
-              className={selectStyle}
-              value={value.party_id}
-              onChange={(e) =>
-                setValue((v) => ({ ...v, party_id: e.target.value }))
-              }
-            >
-              <option value="">Choose payee</option>
-              {manage.parties
-                .filter((p) => !p.is_archived)
-                .map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-            </select>
-          </label>
-          <label className="block text-sm">
-            Match
-            <select
-              className={selectStyle}
-              value={value.match_mode}
-              onChange={(e) =>
-                setValue((v) => ({
-                  ...v,
-                  match_mode: e.target.value as PayeeAlias["match_mode"],
-                }))
-              }
-            >
-              <option value="exact">Exact normalized description</option>
-              <option value="prefix">Starts with</option>
-            </select>
-          </label>
+          <AccountingPicker
+            label="Payee"
+            visibleLabel="Payee"
+            required
+            placeholder="Choose payee"
+            value={value.party_id}
+            options={manage.parties
+              .filter((p) => !p.is_archived)
+              .map((p) => ({ value: p.id, label: p.name }))}
+            onChange={(party_id) => setValue((v) => ({ ...v, party_id }))}
+          />
+          <CustomSelect
+            label="Match"
+            value={value.match_mode}
+            options={[
+              { value: "exact", label: "Exact normalized description" },
+              { value: "prefix", label: "Starts with" },
+            ]}
+            onChange={(mode) =>
+              setValue((v) => ({
+                ...v,
+                match_mode: mode as PayeeAlias["match_mode"],
+              }))
+            }
+          />
           <Input
             label="Bank description"
             required
@@ -998,16 +992,11 @@ function AliasEditor({
               setValue((v) => ({ ...v, description: e.target.value }))
             }
           />
-          <label className="flex gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={value.enabled}
-              onChange={(e) =>
-                setValue((v) => ({ ...v, enabled: e.target.checked }))
-              }
-            />
-            Enable this alias
-          </label>
+          <Switch
+            checked={value.enabled}
+            onChange={(enabled) => setValue((v) => ({ ...v, enabled }))}
+            label="Enable this alias"
+          />
           {cmd.error && (
             <p role="alert" className="text-sm text-error">
               {cmd.error}
@@ -1016,7 +1005,7 @@ function AliasEditor({
           <Button
             type="submit"
             className="w-full"
-            disabled={cmd.busy}
+            disabled={cmd.busy || !value.party_id}
             loading={cmd.busy}
           >
             Save alias

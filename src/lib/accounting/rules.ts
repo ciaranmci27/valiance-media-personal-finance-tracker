@@ -24,7 +24,7 @@ export const ruleDefinitionSchema = z
     assign_payee_id: z.uuid().nullable(),
   })
   .strict();
-export const rulesCommandSchema = z.discriminatedUnion("type", [
+const legacyRulesCommandSchema = z.discriminatedUnion("type", [
   ruleDefinitionSchema
     .extend({ ...base, type: z.literal("rule.save"), reason })
     .strict(),
@@ -40,7 +40,7 @@ export const rulesCommandSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
-      type: z.literal("rule.apply"),
+      type: z.enum(["rule.apply", "rule.apply_preview"]),
       id: z.uuid(),
       expected_revision: z.string().regex(/^\d{1,19}$/),
       entries: z
@@ -65,6 +65,82 @@ export const rulesCommandSchema = z.discriminatedUnion("type", [
       party_id: z.uuid(),
       match_mode: z.enum(["exact", "prefix"]),
       description: z.string().trim().min(1).max(250),
+      enabled: z.boolean(),
+    })
+    .strict(),
+]);
+const canonicalRuleSchema = z
+  .object({
+    ...base,
+    type: z.literal("rule.save"),
+    reason,
+    name: z.string().trim().min(1).max(120),
+    priority: z.number().int().min(1).max(10000),
+    enabled: z.boolean().default(false),
+    auto_post: z.boolean().default(false),
+    conditions: z
+      .object({
+        descriptor_key: z.union([
+          z.object({ equals: z.string().trim().min(1).max(250) }).strict(),
+          z.object({ prefix: z.string().trim().min(1).max(250) }).strict(),
+          z.object({ contains: z.string().trim().min(1).max(250) }).strict(),
+        ]),
+        bank_account_id: z.uuid().optional(),
+        direction: z.enum(["increase", "decrease", "in", "out"]).optional(),
+        amount_min: cents.optional(),
+        amount_max: cents.optional(),
+        payee_id: z.uuid().optional(),
+      })
+      .strict()
+      .refine(
+        (v) =>
+          v.amount_min === undefined ||
+          v.amount_max === undefined ||
+          BigInt(v.amount_min) <= BigInt(v.amount_max),
+        "Minimum must not exceed maximum.",
+      ),
+    actions: z.union([
+      z
+        .object({
+          account_id: z.uuid(),
+          payee_id: z.uuid().optional(),
+          memo: z.string().max(2000).optional(),
+        })
+        .strict(),
+      z
+        .object({
+          splits: z
+            .array(
+              z
+                .object({
+                  account_id: z.uuid(),
+                  share_bps: z.number().int().min(1).max(9999),
+                })
+                .strict(),
+            )
+            .min(2)
+            .max(100)
+            .refine(
+              (v) => v.reduce((n, s) => n + s.share_bps, 0) === 10000,
+              "Split percentages must total 100%.",
+            ),
+          payee_id: z.uuid().optional(),
+          memo: z.string().max(2000).optional(),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
+export const rulesCommandSchema = z.union([
+  legacyRulesCommandSchema,
+  canonicalRuleSchema,
+  z
+    .object({
+      ...base,
+      type: z.literal("alias.save"),
+      party_id: z.uuid(),
+      match_kind: z.enum(["key", "exact", "prefix"]),
+      pattern: z.string().trim().min(1).max(250),
       enabled: z.boolean(),
     })
     .strict(),

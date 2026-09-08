@@ -1,49 +1,28 @@
 # SimpleFIN adapter and operations
 
-Status: implemented for synthetic acceptance. A live connection and original bank/card statements remain required to validate institution support, ownership, signs, dates, and available history. No live token has been claimed during this build.
+Status: the Phase 1 schema and adapter are tested with synthetic fixtures. The server route port is step 6, and automatic draft creation in those routes is Phase 2. No live token was claimed and no real transactions were imported.
 
 ## Provider contract
 
-The adapter requests version 2 and pins the `2.0.0-draft-2026-03-19` shape. Version 2 identifies an account by provider connection ID plus account ID and supplies scoped `errlist` errors. Amounts remain decimal strings until exact conversion to cents. Request starts are inclusive; ends are exclusive Unix timestamps. Missing transactions are distinct from an empty list. Pending observations, including posted timestamp zero, cannot create drafts. Unknown or malformed error scopes fail conservatively. See the [SimpleFIN protocol](https://www.simplefin.org/protocol.html) and [version 2 announcement](https://github.com/simplefin/simplefin.github.com/discussions/33).
+The transport defaults to version 1. The parser accepts the v1.0.7 `errors`/`accounts` envelope and the v2 draft `errlist`/`connections` envelope. A v1 institution identity is derived deterministically from its organization metadata; account IDs are scoped to that institution. Malformed mixed envelopes fail conservatively. Amounts remain decimal strings until exact conversion to integer cents.
 
-The Bridge guidance describes a 24-request daily limit, windows up to 90 days, and overlapping syncs. This adapter conservatively budgets 24 requests across an entire stored connection, even where the provider offers separate account quotas. Each run requests at most four accounts, uses a five-day overlap, and schedules the next daily run with a random offset. Institution history availability is separate from transport success. See the [Bridge developer guide](https://beta-bridge.simplefin.org/info/developers).
+Both specifications define `posted` as Unix seconds representing an instant. Convert that instant once through `public.business_profile.books_timezone`. A timestamp near UTC midnight can legitimately have the previous local calendar date; retaining its UTC date would change its meaning. Tests cover midday, midnight, DST and invalid IANA zones. Pending timestamp zero never creates a financial date or journal entry. Source references: [v1 protocol](https://www.simplefin.org/protocol-v1.html), [v2 draft protocol](https://www.simplefin.org/protocol.html).
 
-## Owner workflow
+## Target database behavior
 
-1. Configure the server and create a Bridge setup token. Connect from Accounting > Manage > Bank feeds. Claim attempts are durable before the one-time external request; an uncertain claim is never automatically replayed.
-2. Discover balances and account metadata. Discovery does not retain personal transaction lists, even if a provider sends them unexpectedly.
-3. Review each account's ownership. Company accounts require an existing USD bank/card book account, a history start, a posting timezone, and independently checked transaction and balance signs. Personal and ignored accounts do not enter the company sync plan.
-4. Sync to retain original transaction observations and balance timestamps. The server worker cannot create or post journals. Prepare a review batch, resolve existing-entry matches or exceptions in Imports, then create and categorize bank drafts.
-5. Reconnect to the same book accounts. Canonical identities and checkpoints survive credential changes. A new provider identity needs explicit review. No opening balance is created. Settings can be corrected before the first transaction window; used financial conventions require reviewed corrections rather than silent reinterpretation.
+- `bank_connections` stores encrypted credentials and a fenced five-minute lease. `sync_server` is service-role-only and never impersonates the owner. Browser reads exclude the ciphertext and private checkpoint details.
+- Discovery retains account metadata, not personal transaction lists. Only explicitly mapped company USD accounts retain observations. Ledger account and movement sign freeze once observations exist. The legacy balance sign is stored in the private checkpoint and freezes at the same boundary.
+- Immutable posted observations carry original payload, source ID, description, hash and date. A changed existing provider record is retained as a conflict without overwriting evidence or advancing that account checkpoint. Missing/incomplete mapped accounts cannot mark a run wholly successful.
+- Pending and zero-valued nonfinancial movements create no journal. Counts remain in the run audit. A previously posted record becoming pending/nonfinancial is a conflict, not an automatic reversal.
+- Matching runs before draft creation. One unambiguous existing financial line is reused. Independent sources can corroborate an already fully allocated line with a zero allocation; the financial amount is never allocated twice. Ambiguous matches stay for review.
+- The worker supports creating a draft from a posted observation, preserving the source description. Enabled rules and remembered treatment can fill its category, payee and memo. Tied rules, alias conflicts and previously categorized drafts are not silently changed. Auto-post requires an explicit rule setting and admin as the primary books system.
+- `feed.prepare` remains a compatibility no-op. The HTTP worker enables the draft path in Phase 2. Closed-period observations remain unmatched on their actual date rather than being shifted.
+- `feed.skip` requires a reason and records the checkpoint change in audit. It does not manufacture reconciliation or historical coverage. Disconnect stops scheduling and fences workers while retaining the encrypted credential and evidence; revoke a token separately in Bridge when appropriate.
 
-Identical repeated observations inherit the existing source-group review link. Changed financial fields retain the earlier evidence and enter exception review. A previously posted source movement becoming pending or nonfinancial is flagged without reversing the books automatically. Different providers can support the same existing economic posting through the normal bank match workflow.
+## Security and deployment
 
-## Server configuration
-
-Provide these only in the admin server environment:
-
-- `NEXT_PUBLIC_ACCOUNTING_ENABLED=true`, with accounting migrations and owner provisioning already complete.
-- Existing Supabase URL and `SUPABASE_SERVICE_ROLE_KEY`.
-- `SIMPLEFIN_ENCRYPTION_KEY`: a separate, randomly generated secret of at least 32 characters. Do not reuse payroll, SSN, or SMTP encryption keys.
-- Optional `SIMPLEFIN_KEY_VERSION`, default `1`. Version 2 uses `SIMPLEFIN_ENCRYPTION_KEY_V2`, and so on. Keep older keys until their stored credentials have been replaced or migrated.
-- For scheduled operation only, `ACCOUNTING_FEED_WORKER_ENABLED=true` and a separate random `ACCOUNTING_WORKER_SECRET` of at least 32 characters.
-
-Connectors and jobs remain disabled in demo mode and in the marked local test database environment. The browser receives configuration readiness, never the keys, setup token, or access URL. Encryption uses the existing versioned AES-256-GCM helper with its own key namespace.
-
-An external scheduler can POST to `/api/accounting/jobs/feeds` with `Authorization: Bearer <ACCOUNTING_WORKER_SECRET>`, for example hourly. Each invocation handles at most one due connection, with a 240-second handler budget. The owner must also enable each connection's daily schedule. No schedule is activated by a migration or deployment. Repeated invocations are serialized by a persisted two-minute renewable lease, with generation fencing and a durable request budget before network access. Expired runs preserve prior observations; an old worker cannot commit after disconnect/reconnect or lease replacement.
-
-Only exact Bridge HTTPS hosts are allowed. DNS answers must be public and are pinned for the TLS request. Redirects are refused. Requests and responses have time/size limits; error messages redact URLs and authentication strings. Service-role table writes and broad accounting commands remain revoked. The worker has one restricted facade for feed records.
-
-## Coverage and recovery
-
-A checkpoint means an accepted response was processed, not that the bank supplied a complete accounting history. Body-level errors or missing mapped accounts do not advance the affected checkpoint. Other successfully received accounts keep their progress. Old empty ranges and explicitly skipped unavailable ranges remain recorded gaps. Current statement reconciliation or verified historical controls can demonstrate coverage of a retained gap.
-
-Close checks include unprepared posted feed movements. Ordinary bank batches require their movements to be posted or matched and supported by statement reconciliation. Annual historical-report verification remains required for journal-history imports; it is not repeated for every daily bank observation batch.
-
-Disconnect stops scheduling, fences active workers, removes the encrypted access credential, and retains accounting/source evidence. Revoke the token in Bridge as well. A revoked provider token or missing decryption key requires recovery or reconnect, not an invented zero balance.
-
-Backup v9 includes feed mappings, observations, requests, runs, claims, review links, and gaps. It deliberately excludes the credential table. Keep encryption recovery material separately. Restored environments must keep workers off until owner sign-in, source evidence, and credential recovery/reconnection have been checked.
+Transport retains HTTPS host allowlisting, public-address DNS checks, pinned addresses, no redirects, time/size limits and redacted errors. AES-GCM uses the existing versioned encryption helper with `SIMPLEFIN_ENCRYPTION_KEY`, independently from other app secrets. Worker bearer authentication remains on the existing route. Full environment and scheduler instructions will be finalized in Phase 2 after the route port; no scheduler is deployed during this build.
 
 ## Validation
 
-`npm run test:accounting:feeds -w admin` tests protocol/security parsing, leases, failure boundaries, exact repeated observations, changed source identities, reconnect continuity, request limits, pending exclusion, owner/worker isolation, encryption, and close coverage. The marked local fixture includes synthetic checking, card, and personal identities. Browser acceptance uses the Codex browser, without Playwright or any live banking request.
+`verify-accounting-simplefin.ts` exercises parsing, exact amounts, v1/v2 identity, timestamps, transport and encryption. `verify-accounting-banking.ts` exercises synthetic leases, repeat/conflicting observations, draft review, matching, transfer reversal and permissions against PGlite. The old feed database suite still requires its step 6 server-contract port; it is not evidence for the new schema until ported.

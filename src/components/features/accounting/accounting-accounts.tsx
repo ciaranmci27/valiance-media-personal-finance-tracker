@@ -1,17 +1,15 @@
 "use client";
 import { useState, useEffect } from "react";
-import {
-  Landmark,
-  CreditCard,
-  ArrowUpRight,
-  Search,
-  Pencil,
-  Plus,
-  ChevronLeft,
-  ChevronRight,
-} from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Landmark, Search, Pencil, Plus } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
+import { CustomSelect } from "@/components/ui/select";
+import { Tooltip } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -20,18 +18,38 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { MaskedValue } from "@/components/ui/masked-value";
-import { formatCents } from "@/lib/accounting/money";
+import { cn } from "@/lib/utils";
 import { defaultChart } from "@/lib/accounting/chart";
 import type {
+  AccountingAccount,
   AccountingWorkspace,
   BalanceRow,
 } from "@/lib/accounting/contracts";
 import type { AccountProfile } from "@/lib/accounting/workflows";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+import { AccountingBankPanel } from "./accounting-bank-panel";
+import { AccountingPicker } from "./accounting-picker";
 import { AccountingReconciliation } from "./accounting-reconciliation";
+import { dateLabel, enumLabel, money } from "./format";
 
-const selectStyle =
-  "mt-1 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm";
+const accountTypeFilters: [string, string][] = [
+  ["all", "All accounts"],
+  ["asset", "Assets"],
+  ["liability", "Liabilities"],
+  ["income", "Income"],
+  ["expense", "Expenses"],
+  ["equity", "Equity"],
+];
+const linkClass =
+  "rounded text-left transition-colors hover:text-teal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const LEDGER_PAGE = 100;
+
+function bookBalance(a: BalanceRow) {
+  return money(
+    a.normal_side === "credit" ? -BigInt(a.ending_cents) : a.ending_cents,
+  );
+}
+
 export function AccountingAccounts({
   data,
   profiles,
@@ -39,6 +57,7 @@ export function AccountingAccounts({
   onRefresh,
   onAdd,
   onEntry,
+  onFeeds,
 }: {
   data: AccountingWorkspace;
   profiles: AccountProfile[];
@@ -46,75 +65,137 @@ export function AccountingAccounts({
   onRefresh: () => Promise<void>;
   onAdd: () => void;
   onEntry: (id: string) => void;
+  onFeeds: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [editing, setEditing] = useState<BalanceRow | null>(null);
+  const [editingProfile, setEditingProfile] = useState<
+    AccountProfile | undefined
+  >();
+  const [type, setType] = useState("all");
+  const [archived, setArchived] = useState(false);
+  const [asOf, setAsOf] = useState(data.to);
   const [ledger, setLedger] = useState<BalanceRow | null>(null);
   const [seed, setSeed] = useState(false);
-  const [reconcile, setReconcile] = useState<BalanceRow | null>(null);
+  const [localReconcile, setReconcile] = useState<BalanceRow | null>(null);
+  const params = useSearchParams();
+  const requested = params.get("reconcile");
+  const reconcile =
+    data.balances.find(
+      (a) =>
+        a.id === requested &&
+        ["bank", "cash", "card"].includes(
+          profiles.find((p) => p.account_id === a.id)?.cash_kind ?? "",
+        ),
+    ) ?? localReconcile;
   const command = useAccountingCommand(onRefresh);
   const profileMap = new Map(profiles.map((p) => [p.account_id, p]));
   const cashAccounts = data.balances.filter((a) =>
     ["bank", "cash", "card"].includes(profileMap.get(a.id)?.cash_kind ?? ""),
   );
-  const filtered = data.balances.filter((a) =>
-    `${a.code} ${a.name}`.toLowerCase().includes(query.toLowerCase()),
+  const filtered = data.balances.filter(
+    (a) =>
+      (type === "all" || a.account_type === type) &&
+      (archived || !a.is_archived) &&
+      `${a.code} ${a.name}`.toLowerCase().includes(query.toLowerCase()),
   );
+  const startEdit = (a: BalanceRow) => {
+    command.setError("");
+    setEditingProfile(profileMap.get(a.id));
+    setEditing(a);
+  };
+  const editButton = (a: BalanceRow, size: "icon" | "icon-sm") => (
+    <Tooltip content={`Edit ${a.name}`}>
+      <Button
+        variant="ghost"
+        size={size}
+        aria-label={`Edit ${a.name}`}
+        disabled={demo}
+        onClick={() => startEdit(a)}
+      >
+        <Pencil size={14} aria-hidden="true" />
+      </Button>
+    </Tooltip>
+  );
+  const columns: DataTableColumn<BalanceRow>[] = [
+    {
+      key: "account",
+      header: "Account",
+      render: (a) => (
+        <button
+          type="button"
+          onClick={() => setLedger(a)}
+          className={linkClass}
+        >
+          <span className="mr-3 font-mono text-xs text-muted-foreground">
+            {a.code}
+          </span>
+          {a.name}
+          {a.is_archived && (
+            <Badge size="sm" className="ml-2">
+              Archived
+            </Badge>
+          )}
+        </button>
+      ),
+    },
+    {
+      key: "type",
+      header: "Type",
+      render: (a) => (
+        <span className="text-muted-foreground">
+          {enumLabel(a.account_type)}
+        </span>
+      ),
+    },
+    {
+      key: "balance",
+      header: "Book balance",
+      align: "right",
+      numeric: true,
+      render: (a) => (
+        <MaskedValue className="font-mono" value={bookBalance(a)} />
+      ),
+    },
+    {
+      key: "edit",
+      header: <span className="sr-only">Edit</span>,
+      align: "right",
+      width: "w-12",
+      render: (a) => editButton(a, "icon"),
+    },
+  ];
   if (reconcile)
     return (
       <AccountingReconciliation
         account={reconcile}
-        onBack={() => setReconcile(null)}
+        onBack={() => {
+          setReconcile(null);
+          const url = new URL(window.location.href);
+          url.searchParams.delete("reconcile");
+          url.searchParams.delete("statement");
+          window.history.replaceState(null, "", url);
+        }}
         onEntry={onEntry}
         onRefresh={onRefresh}
       />
     );
   return (
     <div className="space-y-5">
-      {cashAccounts.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {cashAccounts.map((a) => {
-            const card = profileMap.get(a.id)?.cash_kind === "card";
-            return (
-              <div key={a.id} className="glass-card overflow-hidden">
-                <button
-                  onClick={() => setLedger(a)}
-                  className="w-full p-5 text-left transition-colors hover:bg-secondary/40"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                      {card ? <CreditCard size={17} /> : <Landmark size={17} />}{" "}
-                      {a.name}
-                    </span>
-                    <ArrowUpRight size={15} className="text-muted-foreground" />
-                  </div>
-                  <p className="mt-5 text-2xl font-mono tracking-tight">
-                    <MaskedValue
-                      value={formatCents(
-                        card ? -BigInt(a.ending_cents) : a.ending_cents,
-                      )}
-                    />
-                  </p>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Book {card ? "liability" : "balance"} · {data.to}
-                  </p>
-                </button>
-                {!demo && (
-                  <div className="border-t border-border px-4 py-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setReconcile(a)}
-                    >
-                      Reconcile statements
-                    </Button>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <AccountingBankPanel
+        accounts={cashAccounts}
+        bookBalance={(a) =>
+          profileMap.get(a.id)?.cash_kind === "card"
+            ? -BigInt(a.ending_cents)
+            : BigInt(a.ending_cents)
+        }
+        isCard={(a) => profileMap.get(a.id)?.cash_kind === "card"}
+        demo={demo}
+        onFeeds={onFeeds}
+        onLedger={setLedger}
+        onReconcile={setReconcile}
+        onRefresh={onRefresh}
+      />
       <section className="glass-card overflow-hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-5">
           <div>
@@ -124,93 +205,125 @@ export function AccountingAccounts({
             </p>
           </div>
           <Button size="sm" disabled={demo} onClick={onAdd}>
-            <Plus size={14} />
+            <Plus size={14} aria-hidden="true" />
             Add account
           </Button>
         </div>
         {data.accounts.length > 0 ? (
           <>
-            <div className="p-4">
-              <Input
-                aria-label="Search accounts"
-                placeholder="Search by name or code"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                icon={<Search size={16} />}
-                className="sm:w-80"
-              />
+            <div className="space-y-4 p-4">
+              <div
+                role="group"
+                aria-label="Account types"
+                className="inline-flex flex-wrap items-center gap-1 rounded-lg bg-[rgba(var(--ink),0.05)] p-1 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]"
+              >
+                {accountTypeFilters.map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    aria-pressed={type === id}
+                    onClick={() => setType(id)}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      type === id
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <Input
+                  aria-label="Search accounts"
+                  placeholder="Search by name or code"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  icon={<Search size={16} aria-hidden="true" />}
+                  className="sm:w-80"
+                />
+                <Checkbox
+                  checked={archived}
+                  onChange={setArchived}
+                  label="Include archived"
+                  className="py-2"
+                />
+                <form action="/accounting" className="flex items-end gap-2">
+                  <input type="hidden" name="view" value="accounts" />
+                  <input
+                    type="hidden"
+                    name="from"
+                    value={`${asOf.slice(0, 4)}-01-01`}
+                  />
+                  <Input
+                    type="date"
+                    name="to"
+                    label="Balances as of"
+                    value={asOf}
+                    onChange={(e) => setAsOf(e.target.value)}
+                    min="1900-01-01"
+                    max="2100-12-31"
+                    required
+                    disabled={demo}
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    variant="outline"
+                    disabled={demo}
+                  >
+                    Update
+                  </Button>
+                </form>
+              </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-y border-border bg-secondary/20 text-muted-foreground">
-                  <tr>
-                    <th className="px-5 py-3 text-left font-medium">Account</th>
-                    <th className="px-4 py-3 text-left font-medium">Type</th>
-                    <th className="px-4 py-3 text-right font-medium">
-                      Book balance
-                    </th>
-                    <th className="w-12">
-                      <span className="sr-only">Edit</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((a) => (
-                    <tr
-                      key={a.id}
-                      className="border-b border-border last:border-0"
-                    >
-                      <td className="px-5 py-4">
-                        <button
-                          onClick={() => setLedger(a)}
-                          className="text-left hover:text-teal"
-                        >
-                          <span className="mr-3 font-mono text-xs text-muted-foreground">
-                            {a.code}
-                          </span>
+            <div className="border-t border-border p-4 lg:p-0">
+              <DataTable<BalanceRow>
+                framed={false}
+                columns={columns}
+                data={filtered}
+                keyExtractor={(a) => a.id}
+                emptyState="No accounts match these filters."
+                mobileCard={(a) => (
+                  <div className="glass-card rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setLedger(a)}
+                        className={cn(linkClass, "min-w-0 text-sm")}
+                      >
+                        <span className="block font-mono text-xs text-muted-foreground">
+                          {a.code}
+                        </span>
+                        <span className="mt-0.5 block font-medium">
                           {a.name}
-                          {a.is_archived && (
-                            <span className="ml-2 text-xs text-muted-foreground">
-                              Archived
-                            </span>
-                          )}
-                        </button>
-                      </td>
-                      <td className="px-4 py-4 capitalize text-muted-foreground">
-                        {a.account_type}
-                      </td>
-                      <td className="px-4 py-4 text-right font-mono">
-                        <MaskedValue
-                          value={formatCents(
-                            a.normal_side === "credit"
-                              ? -BigInt(a.ending_cents)
-                              : a.ending_cents,
-                          )}
-                        />
-                      </td>
-                      <td className="pr-3">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Edit ${a.name}`}
-                          disabled={demo}
-                          onClick={() => {
-                            command.setError("");
-                            setEditing(a);
-                          }}
-                        >
-                          <Pencil size={14} />
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        </span>
+                      </button>
+                      {editButton(a, "icon-sm")}
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-3 text-sm">
+                      <span className="flex items-center gap-2 text-muted-foreground">
+                        {enumLabel(a.account_type)}
+                        {a.is_archived && <Badge size="sm">Archived</Badge>}
+                      </span>
+                      <MaskedValue
+                        className="font-mono tabular-nums"
+                        value={bookBalance(a)}
+                      />
+                    </div>
+                  </div>
+                )}
+              />
             </div>
           </>
         ) : (
           <div className="mx-auto max-w-lg px-6 py-14 text-center">
-            <Landmark size={28} className="mx-auto mb-4 text-teal" />
+            <Landmark
+              size={28}
+              aria-hidden="true"
+              className="mx-auto mb-4 text-teal"
+            />
             <h3 className="text-lg font-semibold">Set up your company chart</h3>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Start with the standard company accounts, or create accounts
@@ -233,7 +346,7 @@ export function AccountingAccounts({
           if (!o && !command.busy) setEditing(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit account</DialogTitle>
             <DialogDescription>
@@ -242,81 +355,15 @@ export function AccountingAccounts({
             </DialogDescription>
           </DialogHeader>
           {editing && (
-            <form
+            <AccountEditForm
               key={editing.id}
-              className="space-y-4"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const values = new FormData(e.currentTarget);
-                const p = profileMap.get(editing.id);
-                if (
-                  await command.execute({
-                    type: "account.update",
-                    id: editing.id,
-                    expected_version: p?.version ?? 0,
-                    name: String(values.get("name")),
-                    code: String(values.get("code")),
-                    cash_kind: String(
-                      values.get("cash_kind"),
-                    ) as AccountProfile["cash_kind"],
-                    purpose: p?.purpose ?? null,
-                    parent_account_id: p?.parent_account_id ?? null,
-                    subtype: p?.subtype ?? "",
-                    is_archived: values.get("archived") === "on",
-                  })
-                )
-                  setEditing(null);
-              }}
-            >
-              <Input
-                label="Account name"
-                name="name"
-                defaultValue={editing.name}
-                required
-                maxLength={120}
-              />
-              <Input
-                label="Account code"
-                name="code"
-                defaultValue={editing.code}
-                maxLength={20}
-              />
-              <label className="block text-sm">
-                Account use
-                <select
-                  name="cash_kind"
-                  className={selectStyle}
-                  defaultValue={profileMap.get(editing.id)?.cash_kind ?? "none"}
-                >
-                  <option value="none">General ledger account</option>
-                  {editing.account_type === "asset" && (
-                    <>
-                      <option value="bank">Bank account</option>
-                      <option value="cash">Cash / undeposited funds</option>
-                    </>
-                  )}
-                  {editing.account_type === "liability" && (
-                    <option value="card">Credit card</option>
-                  )}
-                </select>
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  name="archived"
-                  defaultChecked={editing.is_archived}
-                />
-                Archive this account
-              </label>
-              {command.error && (
-                <p role="alert" className="text-sm text-error">
-                  {command.error}
-                </p>
-              )}
-              <Button type="submit" loading={command.busy}>
-                Save account
-              </Button>
-            </form>
+              account={editing}
+              profile={editingProfile}
+              accounts={data.accounts}
+              profileMap={profileMap}
+              command={command}
+              onSaved={() => setEditing(null)}
+            />
           )}
         </DialogContent>
       </Dialog>
@@ -344,8 +391,8 @@ export function AccountingAccounts({
                 <span>
                   {a.code} {a.name}
                 </span>
-                <span className="text-muted-foreground capitalize">
-                  {a.account_type}
+                <span className="text-muted-foreground">
+                  {enumLabel(a.account_type)}
                 </span>
               </p>
             ))}
@@ -401,6 +448,164 @@ export function AccountingAccounts({
   );
 }
 
+/**
+ * The edit dialog body. Keyed by account id from the parent so the select
+ * state re-initializes per account, exactly as the uncontrolled form did.
+ */
+function AccountEditForm({
+  account,
+  profile,
+  accounts,
+  profileMap,
+  command,
+  onSaved,
+}: {
+  account: BalanceRow;
+  profile: AccountProfile | undefined;
+  accounts: AccountingAccount[];
+  profileMap: Map<string, AccountProfile>;
+  command: ReturnType<typeof useAccountingCommand>;
+  onSaved: () => void;
+}) {
+  const [cashKind, setCashKind] = useState<AccountProfile["cash_kind"]>(
+    profile?.cash_kind ?? "none",
+  );
+  const [purpose, setPurpose] = useState(profile?.purpose ?? "");
+  const [parent, setParent] = useState(profile?.parent_account_id ?? "");
+  const [archived, setArchived] = useState(account.is_archived);
+  const customPurpose =
+    profile?.purpose &&
+    !defaultChart.some(
+      (a) =>
+        a.purpose === profile.purpose &&
+        a.account_type === account.account_type,
+    )
+      ? profile.purpose
+      : null;
+  return (
+    <form
+      className="space-y-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const values = new FormData(e.currentTarget);
+        if (
+          await command.execute({
+            type: "account.update",
+            id: account.id,
+            expected_version: profile?.version ?? 0,
+            name: String(values.get("name")),
+            code: String(values.get("code")),
+            cash_kind: cashKind,
+            purpose: purpose || null,
+            parent_account_id: parent || null,
+            subtype: String(values.get("subtype") ?? ""),
+            is_archived: archived,
+          })
+        )
+          onSaved();
+      }}
+    >
+      <Input
+        label="Account name"
+        name="name"
+        defaultValue={account.name}
+        required
+        maxLength={120}
+      />
+      <Input
+        label="Account code"
+        name="code"
+        defaultValue={account.code}
+        maxLength={20}
+      />
+      <CustomSelect
+        label="Account use"
+        value={cashKind}
+        options={[
+          { value: "none", label: "General ledger account" },
+          ...(account.account_type === "asset"
+            ? [
+                { value: "bank", label: "Bank account" },
+                { value: "cash", label: "Cash / undeposited funds" },
+              ]
+            : []),
+          ...(account.account_type === "liability"
+            ? [{ value: "card", label: "Credit card" }]
+            : []),
+        ]}
+        onChange={(value) => setCashKind(value as AccountProfile["cash_kind"])}
+      />
+      <div>
+        <AccountingPicker
+          label="Accounting purpose"
+          visibleLabel="Accounting purpose"
+          value={purpose}
+          options={[
+            { value: "", label: "General category" },
+            ...(customPurpose
+              ? [{ value: customPurpose, label: enumLabel(customPurpose) }]
+              : []),
+            ...defaultChart
+              .filter((a) => a.account_type === account.account_type)
+              .map((a) => ({ value: a.purpose!, label: a.name })),
+          ]}
+          onChange={setPurpose}
+        />
+        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+          Purpose connects this account to payroll, transfers and other
+          bookkeeping tools. Account use and purpose cannot change after
+          transactions use this account.
+        </p>
+      </div>
+      <details>
+        <summary className="cursor-pointer text-sm text-muted-foreground">
+          Report grouping
+        </summary>
+        <div className="mt-3 space-y-3">
+          <Input
+            label="Report group"
+            name="subtype"
+            maxLength={100}
+            defaultValue={profile?.subtype ?? ""}
+            placeholder="For example: Operating expenses"
+          />
+          <AccountingPicker
+            label="Parent account"
+            visibleLabel="Parent account"
+            value={parent}
+            options={[
+              { value: "", label: "No parent" },
+              ...accounts
+                .filter(
+                  (a) =>
+                    a.id !== account.id &&
+                    a.account_type === account.account_type &&
+                    !a.is_archived &&
+                    !profileMap.get(a.id)?.parent_account_id,
+                )
+                .map((a) => ({ value: a.id, label: a.name })),
+            ]}
+            onChange={setParent}
+          />
+        </div>
+      </details>
+      <Checkbox
+        checked={archived}
+        onChange={setArchived}
+        label="Archive this account"
+      />
+      {command.error && (
+        <p role="alert" className="text-sm text-error">
+          {command.error}
+        </p>
+      )}
+      <Button type="submit" loading={command.busy}>
+        Save account
+      </Button>
+    </form>
+  );
+}
+
 function AccountLedger({
   account,
   from,
@@ -414,18 +619,19 @@ function AccountLedger({
   onEntry: (id: string) => void;
   demo: boolean;
 }) {
+  type LedgerRow = {
+    id: string;
+    entry_id: string;
+    entry_date: string;
+    memo: string;
+    amount_cents: string;
+    running_cents: string;
+  };
   const [offset, setOffset] = useState(0);
   const [data, setData] = useState<{
     opening_cents: string;
     total: number;
-    rows: {
-      id: string;
-      entry_id: string;
-      entry_date: string;
-      memo: string;
-      amount_cents: string;
-      running_cents: string;
-    }[];
+    rows: LedgerRow[];
   } | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -459,68 +665,82 @@ function AccountLedger({
         Loading account history...
       </p>
     );
+  const entryLink = (r: LedgerRow) => (
+    <button
+      type="button"
+      onClick={() => onEntry(r.entry_id)}
+      className={linkClass}
+    >
+      {r.memo}
+      <span className="mt-1 block text-xs text-muted-foreground">
+        {dateLabel(r.entry_date)}
+      </span>
+    </button>
+  );
+  const columns: DataTableColumn<LedgerRow>[] = [
+    { key: "entry", header: "Date / entry", render: entryLink },
+    {
+      key: "movement",
+      header: "Movement",
+      align: "right",
+      numeric: true,
+      render: (r) => (
+        <MaskedValue className="font-mono" value={money(r.amount_cents)} />
+      ),
+    },
+    {
+      key: "running",
+      header: "Running balance",
+      align: "right",
+      numeric: true,
+      render: (r) => (
+        <MaskedValue className="font-mono" value={money(r.running_cents)} />
+      ),
+    },
+  ];
   return (
     <div>
       <div className="mb-4 flex justify-between rounded-lg bg-secondary/50 p-3 text-sm">
-        <span>Opening balance · {from}</span>
-        <MaskedValue value={formatCents(data.opening_cents)} />
+        <span>Opening balance · {dateLabel(from)}</span>
+        <MaskedValue
+          className="font-mono tabular-nums"
+          value={money(data.opening_cents)}
+        />
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="text-muted-foreground">
-            <tr>
-              {["Date / entry", "Movement", "Running balance"].map((h) => (
-                <th key={h} className="p-3 text-left font-medium">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((r) => (
-              <tr key={r.id} className="border-t border-border">
-                <td className="p-3">
-                  <button
-                    onClick={() => onEntry(r.entry_id)}
-                    className="text-left hover:text-teal"
-                  >
-                    {r.memo}
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {r.entry_date}
-                    </span>
-                  </button>
-                </td>
-                <td className="p-3 font-mono">
-                  <MaskedValue value={formatCents(r.amount_cents)} />
-                </td>
-                <td className="p-3 font-mono">
-                  <MaskedValue value={formatCents(r.running_cents)} />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <div className="mt-4 flex justify-end gap-1">
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={!offset}
-          onClick={() => setOffset(offset - 100)}
-        >
-          <ChevronLeft size={14} />
-          Previous
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={offset + 100 >= data.total}
-          onClick={() => setOffset(offset + 100)}
-        >
-          Next
-          <ChevronRight size={14} />
-        </Button>
-      </div>
+      <DataTable<LedgerRow>
+        columns={columns}
+        data={data.rows}
+        keyExtractor={(r) => r.id}
+        mobileCard={(r) => (
+          <div className="glass-card rounded-xl p-4 text-sm">
+            {entryLink(r)}
+            <div className="mt-3 flex items-center justify-between gap-3">
+              <span className="text-xs text-muted-foreground">Movement</span>
+              <MaskedValue
+                className="font-mono tabular-nums"
+                value={money(r.amount_cents)}
+              />
+            </div>
+            <div className="mt-1 flex items-center justify-between gap-3">
+              <span className="text-xs text-muted-foreground">
+                Running balance
+              </span>
+              <MaskedValue
+                className="font-mono tabular-nums"
+                value={money(r.running_cents)}
+              />
+            </div>
+          </div>
+        )}
+        after={
+          <Pagination
+            offset={offset}
+            limit={LEDGER_PAGE}
+            total={data.total}
+            onChange={setOffset}
+          />
+        }
+      />
     </div>
   );
 }

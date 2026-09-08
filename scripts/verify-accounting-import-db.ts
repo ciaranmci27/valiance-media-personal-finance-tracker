@@ -23,7 +23,7 @@ async function main() {
     (await db.query<{ r: T }>(sql, args)).rows[0].r;
   const cmd = (data: object, key = randomUUID()) =>
     rpc<{ id: string; version: number; posted?: number; drafted?: number }>(
-      "SELECT acct_execute($1,$2::jsonb) r",
+      "SELECT accounting.operate(jsonb_build_object('key',$1::text,'command',$2::jsonb)) r",
       [key, JSON.stringify(data)],
     );
   const reject = async (c: object, r: RegExp) => {
@@ -36,7 +36,8 @@ async function main() {
     groups: { id: string; version: number; status: string; entry_id: string }[];
     counts: Record<string, number>;
   };
-  const get = (id: string) => rpc<State>("SELECT acct_imports($1) r", [id]);
+  const get = (id: string) =>
+    rpc<State>("SELECT accounting.imports($1) r", [id]);
   try {
     await cmd({
       type: "chart.seed",
@@ -44,12 +45,6 @@ async function main() {
       accounts: fixtureAccounts.map((a) => ({
         ...a,
         cash_kind: a.id === fixtureAccountId(1) ? "bank" : "none",
-        purpose:
-          a.id === fixtureAccountId(5)
-            ? "uncategorized_income"
-            : a.id === fixtureAccountId(6)
-              ? "uncategorized_expense"
-              : undefined,
       })),
     });
     const opts: CsvOptions = {
@@ -118,7 +113,7 @@ async function main() {
     check(
       (
         await rpc<{ reports: { net_income_cents: string } }>(
-          "SELECT acct_workspace('2026-01-01','2026-12-31') r",
+          "SELECT accounting.workspace('2026-01-01','2026-12-31') r",
         )
       ).reports.net_income_cents,
       "20000",
@@ -177,8 +172,8 @@ async function main() {
       groups: bank.map((g, i) => ({ ...g, id: bankGroupIds[i], ordinal: i })),
     });
     const bankState = await get(bankId);
-    check(bankState.counts.review, 1);
-    check(bankState.counts.new, 1);
+    check(bankState.counts.ready, 2);
+    check(bankState.counts.new, 2);
     const existing = (await get(id)).groups[1].entry_id;
     await cmd({
       type: "import.resolve",
@@ -202,18 +197,18 @@ async function main() {
         await rpc<{
           reports: { net_income_cents: string };
           draft_count: number;
-        }>("SELECT acct_workspace('2026-01-01','2026-12-31') r")
+        }>("SELECT accounting.workspace('2026-01-01','2026-12-31') r")
       ).reports.net_income_cents,
       "20000",
     );
     const register = await rpc<{ total: number }>(
-      "SELECT acct_register($1) r",
+      "SELECT accounting.transactions($1) r",
       [JSON.stringify({ source: "csv" })],
     );
-    check(register.total, 2);
+    check(register.total, 1);
     await db.exec("RESET ROLE;SET ROLE service_role;");
     await assert.rejects(
-      db.query("SELECT acct_imports()"),
+      db.query("SELECT accounting.imports()"),
       /permission denied/,
     );
     n++;

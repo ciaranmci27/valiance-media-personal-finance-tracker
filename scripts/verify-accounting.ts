@@ -8,7 +8,6 @@ import {
 import { dateSchema, requestSchema } from "../src/lib/accounting/contracts";
 import { rulesCommandSchema } from "../src/lib/accounting/rules";
 import { closeCommandSchema } from "../src/lib/accounting/close";
-import { statementCommandSchema } from "../src/lib/accounting/statement-files";
 
 let checks = 0;
 for (const [text, expected] of [
@@ -82,26 +81,13 @@ for (const invalid of [
     document_id: uuid,
     opening_cents: "0",
     ending_cents: "0",
-    declared_count: 1,
-    declared_debits_cents: invalid,
-    declared_credits_cents: "0",
-    predecessor_id: null,
   };
   assert.equal(
     closeCommandSchema.safeParse({
       ...controls,
+      ending_cents: invalid,
       type: "reconciliation.create",
       account_id: uuid,
-    }).success,
-    false,
-  );
-  assert.equal(
-    statementCommandSchema.safeParse({
-      ...controls,
-      type: "statement.amend",
-      expected_version: 1,
-      notes: "",
-      reason: "Invalid input regression",
     }).success,
     false,
   );
@@ -125,6 +111,6 @@ for (const invalid of [
     }).success,
     false,
   );
-  checks += 3;
+  checks += 2;
 }
 console.log(`Accounting money/contracts: ${checks} checks passed.`);

@@ -10,9 +10,14 @@ import {
   RefreshCw,
   Unplug,
 } from "lucide-react";
+import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { MaskedValue } from "@/components/ui/masked-value";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { CustomSelect } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Dialog,
   DialogContent,
@@ -21,31 +26,39 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import type { AccountingWorkspace } from "@/lib/accounting/contracts";
-import type { ManageData } from "@/lib/accounting/workflows";
+import type { BooksMetadata } from "./types";
 import type {
   FeedData,
   FeedConnection,
   FeedIdentity,
   FeedCanonicalAccount,
 } from "@/lib/accounting/feeds";
-import { formatCents } from "@/lib/accounting/money";
+import { dateLabel, enumLabel, money, timestampLabel } from "./format";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
-const selectStyle =
-  "mt-1 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm";
-const dateLabel = (value: string | null) =>
-  value
-    ? new Date(value).toLocaleString(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short",
-      })
-    : "Not yet";
+/** Feed checkpoints are unix stamps; the date input and `dateLabel` take `YYYY-MM-DD`. */
 const stampDate = (value: string | number | null) =>
   value ? new Date(Number(value) * 1000).toISOString().slice(0, 10) : "Not yet";
+const statusVariant: Record<FeedConnection["status"], BadgeVariant> = {
+  active: "success",
+  claiming: "default",
+  reconnect_required: "warning",
+  disconnected: "default",
+};
 type Configuration = {
   ready: boolean;
   isolated: boolean;
   workerEnabled: boolean;
 };
+/** A sync run holds the connection until its lease expires or it finishes. */
+const leased = (connection: FeedConnection) =>
+  !!connection.lease_until && Date.parse(connection.lease_until) > Date.now();
+/** Ownership is decided per identity; a company identity also needs a book account. */
+// A mapped identity is a decided one even if the read still says unreviewed
+// (the map command does not stamp ownership yet).
+const needsOwnershipDecision = (identity: FeedIdentity) =>
+  identity.ownership === "unreviewed" && identity.feed_account_id === null;
+const needsAccountMapping = (identity: FeedIdentity) =>
+  identity.ownership === "company" && identity.feed_account_id === null;
 
 export function AccountingFeeds({
   data,
@@ -55,7 +68,7 @@ export function AccountingFeeds({
   onImports,
 }: {
   data: AccountingWorkspace;
-  manage: ManageData;
+  manage: BooksMetadata;
   demo: boolean;
   onRefresh: () => Promise<void>;
   onImports: () => void;
@@ -80,16 +93,15 @@ export function AccountingFeeds({
     const abort = new AbortController();
     Promise.all([
       accountingGet<FeedData>({ view: "feeds" }, abort.signal),
-      fetch("/api/accounting/feeds", {
-        signal: abort.signal,
-        cache: "no-store",
-      }).then(async (r) => {
+      fetch("/api/accounting/feeds", { cache: "no-store" }).then(async (r) => {
         if (!r.ok)
           throw new Error("Unable to read bank connection configuration.");
         return r.json() as Promise<Configuration>;
       }),
     ])
       .then(([feed, configuration]) => {
+        // A superseded request is dropped rather than aborted.
+        if (abort.signal.aborted) return;
         setState(feed);
         setConfig(configuration);
       })
@@ -138,8 +150,7 @@ export function AccountingFeeds({
       const c = state.connections.find((c) => c.id === a.connection_id);
       return (
         c?.status === "active" &&
-        a.observed_generation === c.generation &&
-        (a.ownership === "unreviewed" || a.approved_generation !== c.generation)
+        (needsOwnershipDecision(a) || needsAccountMapping(a))
       );
     }).length ?? 0;
   return (
@@ -156,7 +167,7 @@ export function AccountingFeeds({
           disabled={demo || !config?.ready || !!busy}
           onClick={() => setConnect("new")}
         >
-          <Plus size={16} />
+          <Plus size={16} aria-hidden="true" />
           Connect SimpleFIN
         </Button>
       </div>
@@ -182,7 +193,7 @@ export function AccountingFeeds({
         </p>
       )}
       {config && !config.ready && (
-        <div className="rounded-xl border border-border bg-secondary/20 p-4">
+        <div className="glass-card rounded-xl p-4">
           <p className="font-medium">Live bank access is off</p>
           <p className="mt-1 text-sm text-muted-foreground">
             {config.isolated
@@ -203,7 +214,7 @@ export function AccountingFeeds({
         ].map((item) => (
           <div
             key={item.label}
-            className="glass-card flex items-center justify-between p-4"
+            className="glass-card flex items-center justify-between rounded-xl p-4"
           >
             <div>
               <p className="text-xs text-muted-foreground">{item.label}</p>
@@ -211,7 +222,11 @@ export function AccountingFeeds({
                 {item.value}
               </p>
             </div>
-            <item.icon size={22} className="text-primary/70" />
+            <item.icon
+              size={22}
+              className="text-primary/70"
+              aria-hidden="true"
+            />
           </div>
         ))}
       </div>
@@ -221,8 +236,12 @@ export function AccountingFeeds({
         </p>
       )}
       {state?.connections.length === 0 && (
-        <div className="glass-card flex flex-col items-center px-6 py-12 text-center">
-          <Landmark size={30} className="text-muted-foreground" />
+        <div className="glass-card flex flex-col items-center rounded-xl px-6 py-12 text-center">
+          <Landmark
+            size={30}
+            className="text-muted-foreground"
+            aria-hidden="true"
+          />
           <h3 className="mt-4 font-semibold">Connect your company accounts</h3>
           <p className="mt-2 max-w-lg text-sm text-muted-foreground">
             Start with account discovery, then review which accounts belong to
@@ -231,7 +250,7 @@ export function AccountingFeeds({
           </p>
           <Button variant="outline" className="mt-5" onClick={onImports}>
             Review CSV imports
-            <ArrowRight size={15} />
+            <ArrowRight size={15} aria-hidden="true" />
           </Button>
         </div>
       )}
@@ -239,29 +258,45 @@ export function AccountingFeeds({
         const identities = state.identities.filter(
             (a) => a.connection_id === connection.id,
           ),
-          running =
-            busy === connection.id ||
-            (!!connection.lease_until &&
-              Date.parse(connection.lease_until) > Date.now()),
-          waiting =
-            !!connection.retry_at &&
-            Date.parse(connection.retry_at) > Date.now();
+          running = busy === connection.id || leased(connection),
+          mapped = identities.some((a) => a.feed_account_id !== null);
         return (
-          <section key={connection.id} className="glass-card overflow-hidden">
+          <section
+            key={connection.id}
+            className="glass-card overflow-hidden rounded-xl"
+          >
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border p-5">
               <div>
                 <div className="flex items-center gap-2">
-                  <Link2 size={17} className="text-primary" />
+                  <Link2
+                    size={17}
+                    className="text-primary"
+                    aria-hidden="true"
+                  />
                   <h3 className="font-semibold">{connection.name}</h3>
-                  <span className="rounded-full bg-secondary px-2 py-1 text-[11px] capitalize">
-                    {running
-                      ? "Syncing"
-                      : connection.status.replaceAll("_", " ")}
-                  </span>
+                  <Badge
+                    variant={
+                      running ? "info" : statusVariant[connection.status]
+                    }
+                  >
+                    {running ? "Syncing" : enumLabel(connection.status)}
+                  </Badge>
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Last complete run: {dateLabel(connection.last_success_at)} ·{" "}
-                  {connection.requests_today}/24 requests in the last day
+                  Last complete run:{" "}
+                  {connection.last_success_at
+                    ? timestampLabel(connection.last_success_at)
+                    : "Not yet"}{" "}
+                  ·{" "}
+                  {leased(connection)
+                    ? `Sync lease held until ${timestampLabel(connection.lease_until)}`
+                    : connection.scheduled
+                      ? `Next background sync: ${
+                          connection.next_sync_at
+                            ? timestampLabel(connection.next_sync_at)
+                            : "when the worker next runs"
+                        }`
+                      : "Background sync off"}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -270,29 +305,20 @@ export function AccountingFeeds({
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={!config?.ready || !!busy || running || waiting}
+                      disabled={!config?.ready || !!busy || running}
                       onClick={() => sync(connection, true)}
                     >
                       Discover accounts
                     </Button>
                     <Button
                       size="sm"
-                      disabled={
-                        !config?.ready ||
-                        !!busy ||
-                        running ||
-                        waiting ||
-                        !identities.some(
-                          (a) =>
-                            a.ownership === "company" &&
-                            a.approved_generation === connection.generation,
-                        )
-                      }
+                      disabled={!config?.ready || !!busy || running || !mapped}
                       onClick={() => sync(connection)}
                     >
                       <RefreshCw
                         size={14}
                         className={running ? "animate-spin" : ""}
+                        aria-hidden="true"
                       />
                       {running ? "Syncing..." : "Sync now"}
                     </Button>
@@ -311,14 +337,9 @@ export function AccountingFeeds({
             {connection.last_error && (
               <p
                 role="status"
-                className="border-b border-border bg-amber-500/5 px-5 py-3 text-sm text-amber-500"
+                className="border-b border-border bg-warning/10 px-5 py-3 text-sm text-warning"
               >
                 {connection.last_error}
-                {waiting && (
-                  <span className="block text-xs">
-                    Retry after {dateLabel(connection.retry_at)}
-                  </span>
-                )}
               </p>
             )}
             {connection.status === "claiming" && (
@@ -334,11 +355,8 @@ export function AccountingFeeds({
                   queue = state.queue.find(
                     (q) => q.feed_account_id === mapped?.id,
                   ),
-                  needsReview =
-                    identity.approved_generation !== connection.generation ||
-                    identity.ownership === "unreviewed";
-                const currentIdentity =
-                  identity.observed_generation === connection.generation;
+                  undecided = needsOwnershipDecision(identity),
+                  unmapped = needsAccountMapping(identity);
                 const isCard = manage.profiles.some(
                   (p) =>
                     p.account_id === mapped?.account_id &&
@@ -361,12 +379,12 @@ export function AccountingFeeds({
                         </p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {identity.institution} ·{" "}
-                          {!currentIdentity
-                            ? "Retained prior connection identity"
-                            : needsReview
-                              ? "Mapping review required"
-                              : identity.ownership === "company"
-                                ? accountName(mapped!.account_id)
+                          {undecided
+                            ? "Ownership decision required"
+                            : unmapped
+                              ? "Book account mapping required"
+                              : mapped
+                                ? accountName(mapped.account_id)
                                 : identity.ownership === "personal"
                                   ? "Personal account, excluded"
                                   : "Ignored"}
@@ -379,8 +397,7 @@ export function AccountingFeeds({
                           demo ||
                           cmd.busy ||
                           running ||
-                          connection.status !== "active" ||
-                          identity.observed_generation !== connection.generation
+                          connection.status !== "active"
                         }
                         onClick={() => setMapping(identity)}
                       >
@@ -402,7 +419,7 @@ export function AccountingFeeds({
                               value={
                                 normalized === null
                                   ? "Unavailable"
-                                  : formatCents(
+                                  : money(
                                       isCard && normalized < BigInt(0)
                                         ? -normalized
                                         : normalized,
@@ -410,9 +427,9 @@ export function AccountingFeeds({
                               }
                             />
                           </p>
-                          <p className="mt-1 text-[11px] text-muted-foreground">
+                          <p className="mt-1 text-xs text-muted-foreground">
                             {identity.balance?.balance_at
-                              ? dateLabel(
+                              ? timestampLabel(
                                   new Date(
                                     identity.balance.balance_at * 1000,
                                   ).toISOString(),
@@ -420,13 +437,13 @@ export function AccountingFeeds({
                               : "Timestamp unavailable"}
                           </p>
                           {!isCard && (
-                            <p className="mt-1 text-[11px] text-muted-foreground">
+                            <p className="mt-1 text-xs text-muted-foreground">
                               Available:{" "}
                               <MaskedValue
                                 value={
                                   identity.balance?.available_cents == null
                                     ? "Unavailable"
-                                    : formatCents(
+                                    : money(
                                         BigInt(
                                           identity.balance.available_cents,
                                         ) * BigInt(mapped.balance_sign),
@@ -441,10 +458,11 @@ export function AccountingFeeds({
                             Requested history
                           </p>
                           <p className="mt-1">
-                            From {stampDate(mapped.history_start)}
+                            From {dateLabel(stampDate(mapped.history_start))}
                           </p>
-                          <p className="mt-1 text-[11px] text-muted-foreground">
-                            Processed to {stampDate(mapped.checkpoint)}{" "}
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Processed to{" "}
+                            {dateLabel(stampDate(mapped.checkpoint))}{" "}
                             (exclusive)
                           </p>
                         </div>
@@ -456,43 +474,25 @@ export function AccountingFeeds({
                             {queue?.ready ?? 0} ready · {queue?.pending ?? 0}{" "}
                             pending
                           </p>
-                          <div className="mt-2 flex flex-wrap gap-2">
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            Ready movements stay in Imports until matched or
+                            applied.
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
                             <Button
                               size="sm"
-                              variant="outline"
-                              disabled={
-                                demo ||
-                                cmd.busy ||
-                                !Number(queue?.ready) ||
-                                !currentIdentity
-                              }
-                              onClick={async () => {
-                                setNotice("");
-                                const result = await cmd.execute({
-                                  type: "feed.prepare",
-                                  id: mapped.id,
-                                });
-                                if (result)
-                                  setNotice(
-                                    "A batch of up to 50 movements is ready in Imports. Review existing matches and exceptions, then create drafts.",
-                                  );
-                              }}
-                            >
-                              Prepare review batch
-                            </Button>
-                            <button
-                              className="text-xs text-muted-foreground underline underline-offset-4"
-                              disabled={cmd.busy || running}
+                              variant="link"
+                              disabled={demo || cmd.busy || running}
                               onClick={() => setSkip(mapped)}
                             >
                               Missing older history
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       </div>
                     )}
                     {!!identity.balance?.issues.length && (
-                      <ul className="mt-3 space-y-1 text-xs text-amber-500">
+                      <ul className="mt-3 space-y-1 text-xs text-warning">
                         {identity.balance.issues.map((issue, index) => (
                           <li key={index}>{issue.message}</li>
                         ))}
@@ -510,87 +510,48 @@ export function AccountingFeeds({
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-secondary/10 px-5 py-3">
               <div>
-                <label className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={connection.scheduled}
-                    disabled={
-                      demo ||
-                      cmd.busy ||
-                      running ||
-                      connection.status !== "active" ||
-                      (!config?.workerEnabled && !connection.scheduled)
-                    }
-                    onChange={(e) =>
-                      cmd.execute({
-                        type: "feed.schedule",
-                        id: connection.id,
-                        expected_version: connection.version,
-                        enabled: e.target.checked,
-                      })
-                    }
-                  />
-                  Daily background sync
-                </label>
-                <p className="mt-1 text-[11px] text-muted-foreground">
+                <Switch
+                  checked={connection.scheduled}
+                  label="Daily background sync"
+                  disabled={
+                    demo ||
+                    cmd.busy ||
+                    running ||
+                    connection.status !== "active" ||
+                    (!config?.workerEnabled && !connection.scheduled)
+                  }
+                  onChange={(enabled) =>
+                    void cmd.execute({
+                      type: "feed.schedule",
+                      id: connection.id,
+                      expected_version: connection.version,
+                      enabled,
+                    })
+                  }
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
                   {config?.workerEnabled
-                    ? "Runs use a randomized time and keep saved checkpoints."
+                    ? "The worker resumes from saved checkpoints when the next sync is due."
                     : "The background worker must be configured before it can be enabled."}
                 </p>
               </div>
               {connection.status !== "disconnected" && (
-                <button
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-muted-foreground"
                   onClick={() => setDisconnect(connection)}
                   disabled={cmd.busy}
                 >
-                  <Unplug size={13} />
+                  <Unplug size={13} aria-hidden="true" />
                   Disconnect
-                </button>
+                </Button>
               )}
             </div>
           </section>
         );
       })}
-      {!!state?.gaps.length && (
-        <section className="glass-card p-5">
-          <h3 className="font-semibold">Historical coverage review</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            A successful request does not prove that a bank supplied all its
-            older history. Compare these periods with original statements and
-            verified imports.
-          </p>
-          <div className="mt-4 divide-y divide-border">
-            {state.gaps.map((gap) => (
-              <div key={gap.id} className="py-3">
-                <p className="text-sm font-medium">
-                  {accountName(
-                    state.accounts.find((a) => a.id === gap.feed_account_id)
-                      ?.account_id ?? "",
-                  )}{" "}
-                  · {stampDate(gap.from_stamp)} to {stampDate(gap.to_stamp)}{" "}
-                  (exclusive)
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {gap.reason}
-                </p>
-                <p
-                  className={`mt-1 text-xs ${gap.covered ? "text-primary" : "text-amber-500"}`}
-                >
-                  {gap.covered
-                    ? "Covered by current statement or historical verification"
-                    : "Independent coverage still needed"}
-                </p>
-              </div>
-            ))}
-          </div>
-          <Button size="sm" variant="outline" onClick={onImports}>
-            Open imports
-            <ArrowRight size={14} />
-          </Button>
-        </section>
-      )}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-4">
+      <div className="glass-card flex flex-wrap items-center justify-between gap-3 rounded-xl p-4">
         <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
           Sync checkpoints describe received data. Statement reconciliation and
           verified historical reports establish your accounting coverage.
@@ -598,11 +559,11 @@ export function AccountingFeeds({
         </p>
         <Button variant="outline" onClick={onImports}>
           Open import review
-          <ArrowRight size={15} />
+          <ArrowRight size={15} aria-hidden="true" />
         </Button>
       </div>
       {!!state?.runs.length && (
-        <details className="glass-card p-5">
+        <details className="glass-card rounded-xl p-5">
           <summary className="cursor-pointer text-sm font-medium">
             Recent sync activity
           </summary>
@@ -611,12 +572,12 @@ export function AccountingFeeds({
               <div key={run.id} className="py-3 text-xs">
                 <div className="flex flex-wrap justify-between gap-2">
                   <span>
-                    {dateLabel(run.started_at)} ·{" "}
+                    {timestampLabel(run.started_at)} ·{" "}
                     {run.actor_kind === "worker"
                       ? "Background worker"
                       : "Owner request"}
                   </span>
-                  <span className="capitalize">{run.status}</span>
+                  <span>{enumLabel(run.status)}</span>
                 </div>
                 {run.error && (
                   <p className="mt-1 text-muted-foreground">{run.error}</p>
@@ -759,40 +720,35 @@ function ConnectFeed({
             void save();
           }}
         >
-          <label className="block text-sm">
-            Connection name
-            <Input
-              className="mt-1"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={120}
-              required
-              disabled={busy || attempted}
-            />
-          </label>
+          <Input
+            label="Connection name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={120}
+            required
+            disabled={busy || attempted}
+          />
           <a
-            className="inline-flex items-center gap-1 text-sm text-primary underline underline-offset-4"
+            className="inline-flex items-center gap-1 text-sm text-teal-light underline underline-offset-4"
             href="https://bridge.simplefin.org/simplefin/create"
             target="_blank"
             rel="noopener noreferrer"
           >
             Create a SimpleFIN setup token
-            <ArrowRight size={14} />
+            <ArrowRight size={14} aria-hidden="true" />
           </a>
-          <label className="block text-sm">
-            Setup token
-            <Input
-              className="mt-1 font-mono"
-              type="password"
-              autoComplete="off"
-              spellCheck={false}
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              maxLength={12000}
-              required
-              disabled={busy || attempted}
-            />
-          </label>
+          <Input
+            label="Setup token"
+            className="font-mono"
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            maxLength={12000}
+            required
+            disabled={busy || attempted}
+          />
           {current && (
             <p className="text-xs text-muted-foreground">
               Review account mappings again after discovery. Reuse each existing
@@ -834,7 +790,7 @@ function MapFeed({
 }: {
   identity: FeedIdentity;
   accounts: AccountingWorkspace["accounts"];
-  profiles: ManageData["profiles"];
+  profiles: BooksMetadata["profiles"];
   canonical: FeedCanonicalAccount[];
   onClose: () => void;
   onSaved: () => Promise<void>;
@@ -871,6 +827,7 @@ function MapFeed({
             ["bank", "card", "cash"].includes(p.cash_kind),
         ),
     );
+  const locked = !!existing && !existing.can_edit_settings;
   function choose(id: string) {
     setAccountId(id);
     setReviewed(false);
@@ -926,43 +883,33 @@ function MapFeed({
             });
           }}
         >
-          <label className="block text-sm">
-            Account ownership
-            <select
-              className={selectStyle}
-              value={ownership}
-              onChange={(e) => {
-                setOwnership(e.target.value as typeof ownership);
-                setReviewed(false);
-              }}
-            >
-              <option value="company">Company account</option>
-              <option value="personal">
-                Personal, exclude from company books
-              </option>
-              <option value="ignored">Ignore this account</option>
-            </select>
-          </label>
+          <CustomSelect
+            label="Account ownership"
+            value={ownership}
+            onChange={(value) => {
+              setOwnership(value as typeof ownership);
+              setReviewed(false);
+            }}
+            options={[
+              { value: "company", label: "Company account" },
+              {
+                value: "personal",
+                label: "Personal, exclude from company books",
+              },
+              { value: "ignored", label: "Ignore this account" },
+            ]}
+          />
           {ownership === "company" && (
             <>
-              <label className="block text-sm">
-                Book account
-                <select
-                  className={selectStyle}
-                  value={accountId}
-                  onChange={(e) => choose(e.target.value)}
-                  required
-                >
-                  <option value="">
-                    Choose an existing bank or card account
-                  </option>
-                  {banks.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <SearchableSelect
+                label="Book account"
+                visibleLabel="Book account"
+                value={accountId}
+                onChange={choose}
+                placeholder="Choose an existing bank or card account"
+                required
+                options={banks.map((a) => ({ value: a.id, label: a.name }))}
+              />
               {existing && (
                 <p className="rounded-lg bg-primary/5 p-3 text-xs">
                   This account has a saved feed identity. Its original history
@@ -970,74 +917,70 @@ function MapFeed({
                 </p>
               )}
               <div className="grid gap-3 sm:grid-cols-2">
-                <label className="block text-sm">
-                  History begins
-                  <Input
-                    type="date"
-                    className="mt-1"
-                    value={start}
-                    onChange={(e) => {
-                      setStart(e.target.value);
-                      setReviewed(false);
-                    }}
-                    disabled={!!existing && !existing.can_edit_settings}
-                    required
-                  />
-                </label>
-                <label className="block text-sm">
-                  Posting date timezone
-                  <select
-                    className={selectStyle}
-                    value={zone}
-                    onChange={(e) => {
-                      setZone(e.target.value as typeof zone);
-                      setReviewed(false);
-                    }}
-                    disabled={!!existing && !existing.can_edit_settings}
-                  >
-                    <option value="America/Phoenix">America/Phoenix</option>
-                    <option value="UTC">UTC</option>
-                  </select>
-                </label>
+                <Input
+                  label="History begins"
+                  type="date"
+                  value={start}
+                  onChange={(e) => {
+                    setStart(e.target.value);
+                    setReviewed(false);
+                  }}
+                  disabled={locked}
+                  required
+                />
+                <CustomSelect
+                  label="Posting date timezone"
+                  value={zone}
+                  onChange={(value) => {
+                    setZone(value as typeof zone);
+                    setReviewed(false);
+                  }}
+                  disabled={locked}
+                  options={[
+                    { value: "America/Phoenix", label: "America/Phoenix" },
+                    { value: "UTC", label: "UTC" },
+                  ]}
+                />
               </div>
-              <label className="block text-sm">
-                Transaction sign
-                <select
-                  className={selectStyle}
-                  value={movement}
-                  onChange={(e) => {
-                    setMovement(Number(e.target.value) as 1 | -1);
-                    setReviewed(false);
-                  }}
-                  disabled={!!existing && !existing.can_edit_settings}
-                >
-                  <option value={1}>
-                    Keep source sign: deposit/payment +, withdrawal/charge -
-                  </option>
-                  <option value={-1}>
-                    Reverse source sign, supported by statement
-                  </option>
-                </select>
-              </label>
-              <label className="block text-sm">
-                Balance sign
-                <select
-                  className={selectStyle}
-                  value={balance}
-                  onChange={(e) => {
-                    setBalance(Number(e.target.value) as 1 | -1);
-                    setReviewed(false);
-                  }}
-                  disabled={!!existing && !existing.can_edit_settings}
-                >
-                  <option value={1}>
-                    Keep source sign: cash +, card debt -
-                  </option>
-                  <option value={-1}>
-                    Reverse source balance, card debt shown positive
-                  </option>
-                </select>
-              </label>
+              <CustomSelect
+                label="Transaction sign"
+                value={String(movement)}
+                onChange={(value) => {
+                  setMovement(Number(value) as 1 | -1);
+                  setReviewed(false);
+                }}
+                disabled={locked}
+                options={[
+                  {
+                    value: "1",
+                    label:
+                      "Keep source sign: deposit/payment +, withdrawal/charge -",
+                  },
+                  {
+                    value: "-1",
+                    label: "Reverse source sign, supported by statement",
+                  },
+                ]}
+              />
+              <CustomSelect
+                label="Balance sign"
+                value={String(balance)}
+                onChange={(value) => {
+                  setBalance(Number(value) as 1 | -1);
+                  setReviewed(false);
+                }}
+                disabled={locked}
+                options={[
+                  {
+                    value: "1",
+                    label: "Keep source sign: cash +, card debt -",
+                  },
+                  {
+                    value: "-1",
+                    label: "Reverse source balance, card debt shown positive",
+                  },
+                ]}
+              />
               <p className="text-xs text-muted-foreground">
                 No opening balance is created from this connection. Longer
                 history may need original CSV exports. Only USD accounts are
@@ -1045,29 +988,27 @@ function MapFeed({
               </p>
             </>
           )}
-          <label className="block text-sm">
-            Review note
-            <Input
-              className="mt-1"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              maxLength={1000}
-              required
-              placeholder="Statement and account ownership checked"
-            />
-          </label>
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={reviewed}
-              onChange={(e) => setReviewed(e.target.checked)}
-            />
-            I reviewed ownership
-            {ownership === "company"
-              ? ", the book account, posting dates, and signs."
-              : "."}
-          </label>
+          <Input
+            label="Review note"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            maxLength={1000}
+            required
+            placeholder="Statement and account ownership checked"
+          />
+          <Checkbox
+            className="items-start text-left"
+            checked={reviewed}
+            onChange={setReviewed}
+            label={
+              <>
+                I reviewed ownership
+                {ownership === "company"
+                  ? ", the book account, posting dates, and signs."
+                  : "."}
+              </>
+            }
+          />
           {cmd.error && (
             <p role="alert" className="text-sm text-destructive">
               {cmd.error}
@@ -1138,16 +1079,13 @@ function DisconnectFeed({
             });
           }}
         >
-          <label className="block text-sm">
-            Reason
-            <Input
-              className="mt-1"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              maxLength={1000}
-              required
-            />
-          </label>
+          <Input
+            label="Reason"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            maxLength={1000}
+            required
+          />
           {cmd.error && (
             <p role="alert" className="text-sm text-destructive">
               {cmd.error}
@@ -1194,8 +1132,8 @@ function SkipHistory({
           <DialogTitle>Continue past unavailable bank history</DialogTitle>
           <DialogDescription>
             Use this only when the bank cannot return an older period. The
-            skipped range remains a visible coverage gap for statement or
-            historical import review.
+            checkpoint moves forward; verify the skipped range against original
+            statements or historical imports.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -1217,40 +1155,31 @@ function SkipHistory({
         >
           <p className="text-sm">
             Current checkpoint:{" "}
-            {stampDate(account.checkpoint ?? account.history_start)}
+            {dateLabel(stampDate(account.checkpoint ?? account.history_start))}
           </p>
-          <label className="block text-sm">
-            Continue from date
-            <Input
-              type="date"
-              className="mt-1"
-              value={date}
-              onChange={(e) => {
-                setDate(e.target.value);
-                setReviewed(false);
-              }}
-              required
-            />
-          </label>
-          <label className="block text-sm">
-            Why this history is unavailable
-            <Input
-              className="mt-1"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              required
-              maxLength={1000}
-            />
-          </label>
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={reviewed}
-              onChange={(e) => setReviewed(e.target.checked)}
-            />
-            I will verify this period with independent source evidence.
-          </label>
+          <Input
+            label="Continue from date"
+            type="date"
+            value={date}
+            onChange={(e) => {
+              setDate(e.target.value);
+              setReviewed(false);
+            }}
+            required
+          />
+          <Input
+            label="Why this history is unavailable"
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            required
+            maxLength={1000}
+          />
+          <Checkbox
+            className="items-start text-left"
+            checked={reviewed}
+            onChange={setReviewed}
+            label="I will verify this period with independent source evidence."
+          />
           {cmd.error && (
             <p role="alert" className="text-sm text-destructive">
               {cmd.error}
@@ -1266,7 +1195,7 @@ function SkipHistory({
               Cancel
             </Button>
             <Button disabled={cmd.busy || !reviewed || !date || !reason.trim()}>
-              Record gap and continue
+              Move checkpoint and continue
             </Button>
           </div>
         </form>

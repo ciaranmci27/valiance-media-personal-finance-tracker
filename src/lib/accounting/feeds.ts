@@ -65,14 +65,11 @@ export interface FeedConnection {
   name: string;
   status: "claiming" | "active" | "reconnect_required" | "disconnected";
   version: number;
-  generation: number;
   scheduled: boolean;
   next_sync_at: string | null;
-  retry_at: string | null;
   last_success_at: string | null;
   last_error: string;
   lease_until: string | null;
-  requests_today: number;
 }
 export interface FeedCanonicalAccount {
   id: string;
@@ -95,8 +92,6 @@ export interface FeedIdentity {
   currency: string;
   ownership: "unreviewed" | "company" | "personal" | "ignored";
   version: number;
-  observed_generation: number;
-  approved_generation: number | null;
   feed_account_id: string | null;
   last_seen_at: string;
   account: FeedCanonicalAccount | null;
@@ -121,14 +116,6 @@ export interface FeedData {
     started_at: string;
     finished_at: string | null;
     error: string;
-  }[];
-  gaps: {
-    id: string;
-    feed_account_id: string;
-    from_stamp: string;
-    to_stamp: string;
-    reason: string;
-    covered: boolean;
   }[];
   queue: { feed_account_id: string; ready: number; pending: number }[];
 }

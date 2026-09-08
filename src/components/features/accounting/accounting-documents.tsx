@@ -1,8 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Paperclip, Download, Link2 } from "lucide-react";
+import { Paperclip, Download, Link2, Camera, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
+import { Pagination } from "@/components/ui/pagination";
+import { Tooltip } from "@/components/ui/tooltip";
+import { AccountingEntryPicker } from "./accounting-entry-picker";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +17,7 @@ import type {
   AccountingDocument,
   DocumentList,
 } from "@/lib/accounting/documents";
+import { countLabel, dateLabel, enumLabel } from "./format";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 
 export async function uploadEvidence(
@@ -46,7 +50,19 @@ export function EvidenceUpload({
     [error, setError] = useState("");
   const uploadId = useRef<string | null>(null),
     inFlight = useRef(false),
-    input = useRef<HTMLInputElement>(null);
+    input = useRef<HTMLInputElement>(null),
+    camera = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  function choose(next: File | null) {
+    if (busy) return;
+    setError("");
+    if (next && next.size > 20 * 1024 * 1024) {
+      setError("Choose a file smaller than 20 MB.");
+      return;
+    }
+    setFile(next);
+    uploadId.current = crypto.randomUUID();
+  }
   const command = useAccountingCommand();
   async function save() {
     if (!file || inFlight.current) return;
@@ -69,6 +85,7 @@ export function EvidenceUpload({
       setFile(null);
       uploadId.current = null;
       if (input.current) input.current.value = "";
+      if (camera.current) camera.current.value = "";
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Upload paused. Retry this file.",
@@ -80,40 +97,119 @@ export function EvidenceUpload({
   }
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-3">
+      <div
+        className={`rounded-xl border border-dashed p-4 transition-colors ${dragging ? "border-primary bg-primary/10" : "border-border bg-secondary/15"}`}
+        onDragOver={(e) => {
+          e.preventDefault();
+          if (!busy) setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          if (e.dataTransfer.files.length !== 1) {
+            setError("Drop one file at a time.");
+            return;
+          }
+          choose(e.dataTransfer.files[0]);
+        }}
+      >
         <input
           ref={input}
-          className="min-w-0 flex-1 text-xs file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-2 file:text-foreground"
-          aria-label="Choose evidence file"
           type="file"
+          className="sr-only"
+          tabIndex={-1}
+          aria-label="Choose evidence file"
           accept=".pdf,.png,.jpg,.jpeg,.webp,.csv"
           disabled={busy}
-          onChange={(e) => {
-            setFile(e.target.files?.[0] ?? null);
-            uploadId.current = crypto.randomUUID();
-            setError("");
-          }}
+          onChange={(e) => choose(e.target.files?.[0] ?? null)}
         />
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!file || busy}
-          onClick={() => void save()}
-        >
-          <Paperclip size={14} />
-          {busy ? "Uploading…" : "Upload evidence"}
-        </Button>
+        <input
+          ref={camera}
+          type="file"
+          className="sr-only"
+          tabIndex={-1}
+          aria-label="Take a receipt photo"
+          accept="image/jpeg,image/png,image/webp"
+          capture="environment"
+          disabled={busy}
+          onChange={(e) => choose(e.target.files?.[0] ?? null)}
+        />
+        {file ? (
+          <div className="mb-3 flex items-center gap-2 text-sm">
+            <Paperclip size={15} aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">{file.name}</span>
+            <Tooltip content="Remove selected file">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Remove selected file"
+                disabled={busy}
+                onClick={() => {
+                  choose(null);
+                  if (input.current) input.current.value = "";
+                  if (camera.current) camera.current.value = "";
+                }}
+              >
+                <X size={14} aria-hidden="true" />
+              </Button>
+            </Tooltip>
+          </div>
+        ) : (
+          <p className="mb-3 text-sm text-muted-foreground">
+            Drop a receipt here, or choose a file.
+          </p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            onClick={() => input.current?.click()}
+          >
+            <Upload size={14} aria-hidden="true" />
+            Choose file
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={busy}
+            onClick={() => camera.current?.click()}
+          >
+            <Camera size={14} aria-hidden="true" />
+            Take photo
+          </Button>
+          {file && (
+            <Button
+              type="button"
+              size="sm"
+              disabled={busy}
+              onClick={() => void save()}
+            >
+              {busy ? "Uploading..." : "Attach file"}
+            </Button>
+          )}
+        </div>
       </div>
       <p className="text-xs text-muted-foreground">
         Private PDF, image, or CSV · Up to 20 MB · Original files are retained
       </p>
       {(error || command.error) && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-error">
           {error || command.error}
         </p>
       )}
     </div>
   );
+}
+function documentStatus(d: AccountingDocument) {
+  if (d.state !== "available") return enumLabel(d.state);
+  return d.entries.length
+    ? countLabel(d.entries.length, "linked entry", "linked entries")
+    : "In inbox";
 }
 export function AccountingDocuments({
   demo,
@@ -152,9 +248,71 @@ export function AccountingDocuments({
       });
     return () => controller.abort();
   }, [demo, offset]);
+  const meta = (d: AccountingDocument) =>
+    `${Math.ceil(Number(d.size_bytes) / 1024)} KB · ${documentStatus(d)}`;
+  const entryLinks = (d: AccountingDocument) =>
+    d.entries.length ? (
+      <div className="flex flex-wrap gap-2">
+        {d.entries.map((e) => (
+          <button
+            key={e.id}
+            type="button"
+            className="text-xs text-teal-light hover:underline"
+            onClick={() => onEntry(e.id)}
+          >
+            {dateLabel(e.entry_date)} · {e.memo}
+          </button>
+        ))}
+      </div>
+    ) : null;
+  const actions = (d: AccountingDocument) =>
+    d.state === "available" ? (
+      <div className="flex items-center justify-end gap-2">
+        <Tooltip content={`Download ${d.original_name}`}>
+          <Button asChild variant="ghost" size="icon-sm">
+            <a
+              href={`/api/accounting/documents?id=${d.id}`}
+              aria-label={`Download ${d.original_name}`}
+            >
+              <Download size={16} aria-hidden="true" />
+            </a>
+          </Button>
+        </Tooltip>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => {
+            setLink(d);
+            setEntryId("");
+          }}
+        >
+          <Link2 size={14} aria-hidden="true" />
+          Attach to transaction
+        </Button>
+      </div>
+    ) : null;
+  const columns: DataTableColumn<AccountingDocument>[] = [
+    {
+      key: "document",
+      header: "Document",
+      render: (d) => (
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{d.original_name}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{meta(d)}</p>
+        </div>
+      ),
+    },
+    { key: "entries", header: "Linked transactions", render: entryLinks },
+    {
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
+      align: "right",
+      render: actions,
+    },
+  ];
   return (
-    <section className="glass-card overflow-hidden">
-      <div className="space-y-4 border-b border-border p-5">
+    <section className="space-y-4">
+      <div className="glass-card space-y-4 rounded-xl p-5">
         <div>
           <h2 className="font-semibold">Document inbox</h2>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -164,91 +322,37 @@ export function AccountingDocuments({
         {!demo && <EvidenceUpload onSaved={refresh} />}
       </div>
       {error && (
-        <p role="alert" className="p-4 text-sm text-destructive">
+        <p role="alert" className="text-sm text-error">
           {error}
         </p>
       )}
-      <div className="divide-y divide-border">
-        {data.documents.map((d) => (
-          <div
-            key={d.id}
-            className="flex flex-wrap items-center justify-between gap-3 p-5"
-          >
+      <DataTable
+        columns={columns}
+        data={data.documents}
+        keyExtractor={(d) => d.id}
+        emptyState="Upload a receipt or source document to start your evidence library."
+        mobileCard={(d) => (
+          <div className="glass-card flex flex-wrap items-center justify-between gap-3 rounded-xl p-4">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{d.original_name}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {Math.ceil(Number(d.size_bytes) / 1024)} KB ·{" "}
-                {d.state === "available"
-                  ? d.entries.length
-                    ? `${d.entries.length} linked entries`
-                    : "In inbox"
-                  : d.state}
-              </p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {d.entries.map((e) => (
-                  <button
-                    className="text-xs text-primary hover:underline"
-                    key={e.id}
-                    onClick={() => onEntry(e.id)}
-                  >
-                    {e.entry_date} · {e.memo}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              {d.state === "available" && (
-                <>
-                  <a
-                    className="rounded-md p-2 text-muted-foreground hover:text-foreground"
-                    href={`/api/accounting/documents?id=${d.id}`}
-                    aria-label={`Download ${d.original_name}`}
-                  >
-                    <Download size={16} />
-                  </a>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setLink(d);
-                      setEntryId("");
-                    }}
-                  >
-                    <Link2 size={14} />
-                    Link entry
-                  </Button>
-                </>
+              <p className="mt-1 text-xs text-muted-foreground">{meta(d)}</p>
+              {d.entries.length > 0 && (
+                <div className="mt-2">{entryLinks(d)}</div>
               )}
             </div>
+            {actions(d)}
           </div>
-        ))}
-        {!data.documents.length && (
-          <p className="p-8 text-center text-sm text-muted-foreground">
-            Upload a receipt or source document to start your evidence library.
-          </p>
         )}
-      </div>
-      <div className="flex justify-between border-t border-border p-4 text-xs text-muted-foreground">
-        <span>{data.total} documents</span>
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={!offset}
-            onClick={() => setOffset(offset - 100)}
-          >
-            Previous
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={offset + 100 >= data.total}
-            onClick={() => setOffset(offset + 100)}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+        after={
+          <Pagination
+            offset={offset}
+            limit={100}
+            total={data.total}
+            onChange={setOffset}
+            noun="documents"
+          />
+        }
+      />
       <Dialog
         open={!!link}
         onOpenChange={(open) => {
@@ -257,7 +361,7 @@ export function AccountingDocuments({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Link evidence to an entry</DialogTitle>
+            <DialogTitle>Attach a document to a transaction</DialogTitle>
             <DialogDescription>{link?.original_name}</DialogDescription>
           </DialogHeader>
           <form
@@ -273,23 +377,21 @@ export function AccountingDocuments({
                 });
             }}
           >
-            <Input
-              label="Entry ID"
-              placeholder="Copy from the transaction detail"
+            <AccountingEntryPicker
               value={entryId}
-              onChange={(e) => setEntryId(e.target.value)}
-              required
+              onChange={setEntryId}
+              disabled={command.busy}
             />
             <p className="text-xs text-muted-foreground">
               Evidence can be added after a period is locked. Financial amounts
               remain unchanged.
             </p>
             {command.error && (
-              <p role="alert" className="text-sm text-destructive">
+              <p role="alert" className="text-sm text-error">
                 {command.error}
               </p>
             )}
-            <Button disabled={command.busy}>Link document</Button>
+            <Button disabled={command.busy || !entryId}>Link document</Button>
           </form>
         </DialogContent>
       </Dialog>

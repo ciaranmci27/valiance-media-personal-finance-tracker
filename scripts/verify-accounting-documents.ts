@@ -12,7 +12,7 @@ async function main() {
     (
       await db.query<{
         r: { id: string; version: number; storage_path: string };
-      }>("SELECT acct_execute($1,$2::jsonb) r", [key, JSON.stringify(command)])
+      }>("SELECT accounting.operate(jsonb_build_object('key',$1::text,'command',$2::jsonb)) r", [key, JSON.stringify(command)])
     ).rows[0].r;
   try {
     await db.exec(
@@ -67,7 +67,7 @@ async function main() {
     await db.exec("SET ROLE anon");
     check((await db.query("SELECT id FROM storage.objects")).rows.length, 0);
     await assert.rejects(
-      db.query("SELECT acct_documents_read()"),
+      db.query("SELECT accounting.documents()"),
       /permission denied/,
     );
     checks++;
@@ -77,7 +77,7 @@ async function main() {
     ]);
     check((await db.query("SELECT id FROM storage.objects")).rows.length, 0);
     await assert.rejects(
-      db.query("SELECT acct_documents_read()"),
+      db.query("SELECT accounting.documents()"),
       /ACCT_FORBIDDEN/,
     );
     checks++;

@@ -49,9 +49,7 @@ export interface ScheduleTriggerConfig {
 }
 
 // Manual trigger has no configuration
-export interface ManualTriggerConfig {
-  // Empty - manual triggers have no configuration
-}
+export type ManualTriggerConfig = Record<string, never>;
 
 // ─── Payroll event trigger ────────────────────────────────────────────────────
 // Triggers that fire relative to a payroll event (pay date, ACH send, deposit
@@ -170,6 +168,16 @@ export interface TaxIncomeSource {
    * nor subject to NIIT. Absent = not materially participating (conservative).
    */
   materially_participates?: boolean;
+  /** Reviewed W-2 wage measures. `amount` remains federal taxable wages (box1).
+   * Omission preserves the legacy assumption that wage bases equal that amount.
+   * State overrides apply only to their explicitly identified jurisdiction.
+   */
+  wage_bases?: {
+    social_security: number;
+    medicare: number;
+    state?: number;
+    state_code?: string;
+  };
 }
 
 export interface TaxCapitalGainEntry {
@@ -188,6 +196,12 @@ export interface TaxPaymentEntry {
   amount: number;
   /** Links this withholding to an income source */
   linked_income_id?: string;
+  /** Forecast entries belong to calculation overlays and are not actual paid tax. */
+  timing?: "actual" | "forecast";
+  paid_on?: string;
+  document_id?: string;
+  /** Cutoff of a verified YTD withholding report, not an individual payment date. */
+  verified_through?: string;
 }
 
 // Expense category types
@@ -590,6 +604,38 @@ export type Database = {
           automation_run_id?: string | null;
           created_at?: string;
         };
+      };
+      business_profile: {
+        Row: {
+          id: number;
+          legal_name: string;
+          dba: string | null;
+          entity_type: "llc" | "corporation" | "sole_proprietorship" | "partnership";
+          ein: string | null;
+          formation_date: string | null;
+          state_of_formation: string | null;
+          address: Record<string, string> | null;
+          phone: string | null;
+          email: string | null;
+          tax_classification: "disregarded" | "sole_prop" | "s_corp" | "c_corp" | "partnership";
+          tax_classification_since: number | null;
+          home_state: string | null;
+          is_sstb: boolean;
+          fiscal_year_start_month: number;
+          books_timezone: string;
+          earliest_history_date: string | null;
+          owner_name: string | null;
+          owner_title: string | null;
+          accountant_name: string | null;
+          accountant_email: string | null;
+          default_email_account_id: string | null;
+          version: number;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["business_profile"]["Row"]> & {
+          legal_name: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["business_profile"]["Row"]>;
       };
       tax_estimates: {
         Row: {

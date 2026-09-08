@@ -1,11 +1,14 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
-import { FileText, Paperclip, History, Plus } from "lucide-react";
+import { ArrowRight, FileText, Paperclip, History, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { MaskedValue } from "@/components/ui/masked-value";
+import { SectionHeader } from "@/components/ui/section-header";
+import { Tooltip } from "@/components/ui/tooltip";
 import type { EntryEvidence, Party } from "@/lib/accounting/workflows";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
+import { enumLabel, timestampLabel } from "./format";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { EvidenceUpload } from "./accounting-documents";
 export function AccountingEvidence({
@@ -41,7 +44,7 @@ export function AccountingEvidence({
   }, [entryId]);
   return (
     <div className="space-y-4 border-t border-border pt-4">
-      <h3 className="text-sm font-semibold">Evidence & history</h3>
+      <SectionHeader label="Evidence & history" />
       {error && (
         <p role="alert" className="text-sm text-error">
           {error}
@@ -60,7 +63,7 @@ export function AccountingEvidence({
                     Draft filled by {r.rule_name} · version {r.rule_version}
                   </summary>
                   <p className="mt-2 text-muted-foreground">
-                    {new Date(r.created_at).toLocaleString()}
+                    {timestampLabel(r.created_at)}
                   </p>
                   <div className="mt-3 space-y-2">
                     <p>
@@ -68,7 +71,11 @@ export function AccountingEvidence({
                       {accounts.find(
                         (a) => a.id === r.before_value.category_account_id,
                       )?.name ?? "Previous category"}{" "}
-                      →{" "}
+                      <ArrowRight
+                        size={12}
+                        className="inline align-middle"
+                        aria-hidden="true"
+                      />{" "}
                       {r.before_value.winner?.category_name ??
                         "Reviewed category"}
                     </p>
@@ -106,9 +113,9 @@ export function AccountingEvidence({
           <div className="space-y-2">
             {data.documents.map((d) => (
               <p key={d.id} className="flex items-center gap-2 text-sm">
-                <Paperclip size={14} />
+                <Paperclip size={14} aria-hidden="true" />
                 <a
-                  className="text-primary hover:underline"
+                  className="text-teal-light hover:underline"
                   href={`/api/accounting/documents?id=${d.id}`}
                 >
                   {d.original_name}
@@ -124,7 +131,11 @@ export function AccountingEvidence({
           {data.sources.map((s) => (
             <details key={s.id} className="rounded-lg border border-border p-3">
               <summary className="cursor-pointer text-sm">
-                <FileText className="mr-2 inline" size={14} />
+                <FileText
+                  className="mr-2 inline"
+                  size={14}
+                  aria-hidden="true"
+                />
                 {s.source_system} · {s.external_id}
               </summary>
               <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground">
@@ -136,24 +147,27 @@ export function AccountingEvidence({
             <div key={n.id} className="rounded-lg bg-secondary/50 p-3 text-sm">
               <p className="whitespace-pre-wrap">{n.note}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {new Date(n.created_at).toLocaleString()}
+                {timestampLabel(n.created_at)}
               </p>
             </div>
           ))}
           <details>
             <summary className="cursor-pointer text-xs text-muted-foreground">
-              <History size={13} className="mr-1 inline" />
+              <History size={13} className="mr-1 inline" aria-hidden="true" />
               {data.audit.length} recorded changes
             </summary>
             <div className="mt-2 max-h-56 overflow-auto">
               {data.audit.map((a) => (
                 <div key={a.id} className="border-b border-border py-2 text-xs">
                   <p>
-                    {a.action.toLowerCase()} ·{" "}
-                    {a.table_name.replace("acct_", "").replaceAll("_", " ")}
+                    {enumLabel(a.action.toLowerCase())} ·{" "}
+                    {enumLabel(a.table_name.replace("acct_", ""))}
                   </p>
-                  <time className="text-muted-foreground">
-                    {new Date(a.recorded_at).toLocaleString()}
+                  <time
+                    dateTime={a.recorded_at}
+                    className="text-muted-foreground"
+                  >
+                    {timestampLabel(a.recorded_at)}
                   </time>
                 </div>
               ))}
@@ -187,15 +201,17 @@ export function AccountingEvidence({
           maxLength={3000}
           required
         />
-        <Button
-          type="submit"
-          variant="outline"
-          aria-label="Save note"
-          size="icon"
-          disabled={!note.trim() || command.busy}
-        >
-          <Plus size={16} />
-        </Button>
+        <Tooltip content="Save note">
+          <Button
+            type="submit"
+            variant="outline"
+            aria-label="Save note"
+            size="icon"
+            disabled={!note.trim() || command.busy}
+          >
+            <Plus size={16} aria-hidden="true" />
+          </Button>
+        </Tooltip>
       </form>
       <EvidenceUpload entryId={entryId} onSaved={refresh} />
       {command.error && (

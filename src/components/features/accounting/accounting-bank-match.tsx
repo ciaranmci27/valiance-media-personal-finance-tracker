@@ -2,7 +2,12 @@
 import { useEffect, useState } from "react";
 import { Link2, Check, Search, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Input } from "@/components/ui/input";
+import { Pagination } from "@/components/ui/pagination";
+import { SectionHeader } from "@/components/ui/section-header";
 import {
   Dialog,
   DialogContent,
@@ -11,9 +16,15 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { MaskedValue } from "@/components/ui/masked-value";
+import { cn } from "@/lib/utils";
 import type { BankReview } from "@/lib/accounting/bank-matching";
-import { formatCents, parseUsd, centsToDecimal } from "@/lib/accounting/money";
+import { parseUsd, centsToDecimal } from "@/lib/accounting/money";
+import { dateLabel, money } from "./format";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+
+type Candidate = BankReview["candidates"][number];
+type Match = BankReview["matches"][number];
+const PAGE = 25;
 
 export function AccountingBankMatch({
   groupId,
@@ -33,18 +44,14 @@ export function AccountingBankMatch({
     [tick, setTick] = useState(0),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
-    [selected, setSelected] = useState<BankReview["candidates"][number] | null>(
-      null,
-    ),
+    [selected, setSelected] = useState<Candidate | null>(null),
     [amount, setAmount] = useState(""),
     [reason, setReason] = useState(""),
     [approved, setApproved] = useState(false),
-    [release, setRelease] = useState<{
-      id: string;
-      match: BankReview["matches"][number];
-    } | null>(null),
+    [release, setRelease] = useState<{ id: string; match: Match } | null>(null),
     [releaseReason, setReleaseReason] = useState("");
   const command = useAccountingCommand();
+  const { confirm, dialog } = useConfirmationDialog();
   useEffect(() => {
     const abort = new AbortController();
     setLoading(true);
@@ -128,20 +135,125 @@ export function AccountingBankMatch({
       await refreshed();
     }
   }
-  const close = () => {
+  async function close() {
     if (command.busy) return;
-    if (
-      selected &&
-      !window.confirm("Discard this unsaved bank match selection?")
-    )
-      return;
+    if (selected) {
+      const ok = await confirm({
+        title: "Discard this unsaved bank match selection?",
+        description: "The selected bank line and amount will not be saved.",
+        confirmLabel: "Discard",
+        variant: "warning",
+      });
+      if (!ok) return;
+    }
     onClose();
-  };
+  }
+  const frozen = loading || command.busy;
+  function pick(candidate: Candidate) {
+    if (frozen) return;
+    setSelected(candidate);
+    setAmount(
+      centsToDecimal(
+        BigInt(candidate.available_cents) < remaining
+          ? BigInt(candidate.available_cents)
+          : remaining,
+      ),
+    );
+    setApproved(false);
+  }
+  const matchColumns: DataTableColumn<Match>[] = [
+    {
+      key: "entry",
+      header: "Entry",
+      render: (m) => (
+        <button
+          type="button"
+          className="text-left text-sm hover:text-teal-light"
+          onClick={() => onEntry(m.entry_id)}
+        >
+          {m.memo}
+          <span className="mt-1 block text-xs text-muted-foreground">
+            {dateLabel(m.entry_date)} · Open entry
+          </span>
+        </button>
+      ),
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      align: "right",
+      numeric: true,
+      render: (m) => (
+        <MaskedValue value={money(m.amount_cents)} className="font-mono" />
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      align: "right",
+      render: (m) =>
+        m.release ? (
+          <span className="text-xs text-muted-foreground">
+            Released: {m.release.reason}
+          </span>
+        ) : (
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={frozen}
+            onClick={() => {
+              setRelease({ id: crypto.randomUUID(), match: m });
+              setReleaseReason("");
+            }}
+          >
+            Release match
+          </Button>
+        ),
+    },
+  ];
+  const candidateColumns: DataTableColumn<Candidate>[] = [
+    {
+      key: "memo",
+      header: "Bank line",
+      render: (c) => (
+        <button
+          type="button"
+          disabled={frozen}
+          className="text-left font-medium hover:text-teal-light disabled:opacity-50"
+          onClick={() => pick(c)}
+        >
+          {c.memo}
+        </button>
+      ),
+    },
+    {
+      key: "date",
+      header: "Date",
+      className: "whitespace-nowrap",
+      render: (c) => (
+        <>
+          {dateLabel(c.entry_date)}
+          <span className="block text-xs text-muted-foreground">
+            {c.days_apart} days from source
+          </span>
+        </>
+      ),
+    },
+    {
+      key: "available",
+      header: "Available",
+      align: "right",
+      numeric: true,
+      render: (c) => (
+        <MaskedValue value={money(c.available_cents)} className="font-mono" />
+      ),
+    },
+  ];
   return (
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open) close();
+        if (!open) void close();
       }}
     >
       <DialogContent className="max-h-[92dvh] max-w-4xl overflow-y-auto">
@@ -168,19 +280,20 @@ export function AccountingBankMatch({
               {data.source_conflict && (
                 <p
                   role="alert"
-                  className="rounded-lg border border-amber-500/30 p-3 text-sm"
+                  className="rounded-lg border border-warning/30 p-3 text-sm"
                 >
                   This provider identity has conflicting dates, accounts, or
                   amounts in the source history. Resolve the changed source
                   record before matching it.
                 </p>
               )}
-              <section className="rounded-lg border border-border bg-secondary/30 p-4">
+              <section className="glass-card rounded-xl p-4">
                 <div className="flex flex-wrap justify-between gap-3">
                   <div>
                     <h3 className="font-medium">{data.group.memo}</h3>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {data.group.entry_date} · {data.group.account_name}
+                      {dateLabel(data.group.entry_date)} ·{" "}
+                      {data.group.account_name}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       {data.group.source_system} · {data.group.source_scope}
@@ -188,61 +301,81 @@ export function AccountingBankMatch({
                   </div>
                   <div className="text-right">
                     <MaskedValue
-                      value={formatCents(data.group.bank_amount_cents)}
-                      className="font-mono"
+                      value={money(data.group.bank_amount_cents)}
+                      className="font-mono tabular-nums"
                     />
                     <p className="mt-2 text-xs text-muted-foreground">
                       Remaining:{" "}
-                      <MaskedValue value={formatCents(data.remaining_cents)} />
+                      <MaskedValue
+                        value={money(data.remaining_cents)}
+                        className="tabular-nums"
+                      />
                     </p>
                   </div>
                 </div>
               </section>
               {data.matches.length > 0 && (
                 <section>
-                  <h3 className="mb-2 text-sm font-medium">Recorded matches</h3>
-                  <div className="divide-y divide-border rounded-lg border border-border">
-                    {data.matches.map((m) => (
-                      <div key={m.id} className="p-3">
+                  <SectionHeader
+                    label="Recorded matches"
+                    count={data.matches.length}
+                  />
+                  <DataTable
+                    columns={matchColumns}
+                    data={data.matches}
+                    keyExtractor={(m) => m.id}
+                    mobileCard={(m) => (
+                      <div className="glass-card rounded-xl p-3">
                         <div className="flex items-start justify-between gap-3">
-                          <button
-                            className="text-left text-sm hover:text-primary"
-                            onClick={() => onEntry(m.entry_id)}
-                          >
+                          <div className="min-w-0 text-sm">
                             {m.memo}
                             <span className="mt-1 block text-xs text-muted-foreground">
-                              {m.entry_date} · Open entry
+                              {dateLabel(m.entry_date)}
                             </span>
-                          </button>
+                          </div>
                           <MaskedValue
-                            value={formatCents(m.amount_cents)}
-                            className="text-sm font-mono"
+                            value={money(m.amount_cents)}
+                            className="shrink-0 font-mono text-sm tabular-nums"
                           />
                         </div>
                         {m.release ? (
                           <p className="mt-2 text-xs text-muted-foreground">
                             Released: {m.release.reason}
                           </p>
-                        ) : (
+                        ) : null}
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
                           <Button
                             size="sm"
-                            variant="ghost"
-                            disabled={command.busy || loading}
-                            onClick={() => {
-                              setRelease({ id: crypto.randomUUID(), match: m });
-                              setReleaseReason("");
-                            }}
+                            variant="link"
+                            className="px-0"
+                            onClick={() => onEntry(m.entry_id)}
                           >
-                            Release match
+                            Open entry
                           </Button>
-                        )}
+                          {!m.release && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              disabled={frozen}
+                              onClick={() => {
+                                setRelease({
+                                  id: crypto.randomUUID(),
+                                  match: m,
+                                });
+                                setReleaseReason("");
+                              }}
+                            >
+                              Release match
+                            </Button>
+                          )}
+                        </div>
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  />
                 </section>
               )}
               {release && (
-                <section className="rounded-lg border border-amber-500/30 p-4">
+                <section className="rounded-lg border border-warning/30 p-4">
                   <h3 className="text-sm font-medium">
                     Release this evidence match
                   </h3>
@@ -283,7 +416,11 @@ export function AccountingBankMatch({
               {!full && (
                 <section className="space-y-3">
                   <div className="flex items-center gap-2">
-                    <Search size={16} className="text-muted-foreground" />
+                    <Search
+                      size={16}
+                      className="text-muted-foreground"
+                      aria-hidden="true"
+                    />
                     <h3 className="text-sm font-medium">
                       Find a posted bank line
                     </h3>
@@ -303,74 +440,60 @@ export function AccountingBankMatch({
                     Closest dates appear first. Available amounts exclude
                     allocations already made by this source.
                   </p>
-                  <div
-                    className="max-h-64 divide-y divide-border overflow-y-auto rounded-lg border border-border"
-                    aria-busy={loading}
-                  >
-                    {data.candidates.map((c) => (
-                      <button
-                        key={c.line_id}
-                        disabled={loading || command.busy}
-                        className={`flex w-full items-start justify-between gap-3 p-3 text-left text-sm transition-colors ${selected?.line_id === c.line_id ? "bg-primary/10" : "hover:bg-secondary/40"}`}
-                        onClick={() => {
-                          setSelected(c);
-                          setAmount(
-                            centsToDecimal(
-                              BigInt(c.available_cents) < remaining
-                                ? BigInt(c.available_cents)
-                                : remaining,
-                            ),
-                          );
-                          setApproved(false);
-                        }}
-                      >
-                        <span>
-                          <span className="block font-medium">{c.memo}</span>
-                          <span className="mt-1 block text-xs text-muted-foreground">
-                            {c.entry_date} · {c.days_apart} days from source
+                  <div className="max-h-64 overflow-y-auto rounded-lg border border-border">
+                    <DataTable
+                      columns={candidateColumns}
+                      data={data.candidates}
+                      keyExtractor={(c) => c.line_id}
+                      onRowClick={pick}
+                      busy={loading}
+                      framed={false}
+                      emptyState="No available bank lines match this search."
+                      rowClassName={(c) =>
+                        selected?.line_id === c.line_id
+                          ? "bg-primary/10"
+                          : undefined
+                      }
+                      mobileCard={(c) => (
+                        <button
+                          type="button"
+                          disabled={frozen}
+                          className={cn(
+                            "glass-card flex w-full items-start justify-between gap-3 rounded-xl p-3 text-left text-sm transition-colors disabled:opacity-50",
+                            selected?.line_id === c.line_id && "bg-primary/10",
+                          )}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            pick(c);
+                          }}
+                        >
+                          <span>
+                            <span className="block font-medium">{c.memo}</span>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {dateLabel(c.entry_date)} · {c.days_apart} days
+                              from source
+                            </span>
                           </span>
-                        </span>
-                        <span className="shrink-0 text-right">
-                          <MaskedValue
-                            value={formatCents(c.available_cents)}
-                            className="font-mono"
-                          />
-                          <span className="mt-1 block text-xs text-muted-foreground">
-                            Available
+                          <span className="shrink-0 text-right">
+                            <MaskedValue
+                              value={money(c.available_cents)}
+                              className="font-mono tabular-nums"
+                            />
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              Available
+                            </span>
                           </span>
-                        </span>
-                      </button>
-                    ))}
-                    {!data.candidates.length && (
-                      <p className="p-4 text-sm text-muted-foreground">
-                        No available bank lines match this search.
-                      </p>
-                    )}
+                        </button>
+                      )}
+                    />
                   </div>
-                  {data.total > 25 && (
-                    <div className="flex justify-between">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={loading || !offset}
-                        onClick={() => setOffset((o) => Math.max(0, o - 25))}
-                      >
-                        Previous
-                      </Button>
-                      <span className="text-xs text-muted-foreground">
-                        {offset + 1}–{Math.min(offset + 25, data.total)} of{" "}
-                        {data.total}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={loading || offset + 25 >= data.total}
-                        onClick={() => setOffset((o) => o + 25)}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  )}
+                  <Pagination
+                    offset={offset}
+                    limit={PAGE}
+                    total={data.total}
+                    busy={loading}
+                    onChange={setOffset}
+                  />
                   {selected && (
                     <div className="rounded-lg border border-primary/30 p-4">
                       <div className="flex items-start justify-between gap-3">
@@ -380,7 +503,7 @@ export function AccountingBankMatch({
                           variant="ghost"
                           onClick={() => onEntry(selected.entry_id)}
                         >
-                          <ArrowUpRight size={14} />
+                          <ArrowUpRight size={14} aria-hidden="true" />
                           Inspect
                         </Button>
                       </div>
@@ -405,14 +528,14 @@ export function AccountingBankMatch({
               {full && (
                 <p
                   role="status"
-                  className="flex items-center gap-2 text-sm text-primary"
+                  className="flex items-center gap-2 text-sm text-teal-light"
                 >
-                  <Check size={16} />
+                  <Check size={16} aria-hidden="true" />
                   This source movement is fully allocated.
                 </p>
               )}
               {completes && data.drafts.length > 0 && (
-                <section className="space-y-3 rounded-lg border border-amber-500/30 p-4">
+                <section className="space-y-3 rounded-lg border border-warning/30 p-4">
                   <h3 className="text-sm font-medium">
                     Resolve redundant imported drafts
                   </h3>
@@ -424,7 +547,7 @@ export function AccountingBankMatch({
                   {data.drafts.map((d) => (
                     <details key={d.id} className="text-sm">
                       <summary className="cursor-pointer">
-                        {d.entry_date} · {d.memo}
+                        {dateLabel(d.entry_date)} · {d.memo}
                       </summary>
                       <div className="mt-2 space-y-1 pl-3">
                         {d.lines.map((l) => (
@@ -433,24 +556,21 @@ export function AccountingBankMatch({
                             className="flex justify-between gap-3"
                           >
                             <span>{l.account_name}</span>
-                            <MaskedValue value={formatCents(l.amount_cents)} />
+                            <MaskedValue
+                              value={money(l.amount_cents)}
+                              className="tabular-nums"
+                            />
                           </div>
                         ))}
                       </div>
                     </details>
                   ))}
-                  <label className="flex items-start gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={approved}
-                      onChange={(e) => setApproved(e.target.checked)}
-                      className="mt-1"
-                    />
-                    <span>
-                      I reviewed these drafts and approve discarding them when
-                      this match completes.
-                    </span>
-                  </label>
+                  <Checkbox
+                    className="items-start text-left"
+                    checked={approved}
+                    onChange={setApproved}
+                    label="I reviewed these drafts and approve discarding them when this match completes."
+                  />
                 </section>
               )}
               {(!full || data.group.status !== "duplicate") && (
@@ -470,7 +590,7 @@ export function AccountingBankMatch({
                         void save().catch((e) => setError(e.message))
                       }
                     >
-                      <Link2 size={15} />
+                      <Link2 size={15} aria-hidden="true" />
                       {full
                         ? "Confirm existing allocation"
                         : completes
@@ -499,11 +619,16 @@ export function AccountingBankMatch({
             >
               Refresh review
             </Button>
-            <Button variant="outline" disabled={command.busy} onClick={close}>
+            <Button
+              variant="outline"
+              disabled={command.busy}
+              onClick={() => void close()}
+            >
               Done
             </Button>
           </div>
         </div>
+        {dialog}
       </DialogContent>
     </Dialog>
   );

@@ -10,8 +10,10 @@ import {
   AlertCircle,
   RefreshCw,
 } from "lucide-react";
+import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
+import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import {
   Dialog,
   DialogContent,
@@ -19,8 +21,13 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { MaskedValue } from "@/components/ui/masked-value";
-import { formatCents } from "@/lib/accounting/money";
+import { Pagination } from "@/components/ui/pagination";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { SectionHeader } from "@/components/ui/section-header";
+import { CustomSelect } from "@/components/ui/select";
+import { Tooltip } from "@/components/ui/tooltip";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
 import type { AccountProfile } from "@/lib/accounting/workflows";
 import type {
@@ -28,15 +35,24 @@ import type {
   ParsedImportGroup,
 } from "@/lib/accounting/imports/csv";
 import type {
+  ImportBatch,
   ImportState,
   ImportGroup,
 } from "@/lib/accounting/imports/contracts";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { uploadEvidence } from "./accounting-documents";
 import { AccountingBankMatch } from "./accounting-bank-match";
+import { AccountingEntryPicker } from "./accounting-entry-picker";
+import {
+  comparisonLabels,
+  importComparisonFilterSchema,
+  type ComparisonGroup,
+  type ComparisonRow,
+  type ImportComparison,
+  type ImportComparisonFilter,
+} from "@/lib/accounting/imports/comparison";
+import { countLabel, dateLabel, enumLabel, money } from "./format";
 
-const selectStyle =
-  "mt-1 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm";
 type Inspection = {
   headers: string[];
   samples: string[][];
@@ -51,6 +67,8 @@ type Preview = {
   errorCount: number;
   rowCount: number;
 };
+type PreviewRow = { group: ParsedImportGroup; index: number };
+type SampleRow = { cells: string[]; index: number };
 const initialOptions: CsvOptions = {
   delimiter: ",",
   headerRow: 0,
@@ -66,12 +84,33 @@ const emptyState: ImportState = {
 };
 const statusStyle: Record<string, string> = {
   new: "text-foreground",
-  review: "text-amber-400",
-  exception: "text-destructive",
-  applied: "text-primary",
+  review: "text-warning",
+  exception: "text-error",
+  applied: "text-teal-light",
   duplicate: "text-muted-foreground",
   excluded: "text-muted-foreground",
 };
+const statusVariant: Record<string, BadgeVariant> = {
+  review: "warning",
+  exception: "danger",
+  applied: "info",
+};
+const groupAmount = (g: ImportGroup) =>
+  money(
+    g.bank_amount_cents ??
+      g.lines.reduce(
+        (s, l) =>
+          s +
+          (BigInt(l.amount_cents) > BigInt(0)
+            ? BigInt(l.amount_cents)
+            : BigInt(0)),
+        BigInt(0),
+      ),
+  );
+const batchSource = (b: ImportBatch) =>
+  `${b.source_system} · ${b.source_system === "simplefin" ? "Bank feed" : b.source_scope}`;
+const batchPeriod = (b: ImportBatch) =>
+  `${dateLabel(b.from_date)} to ${dateLabel(b.to_date)}`;
 
 export function AccountingImports({
   accounts,
@@ -95,6 +134,7 @@ export function AccountingImports({
     [progress, setProgress] = useState(""),
     [loadError, setLoadError] = useState("");
   const [working, setWorking] = useState(false);
+  const [comparison, setComparison] = useState(false);
   const [bankGroup, setBankGroup] = useState<string | null>(null);
   const [cancel, setCancel] = useState(false),
     [cancelReason, setCancelReason] = useState("");
@@ -182,6 +222,205 @@ export function AccountingImports({
     });
     if (result) await reload();
   }
+  function openBatch(id: string) {
+    setBatchId(id);
+    setOffset(0);
+  }
+  const batchLink = (b: ImportBatch) => (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        openBatch(b.id);
+      }}
+      className="rounded text-left font-medium text-foreground transition-colors hover:text-teal-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
+      {b.file_name}
+    </button>
+  );
+  const batchColumns: DataTableColumn<ImportBatch>[] = [
+    { key: "file", header: "File", render: batchLink },
+    { key: "source", header: "Source", render: batchSource },
+    {
+      key: "period",
+      header: "Period",
+      className: "whitespace-nowrap",
+      render: batchPeriod,
+    },
+    {
+      key: "groups",
+      header: "Groups",
+      align: "right",
+      numeric: true,
+      render: (b) => countLabel(b.expected_groups, "group"),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (b) => <Badge>{enumLabel(b.status)}</Badge>,
+    },
+    {
+      key: "open",
+      header: <span className="sr-only">Open</span>,
+      align: "right",
+      width: "w-10",
+      render: () => (
+        <ArrowRight
+          size={16}
+          aria-hidden="true"
+          className="inline-block text-muted-foreground"
+        />
+      ),
+    },
+  ];
+  const batchCard = (b: ImportBatch) => (
+    <div className="glass-card rounded-xl p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          {batchLink(b)}
+          <p className="mt-1 text-xs text-muted-foreground">
+            {batchSource(b)} · {batchPeriod(b)}
+          </p>
+        </div>
+        <ArrowRight
+          size={16}
+          aria-hidden="true"
+          className="shrink-0 text-muted-foreground"
+        />
+      </div>
+      <div className="mt-3 flex items-center gap-3 text-sm">
+        <span className="tabular-nums">
+          {countLabel(b.expected_groups, "group")}
+        </span>
+        <Badge>{enumLabel(b.status)}</Badge>
+      </div>
+    </div>
+  );
+  const groupActions = (g: ImportGroup) => (
+    <div className="flex flex-wrap justify-end gap-2">
+      {g.bank_amount_cents !== null && g.status !== "excluded" && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={working}
+          onClick={() => setBankGroup(g.id)}
+        >
+          Match bank movement
+        </Button>
+      )}
+      {g.entry_id ? (
+        <Button variant="ghost" size="sm" onClick={() => onEntry(g.entry_id!)}>
+          View entry
+        </Button>
+      ) : (
+        ["review", "exception", "new"].includes(g.status) && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={working}
+            onClick={() => setReview(g)}
+          >
+            Review
+          </Button>
+        )
+      )}
+    </div>
+  );
+  const groupColumns: DataTableColumn<ImportGroup>[] = [
+    {
+      key: "date",
+      header: "Date / source group",
+      className: "whitespace-nowrap",
+      render: (g) => (
+        <>
+          {dateLabel(g.entry_date)}
+          <span className="mt-1 block text-xs text-muted-foreground">
+            Group {g.ordinal + 1}
+          </span>
+        </>
+      ),
+    },
+    {
+      key: "memo",
+      header: "Description",
+      className: "min-w-52",
+      render: (g) => (
+        <>
+          <p>{g.memo}</p>
+          {g.reason && (
+            <p className="mt-1 max-w-lg text-xs text-muted-foreground">
+              {g.reason}
+            </p>
+          )}
+        </>
+      ),
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      align: "right",
+      numeric: true,
+      className: "whitespace-nowrap",
+      render: (g) => (
+        <MaskedValue value={groupAmount(g)} className="font-mono" />
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (g) => (
+        <Badge variant={statusVariant[g.status] ?? "default"}>
+          {enumLabel(g.status)}
+        </Badge>
+      ),
+    },
+    {
+      key: "actions",
+      header: <span className="sr-only">Action</span>,
+      align: "right",
+      render: groupActions,
+    },
+  ];
+  const groupCard = (g: ImportGroup) => (
+    <div className="glass-card rounded-xl p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-medium">{dateLabel(g.entry_date)}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Group {g.ordinal + 1}
+          </p>
+        </div>
+        <Badge variant={statusVariant[g.status] ?? "default"}>
+          {enumLabel(g.status)}
+        </Badge>
+      </div>
+      <p className="mt-3 text-sm">{g.memo}</p>
+      {g.reason && (
+        <p className="mt-1 text-xs text-muted-foreground">{g.reason}</p>
+      )}
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <MaskedValue
+          value={groupAmount(g)}
+          className="font-mono text-sm tabular-nums"
+        />
+        {groupActions(g)}
+      </div>
+    </div>
+  );
+  if (comparison)
+    return (
+      <ImportComparisonPanel
+        batches={data.batches}
+        initialLater={batchId}
+        onBack={() => setComparison(false)}
+        onReview={(id, group) => {
+          setComparison(false);
+          setBatchId(id);
+          setOffset(0);
+          setReview(group);
+        }}
+      />
+    );
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -192,33 +431,41 @@ export function AccountingImports({
             source attached.
           </p>
         </div>
-        <Button disabled={demo || working} onClick={() => setWizard(true)}>
-          <Upload size={16} />
-          Import CSV
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="outline"
+            disabled={demo || working || data.batches.length < 2}
+            onClick={() => setComparison(true)}
+          >
+            Compare exports
+          </Button>
+          <Button disabled={demo || working} onClick={() => setWizard(true)}>
+            <Upload size={16} aria-hidden="true" />
+            Import CSV
+          </Button>
+        </div>
       </div>
       {(loadError || command.error) && (
         <p
           role="alert"
-          className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+          className="rounded-lg border border-error/30 bg-error/10 p-4 text-sm text-error"
         >
           {loadError || command.error}
         </p>
       )}
       {!batchId ? (
-        <section className="glass-card overflow-hidden">
-          <div className="border-b border-border p-5">
-            <h3 className="font-semibold">Import history</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              A completed batch confirms processing. Historical coverage is
-              verified separately against source reports.
-            </p>
-          </div>
+        <section>
+          <SectionHeader
+            label="Import history"
+            count={data.batches.length}
+            description="A completed batch confirms processing. Historical coverage is verified separately against source reports."
+          />
           {!data.batches.length ? (
-            <div className="flex flex-col items-center p-12 text-center">
+            <div className="glass-card flex flex-col items-center rounded-xl p-12 text-center">
               <FileSpreadsheet
                 className="mb-4 text-muted-foreground"
                 size={30}
+                aria-hidden="true"
               />
               <p className="font-medium">Start with a small, familiar period</p>
               <p className="mt-2 max-w-lg text-sm text-muted-foreground">
@@ -228,39 +475,13 @@ export function AccountingImports({
               </p>
             </div>
           ) : (
-            <div className="divide-y divide-border">
-              {data.batches.map((b) => (
-                <button
-                  key={b.id}
-                  onClick={() => {
-                    setBatchId(b.id);
-                    setOffset(0);
-                  }}
-                  className="flex w-full flex-wrap items-center justify-between gap-3 p-5 text-left hover:bg-secondary/30"
-                >
-                  <div>
-                    <p className="font-medium">{b.file_name}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {b.source_system} ·{" "}
-                      {b.source_system === "simplefin"
-                        ? "Bank feed"
-                        : b.source_scope}{" "}
-                      · {b.from_date} to {b.to_date}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-4 text-sm">
-                    <span>
-                      {b.expected_groups}{" "}
-                      {b.expected_groups === 1 ? "group" : "groups"}
-                    </span>
-                    <span className="rounded-md bg-secondary px-2 py-1 capitalize">
-                      {b.status}
-                    </span>
-                    <ArrowRight size={16} />
-                  </div>
-                </button>
-              ))}
-            </div>
+            <DataTable
+              columns={batchColumns}
+              data={data.batches}
+              keyExtractor={(b) => b.id}
+              onRowClick={(b) => openBatch(b.id)}
+              mobileCard={batchCard}
+            />
           )}
         </section>
       ) : (
@@ -275,7 +496,7 @@ export function AccountingImports({
                 }}
                 disabled={working}
               >
-                <ArrowLeft size={16} />
+                <ArrowLeft size={16} aria-hidden="true" />
                 All imports
               </Button>
               <div>
@@ -288,20 +509,22 @@ export function AccountingImports({
                   {batch.source_system === "simplefin"
                     ? "Bank feed"
                     : batch.source_scope}{" "}
-                  · {batch.status}
+                  · {enumLabel(batch.status)}
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                className="ml-auto"
-                disabled={working}
-                onClick={() =>
-                  void reload().catch((e) => setLoadError(e.message))
-                }
-                aria-label="Refresh import"
-              >
-                <RefreshCw size={16} />
-              </Button>
+              <Tooltip content="Refresh import" className="ml-auto">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={working}
+                  onClick={() =>
+                    void reload().catch((e) => setLoadError(e.message))
+                  }
+                  aria-label="Refresh import"
+                >
+                  <RefreshCw size={16} aria-hidden="true" />
+                </Button>
+              </Tooltip>
             </div>
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
               {[
@@ -310,16 +533,18 @@ export function AccountingImports({
                 ["exception", "Exceptions"],
                 ["applied", "Applied"],
               ].map(([key, label]) => (
-                <div className="glass-card p-4" key={key}>
+                <div className="glass-card rounded-xl p-4" key={key}>
                   <p className="text-xs text-muted-foreground">{label}</p>
-                  <p className={`mt-2 text-2xl font-mono ${statusStyle[key]}`}>
+                  <p
+                    className={`mt-2 font-mono text-2xl tabular-nums ${statusStyle[key]}`}
+                  >
                     {data.counts[key] ?? 0}
                   </p>
                 </div>
               ))}
             </div>
             {batch.status === "staging" && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
+              <div className="rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm">
                 <p>
                   Preview upload paused after {data.total} of{" "}
                   {batch.expected_groups} groups. Reopen the same CSV with the
@@ -468,123 +693,24 @@ export function AccountingImports({
                 </div>
               </div>
             )}
-            <div className="glass-card overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border text-left text-xs text-muted-foreground">
-                    <th className="p-4">Date / source group</th>
-                    <th className="p-4">Description</th>
-                    <th className="p-4 text-right">Amount</th>
-                    <th className="p-4">Status</th>
-                    <th className="p-4">
-                      <span className="sr-only">Action</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.groups.map((g) => (
-                    <tr
-                      key={g.id}
-                      className="border-b border-border/50 last:border-0"
-                    >
-                      <td className="whitespace-nowrap p-4">
-                        {g.entry_date}
-                        <span className="mt-1 block text-xs text-muted-foreground">
-                          Group {g.ordinal + 1}
-                        </span>
-                      </td>
-                      <td className="min-w-52 p-4">
-                        <p>{g.memo}</p>
-                        {g.reason && (
-                          <p className="mt-1 max-w-lg text-xs text-muted-foreground">
-                            {g.reason}
-                          </p>
-                        )}
-                      </td>
-                      <td className="whitespace-nowrap p-4 text-right font-mono">
-                        <MaskedValue
-                          value={formatCents(
-                            g.bank_amount_cents ??
-                              g.lines.reduce(
-                                (s, l) =>
-                                  s +
-                                  (BigInt(l.amount_cents) > BigInt(0)
-                                    ? BigInt(l.amount_cents)
-                                    : BigInt(0)),
-                                BigInt(0),
-                              ),
-                          )}
-                        />
-                      </td>
-                      <td
-                        className={`p-4 capitalize ${statusStyle[g.status] ?? ""}`}
-                      >
-                        {g.status}
-                      </td>
-                      <td className="p-4">
-                        {g.bank_amount_cents !== null &&
-                          g.status !== "excluded" && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="mb-2"
-                              disabled={working}
-                              onClick={() => setBankGroup(g.id)}
-                            >
-                              Match bank movement
-                            </Button>
-                          )}
-                        {g.entry_id ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onEntry(g.entry_id!)}
-                          >
-                            View entry
-                          </Button>
-                        ) : (
-                          ["review", "exception", "new"].includes(g.status) && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              disabled={working}
-                              onClick={() => setReview(g)}
-                            >
-                              Review
-                            </Button>
-                          )
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="flex items-center justify-between border-t border-border p-4 text-xs text-muted-foreground">
-                <span>
-                  {data.total
-                    ? `${offset + 1}-${Math.min(offset + 100, data.total)} of ${data.total}`
-                    : "No groups staged"}
-                </span>
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={!offset || working}
-                    onClick={() => setOffset(offset - 100)}
-                  >
-                    Previous
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={offset + 100 >= data.total || working}
-                    onClick={() => setOffset(offset + 100)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </div>
-            </div>
+            <DataTable
+              columns={groupColumns}
+              data={data.groups}
+              keyExtractor={(g) => g.id}
+              emptyState="No groups staged"
+              busy={working}
+              mobileCard={groupCard}
+              after={
+                <Pagination
+                  offset={offset}
+                  limit={100}
+                  total={data.total}
+                  onChange={setOffset}
+                  noun="groups"
+                  busy={working}
+                />
+              }
+            />
           </>
         )
       )}
@@ -636,7 +762,7 @@ export function AccountingImports({
                 : "These movements will enter the review queue for categorization. They will affect reports when you post them."}
             </DialogDescription>
           </DialogHeader>
-          <div className="rounded-lg bg-secondary/40 p-4 text-sm">
+          <div className="glass-card rounded-xl p-4 text-sm">
             <p>{data.counts.new ?? 0} ready groups</p>
             <p className="mt-2 text-muted-foreground">
               Duplicates remain linked to their existing entries. Unresolved
@@ -644,7 +770,7 @@ export function AccountingImports({
             </p>
           </div>
           <Button onClick={() => void apply()}>
-            <Check size={16} />
+            <Check size={16} aria-hidden="true" />
             Approve {batch?.mode === "journal" ? "posting" : "drafts"}
           </Button>
         </DialogContent>
@@ -707,7 +833,7 @@ function ImportResolution({
         });
       }}
     >
-      {group.reason && <p className="text-sm text-amber-400">{group.reason}</p>}
+      {group.reason && <p className="text-sm text-warning">{group.reason}</p>}
       {group.candidate_entry_id && (
         <Button
           type="button"
@@ -717,53 +843,51 @@ function ImportResolution({
           Inspect suggested entry
         </Button>
       )}
-      <label className="block text-sm">
-        Treatment
-        <select
-          className={selectStyle}
-          value={resolution}
-          onChange={(e) => setResolution(e.target.value as typeof resolution)}
-        >
-          <option value="match">Attach to an existing posted entry</option>
-          {group.status !== "exception" && (
-            <option value="new">Separate transaction, keep as new</option>
-          )}
-          <option value="exclude">Exclude this source observation</option>
-        </select>
-      </label>
+      <CustomSelect
+        id="import-resolution"
+        label="Treatment"
+        value={resolution}
+        onChange={(value) => setResolution(value as typeof resolution)}
+        options={[
+          { value: "match", label: "Attach to an existing posted entry" },
+          ...(group.status !== "exception"
+            ? [{ value: "new", label: "Separate transaction, keep as new" }]
+            : []),
+          { value: "exclude", label: "Exclude this source observation" },
+        ]}
+      />
       {resolution === "match" && (
-        <label className="block text-sm">
-          Existing entry ID
-          <Input
-            className="mt-1"
-            required
-            value={entry}
-            onChange={(e) => setEntry(e.target.value)}
-            placeholder="Paste entry ID from transaction detail"
-          />
-        </label>
-      )}
-      <label className="block text-sm">
-        Reason
-        <Input
-          className="mt-1"
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          required
-          maxLength={1000}
-          placeholder="Explain how you verified this treatment"
+        <AccountingEntryPicker
+          value={entry}
+          onChange={setEntry}
+          postedOnly
+          disabled={command.busy}
         />
-      </label>
+      )}
+      <Input
+        label="Reason"
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        required
+        maxLength={1000}
+        placeholder="Explain how you verified this treatment"
+      />
       <p className="text-xs text-muted-foreground">
         Matching checks the actual account and amount. Exclusion preserves the
         observation and does not certify historical coverage.
       </p>
       {command.error && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-sm text-error">
           {command.error}
         </p>
       )}
-      <Button disabled={command.busy || !reason.trim()}>Save treatment</Button>
+      <Button
+        disabled={
+          command.busy || !reason.trim() || (resolution === "match" && !entry)
+        }
+      >
+        Save treatment
+      </Button>
     </form>
   );
 }
@@ -807,6 +931,47 @@ function ImportWizard({
     profiles.filter((p) => p.cash_kind !== "none").map((p) => p.account_id),
   );
   const sourceAccounts = inspection?.values[columns.account] ?? [];
+  const bankAccountOptions = accounts
+    .filter((a) => bankIds.has(a.id) && !a.is_archived)
+    .map((a) => ({ value: a.id, label: a.name, keywords: a.code }));
+  const accountOptions = accounts
+    .filter((a) => !a.is_archived)
+    .map((a) => ({
+      value: a.id,
+      label: `${a.code} · ${a.name}`,
+      group: enumLabel(a.account_type),
+    }))
+    .sort(
+      (a, b) =>
+        a.group.localeCompare(b.group) || a.label.localeCompare(b.label),
+    );
+  const sampleRows: SampleRow[] = (inspection?.samples ?? [])
+    .slice(0, 3)
+    .map((cells, index) => ({ cells, index }));
+  const sampleColumns: DataTableColumn<SampleRow>[] = (
+    inspection?.headers ?? []
+  ).map((h, n) => ({
+    key: `${n}:${h}`,
+    header: h,
+    className: "whitespace-nowrap",
+    render: (row) => (
+      <span className="block max-w-60 truncate text-xs text-muted-foreground">
+        {row.cells[n]}
+      </span>
+    ),
+  }));
+  const sampleCard = (row: SampleRow) => (
+    <dl className="glass-card rounded-xl p-4 text-xs">
+      {(inspection?.headers ?? []).map((h, n) => (
+        <div key={`${n}:${h}`} className="flex justify-between gap-3 py-1">
+          <dt className="shrink-0 font-medium">{h}</dt>
+          <dd className="min-w-0 truncate text-right text-muted-foreground">
+            {row.cells[n]}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
   async function parse(phase: "inspect" | "preview") {
     if (!file || active.current) return;
     active.current = true;
@@ -951,24 +1116,20 @@ function ImportWizard({
   }
   function column(key: string, label: string, optional = false) {
     return (
-      <label key={key} className="block text-sm">
-        {label}
-        <select
-          className={selectStyle}
-          value={columns[key] ?? ""}
-          onChange={(e) => {
-            setColumns({ ...columns, [key]: e.target.value });
-            setPreview(null);
-          }}
-        >
-          <option value="">
-            {optional ? "Not included" : "Choose column"}
-          </option>
-          {inspection?.headers.map((h) => (
-            <option key={h}>{h}</option>
-          ))}
-        </select>
-      </label>
+      <CustomSelect
+        key={key}
+        id={`column-${key}`}
+        label={label}
+        value={columns[key] ?? ""}
+        onChange={(value) => {
+          setColumns({ ...columns, [key]: value });
+          setPreview(null);
+        }}
+        options={[
+          { value: "", label: optional ? "Not included" : "Choose column" },
+          ...(inspection?.headers ?? []).map((h) => ({ value: h, label: h })),
+        ]}
+      />
     );
   }
   if (preview) {
@@ -987,6 +1148,60 @@ function ImportWizard({
             )),
       BigInt(0),
     );
+    const previewRows: PreviewRow[] = preview.groups
+      .slice(0, 100)
+      .map((group, index) => ({ group, index }));
+    const previewLines = (group: ParsedImportGroup) =>
+      mode === "journal" ? (
+        group.lines.length
+      ) : (
+        <MaskedValue value={money(group.bank_amount_cents ?? "0")} />
+      );
+    const previewColumns: DataTableColumn<PreviewRow>[] = [
+      {
+        key: "date",
+        header: "Date",
+        className: "whitespace-nowrap",
+        render: ({ group }) => dateLabel(group.entry_date) || "Invalid date",
+      },
+      {
+        key: "memo",
+        header: "Description / validation",
+        render: ({ group }) => (
+          <>
+            {group.memo}
+            {group.errors.map((issue, n) => (
+              <p className="mt-1 text-xs text-error" key={n}>
+                {issue}
+              </p>
+            ))}
+          </>
+        ),
+      },
+      {
+        key: "lines",
+        header: "Lines",
+        align: "right",
+        numeric: true,
+        render: ({ group }) => previewLines(group),
+      },
+    ];
+    const previewCard = ({ group }: PreviewRow) => (
+      <div className="glass-card rounded-xl p-4 text-sm">
+        <div className="flex items-start justify-between gap-3">
+          <span className="whitespace-nowrap">
+            {dateLabel(group.entry_date) || "Invalid date"}
+          </span>
+          <span className="font-mono tabular-nums">{previewLines(group)}</span>
+        </div>
+        <p className="mt-2">{group.memo}</p>
+        {group.errors.map((issue, n) => (
+          <p className="mt-1 text-xs text-error" key={n}>
+            {issue}
+          </p>
+        ))}
+      </div>
+    );
     return (
       <div className="space-y-5">
         <Button
@@ -994,7 +1209,7 @@ function ImportWizard({
           disabled={busy}
           onClick={() => setPreview(null)}
         >
-          <ArrowLeft size={16} />
+          <ArrowLeft size={16} aria-hidden="true" />
           Adjust mapping
         </Button>
         <div className="grid grid-cols-3 gap-3">
@@ -1003,53 +1218,26 @@ function ImportWizard({
             ["Invalid groups", String(preview.errorCount)],
             [
               mode === "journal" ? "Total debits" : "Net movement",
-              formatCents(total),
+              money(total),
             ],
           ].map(([label, value]) => (
-            <div key={label} className="rounded-lg bg-secondary/30 p-4">
+            <div key={label} className="glass-card rounded-xl p-4">
               <p className="text-xs text-muted-foreground">{label}</p>
-              <p className="mt-2 font-mono text-xl">
+              <p className="mt-2 font-mono text-xl tabular-nums">
                 <MaskedValue value={value} />
               </p>
             </div>
           ))}
         </div>
-        <div className="max-h-80 overflow-auto rounded-lg border border-border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs text-muted-foreground">
-                <th className="p-3">Date</th>
-                <th className="p-3">Description / validation</th>
-                <th className="p-3 text-right">Lines</th>
-              </tr>
-            </thead>
-            <tbody>
-              {preview.groups.slice(0, 100).map((g, i) => (
-                <tr className="border-t border-border" key={i}>
-                  <td className="whitespace-nowrap p-3">
-                    {g.entry_date || "Invalid date"}
-                  </td>
-                  <td className="p-3">
-                    {g.memo}
-                    {g.errors.map((error, n) => (
-                      <p className="mt-1 text-xs text-destructive" key={n}>
-                        {error}
-                      </p>
-                    ))}
-                  </td>
-                  <td className="p-3 text-right">
-                    {mode === "journal" ? (
-                      g.lines.length
-                    ) : (
-                      <MaskedValue
-                        value={formatCents(g.bank_amount_cents ?? "0")}
-                      />
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="glass-card max-h-80 overflow-auto rounded-xl">
+          <DataTable
+            columns={previewColumns}
+            data={previewRows}
+            keyExtractor={(row) => String(row.index)}
+            framed={false}
+            className="max-lg:p-3"
+            mobileCard={previewCard}
+          />
         </div>
         <p className="text-xs text-muted-foreground">
           Showing the first {Math.min(100, preview.groups.length)} groups. Every
@@ -1057,13 +1245,13 @@ function ImportWizard({
           creates a resumable review batch.
         </p>
         {preview.errorCount > 0 && (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-sm text-error">
             Resolve every validation error before staging. Correct the mapping
             or the source file, then preview again.
           </p>
         )}
         {(error || command.error) && (
-          <p role="alert" className="text-sm text-destructive">
+          <p role="alert" className="text-sm text-error">
             {error || command.error}
           </p>
         )}
@@ -1076,7 +1264,7 @@ function ImportWizard({
             onClick={() => void stage()}
           >
             {busy ? "Saving preview…" : "Save preview and check duplicates"}
-            <ArrowRight size={16} />
+            <ArrowRight size={16} aria-hidden="true" />
           </Button>
         </div>
       </div>
@@ -1085,53 +1273,56 @@ function ImportWizard({
   return (
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block text-sm">
-          Import type
-          <select
-            className={selectStyle}
-            disabled={!!inspection}
-            value={mode}
-            onChange={(e) => setMode(e.target.value as typeof mode)}
-          >
-            <option value="journal">
-              Journal entries, complete debits and credits
-            </option>
-            <option value="bank">
-              Bank or card movements, categorize later
-            </option>
-          </select>
-        </label>
-        <label className="block text-sm">
-          Source
-          <select
-            className={selectStyle}
-            disabled={!!inspection}
-            value={source}
-            onChange={(e) => setSource(e.target.value as typeof source)}
-          >
-            <option value="wave">Wave</option>
-            <option value="csv">Other CSV</option>
-          </select>
-        </label>
-        <label className="block text-sm sm:col-span-2">
-          Source scope
+        <CustomSelect
+          id="import-mode"
+          label="Import type"
+          disabled={!!inspection}
+          value={mode}
+          onChange={(value) => setMode(value as typeof mode)}
+          options={[
+            {
+              value: "journal",
+              label: "Journal entries, complete debits and credits",
+            },
+            {
+              value: "bank",
+              label: "Bank or card movements, categorize later",
+            },
+          ]}
+        />
+        <CustomSelect
+          id="import-source"
+          label="Source"
+          disabled={!!inspection}
+          value={source}
+          onChange={(value) => setSource(value as typeof source)}
+          options={[
+            { value: "wave", label: "Wave" },
+            { value: "csv", label: "Other CSV" },
+          ]}
+        />
+        <div className="sm:col-span-2">
           <Input
-            className="mt-1"
+            label="Source scope"
             value={scope}
             onChange={(e) => setScope(e.target.value)}
             placeholder="e.g. Wave company ledger, or Chase checking 1234"
             maxLength={250}
           />
-          <span className="mt-1 block text-xs text-muted-foreground">
+          <p className="mt-1.5 text-xs text-muted-foreground">
             Use the same scope for future exports of this ledger or account.
             Keep years and filenames out of the scope.
-          </span>
-        </label>
+          </p>
+        </div>
       </div>
       {!inspection ? (
         <>
           <label className="block rounded-lg border border-dashed border-border p-6 text-center">
-            <Upload className="mx-auto mb-3 text-primary" size={24} />
+            <Upload
+              className="mx-auto mb-3 text-teal-light"
+              size={24}
+              aria-hidden="true"
+            />
             <span className="text-sm">Choose a UTF-8 CSV, up to 20 MB</span>
             <input
               aria-label="CSV file"
@@ -1142,51 +1333,47 @@ function ImportWizard({
             />
           </label>
           <div className="grid grid-cols-2 gap-4">
-            <label className="text-sm">
-              Delimiter
-              <select
-                className={selectStyle}
-                value={options.delimiter}
-                onChange={(e) =>
-                  setOptions({
-                    ...options,
-                    delimiter: e.target.value as CsvOptions["delimiter"],
-                  })
-                }
-              >
-                <option value=",">Comma</option>
-                <option value=";">Semicolon</option>
-                <option value={"\t"}>Tab</option>
-              </select>
-            </label>
-            <label className="text-sm">
-              Header row
-              <Input
-                className="mt-1"
-                type="number"
-                min={1}
-                max={51}
-                value={options.headerRow + 1}
-                onChange={(e) =>
-                  setOptions({
-                    ...options,
-                    headerRow: Number(e.target.value) - 1,
-                  })
-                }
-              />
-            </label>
+            <CustomSelect
+              id="csv-delimiter"
+              label="Delimiter"
+              value={options.delimiter}
+              onChange={(value) =>
+                setOptions({
+                  ...options,
+                  delimiter: value as CsvOptions["delimiter"],
+                })
+              }
+              options={[
+                { value: ",", label: "Comma" },
+                { value: ";", label: "Semicolon" },
+                { value: "\t", label: "Tab" },
+              ]}
+            />
+            <Input
+              label="Header row"
+              type="number"
+              min={1}
+              max={51}
+              value={options.headerRow + 1}
+              onChange={(e) =>
+                setOptions({
+                  ...options,
+                  headerRow: Number(e.target.value) - 1,
+                })
+              }
+            />
           </div>
           <Button
             disabled={!file || !scope.trim() || busy}
             onClick={() => void parse("inspect")}
           >
             Read columns
-            <ArrowRight size={16} />
+            <ArrowRight size={16} aria-hidden="true" />
           </Button>
         </>
       ) : (
         <>
-          <div className="flex items-center justify-between rounded-lg bg-secondary/30 p-4">
+          <div className="glass-card flex items-center justify-between rounded-xl p-4">
             <p className="text-sm">
               {file?.name} · {inspection.rowCount} rows
             </p>
@@ -1198,85 +1385,61 @@ function ImportWizard({
               Change file
             </Button>
           </div>
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full whitespace-nowrap text-xs">
-              <thead>
-                <tr>
-                  {inspection.headers.map((h) => (
-                    <th key={h} className="p-2 text-left font-medium">
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {inspection.samples.slice(0, 3).map((row, i) => (
-                  <tr key={i} className="border-t border-border">
-                    {row.map((v, n) => (
-                      <td
-                        key={n}
-                        className="max-w-60 truncate p-2 text-muted-foreground"
-                      >
-                        {v}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={sampleColumns}
+            data={sampleRows}
+            keyExtractor={(row) => String(row.index)}
+            mobileCard={sampleCard}
+          />
           <div className="grid gap-4 sm:grid-cols-3">
-            <label className="text-sm">
-              Date format
-              <select
-                className={selectStyle}
-                value={options.dateFormat}
-                onChange={(e) =>
-                  setOptions({
-                    ...options,
-                    dateFormat: e.target.value as CsvOptions["dateFormat"],
-                  })
-                }
-              >
-                <option value="yyyy-mm-dd">YYYY-MM-DD</option>
-                <option value="mm/dd/yyyy">MM/DD/YYYY</option>
-                <option value="dd/mm/yyyy">DD/MM/YYYY</option>
-              </select>
-            </label>
-            <label className="text-sm">
-              Decimal separator
-              <select
-                className={selectStyle}
-                value={options.decimal}
-                onChange={(e) =>
-                  setOptions({
-                    ...options,
-                    decimal: e.target.value as CsvOptions["decimal"],
-                  })
-                }
-              >
-                <option value=".">Period (123.45)</option>
-                <option value=",">Comma (123,45)</option>
-              </select>
-            </label>
-            <label className="text-sm">
-              Thousands separator
-              <select
-                className={selectStyle}
-                value={options.thousands}
-                onChange={(e) =>
-                  setOptions({
-                    ...options,
-                    thousands: e.target.value as CsvOptions["thousands"],
-                  })
-                }
-              >
-                <option value="">None</option>
-                <option value=",">Comma</option>
-                <option value=".">Period</option>
-                <option value=" ">Space</option>
-              </select>
-            </label>
+            <CustomSelect
+              id="csv-date-format"
+              label="Date format"
+              value={options.dateFormat}
+              onChange={(value) =>
+                setOptions({
+                  ...options,
+                  dateFormat: value as CsvOptions["dateFormat"],
+                })
+              }
+              options={[
+                { value: "yyyy-mm-dd", label: "YYYY-MM-DD" },
+                { value: "mm/dd/yyyy", label: "MM/DD/YYYY" },
+                { value: "dd/mm/yyyy", label: "DD/MM/YYYY" },
+              ]}
+            />
+            <CustomSelect
+              id="csv-decimal"
+              label="Decimal separator"
+              value={options.decimal}
+              onChange={(value) =>
+                setOptions({
+                  ...options,
+                  decimal: value as CsvOptions["decimal"],
+                })
+              }
+              options={[
+                { value: ".", label: "Period (123.45)" },
+                { value: ",", label: "Comma (123,45)" },
+              ]}
+            />
+            <CustomSelect
+              id="csv-thousands"
+              label="Thousands separator"
+              value={options.thousands}
+              onChange={(value) =>
+                setOptions({
+                  ...options,
+                  thousands: value as CsvOptions["thousands"],
+                })
+              }
+              options={[
+                { value: "", label: "None" },
+                { value: ",", label: "Comma" },
+                { value: ".", label: "Period" },
+                { value: " ", label: "Space" },
+              ]}
+            />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             {column("date", "Transaction date")}
@@ -1292,33 +1455,21 @@ function ImportWizard({
             {mode === "journal" ? (
               column("account", "Source account")
             ) : (
-              <label className="text-sm">
-                Bank or card account
-                <select
-                  className={selectStyle}
-                  value={bankAccount}
-                  onChange={(e) => setBankAccount(e.target.value)}
-                >
-                  <option value="">Choose account</option>
-                  {accounts
-                    .filter((a) => bankIds.has(a.id) && !a.is_archived)
-                    .map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
+              <SearchableSelect
+                label="Bank or card account"
+                visibleLabel="Bank or card account"
+                value={bankAccount}
+                onChange={setBankAccount}
+                placeholder="Choose account"
+                options={bankAccountOptions}
+              />
             )}
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={signed}
-              onChange={(e) => setSigned(e.target.checked)}
-            />
-            File uses one signed amount column
-          </label>
+          <Checkbox
+            checked={signed}
+            onChange={setSigned}
+            label="File uses one signed amount column"
+          />
           <div className="grid gap-4 sm:grid-cols-2">
             {signed ? (
               column("amount", "Signed amount")
@@ -1337,74 +1488,69 @@ function ImportWizard({
               </>
             )}
             {mode === "bank" && signed && (
-              <label className="text-sm">
-                Positive amounts mean
-                <select
-                  className={selectStyle}
-                  value={sign}
-                  onChange={(e) => setSign(e.target.value as typeof sign)}
-                >
-                  <option value="deposits_positive">
-                    Deposits / card payments and refunds
-                  </option>
-                  <option value="withdrawals_positive">
-                    Withdrawals / card purchases
-                  </option>
-                </select>
-              </label>
+              <CustomSelect
+                id="bank-sign"
+                label="Positive amounts mean"
+                value={sign}
+                onChange={(value) => setSign(value as typeof sign)}
+                options={[
+                  {
+                    value: "deposits_positive",
+                    label: "Deposits / card payments and refunds",
+                  },
+                  {
+                    value: "withdrawals_positive",
+                    label: "Withdrawals / card purchases",
+                  },
+                ]}
+              />
             )}
             {mode === "journal" && column("lineMemo", "Line description", true)}
           </div>
           {mode === "journal" && (
             <>
-              <label className="flex items-start gap-2 text-sm">
-                <input
-                  className="mt-1"
-                  type="checkbox"
-                  checked={stable}
-                  onChange={(e) => setStable(e.target.checked)}
-                />
-                <span>
-                  Group IDs are stable across repeated exports
-                  <span className="block text-xs text-muted-foreground">
-                    Leave unchecked for export row numbers or IDs that are
-                    regenerated.
+              <Checkbox
+                className="items-start text-left"
+                checked={stable}
+                onChange={setStable}
+                label={
+                  <span className="block">
+                    Group IDs are stable across repeated exports
+                    <span className="block text-xs font-normal text-muted-foreground">
+                      Leave unchecked for export row numbers or IDs that are
+                      regenerated.
+                    </span>
                   </span>
-                </span>
-              </label>
+                }
+              />
               {sourceAccounts.length > 500 ? (
-                <p className="text-sm text-destructive">
+                <p className="text-sm text-error">
                   This column has more than 500 values. Verify that you selected
                   the account column.
                 </p>
               ) : (
                 sourceAccounts.length > 0 && (
                   <section className="rounded-lg border border-border p-4">
-                    <h4 className="mb-3 font-medium">Map accounts</h4>
+                    <SectionHeader
+                      label="Map accounts"
+                      count={sourceAccounts.length}
+                    />
                     <div className="grid gap-3 sm:grid-cols-2">
                       {sourceAccounts.map((label) => (
-                        <label key={label} className="text-sm">
-                          {label || "(blank)"}
-                          <select
-                            className={selectStyle}
-                            value={accountMap[label] ?? ""}
-                            onChange={(e) =>
-                              setAccountMap({
-                                ...accountMap,
-                                [label]: e.target.value,
-                              })
-                            }
-                          >
-                            <option value="">Choose account</option>
-                            {accounts
-                              .filter((a) => !a.is_archived)
-                              .map((a) => (
-                                <option key={a.id} value={a.id}>
-                                  {a.code} · {a.name}
-                                </option>
-                              ))}
-                          </select>
-                        </label>
+                        <SearchableSelect
+                          key={label}
+                          label={`Account for ${label || "(blank)"}`}
+                          visibleLabel={label || "(blank)"}
+                          value={accountMap[label] ?? ""}
+                          onChange={(value) =>
+                            setAccountMap({
+                              ...accountMap,
+                              [label]: value,
+                            })
+                          }
+                          placeholder="Choose account"
+                          options={accountOptions}
+                        />
                       ))}
                     </div>
                   </section>
@@ -1412,23 +1558,24 @@ function ImportWizard({
               )}
             </>
           )}
-          <label className="flex items-start gap-3 rounded-lg border border-border p-4 text-sm">
-            <input
-              className="mt-1"
-              type="checkbox"
+          <div className="rounded-lg border border-border p-4">
+            <Checkbox
+              className="items-start text-left"
               checked={cashConfirmed}
-              onChange={(e) => setCashConfirmed(e.target.checked)}
+              onChange={setCashConfirmed}
+              label={
+                <span className="block">
+                  {mode === "journal"
+                    ? "I verified this export is suitable for cash-basis books. It excludes unsupported accrual conversions and duplicate annual closing entries."
+                    : "These are actual movements on the selected business account."}
+                  <span className="mt-1 block text-xs font-normal text-muted-foreground">
+                    Unverified historical conversions need a source report
+                    comparison before they can be considered complete.
+                  </span>
+                </span>
+              }
             />
-            <span>
-              {mode === "journal"
-                ? "I verified this export is suitable for cash-basis books. It excludes unsupported accrual conversions and duplicate annual closing entries."
-                : "These are actual movements on the selected business account."}
-              <span className="mt-1 block text-xs text-muted-foreground">
-                Unverified historical conversions need a source report
-                comparison before they can be considered complete.
-              </span>
-            </span>
-          </label>
+          </div>
           <Button
             disabled={
               busy ||
@@ -1439,18 +1586,399 @@ function ImportWizard({
             onClick={() => void parse("preview")}
           >
             Validate and preview
-            <ArrowRight size={16} />
+            <ArrowRight size={16} aria-hidden="true" />
           </Button>
         </>
       )}
       {error && (
-        <p
-          role="alert"
-          className="flex items-start gap-2 text-sm text-destructive"
-        >
-          <AlertCircle size={16} />
+        <p role="alert" className="flex items-start gap-2 text-sm text-error">
+          <AlertCircle size={16} aria-hidden="true" />
           {error}
         </p>
+      )}
+    </div>
+  );
+}
+
+type ComparisonDraft = Omit<ImportComparisonFilter, "offset">;
+const changeKinds = [
+  "changed",
+  "new",
+  "missing",
+  "source_only",
+  "unchanged",
+] as const satisfies readonly ComparisonRow["change"][];
+const changeOptions = [
+  "differences",
+  "all",
+  ...changeKinds,
+] as const satisfies readonly ComparisonDraft["change"][];
+const changeVariant: Record<ComparisonRow["change"], BadgeVariant> = {
+  changed: "warning",
+  new: "info",
+  missing: "danger",
+  source_only: "copper",
+  unchanged: "default",
+};
+/** The comparison read only accepts two files from the same source, kind and scope. */
+const comparableBatches = (batches: ImportBatch[], later?: ImportBatch) =>
+  later
+    ? batches.filter(
+        (b) =>
+          b.id !== later.id &&
+          b.source_system === later.source_system &&
+          b.mode === later.mode &&
+          b.source_scope === later.source_scope,
+      )
+    : [];
+/** Batches list newest first, so prefer the nearest file staged before the later one. */
+const defaultEarlier = (
+  batches: ImportBatch[],
+  later: ImportBatch | undefined,
+  preferred: string,
+) => {
+  const options = comparableBatches(batches, later),
+    position = later ? batches.indexOf(later) : -1;
+  return (
+    options.find((b) => b.id === preferred) ??
+    options.find((b) => batches.indexOf(b) > position) ??
+    options[0]
+  );
+};
+const sharedDates = (a?: ImportBatch, b?: ImportBatch) => ({
+  from:
+    a && b
+      ? a.from_date > b.from_date
+        ? a.from_date
+        : b.from_date
+      : ((a ?? b)?.from_date ?? ""),
+  to:
+    a && b
+      ? a.to_date < b.to_date
+        ? a.to_date
+        : b.to_date
+      : ((a ?? b)?.to_date ?? ""),
+});
+
+function ImportComparisonPanel({
+  batches,
+  initialLater,
+  onBack,
+  onReview,
+}: {
+  batches: ImportBatch[];
+  initialLater: string;
+  onBack: () => void;
+  onReview: (batchId: string, group: ImportGroup) => void;
+}) {
+  const [draft, setDraft] = useState<ComparisonDraft>(() => {
+    const later = batches.find((b) => b.id === initialLater) ?? batches[0],
+      earlier = defaultEarlier(batches, later, "");
+    return {
+      earlier: earlier?.id ?? "",
+      later: later?.id ?? "",
+      ...sharedDates(earlier, later),
+      change: "differences",
+    };
+  });
+  const [applied, setApplied] = useState<ImportComparisonFilter | null>(null),
+    [data, setData] = useState<ImportComparison | null>(null),
+    [error, setError] = useState(""),
+    [loading, setLoading] = useState(false);
+  const signature = applied ? JSON.stringify(applied) : "";
+  useEffect(() => {
+    if (!signature) return;
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    accountingGet<ImportComparison>(
+      { view: "import-comparison", filter: signature },
+      controller.signal,
+    )
+      .then(setData)
+      .catch((e) => {
+        if (!controller.signal.aborted) setError(e.message);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [signature]);
+  const later = batches.find((b) => b.id === draft.later),
+    earlierOptions = comparableBatches(batches, later),
+    earlier = earlierOptions.find((b) => b.id === draft.earlier),
+    bounds = sharedDates(earlier, later);
+  const batchOption = (b: ImportBatch) => ({
+    value: b.id,
+    label: `${b.file_name} · ${batchPeriod(b)}`,
+  });
+  function chooseLater(id: string) {
+    const next = batches.find((b) => b.id === id),
+      pick = defaultEarlier(batches, next, draft.earlier);
+    setDraft({
+      ...draft,
+      later: id,
+      earlier: pick?.id ?? "",
+      ...sharedDates(pick, next),
+    });
+  }
+  function chooseEarlier(id: string) {
+    setDraft({
+      ...draft,
+      earlier: id,
+      ...sharedDates(
+        batches.find((b) => b.id === id),
+        later,
+      ),
+    });
+  }
+  function compare() {
+    const parsed = importComparisonFilterSchema.safeParse({
+      ...draft,
+      offset: 0,
+    });
+    if (
+      !parsed.success ||
+      !earlier ||
+      draft.from < bounds.from ||
+      draft.to > bounds.to
+    ) {
+      setError(
+        "Choose two files from the same source and dates inside their shared period.",
+      );
+      return;
+    }
+    setError("");
+    setApplied(parsed.data);
+  }
+  const side = (group: ComparisonGroup | null) =>
+    group ? (
+      <div className="min-w-0">
+        <p className="text-sm">
+          {dateLabel(group.entry_date)} ·{" "}
+          <MaskedValue
+            value={groupAmount(group)}
+            className="font-mono tabular-nums"
+          />
+        </p>
+        <p className="mt-1 truncate text-xs text-muted-foreground">
+          {group.memo}
+        </p>
+      </div>
+    ) : (
+      <span className="text-xs text-muted-foreground">Not in this file</span>
+    );
+  const change = (row: ComparisonRow) => (
+    <Badge variant={changeVariant[row.change]}>
+      {comparisonLabels[row.change]}
+    </Badge>
+  );
+  const reviewButton = (row: ComparisonRow) => {
+    const group = row.later;
+    return group && data ? (
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => onReview(data.later.id, group)}
+      >
+        Review
+      </Button>
+    ) : null;
+  };
+  const columns: DataTableColumn<ComparisonRow>[] = [
+    {
+      key: "id",
+      header: "Source ID",
+      render: (row) => (
+        <div className="min-w-0">
+          <p className="truncate font-mono text-xs">{row.external_id}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {enumLabel(row.identity_kind)}
+          </p>
+        </div>
+      ),
+    },
+    { key: "change", header: "Change", render: change },
+    {
+      key: "earlier",
+      header: "Earlier file",
+      render: (row) => side(row.earlier),
+    },
+    { key: "later", header: "Later file", render: (row) => side(row.later) },
+    {
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
+      align: "right",
+      render: reviewButton,
+    },
+  ];
+  return (
+    <div className="space-y-5">
+      <div>
+        <Button
+          variant="link"
+          size="sm"
+          onClick={onBack}
+          className="mb-3 h-auto px-0 text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft aria-hidden="true" />
+          Import history
+        </Button>
+        <h2 className="text-lg font-semibold">Compare exports</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          A read-only comparison of two staged files from the same source across
+          their shared dates.
+        </p>
+      </div>
+      <form
+        className="glass-card grid items-end gap-3 rounded-xl p-4 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_150px_150px_180px_auto]"
+        onSubmit={(e) => {
+          e.preventDefault();
+          compare();
+        }}
+      >
+        <CustomSelect
+          id="comparison-later"
+          label="Later file"
+          value={draft.later}
+          onChange={chooseLater}
+          options={batches.map(batchOption)}
+        />
+        <CustomSelect
+          id="comparison-earlier"
+          label="Earlier file"
+          value={draft.earlier}
+          onChange={chooseEarlier}
+          options={earlierOptions.map(batchOption)}
+          placeholder="No comparable file"
+          disabled={!earlierOptions.length}
+        />
+        <Input
+          label="From"
+          type="date"
+          required
+          min={bounds.from}
+          max={bounds.to}
+          value={draft.from}
+          onChange={(e) => setDraft({ ...draft, from: e.target.value })}
+        />
+        <Input
+          label="Through"
+          type="date"
+          required
+          min={bounds.from}
+          max={bounds.to}
+          value={draft.to}
+          onChange={(e) => setDraft({ ...draft, to: e.target.value })}
+        />
+        <CustomSelect
+          id="comparison-change"
+          label="Show"
+          value={draft.change}
+          onChange={(v) => {
+            const kind = changeOptions.find((k) => k === v);
+            if (kind) setDraft({ ...draft, change: kind });
+          }}
+          options={[
+            { value: "differences", label: "Differences" },
+            { value: "all", label: "All rows" },
+            ...changeKinds.map((value) => ({
+              value,
+              label: comparisonLabels[value],
+            })),
+          ]}
+        />
+        <Button type="submit" disabled={loading || !earlierOptions.length}>
+          Compare
+        </Button>
+      </form>
+      {error && (
+        <p
+          role="alert"
+          className="rounded-lg border border-error/30 bg-error/10 p-4 text-sm text-error"
+        >
+          {error}
+        </p>
+      )}
+      {loading && !data && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Comparing files...
+        </p>
+      )}
+      {data && (
+        <>
+          <p className="text-xs text-muted-foreground">
+            {countLabel(data.total, "row")} between {dateLabel(data.from)} and{" "}
+            {dateLabel(data.to)}
+            {changeKinds
+              .filter((kind) => data.counts[kind])
+              .map(
+                (kind) => ` · ${comparisonLabels[kind]} ${data.counts[kind]}`,
+              )
+              .join("")}
+          </p>
+          {(data.mapping_changed ||
+            data.basis_changed ||
+            data.uncertain_identity_count > 0) && (
+            <div className="rounded-lg border border-copper/30 bg-copper/5 px-4 py-3 text-xs leading-relaxed">
+              {data.mapping_changed
+                ? "The two files were staged with different column mappings. "
+                : ""}
+              {data.basis_changed
+                ? "The two files were staged on different accounting bases. "
+                : ""}
+              {data.uncertain_identity_count > 0
+                ? `${countLabel(data.uncertain_identity_count, "row")} matched by fingerprint only and may pair differently.`
+                : ""}
+            </div>
+          )}
+          <DataTable
+            columns={columns}
+            data={data.rows}
+            keyExtractor={(row) =>
+              `${row.key}-${row.earlier?.id ?? ""}-${row.later?.id ?? ""}`
+            }
+            busy={loading}
+            emptyState="No rows in this scope."
+            mobileCard={(row) => (
+              <div className="glass-card space-y-3 rounded-xl p-4">
+                <div className="flex items-start justify-between gap-2">
+                  <p className="truncate font-mono text-xs">
+                    {row.external_id}
+                  </p>
+                  {change(row)}
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <p className="mb-1 text-xs text-muted-foreground">
+                      Earlier file
+                    </p>
+                    {side(row.earlier)}
+                  </div>
+                  <div>
+                    <p className="mb-1 text-xs text-muted-foreground">
+                      Later file
+                    </p>
+                    {side(row.later)}
+                  </div>
+                </div>
+                {reviewButton(row)}
+              </div>
+            )}
+            after={
+              <Pagination
+                offset={data.offset}
+                limit={50}
+                total={data.filtered_total}
+                onChange={(next) =>
+                  applied && setApplied({ ...applied, offset: next })
+                }
+                noun="rows"
+                busy={loading}
+              />
+            }
+          />
+        </>
       )}
     </div>
   );

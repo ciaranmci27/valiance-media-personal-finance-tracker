@@ -1383,3026 +1383,4610 @@ BEGIN
   END LOOP;
 END $$;
 
--- ACCOUNTING FOUNDATION BEGIN
--- Declarative accounting definitions. Owner provisioning is an operator action.
-CREATE TABLE public.acct_settings (
-  singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
-  owner_user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
-  legal_name text NOT NULL CHECK (length(legal_name) BETWEEN 1 AND 200),
-  currency text NOT NULL DEFAULT 'USD' CHECK (currency = 'USD'),
-  books_timezone text NOT NULL DEFAULT 'America/Phoenix',
-  financial_revision bigint NOT NULL DEFAULT 0 CHECK (financial_revision >= 0)
-);
-CREATE TABLE public.acct_accounts (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  code text NOT NULL DEFAULT '' CHECK (length(code) <= 20),
-  name text NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 120),
-  account_type text NOT NULL CHECK (account_type IN ('asset','liability','equity','income','expense')),
-  normal_side text NOT NULL CHECK (normal_side IN ('debit','credit')),
-  is_archived boolean NOT NULL DEFAULT false,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX acct_account_code_unique ON public.acct_accounts(code) WHERE code <> '';
-CREATE TABLE public.acct_periods (
-  month_start date PRIMARY KEY CHECK (extract(day FROM month_start) = 1),
-  is_locked boolean NOT NULL DEFAULT false,
-  reason text NOT NULL DEFAULT '',
-  changed_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE public.acct_journal_entries (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  entry_date date NOT NULL CHECK (entry_date BETWEEN DATE '1900-01-01' AND DATE '2100-12-31'),
-  memo text NOT NULL CHECK (length(btrim(memo)) BETWEEN 1 AND 1000),
-  status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','posted','discarded')),
-  version integer NOT NULL DEFAULT 1 CHECK (version > 0),
-  primary_origin text NOT NULL DEFAULT 'manual' CHECK (primary_origin IN ('manual','wave','simplefin','csv','internal')),
-  reverses_entry_id uuid UNIQUE REFERENCES public.acct_journal_entries(id) ON DELETE RESTRICT,
-  created_by uuid NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  posted_at timestamptz,
-  CHECK ((status = 'posted') = (posted_at IS NOT NULL)),
-  CHECK (reverses_entry_id IS NULL OR reverses_entry_id <> id)
-);
-CREATE INDEX acct_entries_date ON public.acct_journal_entries(entry_date, created_at, id);
-CREATE TABLE public.acct_journal_lines (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  entry_id uuid NOT NULL REFERENCES public.acct_journal_entries(id) ON DELETE RESTRICT,
-  account_id uuid NOT NULL REFERENCES public.acct_accounts(id) ON DELETE RESTRICT,
-  amount_cents bigint NOT NULL CHECK (amount_cents <> 0 AND amount_cents > '-9223372036854775808'::bigint),
-  memo text NOT NULL DEFAULT '' CHECK (length(memo) <= 500),
-  sort_order integer NOT NULL CHECK (sort_order BETWEEN 0 AND 99),
-  UNIQUE (entry_id, sort_order)
-);
-CREATE INDEX acct_lines_account ON public.acct_journal_lines(account_id, entry_id);
-CREATE TABLE public.acct_command_receipts (
-  id uuid PRIMARY KEY,
-  actor_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE RESTRICT,
-  payload jsonb NOT NULL,
-  result jsonb NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE public.acct_audit_log (
-  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-  table_name text NOT NULL,
-  action text NOT NULL,
-  actor_id uuid,
-  operation_id text,
-  before_value jsonb,
-  after_value jsonb,
-  recorded_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE public.acct_source_records (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  source_system text NOT NULL CHECK (source_system IN ('wave','simplefin','csv','manual','internal')),
-  source_scope text NOT NULL,
-  external_id text NOT NULL,
-  content_hash text NOT NULL,
-  raw_payload jsonb NOT NULL,
-  observed_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(source_system, source_scope, external_id, content_hash)
-);
-CREATE TABLE public.acct_source_links (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  source_record_id uuid NOT NULL REFERENCES public.acct_source_records(id) ON DELETE RESTRICT,
-  entry_id uuid NOT NULL REFERENCES public.acct_journal_entries(id) ON DELETE RESTRICT,
-  UNIQUE(source_record_id, entry_id)
-);
-CREATE TABLE public.acct_documents (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  storage_path text NOT NULL UNIQUE,
-  original_name text NOT NULL,
-  content_hash text NOT NULL,
-  mime_type text NOT NULL,
-  size_bytes bigint NOT NULL CHECK(size_bytes >= 0),
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE public.acct_document_links (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  document_id uuid NOT NULL REFERENCES public.acct_documents(id) ON DELETE RESTRICT,
-  entry_id uuid NOT NULL REFERENCES public.acct_journal_entries(id) ON DELETE RESTRICT,
-  UNIQUE(document_id, entry_id)
+-- ACCOUNTING CATALOG BEGIN
+
+-- Generated by scripts/regenerate-accounting-schema.ts from the applied fresh catalog.
+
+CREATE SCHEMA accounting;
+
+REVOKE ALL ON SCHEMA accounting FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT USAGE ON SCHEMA accounting TO authenticated, service_role;
+
+SET check_function_bodies = false;
+
+CREATE TABLE accounting.accounts (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "code" text,
+  "name" text NOT NULL,
+  "type" text NOT NULL,
+  "subtype" text DEFAULT 'other'::text NOT NULL,
+  "is_contra" boolean DEFAULT false NOT NULL,
+  "parent_id" uuid,
+  "system_purpose" text,
+  "external_names" jsonb DEFAULT '{}'::jsonb NOT NULL,
+  "is_archived" boolean DEFAULT false NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "accounts_check" CHECK (((parent_id IS NULL) OR (parent_id <> id))),
+  CONSTRAINT "accounts_code_check" CHECK (((code IS NULL) OR ((length(code) >= 1) AND (length(code) <= 20)))),
+  CONSTRAINT "accounts_code_key" UNIQUE (code),
+  CONSTRAINT "accounts_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "accounts_external_names_check" CHECK ((jsonb_typeof(external_names) = 'object'::text)),
+  CONSTRAINT "accounts_external_names_not_null" NOT NULL external_names,
+  CONSTRAINT "accounts_id_not_null" NOT NULL id,
+  CONSTRAINT "accounts_is_archived_not_null" NOT NULL is_archived,
+  CONSTRAINT "accounts_is_contra_not_null" NOT NULL is_contra,
+  CONSTRAINT "accounts_name_check" CHECK (((length(btrim(name)) >= 1) AND (length(btrim(name)) <= 120))),
+  CONSTRAINT "accounts_name_not_null" NOT NULL name,
+  CONSTRAINT "accounts_parent_id_fkey" FOREIGN KEY (parent_id) REFERENCES accounting.accounts(id) ON DELETE RESTRICT,
+  CONSTRAINT "accounts_pkey" PRIMARY KEY (id),
+  CONSTRAINT "accounts_subtype_check" CHECK (((length(subtype) >= 1) AND (length(subtype) <= 100))),
+  CONSTRAINT "accounts_subtype_not_null" NOT NULL subtype,
+  CONSTRAINT "accounts_system_purpose_key" UNIQUE (system_purpose),
+  CONSTRAINT "accounts_type_check" CHECK ((type = ANY (ARRAY['asset'::text, 'liability'::text, 'equity'::text, 'income'::text, 'expense'::text]))),
+  CONSTRAINT "accounts_type_not_null" NOT NULL type,
+  CONSTRAINT "accounts_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "accounts_version_check" CHECK ((version > 0)),
+  CONSTRAINT "accounts_version_not_null" NOT NULL version
 );
 
-CREATE OR REPLACE FUNCTION public.acct_is_owner() RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
-  SELECT EXISTS(SELECT 1 FROM public.acct_settings WHERE owner_user_id = auth.uid());
-$$;
-CREATE OR REPLACE FUNCTION public.acct_require_owner() RETURNS uuid
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $$
-BEGIN
-  IF NOT public.acct_is_owner() THEN RAISE EXCEPTION 'ACCT_FORBIDDEN' USING ERRCODE='42501'; END IF;
-  RETURN auth.uid();
-END $$;
+ALTER TABLE accounting.accounts ENABLE ROW LEVEL SECURITY;
 
--- One company's low-volume writes serialize on one row. Period locks use the
--- same row, avoiding lock-order races before taking entry/account locks.
-CREATE OR REPLACE FUNCTION public.acct_write_lock() RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-BEGIN
-  PERFORM 1 FROM public.acct_settings WHERE singleton FOR UPDATE;
-  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_CONFIGURED'; END IF;
-END $$;
--- Acquire the company lock before tuple locks, including privileged direct DML.
-CREATE OR REPLACE FUNCTION public.acct_lock_statement() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-BEGIN
-  PERFORM public.acct_write_lock();
-  RETURN NULL;
-END $$;
-DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['acct_accounts','acct_periods','acct_journal_entries','acct_journal_lines'] LOOP
-    EXECUTE format('CREATE TRIGGER acct_statement_lock BEFORE INSERT OR UPDATE OR DELETE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION public.acct_lock_statement()',t);
-  END LOOP;
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_require_open(p_date date) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE v_month date := date_trunc('month',p_date)::date;
-BEGIN
-  PERFORM public.acct_write_lock();
-  INSERT INTO public.acct_periods(month_start) VALUES(v_month) ON CONFLICT DO NOTHING;
-  IF (SELECT is_locked FROM public.acct_periods WHERE month_start=v_month) THEN
-    RAISE EXCEPTION 'ACCT_PERIOD_LOCKED';
-  END IF;
-END $$;
-
-CREATE OR REPLACE FUNCTION public.acct_guard_entry() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-BEGIN
-  PERFORM public.acct_write_lock();
-  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE'; END IF;
-  IF TG_OP='UPDATE' THEN
-    IF OLD.status <> 'draft' THEN RAISE EXCEPTION 'ACCT_IMMUTABLE'; END IF;
-    IF NEW.id <> OLD.id OR NEW.created_by <> OLD.created_by OR NEW.created_at <> OLD.created_at
-       OR NEW.primary_origin <> OLD.primary_origin OR NEW.reverses_entry_id IS DISTINCT FROM OLD.reverses_entry_id THEN
-      RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY';
-    END IF;
-    PERFORM public.acct_require_open(OLD.entry_date);
-    NEW.version := OLD.version + 1;
-  ELSIF NEW.status <> 'draft' OR NEW.version <> 1 THEN
-    RAISE EXCEPTION 'ACCT_CREATE_DRAFT_FIRST';
-  END IF;
-  PERFORM public.acct_require_open(NEW.entry_date);
-  RETURN NEW;
-END $$;
-CREATE TRIGGER acct_guard_entry BEFORE INSERT OR UPDATE OR DELETE ON public.acct_journal_entries
-FOR EACH ROW EXECUTE FUNCTION public.acct_guard_entry();
-
-CREATE OR REPLACE FUNCTION public.acct_guard_line() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE v_entry public.acct_journal_entries;
-BEGIN
-  PERFORM public.acct_write_lock();
-  IF TG_OP='UPDATE' AND (NEW.entry_id <> OLD.entry_id OR NEW.id <> OLD.id) THEN
-    RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY';
-  END IF;
-  SELECT * INTO v_entry FROM public.acct_journal_entries
-    WHERE id=CASE WHEN TG_OP='DELETE' THEN OLD.entry_id ELSE NEW.entry_id END FOR UPDATE;
-  IF v_entry.status IS DISTINCT FROM 'draft' THEN RAISE EXCEPTION 'ACCT_IMMUTABLE'; END IF;
-  PERFORM public.acct_require_open(v_entry.entry_date);
-  IF TG_OP <> 'DELETE' AND EXISTS(SELECT 1 FROM public.acct_accounts WHERE id=NEW.account_id AND is_archived) THEN
-    RAISE EXCEPTION 'ACCT_ACCOUNT_ARCHIVED';
-  END IF;
-  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER acct_guard_line BEFORE INSERT OR UPDATE OR DELETE ON public.acct_journal_lines
-FOR EACH ROW EXECUTE FUNCTION public.acct_guard_line();
-
-CREATE OR REPLACE FUNCTION public.acct_assert_balanced(p_id uuid) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE v_count integer; v_sum numeric;
-BEGIN
-  SELECT count(*),coalesce(sum(amount_cents),0) INTO v_count,v_sum FROM public.acct_journal_lines WHERE entry_id=p_id;
-  IF v_count < 2 OR v_count > 100 OR v_sum <> 0 THEN RAISE EXCEPTION 'ACCT_UNBALANCED'; END IF;
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_balance_constraint() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE v_id uuid;
-BEGIN
-  IF TG_TABLE_NAME='acct_journal_entries' THEN v_id := NEW.id;
-  ELSE v_id := CASE WHEN TG_OP='DELETE' THEN OLD.entry_id ELSE NEW.entry_id END; END IF;
-  IF EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE id=v_id AND status='posted') THEN
-    PERFORM public.acct_assert_balanced(v_id);
-  END IF;
-  RETURN NULL;
-END $$;
-CREATE CONSTRAINT TRIGGER acct_entry_balance AFTER INSERT OR UPDATE ON public.acct_journal_entries
-DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.acct_balance_constraint();
-CREATE CONSTRAINT TRIGGER acct_line_balance AFTER INSERT OR UPDATE OR DELETE ON public.acct_journal_lines
-DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.acct_balance_constraint();
-
-CREATE OR REPLACE FUNCTION public.acct_guard_account() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-BEGIN
-  PERFORM public.acct_write_lock();
-  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE'; END IF;
-  IF TG_OP='UPDATE' THEN
-    IF NEW.id <> OLD.id THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY'; END IF;
-    IF (NEW.account_type <> OLD.account_type OR NEW.normal_side <> OLD.normal_side)
-       AND EXISTS(SELECT 1 FROM public.acct_journal_lines WHERE account_id=OLD.id) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_IN_USE'; END IF;
-    IF NEW.is_archived AND NOT OLD.is_archived AND EXISTS(
-      SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id
-      WHERE l.account_id=OLD.id AND e.status IN ('draft','posted')
-      HAVING coalesce(sum(l.amount_cents) FILTER(WHERE e.status='posted'),0) <> 0 OR count(*) FILTER(WHERE e.status='draft') > 0
-    ) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_IN_USE'; END IF;
-  END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER acct_guard_account BEFORE INSERT OR UPDATE OR DELETE ON public.acct_accounts
-FOR EACH ROW EXECUTE FUNCTION public.acct_guard_account();
-CREATE OR REPLACE FUNCTION public.acct_guard_period() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-BEGIN
-  PERFORM public.acct_write_lock();
-  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE'; END IF;
-  IF TG_OP='UPDATE' AND NEW.month_start <> OLD.month_start THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY'; END IF;
-  IF NEW.is_locked AND (TG_OP='INSERT' OR NOT OLD.is_locked) THEN
-    IF length(btrim(NEW.reason))=0 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
-    IF EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE status='draft'
-      AND entry_date >= NEW.month_start AND entry_date < NEW.month_start + INTERVAL '1 month') THEN
-      RAISE EXCEPTION 'ACCT_DRAFTS_REMAIN';
-    END IF;
-  END IF;
-  NEW.changed_at := now(); RETURN NEW;
-END $$;
-CREATE TRIGGER acct_guard_period BEFORE INSERT OR UPDATE OR DELETE ON public.acct_periods
-FOR EACH ROW EXECUTE FUNCTION public.acct_guard_period();
-
-CREATE OR REPLACE FUNCTION public.acct_record_audit() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE v_before jsonb; v_after jsonb; v_key text;
-BEGIN
-  IF TG_OP <> 'INSERT' THEN v_before:=to_jsonb(OLD); END IF;
-  IF TG_OP <> 'DELETE' THEN v_after:=to_jsonb(NEW); END IF;
-  -- JSON numbers lose bigint precision in browsers, including nested audit values.
-  FOREACH v_key IN ARRAY ARRAY['amount_cents','financial_revision','size_bytes'] LOOP
-    IF v_before ? v_key THEN v_before:=v_before||jsonb_build_object(v_key,v_before->>v_key); END IF;
-    IF v_after ? v_key THEN v_after:=v_after||jsonb_build_object(v_key,v_after->>v_key); END IF;
-  END LOOP;
-  INSERT INTO public.acct_audit_log(table_name,action,actor_id,operation_id,before_value,after_value)
-  VALUES(TG_TABLE_NAME,TG_OP,auth.uid(),nullif(current_setting('acct.operation_id',true),''),
-    v_before,v_after);
-  RETURN NULL;
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_append_only() RETURNS trigger
-LANGUAGE plpgsql SET search_path = '' AS $$
-BEGIN RAISE EXCEPTION 'ACCT_APPEND_ONLY'; END $$;
-
-DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['acct_settings','acct_accounts','acct_periods','acct_journal_entries','acct_journal_lines','acct_source_links','acct_documents','acct_document_links'] LOOP
-    EXECUTE format('CREATE TRIGGER acct_audit AFTER INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.acct_record_audit()',t);
-  END LOOP;
-  FOREACH t IN ARRAY ARRAY['acct_audit_log','acct_command_receipts','acct_source_records','acct_source_links','acct_documents','acct_document_links'] LOOP
-    EXECUTE format('CREATE TRIGGER acct_immutable BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.acct_append_only()',t);
-  END LOOP;
-END $$;
-
-CREATE OR REPLACE FUNCTION public.acct_command(p_key uuid, p_command jsonb) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE
-  v_actor uuid := public.acct_require_owner(); v_receipt public.acct_command_receipts;
-  v_type text := p_command->>'type'; v_id uuid := (p_command->>'id')::uuid;
-  v_entry public.acct_journal_entries; v_new_id uuid; v_result jsonb; v_line jsonb; v_index integer:=0;
-BEGIN
-  IF p_key IS NULL OR v_id IS NULL OR p_command IS NULL OR octet_length(p_command::text)>100000 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
-  PERFORM public.acct_write_lock();
-  -- Recheck after waiting in case an operator changed the owner meanwhile.
-  v_actor:=public.acct_require_owner();
-  SELECT * INTO v_receipt FROM public.acct_command_receipts WHERE id=p_key;
-  IF FOUND THEN
-    IF v_receipt.actor_id<>v_actor OR v_receipt.payload<>p_command THEN RAISE EXCEPTION 'ACCT_IDEMPOTENCY_CONFLICT'; END IF;
-    RETURN v_receipt.result;
-  END IF;
-  PERFORM set_config('acct.operation_id',p_key::text,true);
-  IF v_type='account.create' THEN
-    INSERT INTO public.acct_accounts(id,code,name,account_type,normal_side)
-    VALUES(v_id,coalesce(p_command->>'code',''),btrim(p_command->>'name'),p_command->>'account_type',p_command->>'normal_side');
-    v_result:=jsonb_build_object('id',v_id);
-  ELSIF v_type='draft.save' THEN
-    IF jsonb_typeof(p_command->'lines') IS DISTINCT FROM 'array' OR jsonb_array_length(p_command->'lines')>100 THEN RAISE EXCEPTION 'ACCT_INVALID_LINES'; END IF;
-    SELECT * INTO v_entry FROM public.acct_journal_entries WHERE id=v_id FOR UPDATE;
-    IF FOUND THEN
-      IF v_entry.status<>'draft' THEN RAISE EXCEPTION 'ACCT_IMMUTABLE'; END IF;
-      IF v_entry.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-      UPDATE public.acct_journal_entries SET entry_date=(p_command->>'entry_date')::date,memo=btrim(p_command->>'memo') WHERE id=v_id;
-      DELETE FROM public.acct_journal_lines WHERE entry_id=v_id;
-    ELSE
-      IF (p_command->>'expected_version')::integer IS DISTINCT FROM 0 THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-      INSERT INTO public.acct_journal_entries(id,entry_date,memo,created_by)
-      VALUES(v_id,(p_command->>'entry_date')::date,btrim(p_command->>'memo'),v_actor);
-    END IF;
-    FOR v_line IN SELECT value FROM jsonb_array_elements(p_command->'lines') LOOP
-      IF jsonb_typeof(v_line->'amount_cents') IS DISTINCT FROM 'string' OR (v_line->>'amount_cents') !~ '^-?[0-9]+$' THEN RAISE EXCEPTION 'ACCT_INVALID_CENTS'; END IF;
-      INSERT INTO public.acct_journal_lines(entry_id,account_id,amount_cents,memo,sort_order)
-      VALUES(v_id,(v_line->>'account_id')::uuid,(v_line->>'amount_cents')::bigint,coalesce(v_line->>'memo',''),v_index);
-      v_index:=v_index+1;
-    END LOOP;
-    SELECT jsonb_build_object('id',id,'version',version) INTO v_result FROM public.acct_journal_entries WHERE id=v_id;
-  ELSIF v_type IN ('entry.post','draft.discard','entry.reverse') THEN
-    SELECT * INTO v_entry FROM public.acct_journal_entries WHERE id=v_id FOR UPDATE;
-    IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-    IF v_entry.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-    IF v_type='entry.post' THEN
-      IF v_entry.status<>'draft' THEN RAISE EXCEPTION 'ACCT_IMMUTABLE'; END IF;
-      PERFORM public.acct_assert_balanced(v_id);
-      IF EXISTS(SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_accounts a ON a.id=l.account_id WHERE l.entry_id=v_id AND a.is_archived) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_ARCHIVED'; END IF;
-      UPDATE public.acct_journal_entries SET status='posted',posted_at=now() WHERE id=v_id;
-    ELSIF v_type='draft.discard' THEN
-      IF length(btrim(coalesce(p_command->>'reason','')))=0 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
-      UPDATE public.acct_journal_entries SET status='discarded' WHERE id=v_id;
-    ELSE
-      IF v_entry.status<>'posted' THEN RAISE EXCEPTION 'ACCT_POSTED_REQUIRED'; END IF;
-      IF length(btrim(coalesce(p_command->>'reason','')))=0 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
-      IF EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE reverses_entry_id=v_id) THEN RAISE EXCEPTION 'ACCT_ALREADY_REVERSED'; END IF;
-      v_new_id:=gen_random_uuid();
-      INSERT INTO public.acct_journal_entries(id,entry_date,memo,created_by,primary_origin,reverses_entry_id)
-      VALUES(v_new_id,(p_command->>'entry_date')::date,p_command->>'reason',v_actor,'internal',v_id);
-      INSERT INTO public.acct_journal_lines(entry_id,account_id,amount_cents,memo,sort_order)
-      SELECT v_new_id,account_id,-amount_cents,memo,sort_order FROM public.acct_journal_lines WHERE entry_id=v_id;
-      UPDATE public.acct_journal_entries SET status='posted',posted_at=now() WHERE id=v_new_id;
-      v_id:=v_new_id;
-    END IF;
-    SELECT jsonb_build_object('id',id,'version',version) INTO v_result FROM public.acct_journal_entries WHERE id=v_id;
-  ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND'; END IF;
-  UPDATE public.acct_settings SET financial_revision=financial_revision+1 WHERE singleton;
-  INSERT INTO public.acct_command_receipts(id,actor_id,payload,result) VALUES(p_key,v_actor,p_command,v_result);
-  RETURN v_result;
-END $$;
-
-CREATE OR REPLACE FUNCTION public.acct_workspace(p_from date, p_to date, p_entry_id uuid DEFAULT NULL) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $$
-DECLARE v_balances jsonb; v_entries jsonb; v_reports jsonb;
-BEGIN
-  PERFORM public.acct_require_owner();
-  IF p_from IS NULL OR p_to IS NULL OR p_from>p_to OR p_from<DATE '1900-01-01' OR p_to>DATE '2100-12-31' THEN RAISE EXCEPTION 'ACCT_INVALID_RANGE'; END IF;
-  WITH b AS (
-    SELECT a.*,coalesce(sum(l.amount_cents) FILTER(WHERE e.entry_date<p_from),0) AS opening,
-      coalesce(sum(l.amount_cents) FILTER(WHERE e.entry_date>=p_from),0) AS period,
-      coalesce(sum(l.amount_cents) FILTER(WHERE e.entry_date>=p_from AND l.amount_cents>0),0) AS debit,
-      -coalesce(sum(l.amount_cents) FILTER(WHERE e.entry_date>=p_from AND l.amount_cents<0),0) AS credit,
-      coalesce(sum(l.amount_cents),0) AS ending,
-      coalesce(sum(l.amount_cents) FILTER(WHERE e.entry_date<date_trunc('year',p_to)::date),0) AS prior,
-      coalesce(sum(l.amount_cents) FILTER(WHERE e.entry_date>=date_trunc('year',p_to)::date),0) AS current_year
-    FROM public.acct_accounts a LEFT JOIN
-      (public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id AND e.status='posted' AND e.entry_date<=p_to)
-      ON l.account_id=a.id GROUP BY a.id
-  ) SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'code',code,'name',name,'account_type',account_type,'normal_side',normal_side,'is_archived',is_archived,
-      'opening_cents',opening::text,'period_cents',period::text,'debit_cents',debit::text,'credit_cents',credit::text,'ending_cents',ending::text) ORDER BY code,name),'[]'),
-    jsonb_build_object(
-      'income_cents',(-coalesce(sum(period) FILTER(WHERE account_type='income'),0))::text,
-      'expense_cents',coalesce(sum(period) FILTER(WHERE account_type='expense'),0)::text,
-      'net_income_cents',(-coalesce(sum(period) FILTER(WHERE account_type IN ('income','expense')),0))::text,
-      'assets_cents',coalesce(sum(ending) FILTER(WHERE account_type='asset'),0)::text,
-      'liabilities_cents',(-coalesce(sum(ending) FILTER(WHERE account_type='liability'),0))::text,
-      'equity_cents',(-coalesce(sum(ending) FILTER(WHERE account_type='equity'),0))::text,
-      'retained_cents',(-coalesce(sum(prior) FILTER(WHERE account_type IN ('income','expense')),0))::text,
-      'year_income_cents',(-coalesce(sum(current_year) FILTER(WHERE account_type IN ('income','expense')),0))::text,
-      'balance_difference_cents',coalesce(sum(ending),0)::text,'trial_balance_cents',coalesce(sum(ending),0)::text)
-    INTO v_balances,v_reports FROM b;
-  IF v_reports->>'trial_balance_cents'<>'0' THEN RAISE EXCEPTION 'ACCT_INTEGRITY_FAILURE'; END IF;
-  SELECT coalesce(jsonb_agg(to_jsonb(q) ORDER BY entry_date DESC,created_at DESC,id DESC),'[]') INTO v_entries FROM (
-    SELECT e.*,(SELECT r.id FROM public.acct_journal_entries r WHERE r.reverses_entry_id=e.id) AS reversed_by_entry_id,
-      coalesce((SELECT jsonb_agg(jsonb_build_object('id',l.id,'account_id',l.account_id,'amount_cents',l.amount_cents::text,'memo',l.memo) ORDER BY l.sort_order)
-      FROM public.acct_journal_lines l WHERE l.entry_id=e.id),'[]') AS lines
-    FROM public.acct_journal_entries e WHERE (p_entry_id IS NOT NULL AND e.id=p_entry_id)
-      OR (p_entry_id IS NULL AND e.entry_date BETWEEN p_from AND p_to AND e.status<>'discarded')
-    ORDER BY entry_date DESC,created_at DESC,id DESC LIMIT 200
-  ) q;
-  RETURN jsonb_build_object('legal_name',(SELECT legal_name FROM public.acct_settings),'revision',(SELECT financial_revision::text FROM public.acct_settings),
-    'from',p_from,'to',p_to,'accounts',(SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY code,name),'[]') FROM public.acct_accounts a),
-    'entries',v_entries,'entry_count',(SELECT count(*) FROM public.acct_journal_entries WHERE entry_date BETWEEN p_from AND p_to AND status<>'discarded'),
-    'draft_count',(SELECT count(*) FROM public.acct_journal_entries WHERE status='draft' AND entry_date BETWEEN p_from AND p_to),
-    'balances',v_balances,'reports',v_reports);
-END $$;
-
-CREATE OR REPLACE FUNCTION public.acct_export() RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $$
-BEGIN
-  PERFORM public.acct_require_owner();
-  RETURN jsonb_build_object('format','valiance-accounting-foundation','version',1,'generated_at',now(),
-    'coverage_status','unverified','includes_document_files',false,
-    'settings',(SELECT (to_jsonb(s)-'owner_user_id')||jsonb_build_object('financial_revision',s.financial_revision::text) FROM public.acct_settings s),
-    'accounts',(SELECT coalesce(jsonb_agg(to_jsonb(a)),'[]') FROM public.acct_accounts a),
-    'entries',(SELECT coalesce(jsonb_agg(to_jsonb(e)),'[]') FROM public.acct_journal_entries e),
-    'lines',(SELECT coalesce(jsonb_agg(to_jsonb(l)||jsonb_build_object('amount_cents',l.amount_cents::text)),'[]') FROM public.acct_journal_lines l),
-    'periods',(SELECT coalesce(jsonb_agg(to_jsonb(p)),'[]') FROM public.acct_periods p),
-    'sources',(SELECT coalesce(jsonb_agg(to_jsonb(s)),'[]') FROM public.acct_source_records s),
-    'source_links',(SELECT coalesce(jsonb_agg(to_jsonb(s)),'[]') FROM public.acct_source_links s),
-    'documents',(SELECT coalesce(jsonb_agg(to_jsonb(d)||jsonb_build_object('size_bytes',d.size_bytes::text)),'[]') FROM public.acct_documents d),
-    'document_links',(SELECT coalesce(jsonb_agg(to_jsonb(d)),'[]') FROM public.acct_document_links d),
-    'audit',(SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('id',a.id::text)),'[]') FROM public.acct_audit_log a),
-    'command_receipts',(SELECT coalesce(jsonb_agg(to_jsonb(c)),'[]') FROM public.acct_command_receipts c));
-END $$;
-
-DO $$ DECLARE t text; f record; BEGIN
-  FOREACH t IN ARRAY ARRAY['acct_settings','acct_accounts','acct_periods','acct_journal_entries','acct_journal_lines',
-    'acct_command_receipts','acct_audit_log','acct_source_records','acct_source_links','acct_documents','acct_document_links'] LOOP
-    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t);
-    EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC, anon, authenticated, service_role',t);
-    -- Read through exact-cent functions only. Table grants stay revoked.
-    EXECUTE format('CREATE POLICY acct_owner_read ON public.%I FOR SELECT TO authenticated USING (public.acct_is_owner())',t);
-  END LOOP;
-  FOR f IN SELECT p.oid::regprocedure AS signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-    WHERE n.nspname='public' AND p.proname LIKE 'acct\_%' ESCAPE '\' LOOP
-    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC, anon, authenticated, service_role',f.signature);
-  END LOOP;
-END $$;
-GRANT EXECUTE ON FUNCTION public.acct_is_owner() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.acct_command(uuid,jsonb) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.acct_workspace(date,date,uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.acct_export() TO authenticated;
--- ACCOUNTING FOUNDATION END
-
-
--- ACCOUNTING WORKFLOWS BEGIN
--- This module extends the immutable ledger; all writes use acct_execute.
-CREATE OR REPLACE FUNCTION public.acct_record_workflow_audit() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE v_before jsonb;v_after jsonb;v_key text;
-BEGIN
-  IF TG_OP<>'INSERT' THEN v_before:=to_jsonb(OLD); END IF;
-  IF TG_OP<>'DELETE' THEN v_after:=to_jsonb(NEW); END IF;
-  FOR v_key IN SELECT key FROM jsonb_each(coalesce(v_after,v_before)) WHERE key LIKE '%\_cents' ESCAPE '\' OR key IN ('revision','financial_revision','size_bytes') LOOP
-    IF v_before ? v_key THEN v_before:=v_before||jsonb_build_object(v_key,v_before->>v_key); END IF;
-    IF v_after ? v_key THEN v_after:=v_after||jsonb_build_object(v_key,v_after->>v_key); END IF;
-  END LOOP;
-  INSERT INTO public.acct_audit_log(table_name,action,actor_id,operation_id,before_value,after_value) VALUES(TG_TABLE_NAME,TG_OP,auth.uid(),nullif(current_setting('acct.operation_id',true),''),v_before,v_after);
-  RETURN NULL;
-END $$;
-CREATE TABLE public.acct_account_profiles (
-  account_id uuid PRIMARY KEY REFERENCES public.acct_accounts(id) ON DELETE RESTRICT,
-  version integer NOT NULL DEFAULT 1 CHECK(version>0),
-  purpose text UNIQUE,
-  cash_kind text NOT NULL DEFAULT 'none' CHECK(cash_kind IN ('none','bank','cash','card')),
-  parent_account_id uuid REFERENCES public.acct_accounts(id) ON DELETE RESTRICT,
-  subtype text NOT NULL DEFAULT '' CHECK(length(subtype)<=100),
-  CHECK(parent_account_id IS DISTINCT FROM account_id)
-);
-CREATE TABLE public.acct_book_preferences (
-  singleton boolean PRIMARY KEY DEFAULT true REFERENCES public.acct_settings(singleton),
-  version integer NOT NULL DEFAULT 1 CHECK(version>0),
-  authority_mode text NOT NULL DEFAULT 'wave_primary' CHECK(authority_mode IN ('wave_primary','parallel_pilot','admin_primary')),
-  primary_from date,
-  history_start date,
-  transfer_window_days integer NOT NULL DEFAULT 5 CHECK(transfer_window_days BETWEEN 0 AND 30),
-  transit_alert_days integer NOT NULL DEFAULT 14 CHECK(transit_alert_days BETWEEN 1 AND 365),
-  CHECK(authority_mode<>'admin_primary' OR primary_from IS NOT NULL)
-);
-CREATE TABLE public.acct_parties (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  version integer NOT NULL DEFAULT 1 CHECK(version>0),
-  name text NOT NULL CHECK(length(btrim(name)) BETWEEN 1 AND 160),
-  kind text NOT NULL CHECK(kind IN ('vendor','customer','both')),
-  default_account_id uuid REFERENCES public.acct_accounts(id),
-  tax_classification text NOT NULL DEFAULT 'unreviewed' CHECK(tax_classification IN ('unreviewed','individual','corporation','partnership','foreign','other')),
-  documentation text NOT NULL DEFAULT 'missing' CHECK(documentation IN ('missing','requested','received','not_required')),
-  notes text NOT NULL DEFAULT '' CHECK(length(notes)<=3000),
-  is_archived boolean NOT NULL DEFAULT false
-);
-CREATE TABLE public.acct_dimensions (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  version integer NOT NULL DEFAULT 1 CHECK(version>0),
-  name text NOT NULL CHECK(length(btrim(name)) BETWEEN 1 AND 160),
-  kind text NOT NULL CHECK(kind IN ('project','business_line')),
-  customer_id uuid REFERENCES public.acct_parties(id),
-  is_archived boolean NOT NULL DEFAULT false
-);
-CREATE TABLE public.acct_entry_context (
-  entry_id uuid PRIMARY KEY REFERENCES public.acct_journal_entries(id),
-  kind text NOT NULL DEFAULT 'manual' CHECK(kind IN ('manual','income','expense','transfer','payroll','opening','owner','loan','asset','invoice_receipt','refund')),
-  payee_id uuid REFERENCES public.acct_parties(id),
-  customer_id uuid REFERENCES public.acct_parties(id),
-  project_id uuid REFERENCES public.acct_dimensions(id),
-  business_line_id uuid REFERENCES public.acct_dimensions(id),
-  payment_rail text NOT NULL DEFAULT 'unknown' CHECK(payment_rail IN ('unknown','ach','check','cash','card','third_party','wire','other')),
-  contractor_treatment text NOT NULL DEFAULT 'unreviewed' CHECK(contractor_treatment IN ('unreviewed','reportable','excluded')),
-  contractor_reason text NOT NULL DEFAULT '' CHECK(length(contractor_reason)<=1000)
-);
-CREATE TABLE public.acct_entry_corrections (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  original_entry_id uuid NOT NULL UNIQUE REFERENCES public.acct_journal_entries(id),
-  reversal_entry_id uuid NOT NULL UNIQUE REFERENCES public.acct_journal_entries(id),
-  replacement_entry_id uuid UNIQUE REFERENCES public.acct_journal_entries(id),
-  reason text NOT NULL CHECK(length(btrim(reason)) BETWEEN 1 AND 1000),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  created_by uuid NOT NULL REFERENCES auth.users(id)
-);
-CREATE TABLE public.acct_annotations (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  entry_id uuid NOT NULL REFERENCES public.acct_journal_entries(id),
-  note text NOT NULL CHECK(length(btrim(note)) BETWEEN 1 AND 3000),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  created_by uuid NOT NULL REFERENCES auth.users(id)
-);
-CREATE TABLE public.acct_journal_templates (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  version integer NOT NULL DEFAULT 1 CHECK(version>0),
-  name text NOT NULL UNIQUE CHECK(length(btrim(name)) BETWEEN 1 AND 120),
-  memo text NOT NULL CHECK(length(btrim(memo)) BETWEEN 1 AND 1000),
-  lines jsonb NOT NULL CHECK(jsonb_typeof(lines)='array' AND jsonb_array_length(lines) BETWEEN 2 AND 100),
-  is_archived boolean NOT NULL DEFAULT false
-);
-CREATE TABLE public.acct_saved_views (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  version integer NOT NULL DEFAULT 1 CHECK(version>0),
-  name text NOT NULL UNIQUE CHECK(length(btrim(name)) BETWEEN 1 AND 120),
-  filters jsonb NOT NULL CHECK(jsonb_typeof(filters)='object')
-);
-CREATE TABLE public.acct_report_snapshots (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  kind text NOT NULL CHECK(kind IN ('report','close','filing','restatement','historical_baseline')),
-  from_date date NOT NULL,
-  to_date date NOT NULL CHECK(to_date>=from_date),
-  revision bigint NOT NULL,
-  report_version integer NOT NULL DEFAULT 2,
-  payload jsonb NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  created_by uuid NOT NULL REFERENCES auth.users(id)
+CREATE TABLE accounting.audit_log (
+  "id" bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  "at" timestamp with time zone DEFAULT now() NOT NULL,
+  "actor_user_id" uuid,
+  "actor_kind" text NOT NULL,
+  "operation_id" uuid NOT NULL,
+  "table_name" text NOT NULL,
+  "row_id" uuid NOT NULL,
+  "action" text NOT NULL,
+  "before" jsonb,
+  "after" jsonb,
+  "reason" text DEFAULT ''::text NOT NULL,
+  CONSTRAINT "audit_log_action_not_null" NOT NULL action,
+  CONSTRAINT "audit_log_actor_kind_check" CHECK ((actor_kind = ANY (ARRAY['owner'::text, 'worker'::text, 'system'::text]))),
+  CONSTRAINT "audit_log_actor_kind_not_null" NOT NULL actor_kind,
+  CONSTRAINT "audit_log_actor_user_id_fkey" FOREIGN KEY (actor_user_id) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "audit_log_at_not_null" NOT NULL at,
+  CONSTRAINT "audit_log_id_not_null" NOT NULL id,
+  CONSTRAINT "audit_log_operation_id_not_null" NOT NULL operation_id,
+  CONSTRAINT "audit_log_pkey" PRIMARY KEY (id),
+  CONSTRAINT "audit_log_reason_not_null" NOT NULL reason,
+  CONSTRAINT "audit_log_row_id_not_null" NOT NULL row_id,
+  CONSTRAINT "audit_log_table_name_not_null" NOT NULL table_name
 );
 
-CREATE OR REPLACE FUNCTION public.acct_context_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE v_id uuid;
-BEGIN
-  PERFORM public.acct_write_lock();
-  IF TG_OP='UPDATE' AND NEW.entry_id<>OLD.entry_id THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY'; END IF;
-  v_id:=CASE WHEN TG_OP='DELETE' THEN OLD.entry_id ELSE NEW.entry_id END;
-  IF NOT EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE id=v_id AND status='draft') THEN RAISE EXCEPTION 'ACCT_IMMUTABLE'; END IF;
-  IF TG_OP<>'DELETE' THEN
-    IF NEW.project_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.acct_dimensions WHERE id=NEW.project_id AND kind='project' AND NOT is_archived) THEN RAISE EXCEPTION 'ACCT_INVALID_DIMENSION'; END IF;
-    IF NEW.business_line_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.acct_dimensions WHERE id=NEW.business_line_id AND kind='business_line' AND NOT is_archived) THEN RAISE EXCEPTION 'ACCT_INVALID_DIMENSION'; END IF;
-    IF NEW.contractor_treatment='excluded' AND length(btrim(NEW.contractor_reason))=0 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
-    RETURN NEW;
-  END IF;
-  RETURN OLD;
-END $$;
-CREATE TRIGGER acct_context_guard BEFORE INSERT OR UPDATE OR DELETE ON public.acct_entry_context FOR EACH ROW EXECUTE FUNCTION public.acct_context_guard();
+ALTER TABLE accounting.audit_log ENABLE ROW LEVEL SECURITY;
 
-CREATE OR REPLACE FUNCTION public.acct_profile_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE v_type text; v_parent uuid;
-BEGIN
-  PERFORM public.acct_write_lock();
-  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE'; END IF;
-  SELECT account_type INTO v_type FROM public.acct_accounts WHERE id=NEW.account_id;
-  IF (NEW.cash_kind IN ('bank','cash') AND v_type<>'asset') OR (NEW.cash_kind='card' AND v_type<>'liability') THEN RAISE EXCEPTION 'ACCT_ACCOUNT_KIND'; END IF;
-  IF TG_OP='UPDATE' THEN
-    IF NEW.account_id<>OLD.account_id THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY'; END IF;
-    IF (NEW.purpose IS DISTINCT FROM OLD.purpose OR NEW.cash_kind<>OLD.cash_kind) AND EXISTS(SELECT 1 FROM public.acct_journal_lines WHERE account_id=NEW.account_id) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_IN_USE'; END IF;
-    NEW.version:=OLD.version+1;
-  END IF;
-  v_parent:=NEW.parent_account_id;
-  WHILE v_parent IS NOT NULL LOOP
-    IF v_parent=NEW.account_id THEN RAISE EXCEPTION 'ACCT_ACCOUNT_CYCLE'; END IF;
-    IF NOT EXISTS(SELECT 1 FROM public.acct_accounts WHERE id=v_parent AND account_type=v_type) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_PARENT'; END IF;
-    SELECT parent_account_id INTO v_parent FROM public.acct_account_profiles WHERE account_id=v_parent;
-    IF v_parent IS NOT NULL THEN RAISE EXCEPTION 'ACCT_ACCOUNT_PARENT_DEPTH'; END IF;
-  END LOOP;
-  IF NEW.parent_account_id IS NOT NULL AND EXISTS(SELECT 1 FROM public.acct_account_profiles WHERE parent_account_id=NEW.account_id) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_PARENT_DEPTH'; END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER acct_profile_guard BEFORE INSERT OR UPDATE OR DELETE ON public.acct_account_profiles FOR EACH ROW EXECUTE FUNCTION public.acct_profile_guard();
+CREATE TABLE accounting.bank_connections (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "provider" text DEFAULT 'simplefin'::text NOT NULL,
+  "name" text NOT NULL,
+  "status" text DEFAULT 'active'::text NOT NULL,
+  "access_url_encrypted" text NOT NULL,
+  "key_version" smallint DEFAULT 1 NOT NULL,
+  "scheduled" boolean DEFAULT true NOT NULL,
+  "next_sync_at" timestamp with time zone,
+  "last_success_at" timestamp with time zone,
+  "last_error" text DEFAULT ''::text NOT NULL,
+  "lease_run_id" uuid,
+  "lease_until" timestamp with time zone,
+  "checkpoint" jsonb DEFAULT '{}'::jsonb NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "bank_connections_access_url_encrypted_not_null" NOT NULL access_url_encrypted,
+  CONSTRAINT "bank_connections_check" CHECK (((lease_run_id IS NULL) = (lease_until IS NULL))),
+  CONSTRAINT "bank_connections_checkpoint_check" CHECK ((jsonb_typeof(checkpoint) = 'object'::text)),
+  CONSTRAINT "bank_connections_checkpoint_not_null" NOT NULL checkpoint,
+  CONSTRAINT "bank_connections_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "bank_connections_id_not_null" NOT NULL id,
+  CONSTRAINT "bank_connections_key_version_check" CHECK ((key_version > 0)),
+  CONSTRAINT "bank_connections_key_version_not_null" NOT NULL key_version,
+  CONSTRAINT "bank_connections_last_error_not_null" NOT NULL last_error,
+  CONSTRAINT "bank_connections_name_check" CHECK (((length(btrim(name)) >= 1) AND (length(btrim(name)) <= 120))),
+  CONSTRAINT "bank_connections_name_not_null" NOT NULL name,
+  CONSTRAINT "bank_connections_pkey" PRIMARY KEY (id),
+  CONSTRAINT "bank_connections_provider_check" CHECK ((provider = 'simplefin'::text)),
+  CONSTRAINT "bank_connections_provider_not_null" NOT NULL provider,
+  CONSTRAINT "bank_connections_scheduled_not_null" NOT NULL scheduled,
+  CONSTRAINT "bank_connections_status_check" CHECK ((status = ANY (ARRAY['active'::text, 'reconnect_required'::text, 'disconnected'::text]))),
+  CONSTRAINT "bank_connections_status_not_null" NOT NULL status,
+  CONSTRAINT "bank_connections_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "bank_connections_version_check" CHECK ((version > 0)),
+  CONSTRAINT "bank_connections_version_not_null" NOT NULL version
+);
 
-CREATE OR REPLACE FUNCTION public.acct_validate_template(p_lines jsonb) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE l jsonb; total numeric:=0; n integer:=0; v_amount bigint;
-BEGIN
-  IF jsonb_typeof(p_lines)<>'array' THEN RAISE EXCEPTION 'ACCT_INVALID_LINES'; END IF;
-  FOR l IN SELECT value FROM jsonb_array_elements(p_lines) LOOP
-    IF jsonb_typeof(l->'amount_cents') IS DISTINCT FROM 'string' THEN RAISE EXCEPTION 'ACCT_INVALID_CENTS'; END IF;
-    v_amount:=(l->>'amount_cents')::bigint;
-    IF v_amount=0 OR v_amount='-9223372036854775808'::bigint THEN RAISE EXCEPTION 'ACCT_INVALID_CENTS'; END IF;
-    IF NOT EXISTS(SELECT 1 FROM public.acct_accounts WHERE id=(l->>'account_id')::uuid AND NOT is_archived) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_ARCHIVED'; END IF;
-    total:=total+v_amount;n:=n+1;
-  END LOOP;
-  IF total<>0 OR n<2 OR n>100 THEN RAISE EXCEPTION 'ACCT_UNBALANCED'; END IF;
-END $$;
+ALTER TABLE accounting.bank_connections ENABLE ROW LEVEL SECURITY;
 
--- Extended command dispatcher. The original command remains the primitive for
--- draft/post operations, including nested operations in one outer transaction.
-CREATE OR REPLACE FUNCTION public.acct_execute(p_key uuid,p_command jsonb) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE
-  actor uuid:=public.acct_require_owner(); receipt public.acct_command_receipts;
-  op text:=p_command->>'type'; v_id uuid:=(p_command->>'id')::uuid;
-  v_result jsonb; v_profile public.acct_account_profiles; v_account public.acct_accounts;
-  v_template public.acct_journal_templates; v_entry public.acct_journal_entries;
-  reversal jsonb; replacement jsonb; v_version integer; x jsonb;
+CREATE TABLE accounting.bank_accounts (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "account_id" uuid NOT NULL,
+  "connection_id" uuid,
+  "provider_account_id" text,
+  "institution" text DEFAULT ''::text NOT NULL,
+  "mask" text DEFAULT ''::text NOT NULL,
+  "movement_sign" smallint DEFAULT 1 NOT NULL,
+  "coverage_from" date,
+  "observed_balance_cents" bigint,
+  "observed_at" timestamp with time zone,
+  "is_closed" boolean DEFAULT false NOT NULL,
+  "closed_on" date,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "bank_accounts_account_id_fkey" FOREIGN KEY (account_id) REFERENCES accounting.accounts(id) ON DELETE RESTRICT,
+  CONSTRAINT "bank_accounts_account_id_key" UNIQUE (account_id),
+  CONSTRAINT "bank_accounts_account_id_not_null" NOT NULL account_id,
+  CONSTRAINT "bank_accounts_check" CHECK (((NOT is_closed) OR (closed_on IS NOT NULL))),
+  CONSTRAINT "bank_accounts_connection_id_fkey" FOREIGN KEY (connection_id) REFERENCES accounting.bank_connections(id) ON DELETE RESTRICT,
+  CONSTRAINT "bank_accounts_connection_id_provider_account_id_key" UNIQUE (connection_id, provider_account_id),
+  CONSTRAINT "bank_accounts_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "bank_accounts_id_not_null" NOT NULL id,
+  CONSTRAINT "bank_accounts_institution_not_null" NOT NULL institution,
+  CONSTRAINT "bank_accounts_is_closed_not_null" NOT NULL is_closed,
+  CONSTRAINT "bank_accounts_mask_not_null" NOT NULL mask,
+  CONSTRAINT "bank_accounts_movement_sign_check" CHECK ((movement_sign = ANY (ARRAY['-1'::integer, 1]))),
+  CONSTRAINT "bank_accounts_movement_sign_not_null" NOT NULL movement_sign,
+  CONSTRAINT "bank_accounts_pkey" PRIMARY KEY (id),
+  CONSTRAINT "bank_accounts_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "bank_accounts_version_check" CHECK ((version > 0)),
+  CONSTRAINT "bank_accounts_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.bank_accounts ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.command_receipts (
+  "idempotency_key" uuid NOT NULL,
+  "payload_hash" text NOT NULL,
+  "actor_user_id" uuid NOT NULL,
+  "result" jsonb NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "command_receipts_actor_user_id_fkey" FOREIGN KEY (actor_user_id) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "command_receipts_actor_user_id_not_null" NOT NULL actor_user_id,
+  CONSTRAINT "command_receipts_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "command_receipts_idempotency_key_not_null" NOT NULL idempotency_key,
+  CONSTRAINT "command_receipts_payload_hash_not_null" NOT NULL payload_hash,
+  CONSTRAINT "command_receipts_pkey" PRIMARY KEY (idempotency_key),
+  CONSTRAINT "command_receipts_result_not_null" NOT NULL result
+);
+
+ALTER TABLE accounting.command_receipts ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.documents (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "storage_path" text NOT NULL,
+  "name" text NOT NULL,
+  "mime" text NOT NULL,
+  "size_bytes" bigint NOT NULL,
+  "sha256" text NOT NULL,
+  "kind" text DEFAULT 'receipt'::text NOT NULL,
+  "status" text DEFAULT 'inbox'::text NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "uploaded_by" uuid,
+  "uploaded_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "documents_id_not_null" NOT NULL id,
+  CONSTRAINT "documents_kind_check" CHECK ((kind = ANY (ARRAY['receipt'::text, 'statement'::text, 'payroll_register'::text, 'source_export'::text, 'report'::text, 'other'::text]))),
+  CONSTRAINT "documents_kind_not_null" NOT NULL kind,
+  CONSTRAINT "documents_mime_not_null" NOT NULL mime,
+  CONSTRAINT "documents_name_check" CHECK (((length(btrim(name)) >= 1) AND (length(btrim(name)) <= 240))),
+  CONSTRAINT "documents_name_not_null" NOT NULL name,
+  CONSTRAINT "documents_pkey" PRIMARY KEY (id),
+  CONSTRAINT "documents_sha256_check" CHECK ((sha256 ~ '^[0-9a-f]{64}$'::text)),
+  CONSTRAINT "documents_sha256_not_null" NOT NULL sha256,
+  CONSTRAINT "documents_size_bytes_check" CHECK (((size_bytes >= 1) AND (size_bytes <= 26214400))),
+  CONSTRAINT "documents_size_bytes_not_null" NOT NULL size_bytes,
+  CONSTRAINT "documents_status_check" CHECK ((status = ANY (ARRAY['inbox'::text, 'linked'::text, 'archived'::text]))),
+  CONSTRAINT "documents_status_not_null" NOT NULL status,
+  CONSTRAINT "documents_storage_path_key" UNIQUE (storage_path),
+  CONSTRAINT "documents_storage_path_not_null" NOT NULL storage_path,
+  CONSTRAINT "documents_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "documents_uploaded_at_not_null" NOT NULL uploaded_at,
+  CONSTRAINT "documents_uploaded_by_fkey" FOREIGN KEY (uploaded_by) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "documents_version_check" CHECK ((version > 0)),
+  CONSTRAINT "documents_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.documents ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.history_checks (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "fiscal_year" smallint NOT NULL,
+  "kind" text NOT NULL,
+  "expected" jsonb NOT NULL,
+  "actual" jsonb NOT NULL,
+  "difference" jsonb NOT NULL,
+  "status" text NOT NULL,
+  "explanation" text DEFAULT ''::text NOT NULL,
+  "document_id" uuid NOT NULL,
+  "checked_by" uuid NOT NULL,
+  "checked_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "history_checks_actual_not_null" NOT NULL actual,
+  CONSTRAINT "history_checks_check" CHECK (((status <> 'explained'::text) OR (length(btrim(explanation)) > 0))),
+  CONSTRAINT "history_checks_checked_at_not_null" NOT NULL checked_at,
+  CONSTRAINT "history_checks_checked_by_fkey" FOREIGN KEY (checked_by) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "history_checks_checked_by_not_null" NOT NULL checked_by,
+  CONSTRAINT "history_checks_difference_not_null" NOT NULL difference,
+  CONSTRAINT "history_checks_document_id_fkey" FOREIGN KEY (document_id) REFERENCES accounting.documents(id) ON DELETE RESTRICT,
+  CONSTRAINT "history_checks_document_id_not_null" NOT NULL document_id,
+  CONSTRAINT "history_checks_expected_not_null" NOT NULL expected,
+  CONSTRAINT "history_checks_explanation_not_null" NOT NULL explanation,
+  CONSTRAINT "history_checks_fiscal_year_check" CHECK (((fiscal_year >= 1900) AND (fiscal_year <= 2200))),
+  CONSTRAINT "history_checks_fiscal_year_not_null" NOT NULL fiscal_year,
+  CONSTRAINT "history_checks_id_not_null" NOT NULL id,
+  CONSTRAINT "history_checks_kind_check" CHECK ((kind = ANY (ARRAY['annual_totals'::text, 'opening_balances'::text]))),
+  CONSTRAINT "history_checks_kind_not_null" NOT NULL kind,
+  CONSTRAINT "history_checks_pkey" PRIMARY KEY (id),
+  CONSTRAINT "history_checks_status_check" CHECK ((status = ANY (ARRAY['matches'::text, 'explained'::text, 'mismatch'::text]))),
+  CONSTRAINT "history_checks_status_not_null" NOT NULL status
+);
+
+ALTER TABLE accounting.history_checks ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.import_batches (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "kind" text NOT NULL,
+  "source" text NOT NULL,
+  "document_id" uuid,
+  "file_hash" text,
+  "mapping" jsonb NOT NULL,
+  "status" text DEFAULT 'staged'::text NOT NULL,
+  "row_count" integer NOT NULL,
+  "applied_count" integer DEFAULT 0 NOT NULL,
+  "checkpoint" integer DEFAULT 0 NOT NULL,
+  "control_totals" jsonb DEFAULT '{}'::jsonb NOT NULL,
+  "coverage_from" date NOT NULL,
+  "coverage_to" date NOT NULL,
+  "parity_status" text NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_by" uuid,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "import_batches_applied_count_check" CHECK ((applied_count >= 0)),
+  CONSTRAINT "import_batches_applied_count_not_null" NOT NULL applied_count,
+  CONSTRAINT "import_batches_check" CHECK ((coverage_to >= coverage_from)),
+  CONSTRAINT "import_batches_check1" CHECK ((((kind = 'bank'::text) AND (parity_status = 'n/a'::text)) OR ((kind = 'journal'::text) AND (parity_status <> 'n/a'::text)))),
+  CONSTRAINT "import_batches_check2" CHECK ((applied_count <= row_count)),
+  CONSTRAINT "import_batches_checkpoint_check" CHECK ((checkpoint >= 0)),
+  CONSTRAINT "import_batches_checkpoint_not_null" NOT NULL checkpoint,
+  CONSTRAINT "import_batches_control_totals_check" CHECK ((jsonb_typeof(control_totals) = 'object'::text)),
+  CONSTRAINT "import_batches_control_totals_not_null" NOT NULL control_totals,
+  CONSTRAINT "import_batches_coverage_from_not_null" NOT NULL coverage_from,
+  CONSTRAINT "import_batches_coverage_to_not_null" NOT NULL coverage_to,
+  CONSTRAINT "import_batches_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "import_batches_created_by_fkey" FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "import_batches_document_id_fkey" FOREIGN KEY (document_id) REFERENCES accounting.documents(id) ON DELETE RESTRICT,
+  CONSTRAINT "import_batches_file_hash_check" CHECK ((file_hash ~ '^[0-9a-f]{64}$'::text)),
+  CONSTRAINT "import_batches_file_hash_key" UNIQUE (file_hash),
+  CONSTRAINT "import_batches_id_not_null" NOT NULL id,
+  CONSTRAINT "import_batches_kind_check" CHECK ((kind = ANY (ARRAY['journal'::text, 'bank'::text]))),
+  CONSTRAINT "import_batches_kind_not_null" NOT NULL kind,
+  CONSTRAINT "import_batches_mapping_check" CHECK ((jsonb_typeof(mapping) = 'object'::text)),
+  CONSTRAINT "import_batches_mapping_not_null" NOT NULL mapping,
+  CONSTRAINT "import_batches_parity_status_check" CHECK ((parity_status = ANY (ARRAY['n/a'::text, 'pending'::text, 'verified'::text, 'mismatch'::text]))),
+  CONSTRAINT "import_batches_parity_status_not_null" NOT NULL parity_status,
+  CONSTRAINT "import_batches_pkey" PRIMARY KEY (id),
+  CONSTRAINT "import_batches_row_count_check" CHECK (((row_count >= 0) AND (row_count <= 50000))),
+  CONSTRAINT "import_batches_row_count_not_null" NOT NULL row_count,
+  CONSTRAINT "import_batches_source_check" CHECK ((source = ANY (ARRAY['wave'::text, 'csv'::text, 'simplefin'::text]))),
+  CONSTRAINT "import_batches_source_not_null" NOT NULL source,
+  CONSTRAINT "import_batches_status_check" CHECK ((status = ANY (ARRAY['staged'::text, 'applying'::text, 'completed'::text, 'cancelled'::text]))),
+  CONSTRAINT "import_batches_status_not_null" NOT NULL status,
+  CONSTRAINT "import_batches_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "import_batches_version_check" CHECK ((version > 0)),
+  CONSTRAINT "import_batches_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.import_batches ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.bank_transactions (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "bank_account_id" uuid NOT NULL,
+  "source" text NOT NULL,
+  "external_id" text NOT NULL,
+  "posted_date" date NOT NULL,
+  "transacted_at" timestamp with time zone,
+  "amount_cents" bigint NOT NULL,
+  "description" text NOT NULL,
+  "descriptor_key" text NOT NULL,
+  "content_hash" text NOT NULL,
+  "raw_payload" jsonb NOT NULL,
+  "state" text NOT NULL,
+  "review" text DEFAULT 'unmatched'::text NOT NULL,
+  "excluded_reason" text DEFAULT ''::text NOT NULL,
+  "import_batch_id" uuid,
+  "observed_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "bank_transactions_amount_cents_check" CHECK ((amount_cents > '-9223372036854775808'::bigint)),
+  CONSTRAINT "bank_transactions_amount_cents_not_null" NOT NULL amount_cents,
+  CONSTRAINT "bank_transactions_bank_account_id_external_id_key" UNIQUE (bank_account_id, external_id),
+  CONSTRAINT "bank_transactions_bank_account_id_fkey" FOREIGN KEY (bank_account_id) REFERENCES accounting.bank_accounts(id) ON DELETE RESTRICT,
+  CONSTRAINT "bank_transactions_bank_account_id_not_null" NOT NULL bank_account_id,
+  CONSTRAINT "bank_transactions_check" CHECK (((review <> 'excluded'::text) OR (length(btrim(excluded_reason)) > 0))),
+  CONSTRAINT "bank_transactions_content_hash_not_null" NOT NULL content_hash,
+  CONSTRAINT "bank_transactions_description_not_null" NOT NULL description,
+  CONSTRAINT "bank_transactions_descriptor_key_not_null" NOT NULL descriptor_key,
+  CONSTRAINT "bank_transactions_excluded_reason_not_null" NOT NULL excluded_reason,
+  CONSTRAINT "bank_transactions_external_id_check" CHECK ((length(external_id) > 0)),
+  CONSTRAINT "bank_transactions_external_id_not_null" NOT NULL external_id,
+  CONSTRAINT "bank_transactions_id_not_null" NOT NULL id,
+  CONSTRAINT "bank_transactions_observed_at_not_null" NOT NULL observed_at,
+  CONSTRAINT "bank_transactions_pkey" PRIMARY KEY (id),
+  CONSTRAINT "bank_transactions_posted_date_not_null" NOT NULL posted_date,
+  CONSTRAINT "bank_transactions_raw_payload_not_null" NOT NULL raw_payload,
+  CONSTRAINT "bank_transactions_review_check" CHECK ((review = ANY (ARRAY['unmatched'::text, 'matched'::text, 'excluded'::text]))),
+  CONSTRAINT "bank_transactions_review_not_null" NOT NULL review,
+  CONSTRAINT "bank_transactions_source_check" CHECK ((source = ANY (ARRAY['simplefin'::text, 'csv'::text, 'wave'::text]))),
+  CONSTRAINT "bank_transactions_source_not_null" NOT NULL source,
+  CONSTRAINT "bank_transactions_state_check" CHECK ((state = ANY (ARRAY['pending'::text, 'posted'::text]))),
+  CONSTRAINT "bank_transactions_state_not_null" NOT NULL state,
+  CONSTRAINT "observations_import_fk" FOREIGN KEY (import_batch_id) REFERENCES accounting.import_batches(id) ON DELETE RESTRICT
+);
+
+ALTER TABLE accounting.bank_transactions ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.parties (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "name" text NOT NULL,
+  "kind" text NOT NULL,
+  "default_account_id" uuid,
+  "is_contractor" boolean DEFAULT false NOT NULL,
+  "contractor_classification" text DEFAULT 'unknown'::text NOT NULL,
+  "documentation_status" text DEFAULT 'missing'::text NOT NULL,
+  "notes" text DEFAULT ''::text NOT NULL,
+  "is_archived" boolean DEFAULT false NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "parties_contractor_classification_check" CHECK ((contractor_classification = ANY (ARRAY['unknown'::text, 'individual'::text, 'corporation'::text, 'foreign'::text, 'other'::text]))),
+  CONSTRAINT "parties_contractor_classification_not_null" NOT NULL contractor_classification,
+  CONSTRAINT "parties_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "parties_default_account_id_fkey" FOREIGN KEY (default_account_id) REFERENCES accounting.accounts(id) ON DELETE RESTRICT,
+  CONSTRAINT "parties_documentation_status_check" CHECK ((documentation_status = ANY (ARRAY['missing'::text, 'received'::text, 'not_required'::text]))),
+  CONSTRAINT "parties_documentation_status_not_null" NOT NULL documentation_status,
+  CONSTRAINT "parties_id_not_null" NOT NULL id,
+  CONSTRAINT "parties_is_archived_not_null" NOT NULL is_archived,
+  CONSTRAINT "parties_is_contractor_not_null" NOT NULL is_contractor,
+  CONSTRAINT "parties_kind_check" CHECK ((kind = ANY (ARRAY['vendor'::text, 'customer'::text, 'both'::text]))),
+  CONSTRAINT "parties_kind_not_null" NOT NULL kind,
+  CONSTRAINT "parties_name_check" CHECK (((length(btrim(name)) >= 1) AND (length(btrim(name)) <= 120))),
+  CONSTRAINT "parties_name_key" UNIQUE (name),
+  CONSTRAINT "parties_name_not_null" NOT NULL name,
+  CONSTRAINT "parties_notes_not_null" NOT NULL notes,
+  CONSTRAINT "parties_pkey" PRIMARY KEY (id),
+  CONSTRAINT "parties_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "parties_version_check" CHECK ((version > 0)),
+  CONSTRAINT "parties_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.parties ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.payee_aliases (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "party_id" uuid NOT NULL,
+  "match_kind" text NOT NULL,
+  "pattern" text NOT NULL,
+  "enabled" boolean DEFAULT true NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "created_by" uuid,
+  CONSTRAINT "payee_aliases_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "payee_aliases_created_by_fkey" FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "payee_aliases_enabled_not_null" NOT NULL enabled,
+  CONSTRAINT "payee_aliases_id_not_null" NOT NULL id,
+  CONSTRAINT "payee_aliases_match_kind_check" CHECK ((match_kind = ANY (ARRAY['key'::text, 'exact'::text, 'prefix'::text]))),
+  CONSTRAINT "payee_aliases_match_kind_not_null" NOT NULL match_kind,
+  CONSTRAINT "payee_aliases_match_kind_pattern_key" UNIQUE (match_kind, pattern),
+  CONSTRAINT "payee_aliases_party_id_fkey" FOREIGN KEY (party_id) REFERENCES accounting.parties(id) ON DELETE RESTRICT,
+  CONSTRAINT "payee_aliases_party_id_not_null" NOT NULL party_id,
+  CONSTRAINT "payee_aliases_pattern_check" CHECK (((length(btrim(pattern)) >= 1) AND (length(btrim(pattern)) <= 1000))),
+  CONSTRAINT "payee_aliases_pattern_not_null" NOT NULL pattern,
+  CONSTRAINT "payee_aliases_pkey" PRIMARY KEY (id),
+  CONSTRAINT "payee_aliases_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "payee_aliases_version_check" CHECK ((version > 0)),
+  CONSTRAINT "payee_aliases_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.payee_aliases ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.periods (
+  "month" date NOT NULL,
+  "status" text DEFAULT 'open'::text NOT NULL,
+  "locked_at" timestamp with time zone,
+  "locked_by" uuid,
+  "close_snapshot" jsonb,
+  "reopen_reason" text DEFAULT ''::text NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "periods_check" CHECK (((status = 'locked'::text) = (locked_at IS NOT NULL))),
+  CONSTRAINT "periods_locked_by_fkey" FOREIGN KEY (locked_by) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "periods_month_check" CHECK ((EXTRACT(day FROM month) = (1)::numeric)),
+  CONSTRAINT "periods_month_not_null" NOT NULL month,
+  CONSTRAINT "periods_pkey" PRIMARY KEY (month),
+  CONSTRAINT "periods_reopen_reason_not_null" NOT NULL reopen_reason,
+  CONSTRAINT "periods_status_check" CHECK ((status = ANY (ARRAY['open'::text, 'locked'::text]))),
+  CONSTRAINT "periods_status_not_null" NOT NULL status,
+  CONSTRAINT "periods_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "periods_version_check" CHECK ((version > 0)),
+  CONSTRAINT "periods_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.periods ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.reconciliations (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "bank_account_id" uuid NOT NULL,
+  "statement_start" date NOT NULL,
+  "statement_end" date NOT NULL,
+  "opening_balance_cents" bigint NOT NULL,
+  "ending_balance_cents" bigint NOT NULL,
+  "document_id" uuid,
+  "status" text DEFAULT 'in_progress'::text NOT NULL,
+  "difference_cents" bigint NOT NULL,
+  "notes" text DEFAULT ''::text NOT NULL,
+  "completed_at" timestamp with time zone,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "reconciliations_bank_account_id_fkey" FOREIGN KEY (bank_account_id) REFERENCES accounting.bank_accounts(id) ON DELETE RESTRICT,
+  CONSTRAINT "reconciliations_bank_account_id_not_null" NOT NULL bank_account_id,
+  CONSTRAINT "reconciliations_check" CHECK ((statement_end >= statement_start)),
+  CONSTRAINT "reconciliations_check1" CHECK (((status = 'completed'::text) = (completed_at IS NOT NULL))),
+  CONSTRAINT "reconciliations_check2" CHECK (((status <> 'completed'::text) OR (difference_cents = 0))),
+  CONSTRAINT "reconciliations_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "reconciliations_difference_cents_not_null" NOT NULL difference_cents,
+  CONSTRAINT "reconciliations_document_id_fkey" FOREIGN KEY (document_id) REFERENCES accounting.documents(id) ON DELETE RESTRICT,
+  CONSTRAINT "reconciliations_ending_balance_cents_not_null" NOT NULL ending_balance_cents,
+  CONSTRAINT "reconciliations_id_not_null" NOT NULL id,
+  CONSTRAINT "reconciliations_notes_not_null" NOT NULL notes,
+  CONSTRAINT "reconciliations_opening_balance_cents_not_null" NOT NULL opening_balance_cents,
+  CONSTRAINT "reconciliations_pkey" PRIMARY KEY (id),
+  CONSTRAINT "reconciliations_statement_end_not_null" NOT NULL statement_end,
+  CONSTRAINT "reconciliations_statement_start_not_null" NOT NULL statement_start,
+  CONSTRAINT "reconciliations_status_check" CHECK ((status = ANY (ARRAY['in_progress'::text, 'completed'::text]))),
+  CONSTRAINT "reconciliations_status_not_null" NOT NULL status,
+  CONSTRAINT "reconciliations_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "reconciliations_version_check" CHECK ((version > 0)),
+  CONSTRAINT "reconciliations_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.reconciliations ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.registers (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "kind" text NOT NULL,
+  "name" text NOT NULL,
+  "account_id" uuid NOT NULL,
+  "contra_account_id" uuid,
+  "started_on" date NOT NULL,
+  "amount_cents" bigint NOT NULL,
+  "in_service_on" date,
+  "method" text DEFAULT ''::text NOT NULL,
+  "schedule" jsonb DEFAULT '[]'::jsonb NOT NULL,
+  "status" text DEFAULT 'active'::text NOT NULL,
+  "ended_on" date,
+  "notes" text DEFAULT ''::text NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "registers_account_id_fkey" FOREIGN KEY (account_id) REFERENCES accounting.accounts(id) ON DELETE RESTRICT,
+  CONSTRAINT "registers_account_id_not_null" NOT NULL account_id,
+  CONSTRAINT "registers_amount_cents_check" CHECK ((amount_cents >= 0)),
+  CONSTRAINT "registers_amount_cents_not_null" NOT NULL amount_cents,
+  CONSTRAINT "registers_check" CHECK (((status = 'active'::text) OR (ended_on IS NOT NULL))),
+  CONSTRAINT "registers_contra_account_id_fkey" FOREIGN KEY (contra_account_id) REFERENCES accounting.accounts(id) ON DELETE RESTRICT,
+  CONSTRAINT "registers_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "registers_id_not_null" NOT NULL id,
+  CONSTRAINT "registers_kind_check" CHECK ((kind = ANY (ARRAY['fixed_asset'::text, 'loan'::text]))),
+  CONSTRAINT "registers_kind_not_null" NOT NULL kind,
+  CONSTRAINT "registers_method_not_null" NOT NULL method,
+  CONSTRAINT "registers_name_check" CHECK (((length(btrim(name)) >= 1) AND (length(btrim(name)) <= 160))),
+  CONSTRAINT "registers_name_not_null" NOT NULL name,
+  CONSTRAINT "registers_notes_not_null" NOT NULL notes,
+  CONSTRAINT "registers_pkey" PRIMARY KEY (id),
+  CONSTRAINT "registers_schedule_check" CHECK ((jsonb_typeof(schedule) = 'array'::text)),
+  CONSTRAINT "registers_schedule_not_null" NOT NULL schedule,
+  CONSTRAINT "registers_started_on_not_null" NOT NULL started_on,
+  CONSTRAINT "registers_status_check" CHECK ((status = ANY (ARRAY['active'::text, 'disposed'::text, 'paid_off'::text]))),
+  CONSTRAINT "registers_status_not_null" NOT NULL status,
+  CONSTRAINT "registers_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "registers_version_check" CHECK ((version > 0)),
+  CONSTRAINT "registers_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.registers ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.report_snapshots (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "kind" text NOT NULL,
+  "params" jsonb NOT NULL,
+  "from_date" date NOT NULL,
+  "to_date" date NOT NULL,
+  "financial_revision" bigint NOT NULL,
+  "data" jsonb NOT NULL,
+  "document_id" uuid,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "created_by" uuid,
+  CONSTRAINT "report_snapshots_check" CHECK ((to_date >= from_date)),
+  CONSTRAINT "report_snapshots_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "report_snapshots_created_by_fkey" FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "report_snapshots_data_not_null" NOT NULL data,
+  CONSTRAINT "report_snapshots_document_id_fkey" FOREIGN KEY (document_id) REFERENCES accounting.documents(id) ON DELETE RESTRICT,
+  CONSTRAINT "report_snapshots_financial_revision_not_null" NOT NULL financial_revision,
+  CONSTRAINT "report_snapshots_from_date_not_null" NOT NULL from_date,
+  CONSTRAINT "report_snapshots_id_not_null" NOT NULL id,
+  CONSTRAINT "report_snapshots_kind_check" CHECK ((kind = ANY (ARRAY['profit_loss'::text, 'balance_sheet'::text, 'trial_balance'::text, 'general_ledger'::text, 'cash_movements'::text, 'year_end_package'::text, 'month_close'::text]))),
+  CONSTRAINT "report_snapshots_kind_not_null" NOT NULL kind,
+  CONSTRAINT "report_snapshots_params_not_null" NOT NULL params,
+  CONSTRAINT "report_snapshots_pkey" PRIMARY KEY (id),
+  CONSTRAINT "report_snapshots_to_date_not_null" NOT NULL to_date
+);
+
+ALTER TABLE accounting.report_snapshots ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.rules (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "name" text NOT NULL,
+  "priority" integer DEFAULT 100 NOT NULL,
+  "enabled" boolean DEFAULT false NOT NULL,
+  "conditions" jsonb NOT NULL,
+  "actions" jsonb NOT NULL,
+  "auto_post" boolean DEFAULT false NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "rules_actions_check" CHECK ((jsonb_typeof(actions) = 'object'::text)),
+  CONSTRAINT "rules_actions_not_null" NOT NULL actions,
+  CONSTRAINT "rules_auto_post_not_null" NOT NULL auto_post,
+  CONSTRAINT "rules_conditions_check" CHECK ((jsonb_typeof(conditions) = 'object'::text)),
+  CONSTRAINT "rules_conditions_not_null" NOT NULL conditions,
+  CONSTRAINT "rules_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "rules_enabled_not_null" NOT NULL enabled,
+  CONSTRAINT "rules_id_not_null" NOT NULL id,
+  CONSTRAINT "rules_name_check" CHECK (((length(btrim(name)) >= 1) AND (length(btrim(name)) <= 120))),
+  CONSTRAINT "rules_name_not_null" NOT NULL name,
+  CONSTRAINT "rules_pkey" PRIMARY KEY (id),
+  CONSTRAINT "rules_priority_check" CHECK (((priority >= 0) AND (priority <= 10000))),
+  CONSTRAINT "rules_priority_not_null" NOT NULL priority,
+  CONSTRAINT "rules_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "rules_version_check" CHECK ((version > 0)),
+  CONSTRAINT "rules_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.rules ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.journal_entries (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "entry_date" date NOT NULL,
+  "memo" text NOT NULL,
+  "source_description" text,
+  "descriptor_key" text,
+  "origin" text DEFAULT 'manual'::text NOT NULL,
+  "kind" text DEFAULT 'manual'::text NOT NULL,
+  "status" text DEFAULT 'draft'::text NOT NULL,
+  "payee_id" uuid,
+  "applied_rule_id" uuid,
+  "transfer_group_id" uuid,
+  "register_id" uuid,
+  "import_batch_id" uuid,
+  "reverses_entry_id" uuid,
+  "replaces_entry_id" uuid,
+  "reason" text DEFAULT ''::text NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_by" uuid,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "posted_at" timestamp with time zone,
+  CONSTRAINT "entries_import_fk" FOREIGN KEY (import_batch_id) REFERENCES accounting.import_batches(id) ON DELETE RESTRICT,
+  CONSTRAINT "entries_payee_fk" FOREIGN KEY (payee_id) REFERENCES accounting.parties(id) ON DELETE RESTRICT,
+  CONSTRAINT "entries_register_fk" FOREIGN KEY (register_id) REFERENCES accounting.registers(id) ON DELETE RESTRICT,
+  CONSTRAINT "entries_rule_fk" FOREIGN KEY (applied_rule_id) REFERENCES accounting.rules(id) ON DELETE RESTRICT,
+  CONSTRAINT "journal_entries_check" CHECK ((reverses_entry_id <> id)),
+  CONSTRAINT "journal_entries_check1" CHECK ((replaces_entry_id <> id)),
+  CONSTRAINT "journal_entries_check2" CHECK (((status = 'posted'::text) = (posted_at IS NOT NULL))),
+  CONSTRAINT "journal_entries_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "journal_entries_created_by_fkey" FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "journal_entries_entry_date_check" CHECK (((entry_date >= '1900-01-01'::date) AND (entry_date <= '2100-12-31'::date))),
+  CONSTRAINT "journal_entries_entry_date_not_null" NOT NULL entry_date,
+  CONSTRAINT "journal_entries_id_not_null" NOT NULL id,
+  CONSTRAINT "journal_entries_kind_check" CHECK ((kind = ANY (ARRAY['manual'::text, 'income'::text, 'expense'::text, 'transfer'::text, 'payroll'::text, 'opening'::text, 'owner'::text, 'asset'::text, 'loan'::text, 'refund'::text, 'correction'::text]))),
+  CONSTRAINT "journal_entries_kind_not_null" NOT NULL kind,
+  CONSTRAINT "journal_entries_memo_check" CHECK (((length(btrim(memo)) >= 1) AND (length(btrim(memo)) <= 1000))),
+  CONSTRAINT "journal_entries_memo_not_null" NOT NULL memo,
+  CONSTRAINT "journal_entries_origin_check" CHECK ((origin = ANY (ARRAY['manual'::text, 'simplefin'::text, 'csv'::text, 'wave'::text, 'internal'::text]))),
+  CONSTRAINT "journal_entries_origin_not_null" NOT NULL origin,
+  CONSTRAINT "journal_entries_pkey" PRIMARY KEY (id),
+  CONSTRAINT "journal_entries_reason_not_null" NOT NULL reason,
+  CONSTRAINT "journal_entries_replaces_entry_id_fkey" FOREIGN KEY (replaces_entry_id) REFERENCES accounting.journal_entries(id) ON DELETE RESTRICT,
+  CONSTRAINT "journal_entries_reverses_entry_id_fkey" FOREIGN KEY (reverses_entry_id) REFERENCES accounting.journal_entries(id) ON DELETE RESTRICT,
+  CONSTRAINT "journal_entries_reverses_entry_id_key" UNIQUE (reverses_entry_id),
+  CONSTRAINT "journal_entries_status_check" CHECK ((status = ANY (ARRAY['draft'::text, 'posted'::text, 'discarded'::text]))),
+  CONSTRAINT "journal_entries_status_not_null" NOT NULL status,
+  CONSTRAINT "journal_entries_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "journal_entries_version_check" CHECK ((version > 0)),
+  CONSTRAINT "journal_entries_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.journal_entries ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.import_rows (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "batch_id" uuid NOT NULL,
+  "ordinal" integer NOT NULL,
+  "external_id" text,
+  "fingerprint" text NOT NULL,
+  "raw" jsonb NOT NULL,
+  "parsed" jsonb NOT NULL,
+  "status" text DEFAULT 'ready'::text NOT NULL,
+  "entry_id" uuid,
+  "duplicate_of_entry_id" uuid,
+  "reason" text DEFAULT ''::text NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "import_rows_batch_id_external_id_key" UNIQUE (batch_id, external_id),
+  CONSTRAINT "import_rows_batch_id_fkey" FOREIGN KEY (batch_id) REFERENCES accounting.import_batches(id) ON DELETE RESTRICT,
+  CONSTRAINT "import_rows_batch_id_not_null" NOT NULL batch_id,
+  CONSTRAINT "import_rows_batch_id_ordinal_key" UNIQUE (batch_id, ordinal),
+  CONSTRAINT "import_rows_check" CHECK (((status <> 'applied'::text) OR (entry_id IS NOT NULL))),
+  CONSTRAINT "import_rows_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "import_rows_duplicate_of_entry_id_fkey" FOREIGN KEY (duplicate_of_entry_id) REFERENCES accounting.journal_entries(id) ON DELETE RESTRICT,
+  CONSTRAINT "import_rows_entry_id_fkey" FOREIGN KEY (entry_id) REFERENCES accounting.journal_entries(id) ON DELETE RESTRICT,
+  CONSTRAINT "import_rows_fingerprint_check" CHECK ((fingerprint ~ '^[0-9a-f]{64}$'::text)),
+  CONSTRAINT "import_rows_fingerprint_not_null" NOT NULL fingerprint,
+  CONSTRAINT "import_rows_id_not_null" NOT NULL id,
+  CONSTRAINT "import_rows_ordinal_check" CHECK ((ordinal >= 0)),
+  CONSTRAINT "import_rows_ordinal_not_null" NOT NULL ordinal,
+  CONSTRAINT "import_rows_parsed_check" CHECK ((jsonb_typeof(parsed) = 'object'::text)),
+  CONSTRAINT "import_rows_parsed_not_null" NOT NULL parsed,
+  CONSTRAINT "import_rows_pkey" PRIMARY KEY (id),
+  CONSTRAINT "import_rows_raw_not_null" NOT NULL raw,
+  CONSTRAINT "import_rows_reason_not_null" NOT NULL reason,
+  CONSTRAINT "import_rows_status_check" CHECK ((status = ANY (ARRAY['ready'::text, 'duplicate'::text, 'exception'::text, 'applied'::text, 'excluded'::text]))),
+  CONSTRAINT "import_rows_status_not_null" NOT NULL status,
+  CONSTRAINT "import_rows_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "import_rows_version_check" CHECK ((version > 0)),
+  CONSTRAINT "import_rows_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.import_rows ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.journal_lines (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "entry_id" uuid NOT NULL,
+  "account_id" uuid NOT NULL,
+  "amount_cents" bigint NOT NULL,
+  "memo" text DEFAULT ''::text NOT NULL,
+  "sort_order" smallint NOT NULL,
+  "cash_class" text,
+  CONSTRAINT "journal_lines_account_id_fkey" FOREIGN KEY (account_id) REFERENCES accounting.accounts(id) ON DELETE RESTRICT,
+  CONSTRAINT "journal_lines_account_id_not_null" NOT NULL account_id,
+  CONSTRAINT "journal_lines_amount_cents_check" CHECK (((amount_cents <> 0) AND (amount_cents > '-9223372036854775808'::bigint))),
+  CONSTRAINT "journal_lines_amount_cents_not_null" NOT NULL amount_cents,
+  CONSTRAINT "journal_lines_cash_class_check" CHECK ((cash_class = ANY (ARRAY['operating'::text, 'investing'::text, 'financing'::text, 'transfer'::text]))),
+  CONSTRAINT "journal_lines_entry_id_fkey" FOREIGN KEY (entry_id) REFERENCES accounting.journal_entries(id) ON DELETE RESTRICT,
+  CONSTRAINT "journal_lines_entry_id_not_null" NOT NULL entry_id,
+  CONSTRAINT "journal_lines_entry_id_sort_order_key" UNIQUE (entry_id, sort_order),
+  CONSTRAINT "journal_lines_id_not_null" NOT NULL id,
+  CONSTRAINT "journal_lines_memo_check" CHECK ((length(memo) <= 500)),
+  CONSTRAINT "journal_lines_memo_not_null" NOT NULL memo,
+  CONSTRAINT "journal_lines_pkey" PRIMARY KEY (id),
+  CONSTRAINT "journal_lines_sort_order_check" CHECK (((sort_order >= 0) AND (sort_order <= 999))),
+  CONSTRAINT "journal_lines_sort_order_not_null" NOT NULL sort_order
+);
+
+ALTER TABLE accounting.journal_lines ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.bank_matches (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "bank_transaction_id" uuid NOT NULL,
+  "journal_line_id" uuid NOT NULL,
+  "amount_cents" bigint NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "created_by" uuid,
+  CONSTRAINT "bank_matches_amount_cents_check" CHECK ((amount_cents >= 0)),
+  CONSTRAINT "bank_matches_amount_cents_not_null" NOT NULL amount_cents,
+  CONSTRAINT "bank_matches_bank_transaction_id_fkey" FOREIGN KEY (bank_transaction_id) REFERENCES accounting.bank_transactions(id) ON DELETE RESTRICT,
+  CONSTRAINT "bank_matches_bank_transaction_id_journal_line_id_key" UNIQUE (bank_transaction_id, journal_line_id),
+  CONSTRAINT "bank_matches_bank_transaction_id_not_null" NOT NULL bank_transaction_id,
+  CONSTRAINT "bank_matches_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "bank_matches_created_by_fkey" FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "bank_matches_id_not_null" NOT NULL id,
+  CONSTRAINT "bank_matches_journal_line_id_fkey" FOREIGN KEY (journal_line_id) REFERENCES accounting.journal_lines(id) ON DELETE RESTRICT,
+  CONSTRAINT "bank_matches_journal_line_id_not_null" NOT NULL journal_line_id,
+  CONSTRAINT "bank_matches_pkey" PRIMARY KEY (id)
+);
+
+ALTER TABLE accounting.bank_matches ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.payroll_runs (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "provider" text DEFAULT 'patriot'::text NOT NULL,
+  "provider_run_id" text NOT NULL,
+  "pay_date" date NOT NULL,
+  "period_start" date NOT NULL,
+  "period_end" date NOT NULL,
+  "gross_cents" bigint NOT NULL,
+  "net_cents" bigint NOT NULL,
+  "employee_withholding_cents" bigint NOT NULL,
+  "employer_tax_cents" bigint NOT NULL,
+  "components" jsonb NOT NULL,
+  "entry_id" uuid,
+  "document_id" uuid,
+  "ytd" jsonb,
+  "status" text DEFAULT 'draft'::text NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "created_by" uuid,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "payroll_runs_check" CHECK ((period_end >= period_start)),
+  CONSTRAINT "payroll_runs_check1" CHECK (((status <> 'posted'::text) OR (entry_id IS NOT NULL))),
+  CONSTRAINT "payroll_runs_components_check" CHECK ((jsonb_typeof(components) = 'array'::text)),
+  CONSTRAINT "payroll_runs_components_not_null" NOT NULL components,
+  CONSTRAINT "payroll_runs_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "payroll_runs_created_by_fkey" FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "payroll_runs_document_id_fkey" FOREIGN KEY (document_id) REFERENCES accounting.documents(id) ON DELETE RESTRICT,
+  CONSTRAINT "payroll_runs_employee_withholding_cents_check" CHECK ((employee_withholding_cents >= 0)),
+  CONSTRAINT "payroll_runs_employee_withholding_cents_not_null" NOT NULL employee_withholding_cents,
+  CONSTRAINT "payroll_runs_employer_tax_cents_check" CHECK ((employer_tax_cents >= 0)),
+  CONSTRAINT "payroll_runs_employer_tax_cents_not_null" NOT NULL employer_tax_cents,
+  CONSTRAINT "payroll_runs_entry_id_fkey" FOREIGN KEY (entry_id) REFERENCES accounting.journal_entries(id) ON DELETE RESTRICT,
+  CONSTRAINT "payroll_runs_entry_id_key" UNIQUE (entry_id),
+  CONSTRAINT "payroll_runs_gross_cents_check" CHECK ((gross_cents >= 0)),
+  CONSTRAINT "payroll_runs_gross_cents_not_null" NOT NULL gross_cents,
+  CONSTRAINT "payroll_runs_id_not_null" NOT NULL id,
+  CONSTRAINT "payroll_runs_net_cents_check" CHECK ((net_cents >= 0)),
+  CONSTRAINT "payroll_runs_net_cents_not_null" NOT NULL net_cents,
+  CONSTRAINT "payroll_runs_pay_date_not_null" NOT NULL pay_date,
+  CONSTRAINT "payroll_runs_period_end_not_null" NOT NULL period_end,
+  CONSTRAINT "payroll_runs_period_start_not_null" NOT NULL period_start,
+  CONSTRAINT "payroll_runs_pkey" PRIMARY KEY (id),
+  CONSTRAINT "payroll_runs_provider_check" CHECK ((provider = 'patriot'::text)),
+  CONSTRAINT "payroll_runs_provider_not_null" NOT NULL provider,
+  CONSTRAINT "payroll_runs_provider_run_id_key" UNIQUE (provider_run_id),
+  CONSTRAINT "payroll_runs_provider_run_id_not_null" NOT NULL provider_run_id,
+  CONSTRAINT "payroll_runs_status_check" CHECK ((status = ANY (ARRAY['draft'::text, 'posted'::text, 'void'::text]))),
+  CONSTRAINT "payroll_runs_status_not_null" NOT NULL status,
+  CONSTRAINT "payroll_runs_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "payroll_runs_version_check" CHECK ((version > 0)),
+  CONSTRAINT "payroll_runs_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.payroll_runs ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.document_links (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "document_id" uuid NOT NULL,
+  "entry_id" uuid,
+  "bank_transaction_id" uuid,
+  "import_batch_id" uuid,
+  "reconciliation_id" uuid,
+  "payroll_run_id" uuid,
+  "register_id" uuid,
+  "party_id" uuid,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "created_by" uuid,
+  CONSTRAINT "document_import_fk" FOREIGN KEY (import_batch_id) REFERENCES accounting.import_batches(id) ON DELETE RESTRICT,
+  CONSTRAINT "document_links_bank_transaction_id_fkey" FOREIGN KEY (bank_transaction_id) REFERENCES accounting.bank_transactions(id) ON DELETE RESTRICT,
+  CONSTRAINT "document_links_check" CHECK ((num_nonnulls(entry_id, bank_transaction_id, import_batch_id, reconciliation_id, payroll_run_id, register_id, party_id) = 1)),
+  CONSTRAINT "document_links_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "document_links_created_by_fkey" FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "document_links_document_id_fkey" FOREIGN KEY (document_id) REFERENCES accounting.documents(id) ON DELETE RESTRICT,
+  CONSTRAINT "document_links_document_id_not_null" NOT NULL document_id,
+  CONSTRAINT "document_links_entry_id_fkey" FOREIGN KEY (entry_id) REFERENCES accounting.journal_entries(id) ON DELETE RESTRICT,
+  CONSTRAINT "document_links_id_not_null" NOT NULL id,
+  CONSTRAINT "document_links_party_id_fkey" FOREIGN KEY (party_id) REFERENCES accounting.parties(id) ON DELETE RESTRICT,
+  CONSTRAINT "document_links_pkey" PRIMARY KEY (id),
+  CONSTRAINT "document_payroll_fk" FOREIGN KEY (payroll_run_id) REFERENCES accounting.payroll_runs(id) ON DELETE RESTRICT,
+  CONSTRAINT "document_reconciliation_fk" FOREIGN KEY (reconciliation_id) REFERENCES accounting.reconciliations(id) ON DELETE RESTRICT,
+  CONSTRAINT "document_register_fk" FOREIGN KEY (register_id) REFERENCES accounting.registers(id) ON DELETE RESTRICT
+);
+
+ALTER TABLE accounting.document_links ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.reconciliation_items (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "reconciliation_id" uuid NOT NULL,
+  "journal_line_id" uuid NOT NULL,
+  "amount_cents" bigint NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "reconciliation_items_amount_cents_check" CHECK (((amount_cents <> 0) AND (amount_cents > '-9223372036854775808'::bigint))),
+  CONSTRAINT "reconciliation_items_amount_cents_not_null" NOT NULL amount_cents,
+  CONSTRAINT "reconciliation_items_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "reconciliation_items_id_not_null" NOT NULL id,
+  CONSTRAINT "reconciliation_items_journal_line_id_fkey" FOREIGN KEY (journal_line_id) REFERENCES accounting.journal_lines(id) ON DELETE RESTRICT,
+  CONSTRAINT "reconciliation_items_journal_line_id_key" UNIQUE (journal_line_id),
+  CONSTRAINT "reconciliation_items_journal_line_id_not_null" NOT NULL journal_line_id,
+  CONSTRAINT "reconciliation_items_pkey" PRIMARY KEY (id),
+  CONSTRAINT "reconciliation_items_reconciliation_id_fkey" FOREIGN KEY (reconciliation_id) REFERENCES accounting.reconciliations(id) ON DELETE RESTRICT,
+  CONSTRAINT "reconciliation_items_reconciliation_id_not_null" NOT NULL reconciliation_id
+);
+
+ALTER TABLE accounting.reconciliation_items ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.settings (
+  "id" smallint DEFAULT 1 NOT NULL,
+  "owner_user_id" uuid NOT NULL,
+  "primary_system" text DEFAULT 'wave'::text NOT NULL,
+  "primary_system_since" date,
+  "transfer_window_days" smallint DEFAULT 5 NOT NULL,
+  "financial_revision" bigint DEFAULT 0 NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "settings_financial_revision_check" CHECK ((financial_revision >= 0)),
+  CONSTRAINT "settings_financial_revision_not_null" NOT NULL financial_revision,
+  CONSTRAINT "settings_id_check" CHECK ((id = 1)),
+  CONSTRAINT "settings_id_not_null" NOT NULL id,
+  CONSTRAINT "settings_owner_user_id_fkey" FOREIGN KEY (owner_user_id) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "settings_owner_user_id_not_null" NOT NULL owner_user_id,
+  CONSTRAINT "settings_pkey" PRIMARY KEY (id),
+  CONSTRAINT "settings_primary_system_check" CHECK ((primary_system = ANY (ARRAY['wave'::text, 'admin'::text]))),
+  CONSTRAINT "settings_primary_system_not_null" NOT NULL primary_system,
+  CONSTRAINT "settings_transfer_window_days_check" CHECK (((transfer_window_days >= 0) AND (transfer_window_days <= 30))),
+  CONSTRAINT "settings_transfer_window_days_not_null" NOT NULL transfer_window_days,
+  CONSTRAINT "settings_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "settings_version_check" CHECK ((version > 0)),
+  CONSTRAINT "settings_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.settings ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.tax_adjustments (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "tax_year" smallint NOT NULL,
+  "concept" text NOT NULL,
+  "effective_date" date NOT NULL,
+  "amount_cents" bigint NOT NULL,
+  "reason" text NOT NULL,
+  "document_id" uuid,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "created_by" uuid,
+  CONSTRAINT "tax_adjustments_amount_cents_check" CHECK ((amount_cents <> 0)),
+  CONSTRAINT "tax_adjustments_amount_cents_not_null" NOT NULL amount_cents,
+  CONSTRAINT "tax_adjustments_check" CHECK ((EXTRACT(year FROM effective_date) = (tax_year)::numeric)),
+  CONSTRAINT "tax_adjustments_concept_not_null" NOT NULL concept,
+  CONSTRAINT "tax_adjustments_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "tax_adjustments_created_by_fkey" FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "tax_adjustments_document_id_fkey" FOREIGN KEY (document_id) REFERENCES accounting.documents(id) ON DELETE RESTRICT,
+  CONSTRAINT "tax_adjustments_effective_date_not_null" NOT NULL effective_date,
+  CONSTRAINT "tax_adjustments_id_not_null" NOT NULL id,
+  CONSTRAINT "tax_adjustments_pkey" PRIMARY KEY (id),
+  CONSTRAINT "tax_adjustments_reason_check" CHECK ((length(TRIM(BOTH FROM reason)) > 0)),
+  CONSTRAINT "tax_adjustments_reason_not_null" NOT NULL reason,
+  CONSTRAINT "tax_adjustments_tax_year_check" CHECK (((tax_year >= 1900) AND (tax_year <= 2100))),
+  CONSTRAINT "tax_adjustments_tax_year_not_null" NOT NULL tax_year
+);
+
+ALTER TABLE accounting.tax_adjustments ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.tax_links (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "tax_estimate_id" uuid NOT NULL,
+  "tax_year" smallint NOT NULL,
+  "cutoff_mode" text NOT NULL,
+  "cutoff_date" date,
+  "forecast_method" text NOT NULL,
+  "forecast_inputs" jsonb DEFAULT '{}'::jsonb NOT NULL,
+  "inputs" jsonb DEFAULT '{}'::jsonb NOT NULL,
+  "results" jsonb DEFAULT '{}'::jsonb NOT NULL,
+  "financial_revision" bigint DEFAULT '-1'::integer NOT NULL,
+  "status" text DEFAULT 'stale'::text NOT NULL,
+  "error" text,
+  "computed_at" timestamp with time zone,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "tax_links_check" CHECK (((cutoff_mode <> 'fixed'::text) OR (cutoff_date IS NOT NULL))),
+  CONSTRAINT "tax_links_check1" CHECK (((cutoff_date IS NULL) OR (EXTRACT(year FROM cutoff_date) = (tax_year)::numeric))),
+  CONSTRAINT "tax_links_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "tax_links_cutoff_mode_check" CHECK ((cutoff_mode = ANY (ARRAY['today'::text, 'fixed'::text]))),
+  CONSTRAINT "tax_links_cutoff_mode_not_null" NOT NULL cutoff_mode,
+  CONSTRAINT "tax_links_financial_revision_not_null" NOT NULL financial_revision,
+  CONSTRAINT "tax_links_forecast_inputs_not_null" NOT NULL forecast_inputs,
+  CONSTRAINT "tax_links_forecast_method_check" CHECK ((forecast_method = ANY (ARRAY['manual'::text, 'average_months'::text, 'prior_year_pattern'::text]))),
+  CONSTRAINT "tax_links_forecast_method_not_null" NOT NULL forecast_method,
+  CONSTRAINT "tax_links_id_not_null" NOT NULL id,
+  CONSTRAINT "tax_links_inputs_not_null" NOT NULL inputs,
+  CONSTRAINT "tax_links_pkey" PRIMARY KEY (id),
+  CONSTRAINT "tax_links_results_not_null" NOT NULL results,
+  CONSTRAINT "tax_links_status_check" CHECK ((status = ANY (ARRAY['fresh'::text, 'stale'::text, 'error'::text]))),
+  CONSTRAINT "tax_links_status_not_null" NOT NULL status,
+  CONSTRAINT "tax_links_tax_estimate_id_fkey" FOREIGN KEY (tax_estimate_id) REFERENCES tax_estimates(id) ON DELETE RESTRICT,
+  CONSTRAINT "tax_links_tax_estimate_id_key" UNIQUE (tax_estimate_id),
+  CONSTRAINT "tax_links_tax_estimate_id_not_null" NOT NULL tax_estimate_id,
+  CONSTRAINT "tax_links_tax_year_check" CHECK (((tax_year >= 1900) AND (tax_year <= 2100))),
+  CONSTRAINT "tax_links_tax_year_not_null" NOT NULL tax_year,
+  CONSTRAINT "tax_links_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "tax_links_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.tax_links ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.tax_mappings (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "tax_year" smallint NOT NULL,
+  "account_id" uuid NOT NULL,
+  "concept" text NOT NULL,
+  "deductible_bps" integer DEFAULT 10000 NOT NULL,
+  "separately_stated" boolean DEFAULT false NOT NULL,
+  "notes" text DEFAULT ''::text NOT NULL,
+  "version" integer DEFAULT 1 NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "tax_mappings_account_id_fkey" FOREIGN KEY (account_id) REFERENCES accounting.accounts(id) ON DELETE RESTRICT,
+  CONSTRAINT "tax_mappings_account_id_not_null" NOT NULL account_id,
+  CONSTRAINT "tax_mappings_concept_not_null" NOT NULL concept,
+  CONSTRAINT "tax_mappings_deductible_bps_check" CHECK (((deductible_bps >= 0) AND (deductible_bps <= 10000))),
+  CONSTRAINT "tax_mappings_deductible_bps_not_null" NOT NULL deductible_bps,
+  CONSTRAINT "tax_mappings_id_not_null" NOT NULL id,
+  CONSTRAINT "tax_mappings_notes_not_null" NOT NULL notes,
+  CONSTRAINT "tax_mappings_pkey" PRIMARY KEY (id),
+  CONSTRAINT "tax_mappings_separately_stated_not_null" NOT NULL separately_stated,
+  CONSTRAINT "tax_mappings_tax_year_account_id_key" UNIQUE (tax_year, account_id),
+  CONSTRAINT "tax_mappings_tax_year_check" CHECK (((tax_year >= 1900) AND (tax_year <= 2100))),
+  CONSTRAINT "tax_mappings_tax_year_not_null" NOT NULL tax_year,
+  CONSTRAINT "tax_mappings_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "tax_mappings_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.tax_mappings ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE public.business_profile (
+  "id" smallint DEFAULT 1 NOT NULL,
+  "legal_name" text NOT NULL,
+  "dba" text,
+  "entity_type" text NOT NULL,
+  "ein" text,
+  "formation_date" date,
+  "state_of_formation" text,
+  "address" jsonb,
+  "phone" text,
+  "email" text,
+  "tax_classification" text NOT NULL,
+  "tax_classification_since" smallint,
+  "home_state" text,
+  "is_sstb" boolean DEFAULT false NOT NULL,
+  "fiscal_year_start_month" smallint DEFAULT 1 NOT NULL,
+  "books_timezone" text DEFAULT 'America/Phoenix'::text NOT NULL,
+  "earliest_history_date" date DEFAULT '2022-12-31'::date NOT NULL,
+  "owner_name" text,
+  "owner_title" text,
+  "accountant_name" text,
+  "accountant_email" text,
+  "default_email_account_id" uuid,
+  "version" integer DEFAULT 1 NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "business_profile_address_check" CHECK (((address IS NULL) OR (jsonb_typeof(address) = 'object'::text))),
+  CONSTRAINT "business_profile_books_timezone_not_null" NOT NULL books_timezone,
+  CONSTRAINT "business_profile_earliest_history_date_not_null" NOT NULL earliest_history_date,
+  CONSTRAINT "business_profile_ein_check" CHECK (((ein IS NULL) OR (ein ~ '^[0-9]{2}-?[0-9]{7}$'::text))),
+  CONSTRAINT "business_profile_entity_type_check" CHECK ((entity_type = ANY (ARRAY['llc'::text, 'corporation'::text, 'sole_proprietorship'::text, 'partnership'::text]))),
+  CONSTRAINT "business_profile_entity_type_not_null" NOT NULL entity_type,
+  CONSTRAINT "business_profile_fiscal_year_start_month_check" CHECK (((fiscal_year_start_month >= 1) AND (fiscal_year_start_month <= 12))),
+  CONSTRAINT "business_profile_fiscal_year_start_month_not_null" NOT NULL fiscal_year_start_month,
+  CONSTRAINT "business_profile_id_check" CHECK ((id = 1)),
+  CONSTRAINT "business_profile_id_not_null" NOT NULL id,
+  CONSTRAINT "business_profile_is_sstb_not_null" NOT NULL is_sstb,
+  CONSTRAINT "business_profile_legal_name_check" CHECK (((length(btrim(legal_name)) >= 1) AND (length(btrim(legal_name)) <= 200))),
+  CONSTRAINT "business_profile_legal_name_not_null" NOT NULL legal_name,
+  CONSTRAINT "business_profile_pkey" PRIMARY KEY (id),
+  CONSTRAINT "business_profile_tax_classification_check" CHECK ((tax_classification = ANY (ARRAY['disregarded'::text, 's_corp'::text, 'c_corp'::text, 'partnership'::text]))),
+  CONSTRAINT "business_profile_tax_classification_not_null" NOT NULL tax_classification,
+  CONSTRAINT "business_profile_tax_classification_since_check" CHECK (((tax_classification_since >= 1900) AND (tax_classification_since <= 2100))),
+  CONSTRAINT "business_profile_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "business_profile_version_check" CHECK ((version > 0)),
+  CONSTRAINT "business_profile_version_not_null" NOT NULL version
+);
+
+ALTER TABLE public.business_profile ENABLE ROW LEVEL SECURITY;
+
+CREATE UNIQUE INDEX accounts_wave_name ON accounting.accounts USING btree (((external_names ->> 'wave'::text))) WHERE ((external_names ->> 'wave'::text) IS NOT NULL);
+
+CREATE INDEX audit_operation ON accounting.audit_log USING btree (operation_id, id);
+
+CREATE INDEX audit_row ON accounting.audit_log USING btree (table_name, row_id, id DESC);
+
+CREATE INDEX bank_matches_line ON accounting.bank_matches USING btree (journal_line_id);
+
+CREATE INDEX bank_transactions_descriptor ON accounting.bank_transactions USING btree (descriptor_key, posted_date);
+
+CREATE INDEX bank_transactions_review ON accounting.bank_transactions USING btree (bank_account_id, review, posted_date);
+
+CREATE UNIQUE INDEX document_link_unique ON accounting.document_links USING btree (document_id, COALESCE(entry_id, bank_transaction_id, import_batch_id, reconciliation_id, payroll_run_id, register_id, party_id));
+
+CREATE INDEX documents_hash ON accounting.documents USING btree (sha256);
+
+CREATE INDEX history_checks_latest ON accounting.history_checks USING btree (fiscal_year, kind, checked_at DESC, id);
+
+CREATE INDEX import_rows_identity ON accounting.import_rows USING btree (external_id, fingerprint);
+
+CREATE INDEX import_rows_queue ON accounting.import_rows USING btree (batch_id, status, ordinal);
+
+CREATE INDEX entries_date ON accounting.journal_entries USING btree (entry_date, id);
+
+CREATE INDEX entries_descriptor ON accounting.journal_entries USING btree (descriptor_key, entry_date DESC) WHERE (descriptor_key IS NOT NULL);
+
+CREATE INDEX entries_review ON accounting.journal_entries USING btree (entry_date DESC, id) WHERE (status = 'draft'::text);
+
+CREATE INDEX lines_account ON accounting.journal_lines USING btree (account_id, entry_id);
+
+CREATE INDEX tax_adjustments_year_date ON accounting.tax_adjustments USING btree (tax_year, effective_date);
+
+CREATE OR REPLACE FUNCTION accounting.apply_treatment(entry uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE e accounting.journal_entries; bank accounting.journal_lines; candidate jsonb; previous jsonb; result jsonb; party uuid; category uuid;
 BEGIN
-  IF p_key IS NULL OR p_command IS NULL OR v_id IS NULL OR octet_length(p_command::text)>1000000 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
-  PERFORM public.acct_write_lock();actor:=public.acct_require_owner();
-  SELECT * INTO receipt FROM public.acct_command_receipts WHERE id=p_key;
-  IF FOUND THEN
-    IF receipt.actor_id<>actor OR receipt.payload<>p_command THEN RAISE EXCEPTION 'ACCT_IDEMPOTENCY_CONFLICT'; END IF;
-    RETURN receipt.result;
-  END IF;
-  PERFORM set_config('acct.operation_id',p_key::text,true);
-  IF op IN ('account.create','draft.save','entry.post','draft.discard','entry.reverse') THEN
-    RETURN public.acct_command(p_key,p_command);
-  ELSIF op='entry.bulkpost' THEN
-    IF jsonb_typeof(p_command->'entries') IS DISTINCT FROM 'array' OR jsonb_array_length(p_command->'entries') NOT BETWEEN 1 AND 50 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
-    FOR x IN SELECT value FROM jsonb_array_elements(p_command->'entries') LOOP
-      PERFORM public.acct_command(gen_random_uuid(),x||jsonb_build_object('type','entry.post'));
-    END LOOP;
-    v_result:=jsonb_build_object('id',v_id,'posted',jsonb_array_length(p_command->'entries'));
-  ELSIF op='transaction.save' THEN
-    replacement:=public.acct_command(gen_random_uuid(),(p_command-'context')||jsonb_build_object('type','draft.save'));
-    IF p_command ? 'context' THEN
-      replacement:=public.acct_execute(gen_random_uuid(),(p_command->'context')||jsonb_build_object('type','entry.context','id',v_id,'expected_version',replacement->'version'));
-    END IF;
-    v_result:=replacement;
-  ELSIF op='dimension.save' THEN
-    SELECT version INTO v_version FROM public.acct_dimensions WHERE id=v_id;
-    IF coalesce(v_version,0) IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-    IF EXISTS(SELECT 1 FROM public.acct_dimensions WHERE id=v_id AND kind<>p_command->>'kind') THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY'; END IF;
-    IF nullif(p_command->>'customer_id','') IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.acct_parties WHERE id=(p_command->>'customer_id')::uuid AND kind IN ('customer','both') AND NOT is_archived) THEN RAISE EXCEPTION 'ACCT_INVALID_CUSTOMER'; END IF;
-    INSERT INTO public.acct_dimensions(id,name,kind,customer_id,is_archived) VALUES(v_id,btrim(p_command->>'name'),p_command->>'kind',nullif(p_command->>'customer_id','')::uuid,coalesce((p_command->>'is_archived')::boolean,false))
-    ON CONFLICT(id) DO UPDATE SET name=excluded.name,customer_id=excluded.customer_id,is_archived=excluded.is_archived,version=acct_dimensions.version+1;
-    v_result:=jsonb_build_object('id',v_id,'version',coalesce(v_version,0)+1);
-  ELSIF op='preferences.save' THEN
-    SELECT version INTO v_version FROM public.acct_book_preferences WHERE singleton;
-    IF coalesce(v_version,0) IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-    IF p_command->>'authority_mode' NOT IN ('wave_primary','parallel_pilot') THEN RAISE EXCEPTION 'ACCT_PRIMARY_REQUIRES_ACCEPTANCE'; END IF;
-    UPDATE public.acct_settings SET legal_name=btrim(p_command->>'legal_name') WHERE singleton;
-    INSERT INTO public.acct_book_preferences(singleton,authority_mode,history_start,transfer_window_days,transit_alert_days)
-    VALUES(true,p_command->>'authority_mode',nullif(p_command->>'history_start','')::date,(p_command->>'transfer_window_days')::integer,(p_command->>'transit_alert_days')::integer)
-    ON CONFLICT(singleton) DO UPDATE SET authority_mode=excluded.authority_mode,history_start=excluded.history_start,transfer_window_days=excluded.transfer_window_days,transit_alert_days=excluded.transit_alert_days,version=acct_book_preferences.version+1;
-    v_result:=jsonb_build_object('id',v_id,'version',coalesce(v_version,0)+1);
-  ELSIF op='account.update' THEN
-    SELECT * INTO v_account FROM public.acct_accounts WHERE id=v_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-    SELECT * INTO v_profile FROM public.acct_account_profiles WHERE account_id=v_id;
-    IF coalesce(v_profile.version,0) IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-    UPDATE public.acct_accounts SET name=btrim(p_command->>'name'),code=btrim(coalesce(p_command->>'code','')),is_archived=coalesce((p_command->>'is_archived')::boolean,false) WHERE id=v_id;
-    INSERT INTO public.acct_account_profiles(account_id,purpose,cash_kind,parent_account_id,subtype)
-    VALUES(v_id,nullif(p_command->>'purpose',''),coalesce(p_command->>'cash_kind','none'),nullif(p_command->>'parent_account_id','')::uuid,coalesce(p_command->>'subtype',''))
-    ON CONFLICT(account_id) DO UPDATE SET purpose=excluded.purpose,cash_kind=excluded.cash_kind,parent_account_id=excluded.parent_account_id,subtype=excluded.subtype;
-    SELECT jsonb_build_object('id',v_id,'version',version) INTO v_result FROM public.acct_account_profiles WHERE account_id=v_id;
-  ELSIF op='chart.seed' THEN
-    IF EXISTS(SELECT 1 FROM public.acct_accounts) THEN RAISE EXCEPTION 'ACCT_CHART_EXISTS'; END IF;
-    IF jsonb_typeof(p_command->'accounts') IS DISTINCT FROM 'array' OR jsonb_array_length(p_command->'accounts') NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
-    FOR x IN SELECT value FROM jsonb_array_elements(p_command->'accounts') LOOP
-      PERFORM public.acct_command(gen_random_uuid(),(x-'purpose'-'cash_kind')||jsonb_build_object('type','account.create'));
-      INSERT INTO public.acct_account_profiles(account_id,purpose,cash_kind) VALUES((x->>'id')::uuid,nullif(x->>'purpose',''),coalesce(x->>'cash_kind','none'));
-    END LOOP;
-    v_result:=jsonb_build_object('id',v_id,'count',jsonb_array_length(p_command->'accounts'));
-  ELSIF op='entry.context' THEN
-    SELECT * INTO v_entry FROM public.acct_journal_entries WHERE id=v_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-    IF v_entry.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-    UPDATE public.acct_journal_entries SET memo=memo WHERE id=v_id;
-    INSERT INTO public.acct_entry_context(entry_id,kind,payee_id,customer_id,project_id,business_line_id,payment_rail,contractor_treatment,contractor_reason)
-    VALUES(v_id,coalesce(p_command->>'kind','manual'),nullif(p_command->>'payee_id','')::uuid,nullif(p_command->>'customer_id','')::uuid,nullif(p_command->>'project_id','')::uuid,nullif(p_command->>'business_line_id','')::uuid,coalesce(p_command->>'payment_rail','unknown'),coalesce(p_command->>'contractor_treatment','unreviewed'),coalesce(p_command->>'contractor_reason',''))
-    ON CONFLICT(entry_id) DO UPDATE SET kind=excluded.kind,payee_id=excluded.payee_id,customer_id=excluded.customer_id,project_id=excluded.project_id,business_line_id=excluded.business_line_id,payment_rail=excluded.payment_rail,contractor_treatment=excluded.contractor_treatment,contractor_reason=excluded.contractor_reason;
-    v_result:=jsonb_build_object('id',v_id,'version',v_entry.version+1);
-  ELSIF op='entry.correct' THEN
-    SELECT * INTO v_entry FROM public.acct_journal_entries WHERE id=v_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-    PERFORM public.acct_validate_template(p_command->'lines');
-    reversal:=public.acct_command(gen_random_uuid(),jsonb_build_object('type','entry.reverse','id',v_id,'expected_version',p_command->'expected_version','entry_date',p_command->'entry_date','reason',p_command->'reason'));
-    replacement:=public.acct_command(gen_random_uuid(),jsonb_build_object('type','draft.save','id',p_command->'replacement_id','expected_version',0,'entry_date',p_command->'entry_date','memo',p_command->'memo','lines',p_command->'lines'));
-    INSERT INTO public.acct_entry_context SELECT (replacement->>'id')::uuid,kind,payee_id,customer_id,project_id,business_line_id,payment_rail,contractor_treatment,contractor_reason FROM public.acct_entry_context WHERE entry_id=v_id;
-    replacement:=public.acct_command(gen_random_uuid(),jsonb_build_object('type','entry.post','id',replacement->'id','expected_version',replacement->'version'));
-    INSERT INTO public.acct_entry_corrections(original_entry_id,reversal_entry_id,replacement_entry_id,reason,created_by)
-    VALUES(v_id,(reversal->>'id')::uuid,(replacement->>'id')::uuid,p_command->>'reason',actor);
-    v_result:=jsonb_build_object('id',replacement->'id','version',replacement->'version','reversal_id',reversal->'id','original_id',v_id);
-  ELSIF op='entry.annotate' THEN
-    INSERT INTO public.acct_annotations(id,entry_id,note,created_by) VALUES(v_id,(p_command->>'entry_id')::uuid,p_command->>'note',actor);
-    v_result:=jsonb_build_object('id',v_id);
-  ELSIF op='party.save' THEN
-    SELECT version INTO v_version FROM public.acct_parties WHERE id=v_id;
-    IF coalesce(v_version,0) IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-    INSERT INTO public.acct_parties(id,name,kind,default_account_id,tax_classification,documentation,notes,is_archived)
-    VALUES(v_id,btrim(p_command->>'name'),p_command->>'kind',nullif(p_command->>'default_account_id','')::uuid,coalesce(p_command->>'tax_classification','unreviewed'),coalesce(p_command->>'documentation','missing'),coalesce(p_command->>'notes',''),coalesce((p_command->>'is_archived')::boolean,false))
-    ON CONFLICT(id) DO UPDATE SET name=excluded.name,kind=excluded.kind,default_account_id=excluded.default_account_id,tax_classification=excluded.tax_classification,documentation=excluded.documentation,notes=excluded.notes,is_archived=excluded.is_archived,version=acct_parties.version+1;
-    v_result:=jsonb_build_object('id',v_id,'version',coalesce(v_version,0)+1);
-  ELSIF op='template.save' THEN
-    PERFORM public.acct_validate_template(p_command->'lines');
-    SELECT version INTO v_version FROM public.acct_journal_templates WHERE id=v_id;
-    IF coalesce(v_version,0) IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-    INSERT INTO public.acct_journal_templates(id,name,memo,lines,is_archived) VALUES(v_id,btrim(p_command->>'name'),p_command->>'memo',p_command->'lines',coalesce((p_command->>'is_archived')::boolean,false))
-    ON CONFLICT(id) DO UPDATE SET name=excluded.name,memo=excluded.memo,lines=excluded.lines,is_archived=excluded.is_archived,version=acct_journal_templates.version+1;
-    v_result:=jsonb_build_object('id',v_id,'version',coalesce(v_version,0)+1);
-  ELSIF op='view.save' THEN
-    IF EXISTS(SELECT 1 FROM jsonb_object_keys(p_command->'filters') k WHERE k NOT IN ('from','to','account','status','source','query','payee','project','business_line','missing_receipt','min_cents','max_cents')) THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER'; END IF;
-    SELECT version INTO v_version FROM public.acct_saved_views WHERE id=v_id;
-    IF coalesce(v_version,0) IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-    INSERT INTO public.acct_saved_views(id,name,filters) VALUES(v_id,btrim(p_command->>'name'),p_command->'filters')
-    ON CONFLICT(id) DO UPDATE SET name=excluded.name,filters=excluded.filters,version=acct_saved_views.version+1;
-    v_result:=jsonb_build_object('id',v_id,'version',coalesce(v_version,0)+1);
-  ELSIF op='report.snapshot' THEN
-    x:=public.acct_workspace((p_command->>'from')::date,(p_command->>'to')::date);
-    INSERT INTO public.acct_report_snapshots(id,kind,from_date,to_date,revision,payload,created_by)
-    VALUES(v_id,'report',(p_command->>'from')::date,(p_command->>'to')::date,(x->>'revision')::bigint,x,actor);
-    v_result:=jsonb_build_object('id',v_id);
-  ELSIF op LIKE 'import.%' THEN
-    v_result:=public.acct_import_command(p_command,actor);
-  ELSIF op LIKE 'document.%' THEN
-    v_result:=public.acct_document_command(p_command,actor);
+ SELECT * INTO e FROM accounting.journal_entries WHERE id=entry;
+ IF e.status<>'draft' THEN RETURN jsonb_build_object('id',entry,'version',e.version); END IF;
+ SELECT l.* INTO bank FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=entry AND a.subtype IN ('bank','cash','card');
+ IF NOT FOUND THEN RETURN jsonb_build_object('id',entry,'version',e.version); END IF;
+ SELECT party_id INTO party FROM accounting.payee_aliases a WHERE enabled AND ((match_kind='key' AND pattern=e.descriptor_key) OR (match_kind='exact' AND upper(pattern)=upper(regexp_replace(btrim(coalesce(e.source_description,e.memo)),'\s+',' ','g'))) OR (match_kind='prefix' AND left(upper(regexp_replace(btrim(coalesce(e.source_description,e.memo)),'\s+',' ','g')),length(pattern))=upper(pattern)))
+ ORDER BY CASE match_kind WHEN 'key' THEN 0 WHEN 'exact' THEN 1 ELSE 2 END,length(pattern) DESC,id LIMIT 1;
+ IF party IS NOT NULL THEN UPDATE accounting.journal_entries SET payee_id=party WHERE id=entry RETURNING * INTO e; END IF;
+ candidate:=accounting.rule_candidate(entry);
+ IF candidate IS NOT NULL AND (candidate->>'eligible')::boolean THEN
+  IF candidate->'actions'?'splits' THEN
+   result:=accounting.ledger_command(jsonb_build_object('type','entry.split','id',entry,'expected_version',e.version,'splits',candidate->'actions'->'splits','memo',coalesce(candidate->'actions'->>'memo',e.memo),'payee_id',coalesce(candidate->'actions'->>'payee_id',e.payee_id::text)));
   ELSE
-    RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND';
+   result:=accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',entry,'expected_version',e.version,'account_id',candidate->'actions'->>'account_id','memo',coalesce(candidate->'actions'->>'memo',e.memo),'payee_id',coalesce(candidate->'actions'->>'payee_id',e.payee_id::text)));
   END IF;
-  PERFORM set_config('acct.operation_id',p_key::text,true);
-  UPDATE public.acct_settings SET financial_revision=financial_revision+1 WHERE singleton;
-  INSERT INTO public.acct_command_receipts(id,actor_id,payload,result) VALUES(p_key,actor,p_command,v_result);
-  RETURN v_result;
-END $$;
-
-CREATE OR REPLACE FUNCTION public.acct_register(p_filter jsonb DEFAULT '{}') RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-DECLARE v_result jsonb; v_total bigint; v_offset integer:=coalesce((p_filter->>'offset')::integer,0); v_limit integer:=coalesce((p_filter->>'limit')::integer,50);
-BEGIN
-  PERFORM public.acct_require_owner();
-  IF v_offset<0 OR v_limit NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER'; END IF;
-  WITH matches AS (
-    SELECT e.id FROM public.acct_journal_entries e LEFT JOIN public.acct_entry_context c ON c.entry_id=e.id
-    WHERE (p_filter->>'from' IS NULL OR e.entry_date>=(p_filter->>'from')::date)
-      AND (p_filter->>'to' IS NULL OR e.entry_date<=(p_filter->>'to')::date)
-      AND (coalesce(p_filter->>'status','all')='all' OR e.status=p_filter->>'status')
-      AND (p_filter->>'entry_id' IS NULL OR e.id=(p_filter->>'entry_id')::uuid)
-      AND (p_filter->>'account' IS NULL OR EXISTS(SELECT 1 FROM public.acct_journal_lines l WHERE l.entry_id=e.id AND l.account_id=(p_filter->>'account')::uuid))
-      AND (p_filter->>'payee' IS NULL OR c.payee_id=(p_filter->>'payee')::uuid)
-      AND (p_filter->>'project' IS NULL OR c.project_id=(p_filter->>'project')::uuid)
-      AND (p_filter->>'business_line' IS NULL OR c.business_line_id=(p_filter->>'business_line')::uuid)
-      AND (p_filter->>'source' IS NULL OR e.primary_origin=p_filter->>'source' OR EXISTS(SELECT 1 FROM public.acct_source_links sl JOIN public.acct_source_records s ON s.id=sl.source_record_id WHERE sl.entry_id=e.id AND s.source_system=p_filter->>'source'))
-      AND (NOT coalesce((p_filter->>'missing_receipt')::boolean,false) OR NOT EXISTS(SELECT 1 FROM public.acct_document_links dl WHERE dl.entry_id=e.id))
-      AND (p_filter->>'query' IS NULL OR e.memo ILIKE '%'||(p_filter->>'query')||'%' OR EXISTS(SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_accounts a ON a.id=l.account_id WHERE l.entry_id=e.id AND (l.memo||' '||a.name) ILIKE '%'||(p_filter->>'query')||'%'))
-      AND (p_filter->>'min_cents' IS NULL OR (SELECT coalesce(sum(amount_cents) FILTER(WHERE amount_cents>0),0) FROM public.acct_journal_lines WHERE entry_id=e.id)>=(p_filter->>'min_cents')::numeric)
-      AND (p_filter->>'max_cents' IS NULL OR (SELECT coalesce(sum(amount_cents) FILTER(WHERE amount_cents>0),0) FROM public.acct_journal_lines WHERE entry_id=e.id)<=(p_filter->>'max_cents')::numeric)
-  ), page AS (
-    SELECT e.*,(SELECT r.id FROM public.acct_journal_entries r WHERE r.reverses_entry_id=e.id) AS reversed_by_entry_id,
-      (SELECT to_jsonb(c) FROM public.acct_entry_context c WHERE c.entry_id=e.id) AS context,
-      (SELECT coalesce(jsonb_agg(jsonb_build_object('id',l.id,'account_id',l.account_id,'amount_cents',l.amount_cents::text,'memo',l.memo) ORDER BY l.sort_order),'[]') FROM public.acct_journal_lines l WHERE l.entry_id=e.id) AS lines
-    FROM public.acct_journal_entries e JOIN matches m ON m.id=e.id ORDER BY e.entry_date DESC,e.created_at DESC,e.id DESC LIMIT v_limit OFFSET v_offset
-  ) SELECT jsonb_build_object('entries',coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY entry_date DESC,created_at DESC,id DESC) FROM page p),'[]'),
-    'total',(SELECT count(*) FROM matches),'offset',v_offset,'limit',v_limit,'revision',(SELECT financial_revision::text FROM public.acct_settings)) INTO v_result;
-  RETURN v_result;
-END $$;
-
-CREATE OR REPLACE FUNCTION public.acct_account_ledger(p_account uuid,p_from date,p_to date,p_offset integer DEFAULT 0) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-DECLARE v_open numeric; v_result jsonb;
-BEGIN
-  PERFORM public.acct_require_owner();
-  IF p_from>p_to OR p_offset<0 THEN RAISE EXCEPTION 'ACCT_INVALID_RANGE'; END IF;
-  SELECT coalesce(sum(l.amount_cents),0) INTO v_open FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.account_id=p_account AND e.status='posted' AND e.entry_date<p_from;
-  WITH running AS (
-    SELECT l.id,l.entry_id,e.entry_date,e.created_at,l.sort_order,e.memo,l.memo AS line_memo,l.amount_cents::text AS amount_cents,
-      (v_open+sum(l.amount_cents) OVER(ORDER BY e.entry_date,e.created_at,e.id,l.sort_order ROWS UNBOUNDED PRECEDING))::text AS running_cents
-    FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id
-    WHERE l.account_id=p_account AND e.status='posted' AND e.entry_date BETWEEN p_from AND p_to
-  ), page AS (SELECT * FROM running ORDER BY entry_date,created_at,entry_id,sort_order,id LIMIT 100 OFFSET p_offset)
-  SELECT jsonb_build_object('opening_cents',v_open::text,'total',(SELECT count(*) FROM running),'rows',coalesce((SELECT jsonb_agg(to_jsonb(p)) FROM page p),'[]')) INTO v_result;
-  RETURN v_result;
-END $$;
-
-CREATE OR REPLACE FUNCTION public.acct_manage() RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-BEGIN
-  PERFORM public.acct_require_owner();
-  RETURN jsonb_build_object(
-    'profiles',(SELECT coalesce(jsonb_agg(to_jsonb(x)),'[]') FROM public.acct_account_profiles x),
-    'parties',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY name),'[]') FROM public.acct_parties x),
-    'dimensions',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY kind,name),'[]') FROM public.acct_dimensions x),
-    'templates',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY name),'[]') FROM public.acct_journal_templates x),
-    'views',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY name),'[]') FROM public.acct_saved_views x),
-    'periods',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY month_start DESC),'[]') FROM public.acct_periods x),
-    'preferences',(SELECT to_jsonb(x) FROM public.acct_book_preferences x));
-END $$;
-
-CREATE OR REPLACE FUNCTION public.acct_entry_evidence(p_entry uuid) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-BEGIN
-  PERFORM public.acct_require_owner();
-  RETURN jsonb_build_object(
-    'rules',(SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('rule_name',v.name) ORDER BY a.created_at,a.id),'[]') FROM public.acct_rule_applications a JOIN public.acct_rule_versions v ON v.rule_id=a.rule_id AND v.version=a.rule_version WHERE a.entry_id=p_entry),
-    'sources',(SELECT coalesce(jsonb_agg(to_jsonb(s) ORDER BY observed_at),'[]') FROM public.acct_source_records s JOIN public.acct_source_links l ON l.source_record_id=s.id WHERE l.entry_id=p_entry),
-    'notes',(SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY created_at),'[]') FROM public.acct_annotations a WHERE entry_id=p_entry),
-    'documents',(SELECT coalesce(jsonb_agg(to_jsonb(d)||jsonb_build_object('size_bytes',d.size_bytes::text)),'[]') FROM public.acct_documents d JOIN public.acct_document_links l ON l.document_id=d.id WHERE l.entry_id=p_entry),
-    'audit',(SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('id',a.id::text) ORDER BY recorded_at,id),'[]') FROM public.acct_audit_log a WHERE
-      coalesce(a.after_value->>'id',a.before_value->>'id')=p_entry::text OR coalesce(a.after_value->>'entry_id',a.before_value->>'entry_id')=p_entry::text));
-END $$;
-
-DO $$ DECLARE t text; f record; BEGIN
-  FOREACH t IN ARRAY ARRAY['acct_account_profiles','acct_book_preferences','acct_parties','acct_dimensions','acct_entry_context','acct_entry_corrections','acct_annotations','acct_journal_templates','acct_saved_views','acct_report_snapshots'] LOOP
-    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t);
-    EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC,anon,authenticated,service_role',t);
-    EXECUTE format('CREATE TRIGGER acct_audit AFTER INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.acct_record_workflow_audit()',t);
-    EXECUTE format('CREATE TRIGGER acct_statement_lock BEFORE INSERT OR UPDATE OR DELETE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION public.acct_lock_statement()',t);
-  END LOOP;
-  FOREACH t IN ARRAY ARRAY['acct_entry_corrections','acct_annotations','acct_report_snapshots'] LOOP
-    EXECUTE format('CREATE TRIGGER acct_immutable BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.acct_append_only()',t);
-  END LOOP;
-  FOR f IN SELECT p.oid::regprocedure AS signature FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='public' AND p.proname LIKE 'acct\_%' ESCAPE '\' LOOP
-    EXECUTE format('REVOKE ALL ON FUNCTION %s FROM PUBLIC,anon,authenticated,service_role',f.signature);
-  END LOOP;
-END $$;
-GRANT EXECUTE ON FUNCTION public.acct_is_owner(),public.acct_command(uuid,jsonb),public.acct_workspace(date,date,uuid),public.acct_export(),public.acct_execute(uuid,jsonb),public.acct_register(jsonb),public.acct_account_ledger(uuid,date,date,integer),public.acct_manage(),public.acct_entry_evidence(uuid) TO authenticated;
--- ACCOUNTING WORKFLOWS END
-
-
--- ACCOUNTING IMPORTS BEGIN
-CREATE TABLE public.acct_import_batches (
-  id uuid PRIMARY KEY,
-  version integer NOT NULL DEFAULT 1,
-  source_system text NOT NULL CHECK(source_system IN ('wave','csv','simplefin')),
-  source_scope text NOT NULL CHECK(length(source_scope) BETWEEN 1 AND 250),
-  file_hash text NOT NULL CHECK(length(file_hash)=64),
-  mapping_hash text NOT NULL CHECK(length(mapping_hash)=64),
-  file_name text NOT NULL CHECK(length(file_name) BETWEEN 1 AND 250),
-  source_document_id uuid REFERENCES public.acct_documents(id),
-  mode text NOT NULL CHECK(mode IN ('journal','bank')),
-  basis text NOT NULL CHECK(basis IN ('cash','unconfirmed')),
-  status text NOT NULL DEFAULT 'staging' CHECK(status IN ('staging','review','applying','completed','cancelled','failed')),
-  expected_groups integer NOT NULL CHECK(expected_groups BETWEEN 1 AND 50000),
-  from_date date NOT NULL,
-  to_date date NOT NULL CHECK(to_date>=from_date),
-  coverage_verified boolean NOT NULL DEFAULT false,
-  error text NOT NULL DEFAULT '',
-  created_by uuid NOT NULL REFERENCES auth.users(id),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(source_system,source_scope,file_hash,mapping_hash)
-);
-CREATE TABLE public.acct_import_groups (
-  id uuid PRIMARY KEY,
-  batch_id uuid NOT NULL REFERENCES public.acct_import_batches(id),
-  ordinal integer NOT NULL CHECK(ordinal>=0),
-  version integer NOT NULL DEFAULT 1,
-  source_record_id uuid NOT NULL REFERENCES public.acct_source_records(id),
-  fingerprint text NOT NULL CHECK(length(fingerprint)=64),
-  identity_kind text NOT NULL CHECK(identity_kind IN ('provider_id','fingerprint_multiplicity')),
-  entry_date date NOT NULL,
-  memo text NOT NULL,
-  lines jsonb NOT NULL CHECK(jsonb_typeof(lines)='array'),
-  bank_account_id uuid REFERENCES public.acct_accounts(id),
-  bank_amount_cents bigint CHECK(bank_amount_cents<>0 AND bank_amount_cents>'-9223372036854775808'::bigint),
-  status text NOT NULL CHECK(status IN ('new','duplicate','review','exception','applied','excluded')),
-  entry_id uuid REFERENCES public.acct_journal_entries(id),
-  candidate_entry_id uuid REFERENCES public.acct_journal_entries(id),
-  reason text NOT NULL DEFAULT '',
-  UNIQUE(batch_id,ordinal),UNIQUE(batch_id,source_record_id)
-);
-CREATE INDEX acct_import_groups_batch_status ON public.acct_import_groups(batch_id,status,ordinal);
-CREATE TABLE public.acct_bank_matches (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  source_record_id uuid NOT NULL REFERENCES public.acct_source_records(id),
-  entry_line_id uuid NOT NULL REFERENCES public.acct_journal_lines(id),
-  amount_cents bigint NOT NULL CHECK(amount_cents<>0),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  created_by uuid NOT NULL REFERENCES auth.users(id)
-);
-
-CREATE OR REPLACE FUNCTION public.acct_import_command(p_command jsonb,p_actor uuid) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE
-  op text:=p_command->>'type'; v_id uuid:=(p_command->>'id')::uuid;
-  batch public.acct_import_batches; g public.acct_import_groups; x jsonb; src uuid; candidate uuid; v_status text;
-  result jsonb; saved jsonb; v_entry uuid; v_line uuid; v_uncategorized uuid; v_lines jsonb;
-  v_count integer; v_posted integer:=0; v_drafted integer:=0;
-BEGIN
-  PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
-  IF op='import.create' THEN
-    SELECT * INTO batch FROM public.acct_import_batches WHERE source_system=p_command->>'source_system' AND source_scope=p_command->>'source_scope' AND file_hash=p_command->>'file_hash' AND mapping_hash=p_command->>'mapping_hash';
-    IF FOUND THEN RETURN jsonb_build_object('id',batch.id,'version',batch.version,'existing',true); END IF;
-    INSERT INTO public.acct_import_batches(id,source_system,source_scope,file_hash,mapping_hash,file_name,source_document_id,mode,basis,expected_groups,from_date,to_date,created_by)
-    VALUES(v_id,p_command->>'source_system',p_command->>'source_scope',p_command->>'file_hash',p_command->>'mapping_hash',p_command->>'file_name',nullif(p_command->>'source_document_id','')::uuid,p_command->>'mode',p_command->>'basis',(p_command->>'expected_groups')::integer,(p_command->>'from')::date,(p_command->>'to')::date,p_actor);
-    RETURN jsonb_build_object('id',v_id,'version',1);
+  UPDATE accounting.journal_entries SET applied_rule_id=(candidate->>'rule_id')::uuid WHERE id=entry RETURNING * INTO e;
+  INSERT INTO accounting.audit_log(actor_user_id,actor_kind,operation_id,table_name,row_id,action,before,after)
+  VALUES(CASE WHEN current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE auth.uid() END,
+   coalesce(nullif(current_setting('accounting.actor_kind',true),''),'owner'),
+   coalesce(nullif(current_setting('accounting.operation_id',true),'')::uuid,gen_random_uuid()),'journal_entries',entry,'rule.applied',candidate,
+   jsonb_build_object('version',e.version,'payee_id',e.payee_id,'lines',(SELECT jsonb_agg(jsonb_build_object('account_id',account_id,'amount_cents',amount_cents::text,'memo',memo) ORDER BY sort_order) FROM accounting.journal_lines WHERE entry_id=entry)));
+  IF (candidate->>'auto_post')::boolean AND (SELECT primary_system FROM accounting.settings WHERE id=1)='admin' THEN
+   RETURN accounting.ledger_command(jsonb_build_object('type','entry.post','id',entry,'expected_version',e.version));
   END IF;
-  IF op IN ('import.stage','import.apply','import.cancel','import.finish') THEN
-    SELECT * INTO batch FROM public.acct_import_batches WHERE id=v_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-    IF batch.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-    IF batch.status IN ('completed','cancelled') THEN RAISE EXCEPTION 'ACCT_IMPORT_FINAL'; END IF;
+ ELSIF e.descriptor_key IS NOT NULL THEN
+  previous:=accounting.prior_summary(e.descriptor_key,bank.account_id,1);
+  -- Reuse a single-category treatment only. A past split's proportions may not fit this purchase.
+  IF jsonb_array_length(coalesce(previous->'entries'->0->'lines','[]'))=1 THEN
+   category:=(previous->>'last_category')::uuid;
+   IF EXISTS(SELECT 1 FROM accounting.accounts WHERE id=category AND NOT is_archived) THEN
+    result:=accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',entry,'expected_version',e.version,'account_id',category,'payee_id',coalesce(e.payee_id::text,previous->>'payee_id'),'memo',coalesce(previous->>'memo',e.memo)));
+    SELECT * INTO e FROM accounting.journal_entries WHERE id=entry;
+   END IF;
   END IF;
-  IF op='import.stage' THEN
-    IF batch.status<>'staging' OR jsonb_typeof(p_command->'groups') IS DISTINCT FROM 'array' OR jsonb_array_length(p_command->'groups') NOT BETWEEN 1 AND 50 THEN RAISE EXCEPTION 'ACCT_IMPORT_STAGE'; END IF;
-    FOR x IN SELECT value FROM jsonb_array_elements(p_command->'groups') LOOP
-      IF (x->>'ordinal')::integer<>(SELECT count(*) FROM public.acct_import_groups WHERE batch_id=v_id) THEN RAISE EXCEPTION 'ACCT_IMPORT_CHECKPOINT'; END IF;
-      IF (x->>'ordinal')::integer>=batch.expected_groups OR (x->>'entry_date')::date NOT BETWEEN batch.from_date AND batch.to_date THEN RAISE EXCEPTION 'ACCT_IMPORT_SCOPE'; END IF;
-      INSERT INTO public.acct_source_records(source_system,source_scope,external_id,content_hash,raw_payload)
-      VALUES(batch.source_system,batch.source_scope,x->>'external_id',x->>'source_hash',x->'raw')
-      ON CONFLICT(source_system,source_scope,external_id,content_hash) DO NOTHING;
-      SELECT id INTO src FROM public.acct_source_records WHERE source_system=batch.source_system AND source_scope=batch.source_scope AND external_id=x->>'external_id' AND content_hash=x->>'source_hash';
-      SELECT l.entry_id INTO candidate FROM public.acct_source_links l JOIN public.acct_journal_entries e ON e.id=l.entry_id
-        JOIN public.acct_source_records s ON s.id=l.source_record_id JOIN public.acct_import_groups previous ON previous.source_record_id=s.id
-        WHERE s.source_system=batch.source_system AND s.source_scope=batch.source_scope AND s.external_id=x->>'external_id' AND previous.fingerprint=x->>'fingerprint' AND e.status<>'discarded' ORDER BY e.created_at LIMIT 1;
-      v_status:=CASE WHEN candidate IS NOT NULL THEN 'duplicate' ELSE 'new' END;
-      IF candidate IS NULL AND EXISTS(SELECT 1 FROM public.acct_source_records s JOIN public.acct_source_links l ON l.source_record_id=s.id WHERE s.source_system=batch.source_system AND s.source_scope=batch.source_scope AND s.external_id=x->>'external_id') THEN v_status:='exception'; END IF;
-      IF batch.mode='bank' THEN
-        IF NOT EXISTS(SELECT 1 FROM public.acct_account_profiles p JOIN public.acct_accounts a ON a.id=p.account_id WHERE p.account_id=(x->>'bank_account_id')::uuid AND p.cash_kind IN ('bank','cash','card') AND NOT a.is_archived) THEN RAISE EXCEPTION 'ACCT_BANK_ACCOUNT_REQUIRED'; END IF;
-        IF candidate IS NULL THEN
-          SELECT e.id INTO candidate FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id
-          WHERE l.account_id=(x->>'bank_account_id')::uuid AND l.amount_cents=(x->>'bank_amount_cents')::bigint AND e.status<>'discarded' AND abs(e.entry_date-(x->>'entry_date')::date)<=5 ORDER BY abs(e.entry_date-(x->>'entry_date')::date),e.id LIMIT 1;
-          IF candidate IS NOT NULL AND v_status='new' THEN v_status:='review'; END IF;
-        END IF;
-      ELSE
-        PERFORM public.acct_validate_template(x->'lines');
-      END IF;
-      IF EXISTS(SELECT 1 FROM public.acct_periods WHERE month_start=date_trunc('month',(x->>'entry_date')::date)::date AND is_locked) AND v_status<>'duplicate' THEN v_status:='exception'; END IF;
-      INSERT INTO public.acct_import_groups(id,batch_id,ordinal,source_record_id,fingerprint,identity_kind,entry_date,memo,lines,bank_account_id,bank_amount_cents,status,entry_id,candidate_entry_id,reason)
-      VALUES((x->>'id')::uuid,v_id,(x->>'ordinal')::integer,src,x->>'fingerprint',x->>'identity_kind',(x->>'entry_date')::date,x->>'memo',coalesce(x->'lines','[]'),nullif(x->>'bank_account_id','')::uuid,nullif(x->>'bank_amount_cents','')::bigint,v_status,CASE WHEN v_status='duplicate' THEN candidate ELSE NULL END,candidate,CASE WHEN v_status='exception' THEN 'Changed source identity or locked financial period requires review.' ELSE '' END);
-      IF v_status='duplicate' THEN INSERT INTO public.acct_source_links(source_record_id,entry_id) VALUES(src,candidate) ON CONFLICT DO NOTHING; END IF;
-    END LOOP;
-    SELECT count(*) INTO v_count FROM public.acct_import_groups WHERE batch_id=v_id;
-    UPDATE public.acct_import_batches SET version=version+1,status=CASE WHEN v_count=expected_groups THEN 'review' ELSE 'staging' END WHERE id=v_id;
-  ELSIF op='import.resolve' THEN
-    SELECT * INTO g FROM public.acct_import_groups WHERE id=v_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-    SELECT * INTO batch FROM public.acct_import_batches WHERE id=g.batch_id;
-    IF batch.status NOT IN ('review','applying') OR g.status IN ('applied','duplicate','excluded') THEN RAISE EXCEPTION 'ACCT_IMPORT_FINAL'; END IF;
-    IF g.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-    IF length(btrim(coalesce(p_command->>'reason','')))=0 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
-    IF p_command->>'resolution'='new' THEN
-      IF g.status='exception' THEN RAISE EXCEPTION 'ACCT_IMPORT_EXCEPTION'; END IF;
-      UPDATE public.acct_import_groups SET status='new',version=version+1,candidate_entry_id=NULL,reason=p_command->>'reason' WHERE id=v_id;
-    ELSIF p_command->>'resolution'='exclude' THEN
-      UPDATE public.acct_import_groups SET status='excluded',version=version+1,reason=p_command->>'reason' WHERE id=v_id;
-    ELSIF p_command->>'resolution'='match' THEN
-      v_entry:=(p_command->>'entry_id')::uuid;
-      IF NOT EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE id=v_entry AND status='posted') THEN RAISE EXCEPTION 'ACCT_POSTED_REQUIRED'; END IF;
-      IF EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE reverses_entry_id=v_entry) THEN RAISE EXCEPTION 'ACCT_ALREADY_REVERSED'; END IF;
-      IF batch.mode='bank' THEN
-        SELECT id INTO v_line FROM public.acct_journal_lines WHERE entry_id=v_entry AND account_id=g.bank_account_id AND amount_cents=g.bank_amount_cents ORDER BY sort_order LIMIT 1;
-        IF v_line IS NULL THEN RAISE EXCEPTION 'ACCT_MATCH_AMOUNT'; END IF;
-        IF EXISTS(SELECT 1 FROM public.acct_bank_matches m JOIN public.acct_source_records s ON s.id=m.source_record_id JOIN public.acct_source_records current_source ON current_source.id=g.source_record_id
-          WHERE m.entry_line_id=v_line AND s.source_system=current_source.source_system AND s.source_scope=current_source.source_scope AND s.external_id<>current_source.external_id) THEN RAISE EXCEPTION 'ACCT_MATCH_ALREADY_USED'; END IF;
-        INSERT INTO public.acct_bank_matches(source_record_id,entry_line_id,amount_cents,created_by) VALUES(g.source_record_id,v_line,g.bank_amount_cents,p_actor);
-      ELSE
-        -- Journal evidence can attach only to the same date and complete line set.
-        IF NOT EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE id=v_entry AND entry_date=g.entry_date) OR
-          (SELECT jsonb_agg(jsonb_build_array(account_id,amount_cents::text) ORDER BY account_id,amount_cents) FROM public.acct_journal_lines WHERE entry_id=v_entry) IS DISTINCT FROM
-          (SELECT jsonb_agg(jsonb_build_array((j->>'account_id')::uuid,j->>'amount_cents') ORDER BY (j->>'account_id')::uuid,(j->>'amount_cents')::bigint) FROM jsonb_array_elements(g.lines) j) THEN RAISE EXCEPTION 'ACCT_MATCH_AMOUNT'; END IF;
-      END IF;
-      INSERT INTO public.acct_source_links(source_record_id,entry_id) VALUES(g.source_record_id,v_entry) ON CONFLICT DO NOTHING;
-      UPDATE public.acct_import_groups SET status='duplicate',entry_id=v_entry,version=version+1,reason=p_command->>'reason' WHERE id=v_id;
-    ELSE RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
-    UPDATE public.acct_import_batches SET version=version+1 WHERE id=g.batch_id;
-    RETURN jsonb_build_object('id',g.batch_id,'group_id',v_id);
-  ELSIF op='import.apply' THEN
-    IF batch.status NOT IN ('review','applying') OR batch.basis<>'cash' OR jsonb_array_length(p_command->'group_ids') NOT BETWEEN 1 AND 50 THEN RAISE EXCEPTION 'ACCT_IMPORT_NOT_READY'; END IF;
-    FOR x IN SELECT value FROM jsonb_array_elements(p_command->'group_ids') LOOP
-      SELECT * INTO g FROM public.acct_import_groups WHERE id=(x#>>'{}')::uuid AND batch_id=v_id;
-      IF NOT FOUND OR g.status<>'new' THEN RAISE EXCEPTION 'ACCT_IMPORT_NOT_READY'; END IF;
-      v_entry:=gen_random_uuid();
-      IF batch.mode='bank' THEN
-        SELECT account_id INTO v_uncategorized FROM public.acct_account_profiles WHERE purpose=CASE WHEN g.bank_amount_cents>0 THEN 'uncategorized_income' ELSE 'uncategorized_expense' END;
-        IF v_uncategorized IS NULL THEN RAISE EXCEPTION 'ACCT_UNCATEGORIZED_ACCOUNT_REQUIRED'; END IF;
-        v_lines:=jsonb_build_array(jsonb_build_object('account_id',g.bank_account_id,'amount_cents',g.bank_amount_cents::text,'memo',''),jsonb_build_object('account_id',v_uncategorized,'amount_cents',(-g.bank_amount_cents)::text,'memo',''));
-      ELSE v_lines:=g.lines; END IF;
-      -- Set provenance at creation, before any financial content is posted.
-      INSERT INTO public.acct_journal_entries(id,entry_date,memo,primary_origin,created_by) VALUES(v_entry,g.entry_date,g.memo,batch.source_system,p_actor);
-      saved:=public.acct_command(gen_random_uuid(),jsonb_build_object('type','draft.save','id',v_entry,'expected_version',1,'entry_date',g.entry_date,'memo',g.memo,'lines',v_lines));
-      IF batch.mode='journal' THEN
-        IF EXISTS(SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_account_profiles p ON p.account_id=l.account_id WHERE l.entry_id=v_entry AND p.purpose='opening_retained_earnings') THEN
-         PERFORM public.acct_retained_review(v_entry,'historical',batch.source_document_id,(SELECT jsonb_agg(jsonb_build_object('account_id',account_id,'amount_cents',amount::text)) FROM (SELECT account_id,sum(amount_cents) amount FROM public.acct_journal_lines WHERE entry_id=v_entry GROUP BY account_id) controls),'Reviewed cash-basis source group imported with its original file',p_actor,NULL,g.id);
-        END IF;
-        PERFORM public.acct_command(gen_random_uuid(),jsonb_build_object('type','entry.post','id',v_entry,'expected_version',saved->'version'));v_posted:=v_posted+1;
-      ELSE v_drafted:=v_drafted+1; END IF;
-      INSERT INTO public.acct_source_links(source_record_id,entry_id) VALUES(g.source_record_id,v_entry);
-      UPDATE public.acct_import_groups SET status='applied',entry_id=v_entry,version=version+1 WHERE id=g.id;
-    END LOOP;
-    UPDATE public.acct_import_batches SET version=version+1,status='applying' WHERE id=v_id;
-  ELSIF op='import.finish' THEN
-    IF batch.status NOT IN ('review','applying') OR (SELECT count(*) FROM public.acct_import_groups WHERE batch_id=v_id)<>batch.expected_groups OR EXISTS(SELECT 1 FROM public.acct_import_groups WHERE batch_id=v_id AND status NOT IN ('applied','duplicate','excluded')) THEN RAISE EXCEPTION 'ACCT_IMPORT_INCOMPLETE'; END IF;
-    UPDATE public.acct_import_batches SET status='completed',version=version+1 WHERE id=v_id;
-  ELSIF op='import.cancel' THEN
-    IF length(btrim(coalesce(p_command->>'reason','')))=0 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
-    UPDATE public.acct_import_batches SET status='cancelled',version=version+1,error=p_command->>'reason' WHERE id=v_id;
-  ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND'; END IF;
-  SELECT jsonb_build_object('id',id,'version',version,'posted',v_posted,'drafted',v_drafted) INTO result FROM public.acct_import_batches WHERE id=v_id;
-  RETURN result;
-END $$;
-
-CREATE OR REPLACE FUNCTION public.acct_imports(p_batch uuid DEFAULT NULL,p_offset integer DEFAULT 0) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-BEGIN
-  PERFORM public.acct_require_owner();
-  IF p_offset<0 THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER'; END IF;
-  RETURN jsonb_build_object('batches',(SELECT coalesce(jsonb_agg(to_jsonb(b) ORDER BY created_at DESC),'[]') FROM public.acct_import_batches b),
-    'groups',(SELECT coalesce(jsonb_agg(to_jsonb(g)||jsonb_build_object('bank_amount_cents',g.bank_amount_cents::text) ORDER BY ordinal),'[]') FROM (SELECT * FROM public.acct_import_groups WHERE batch_id=p_batch ORDER BY ordinal LIMIT 100 OFFSET p_offset) g),
-    'counts',(SELECT coalesce(jsonb_object_agg(status,n),'{}') FROM (SELECT status,count(*) n FROM public.acct_import_groups WHERE batch_id=p_batch GROUP BY status) s),
-    'total',(SELECT count(*) FROM public.acct_import_groups WHERE batch_id=p_batch));
-END $$;
-DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['acct_import_batches','acct_import_groups','acct_bank_matches'] LOOP
-    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t);
-    EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC,anon,authenticated,service_role',t);
-    EXECUTE format('CREATE TRIGGER acct_audit AFTER INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.acct_record_workflow_audit()',t);
-    EXECUTE format('CREATE TRIGGER acct_statement_lock BEFORE INSERT OR UPDATE OR DELETE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION public.acct_lock_statement()',t);
-  END LOOP;
-END $$;
-CREATE TRIGGER acct_bank_match_immutable BEFORE UPDATE OR DELETE ON public.acct_bank_matches FOR EACH ROW EXECUTE FUNCTION public.acct_append_only();
-REVOKE ALL ON FUNCTION public.acct_import_command(jsonb,uuid),public.acct_imports(uuid,integer) FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.acct_imports(uuid,integer) TO authenticated;
--- ACCOUNTING IMPORTS END
-
-
--- ACCOUNTING DOCUMENTS BEGIN
-CREATE TABLE public.acct_document_states (
-  document_id uuid PRIMARY KEY REFERENCES public.acct_documents(id),
-  version integer NOT NULL DEFAULT 1 CHECK(version>0),
-  state text NOT NULL DEFAULT 'uploading' CHECK(state IN ('uploading','available','missing','archived')),
-  uploaded_by uuid NOT NULL REFERENCES auth.users(id),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE OR REPLACE FUNCTION public.acct_document_command(p_command jsonb,p_actor uuid) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE op text:=p_command->>'type'; v_id uuid:=(p_command->>'id')::uuid; state public.acct_document_states; v_exists boolean;
-BEGIN
-  PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
-  IF op='document.prepare' THEN
-    IF p_command->>'content_hash' !~ '^[a-f0-9]{64}$' OR (p_command->>'size_bytes')::bigint NOT BETWEEN 1 AND 20971520 OR length(p_command->>'original_name') NOT BETWEEN 1 AND 250 OR p_command->>'mime_type' NOT IN ('application/pdf','image/png','image/jpeg','image/webp','text/csv') THEN RAISE EXCEPTION 'ACCT_INVALID_DOCUMENT'; END IF;
-    INSERT INTO public.acct_documents(id,storage_path,original_name,content_hash,mime_type,size_bytes) VALUES(v_id,v_id::text||'/'||(p_command->>'content_hash'),p_command->>'original_name',p_command->>'content_hash',p_command->>'mime_type',(p_command->>'size_bytes')::bigint);
-    INSERT INTO public.acct_document_states(document_id,uploaded_by) VALUES(v_id,p_actor);
-    RETURN jsonb_build_object('id',v_id,'version',1,'storage_path',v_id::text||'/'||(p_command->>'content_hash'));
-  END IF;
-  SELECT * INTO state FROM public.acct_document_states WHERE document_id=v_id;
-  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-  IF state.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-  IF op='document.complete' THEN
-    IF state.state<>'uploading' THEN RAISE EXCEPTION 'ACCT_DOCUMENT_STATE'; END IF;
-    IF to_regclass('storage.objects') IS NOT NULL THEN
-      EXECUTE 'SELECT EXISTS(SELECT 1 FROM storage.objects o JOIN public.acct_documents d ON d.storage_path=o.name WHERE o.bucket_id=''accounting-private'' AND d.id=$1)' INTO v_exists USING v_id;
-      IF NOT v_exists THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE'; END IF;
-    END IF;
-    UPDATE public.acct_document_states SET state='available',version=version+1,updated_at=now() WHERE document_id=v_id;
-  ELSIF op='document.link' THEN
-    IF state.state<>'available' THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE'; END IF;
-    IF NOT EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE id=(p_command->>'entry_id')::uuid AND status<>'discarded') THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-    INSERT INTO public.acct_document_links(document_id,entry_id) VALUES(v_id,(p_command->>'entry_id')::uuid) ON CONFLICT DO NOTHING;
-    UPDATE public.acct_document_states SET version=version+1,updated_at=now() WHERE document_id=v_id;
-  ELSIF op='document.archive' THEN
-    IF EXISTS(SELECT 1 FROM public.acct_document_links WHERE document_id=v_id) OR EXISTS(SELECT 1 FROM public.acct_import_batches WHERE source_document_id=v_id) THEN RAISE EXCEPTION 'ACCT_DOCUMENT_LINKED'; END IF;
-    IF length(btrim(coalesce(p_command->>'reason','')))=0 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
-    UPDATE public.acct_document_states SET state='archived',version=version+1,updated_at=now() WHERE document_id=v_id;
-  ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND'; END IF;
-  RETURN jsonb_build_object('id',v_id,'version',state.version+1);
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_documents_read(p_id uuid DEFAULT NULL,p_offset integer DEFAULT 0) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-BEGIN
-  PERFORM public.acct_require_owner();
-  IF p_offset<0 THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER'; END IF;
-  RETURN jsonb_build_object('documents',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY created_at DESC,id),'[]') FROM (
-    SELECT d.id,d.storage_path,d.original_name,d.content_hash,d.mime_type,d.size_bytes::text,d.created_at,s.version,s.state,
-      (SELECT coalesce(jsonb_agg(jsonb_build_object('id',e.id,'memo',e.memo,'entry_date',e.entry_date)),'[]') FROM public.acct_document_links l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.document_id=d.id) AS entries
-    FROM public.acct_documents d JOIN public.acct_document_states s ON s.document_id=d.id WHERE (p_id IS NULL AND s.state<>'archived') OR d.id=p_id ORDER BY d.created_at DESC,d.id LIMIT 100 OFFSET p_offset
-  ) x),'total',(SELECT count(*) FROM public.acct_document_states WHERE state<>'archived'));
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_document_object_allowed(p_path text,p_write boolean DEFAULT false) RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
- SELECT public.acct_is_owner() AND EXISTS(SELECT 1 FROM public.acct_documents d JOIN public.acct_document_states s ON s.document_id=d.id WHERE d.storage_path=p_path AND (NOT p_write OR s.state='uploading'));
-$$;
-ALTER TABLE public.acct_document_states ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.acct_document_states FROM PUBLIC,anon,authenticated,service_role;
-CREATE TRIGGER acct_audit AFTER INSERT OR UPDATE OR DELETE ON public.acct_document_states FOR EACH ROW EXECUTE FUNCTION public.acct_record_workflow_audit();
-CREATE TRIGGER acct_statement_lock BEFORE INSERT OR UPDATE OR DELETE ON public.acct_document_states FOR EACH STATEMENT EXECUTE FUNCTION public.acct_lock_statement();
-REVOKE ALL ON FUNCTION public.acct_document_command(jsonb,uuid),public.acct_documents_read(uuid,integer),public.acct_document_object_allowed(text,boolean) FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.acct_documents_read(uuid,integer),public.acct_document_object_allowed(text,boolean) TO authenticated;
-DO $$ BEGIN
-  IF to_regclass('storage.objects') IS NOT NULL THEN
-    EXECUTE 'CREATE POLICY acct_private_evidence_read ON storage.objects FOR SELECT TO authenticated USING (bucket_id=''accounting-private'' AND public.acct_document_object_allowed(name,false))';
-    EXECUTE 'CREATE POLICY acct_private_evidence_insert ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id=''accounting-private'' AND public.acct_document_object_allowed(name,true))';
-  END IF;
-END $$;
--- ACCOUNTING DOCUMENTS END
-
-
--- ACCOUNTING EXPORTS BEGIN
-CREATE OR REPLACE FUNCTION public.acct_books_export() RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-BEGIN
-  PERFORM public.acct_require_owner();
-  RETURN public.acct_export()||jsonb_build_object('format','valiance-accounting-books','version',2,
-    'coverage_status',CASE WHEN EXISTS(SELECT 1 FROM public.acct_import_batches WHERE status<>'completed' OR NOT coverage_verified) THEN 'unverified_imports' ELSE 'unverified' END,
-    'account_profiles',(SELECT coalesce(jsonb_agg(to_jsonb(x)),'[]') FROM public.acct_account_profiles x),
-    'book_preferences',(SELECT to_jsonb(x) FROM public.acct_book_preferences x),
-    'parties',(SELECT coalesce(jsonb_agg(to_jsonb(x)),'[]') FROM public.acct_parties x),
-    'dimensions',(SELECT coalesce(jsonb_agg(to_jsonb(x)),'[]') FROM public.acct_dimensions x),
-    'entry_context',(SELECT coalesce(jsonb_agg(to_jsonb(x)),'[]') FROM public.acct_entry_context x),
-    'entry_corrections',(SELECT coalesce(jsonb_agg(to_jsonb(x)),'[]') FROM public.acct_entry_corrections x),
-    'annotations',(SELECT coalesce(jsonb_agg(to_jsonb(x)),'[]') FROM public.acct_annotations x),
-    'journal_templates',(SELECT coalesce(jsonb_agg(to_jsonb(x)),'[]') FROM public.acct_journal_templates x),
-    'saved_views',(SELECT coalesce(jsonb_agg(to_jsonb(x)),'[]') FROM public.acct_saved_views x),
-    'report_snapshots',(SELECT coalesce(jsonb_agg(to_jsonb(x)||jsonb_build_object('revision',x.revision::text)),'[]') FROM public.acct_report_snapshots x),
-    'import_batches',(SELECT coalesce(jsonb_agg(to_jsonb(x)),'[]') FROM public.acct_import_batches x),
-    'import_groups',(SELECT coalesce(jsonb_agg(to_jsonb(x)||jsonb_build_object('bank_amount_cents',x.bank_amount_cents::text)),'[]') FROM public.acct_import_groups x),
-    'bank_matches',(SELECT coalesce(jsonb_agg(to_jsonb(x)||jsonb_build_object('amount_cents',x.amount_cents::text)),'[]') FROM public.acct_bank_matches x),
-    'document_states',(SELECT coalesce(jsonb_agg(to_jsonb(x)),'[]') FROM public.acct_document_states x));
-END $$;
-REVOKE ALL ON FUNCTION public.acct_books_export() FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.acct_books_export() TO authenticated;
--- ACCOUNTING EXPORTS END
-
--- ACCOUNTING CLEARING BEGIN
-CREATE TABLE public.acct_clearing_allocations (
-  id uuid PRIMARY KEY,
-  obligation_line_id uuid NOT NULL REFERENCES public.acct_journal_lines(id),
-  settlement_line_id uuid NOT NULL REFERENCES public.acct_journal_lines(id),
-  amount_cents bigint NOT NULL CHECK(amount_cents>0),
-  effective_date date NOT NULL,
-  reason text NOT NULL CHECK(length(btrim(reason)) BETWEEN 1 AND 1000),
-  created_by uuid NOT NULL REFERENCES auth.users(id),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  CHECK(obligation_line_id<>settlement_line_id)
-);
-CREATE INDEX acct_clearing_obligation ON public.acct_clearing_allocations(obligation_line_id,effective_date);
-CREATE INDEX acct_clearing_settlement ON public.acct_clearing_allocations(settlement_line_id,effective_date);
-CREATE TABLE public.acct_clearing_releases (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  allocation_id uuid NOT NULL UNIQUE REFERENCES public.acct_clearing_allocations(id),
-  effective_date date NOT NULL,
-  reversal_entry_id uuid REFERENCES public.acct_journal_entries(id),
-  reason text NOT NULL CHECK(length(btrim(reason)) BETWEEN 1 AND 1000),
-  created_by uuid NOT NULL REFERENCES auth.users(id),
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE public.acct_obligation_reviews (
-  id uuid PRIMARY KEY,
-  line_id uuid NOT NULL REFERENCES public.acct_journal_lines(id),
-  as_of date NOT NULL,
-  residual_cents bigint NOT NULL CHECK(residual_cents<>0),
-  expected_resolution date NOT NULL CHECK(expected_resolution>as_of),
-  document_id uuid NOT NULL REFERENCES public.acct_documents(id),
-  reason text NOT NULL CHECK(length(btrim(reason)) BETWEEN 1 AND 1000),
-  created_by uuid NOT NULL REFERENCES auth.users(id),
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE public.acct_transfer_groups (
-  id uuid PRIMARY KEY,
-  version integer NOT NULL DEFAULT 1,
-  outgoing_entry_id uuid NOT NULL REFERENCES public.acct_journal_entries(id),
-  incoming_entry_id uuid NOT NULL REFERENCES public.acct_journal_entries(id),
-  from_account_id uuid NOT NULL REFERENCES public.acct_accounts(id),
-  to_account_id uuid NOT NULL REFERENCES public.acct_accounts(id),
-  outgoing_date date NOT NULL,
-  incoming_date date NOT NULL,
-  amount_cents bigint NOT NULL CHECK(amount_cents>0),
-  status text NOT NULL DEFAULT 'draft' CHECK(status IN ('draft','posted','corrected')),
-  memo text NOT NULL CHECK(length(btrim(memo)) BETWEEN 1 AND 1000),
-  created_by uuid NOT NULL REFERENCES auth.users(id),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  CHECK(from_account_id<>to_account_id)
-);
-
-CREATE OR REPLACE FUNCTION public.acct_clearing_residual(p_line uuid,p_as_of date DEFAULT '2100-12-31') RETURNS numeric
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
- SELECT l.amount_cents-sign(l.amount_cents)*coalesce((SELECT sum(a.amount_cents) FROM public.acct_clearing_allocations a WHERE (a.obligation_line_id=l.id OR a.settlement_line_id=l.id) AND a.effective_date<=p_as_of AND NOT EXISTS(SELECT 1 FROM public.acct_clearing_releases r WHERE r.allocation_id=a.id AND r.effective_date<=p_as_of)),0) FROM public.acct_journal_lines l WHERE l.id=p_line;
-$$;
-CREATE OR REPLACE FUNCTION public.acct_clearing_capacity(p_line uuid,p_from date) RETURNS numeric
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
- WITH events AS (
-   SELECT a.effective_date AS day,a.amount_cents::numeric AS delta FROM public.acct_clearing_allocations a WHERE p_line IN (a.obligation_line_id,a.settlement_line_id) AND NOT EXISTS(SELECT 1 FROM public.acct_clearing_releases r WHERE r.allocation_id=a.id AND r.effective_date<=a.effective_date)
-   UNION ALL SELECT r.effective_date,-a.amount_cents::numeric FROM public.acct_clearing_releases r JOIN public.acct_clearing_allocations a ON a.id=r.allocation_id WHERE p_line IN (a.obligation_line_id,a.settlement_line_id) AND r.effective_date>a.effective_date
- ), running AS (SELECT day,sum(sum(delta)) OVER(ORDER BY day) AS used FROM events GROUP BY day)
- SELECT abs(l.amount_cents::numeric)-greatest(coalesce((SELECT sum(delta) FROM events WHERE day<=p_from),0),coalesce((SELECT max(used) FROM running WHERE day>=p_from),0)) FROM public.acct_journal_lines l WHERE l.id=p_line;
-$$;
-CREATE OR REPLACE FUNCTION public.acct_clearing_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE obligation public.acct_journal_lines;settlement public.acct_journal_lines;obligation_date date;settlement_date date;
-BEGIN
-  PERFORM public.acct_write_lock();
-  IF TG_OP<>'INSERT' THEN RAISE EXCEPTION 'ACCT_APPEND_ONLY'; END IF;
-  SELECT * INTO obligation FROM public.acct_journal_lines WHERE id=NEW.obligation_line_id;
-  SELECT * INTO settlement FROM public.acct_journal_lines WHERE id=NEW.settlement_line_id;
-  SELECT entry_date INTO obligation_date FROM public.acct_journal_entries WHERE id=obligation.entry_id AND status='posted';
-  SELECT entry_date INTO settlement_date FROM public.acct_journal_entries WHERE id=settlement.entry_id AND status='posted';
-  IF obligation.account_id IS DISTINCT FROM settlement.account_id OR obligation_date IS NULL OR settlement_date IS NULL OR sign(obligation.amount_cents)=sign(settlement.amount_cents) OR NEW.effective_date<>greatest(obligation_date,settlement_date) THEN RAISE EXCEPTION 'ACCT_CLEARING_LINES'; END IF;
-  IF EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE reverses_entry_id IN (obligation.entry_id,settlement.entry_id)) AND NOT EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE (id=obligation.entry_id AND reverses_entry_id=settlement.entry_id) OR (id=settlement.entry_id AND reverses_entry_id=obligation.entry_id)) THEN RAISE EXCEPTION 'ACCT_ALREADY_REVERSED'; END IF;
-  IF NEW.amount_cents>public.acct_clearing_capacity(obligation.id,NEW.effective_date) OR NEW.amount_cents>public.acct_clearing_capacity(settlement.id,NEW.effective_date) THEN RAISE EXCEPTION 'ACCT_ALLOCATION_EXCEEDED'; END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER acct_clearing_guard BEFORE INSERT OR UPDATE OR DELETE ON public.acct_clearing_allocations FOR EACH ROW EXECUTE FUNCTION public.acct_clearing_guard();
-CREATE OR REPLACE FUNCTION public.acct_clearing_reverse() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-BEGIN
-  IF NEW.status='posted' AND OLD.status='draft' AND NEW.reverses_entry_id IS NOT NULL THEN
-    INSERT INTO public.acct_clearing_releases(allocation_id,effective_date,reversal_entry_id,reason,created_by)
-    SELECT a.id,NEW.entry_date,NEW.id,'Journal reversal released this clearing allocation',NEW.created_by FROM public.acct_clearing_allocations a JOIN public.acct_journal_lines o ON o.id=a.obligation_line_id JOIN public.acct_journal_lines s ON s.id=a.settlement_line_id WHERE NEW.reverses_entry_id IN (o.entry_id,s.entry_id) ON CONFLICT(allocation_id) DO NOTHING;
-    INSERT INTO public.acct_clearing_allocations(id,obligation_line_id,settlement_line_id,amount_cents,effective_date,reason,created_by)
-    SELECT gen_random_uuid(),original.id,reversal.id,abs(original.amount_cents),greatest(NEW.entry_date,e.entry_date),'Original and reversal offset one another',NEW.created_by
-    FROM public.acct_journal_lines original JOIN public.acct_journal_entries e ON e.id=original.entry_id JOIN public.acct_journal_lines reversal ON reversal.entry_id=NEW.id AND reversal.sort_order=original.sort_order AND reversal.account_id=original.account_id AND reversal.amount_cents=-original.amount_cents
-    JOIN public.acct_account_profiles p ON p.account_id=original.account_id
-    WHERE original.entry_id=NEW.reverses_entry_id AND p.purpose IN ('transfers_in_transit','undeposited_funds','net_salary_payable','payroll_taxes_payable','payroll_deductions','retirement_payable','due_to_shareholder','due_from_shareholder','customer_funds','loans_payable','shareholder_loan');
-    UPDATE public.acct_transfer_groups SET status='corrected',version=version+1 WHERE status='posted' AND NEW.reverses_entry_id IN (outgoing_entry_id,incoming_entry_id);
-  END IF;
-  RETURN NULL;
-END $$;
-CREATE TRIGGER acct_clearing_reverse AFTER UPDATE ON public.acct_journal_entries FOR EACH ROW EXECUTE FUNCTION public.acct_clearing_reverse();
-CREATE OR REPLACE FUNCTION public.acct_clearing_command(p_command jsonb,p_actor uuid) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE op text:=p_command->>'type';v_id uuid:=(p_command->>'id')::uuid;effective date;residual numeric;a public.acct_clearing_allocations;
-BEGIN
-  PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
-  IF (p_command->>'expected_revision')::bigint IS DISTINCT FROM (SELECT financial_revision FROM public.acct_settings) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-  IF op='clearing.allocate' THEN
-    SELECT max(e.entry_date) INTO effective FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.id IN ((p_command->>'obligation_line_id')::uuid,(p_command->>'settlement_line_id')::uuid);
-    IF EXISTS(SELECT 1 FROM public.acct_periods WHERE is_locked AND month_start>=date_trunc('month',effective)::date) THEN RAISE EXCEPTION 'ACCT_LATER_PERIOD_LOCKED'; END IF;
-    INSERT INTO public.acct_clearing_allocations(id,obligation_line_id,settlement_line_id,amount_cents,effective_date,reason,created_by) VALUES(v_id,(p_command->>'obligation_line_id')::uuid,(p_command->>'settlement_line_id')::uuid,(p_command->>'amount_cents')::bigint,effective,p_command->>'reason',p_actor);
-  ELSIF op='clearing.release' THEN
-    SELECT * INTO a FROM public.acct_clearing_allocations WHERE id=(p_command->>'allocation_id')::uuid;
-    IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-    IF (p_command->>'effective_date')::date<a.effective_date THEN RAISE EXCEPTION 'ACCT_CLEARING_DATE'; END IF;
-    PERFORM public.acct_require_open((p_command->>'effective_date')::date);
-    IF EXISTS(SELECT 1 FROM public.acct_periods WHERE is_locked AND month_start>=date_trunc('month',(p_command->>'effective_date')::date)::date) THEN RAISE EXCEPTION 'ACCT_LATER_PERIOD_LOCKED'; END IF;
-    INSERT INTO public.acct_clearing_releases(id,allocation_id,effective_date,reason,created_by) VALUES(v_id,a.id,(p_command->>'effective_date')::date,p_command->>'reason',p_actor);
-  ELSIF op='clearing.review' THEN
-    IF NOT EXISTS(SELECT 1 FROM public.acct_document_states WHERE document_id=(p_command->>'document_id')::uuid AND state='available') THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE'; END IF;
-    IF NOT EXISTS(SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.id=(p_command->>'line_id')::uuid AND e.status='posted' AND e.entry_date<=(p_command->>'as_of')::date) THEN RAISE EXCEPTION 'ACCT_POSTED_REQUIRED'; END IF;
-    residual:=public.acct_clearing_residual((p_command->>'line_id')::uuid,(p_command->>'as_of')::date);
-    IF residual IS DISTINCT FROM (p_command->>'residual_cents')::bigint OR residual=0 THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-    INSERT INTO public.acct_obligation_reviews(id,line_id,as_of,residual_cents,expected_resolution,document_id,reason,created_by) VALUES(v_id,(p_command->>'line_id')::uuid,(p_command->>'as_of')::date,residual,(p_command->>'expected_resolution')::date,(p_command->>'document_id')::uuid,p_command->>'reason',p_actor);
-  ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND'; END IF;
-  RETURN jsonb_build_object('id',v_id);
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_clearing_view(p_as_of date,p_account uuid DEFAULT NULL) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-DECLARE rows jsonb;
-BEGIN
-  PERFORM public.acct_require_owner();
-  WITH residuals AS (
-    SELECT l.id,l.entry_id,e.entry_date,e.memo,l.account_id,a.name AS account_name,a.normal_side,l.amount_cents,public.acct_clearing_residual(l.id,p_as_of) AS residual,p.purpose
-    FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id JOIN public.acct_accounts a ON a.id=l.account_id LEFT JOIN public.acct_account_profiles p ON p.account_id=l.account_id
-    WHERE e.status='posted' AND e.entry_date<=p_as_of AND (p_account IS NOT NULL AND l.account_id=p_account OR p_account IS NULL AND p.purpose IN ('transfers_in_transit','undeposited_funds','net_salary_payable','payroll_taxes_payable','payroll_deductions','retirement_payable','due_to_shareholder','due_from_shareholder','customer_funds','loans_payable','shareholder_loan'))
-  ) SELECT coalesce(jsonb_agg(jsonb_build_object('line_id',x.id,'entry_id',x.entry_id,'entry_date',x.entry_date,'memo',x.memo,'account_id',x.account_id,'account_name',x.account_name,'purpose',x.purpose,'normal_side',x.normal_side,'amount_cents',x.amount_cents::text,'residual_cents',x.residual::text,
-    'review',(SELECT to_jsonb(r)||jsonb_build_object('residual_cents',r.residual_cents::text) FROM public.acct_obligation_reviews r WHERE r.line_id=x.id AND r.as_of=p_as_of AND r.residual_cents=x.residual ORDER BY created_at DESC,id LIMIT 1),
-    'allocations',(SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('amount_cents',a.amount_cents::text,'released',(SELECT to_jsonb(r) FROM public.acct_clearing_releases r WHERE r.allocation_id=a.id)) ORDER BY effective_date,id),'[]') FROM public.acct_clearing_allocations a WHERE x.id IN (a.obligation_line_id,a.settlement_line_id))) ORDER BY x.entry_date,x.id),'[]') INTO rows FROM residuals x WHERE x.residual<>0;
-  RETURN jsonb_build_object('as_of',p_as_of,'revision',(SELECT financial_revision::text FROM public.acct_settings),'rows',rows,
-    'allocations',(SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY effective_date DESC,id),'[]') FROM (
-      SELECT a.id,a.obligation_line_id,a.settlement_line_id,a.effective_date,a.amount_cents::text,a.reason,o.entry_id AS obligation_entry_id,s.entry_id AS settlement_entry_id,oe.memo AS obligation_memo,se.memo AS settlement_memo,ac.name AS account_name,(SELECT to_jsonb(r) FROM public.acct_clearing_releases r WHERE r.allocation_id=a.id) AS released
-      FROM public.acct_clearing_allocations a JOIN public.acct_journal_lines o ON o.id=a.obligation_line_id JOIN public.acct_journal_lines s ON s.id=a.settlement_line_id JOIN public.acct_journal_entries oe ON oe.id=o.entry_id JOIN public.acct_journal_entries se ON se.id=s.entry_id JOIN public.acct_accounts ac ON ac.id=o.account_id
-      WHERE a.effective_date<=p_as_of AND (p_account IS NULL OR o.account_id=p_account) ORDER BY a.effective_date DESC,a.id LIMIT 500
-    ) x));
-END $$;
-
-DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['acct_clearing_allocations','acct_clearing_releases','acct_obligation_reviews','acct_transfer_groups'] LOOP
-    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t);
-    EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC,anon,authenticated,service_role',t);
-    EXECUTE format('CREATE TRIGGER acct_statement_lock BEFORE INSERT OR UPDATE OR DELETE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION public.acct_lock_statement()',t);
-    EXECUTE format('CREATE TRIGGER acct_audit AFTER INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.acct_record_workflow_audit()',t);
-  END LOOP;
-END $$;
-CREATE TRIGGER acct_clearing_release_immutable BEFORE UPDATE OR DELETE ON public.acct_clearing_releases FOR EACH ROW EXECUTE FUNCTION public.acct_append_only();
-CREATE TRIGGER acct_obligation_review_immutable BEFORE UPDATE OR DELETE ON public.acct_obligation_reviews FOR EACH ROW EXECUTE FUNCTION public.acct_append_only();
-REVOKE ALL ON FUNCTION public.acct_clearing_residual(uuid,date),public.acct_clearing_guard(),public.acct_clearing_reverse() FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION public.acct_clearing_capacity(uuid,date) FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION public.acct_clearing_command(jsonb,uuid),public.acct_clearing_view(date,uuid) FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.acct_clearing_view(date,uuid) TO authenticated;
--- ACCOUNTING CLEARING END
-
-
--- ACCOUNTING CLOSE BEGIN
-CREATE TABLE public.acct_reconciliations (
-  id uuid PRIMARY KEY,
-  version integer NOT NULL DEFAULT 1 CHECK(version>0),
-  account_id uuid NOT NULL REFERENCES public.acct_accounts(id),
-  from_date date NOT NULL CHECK(from_date BETWEEN '1900-01-01'::date AND '2100-12-31'::date),
-  to_date date NOT NULL CHECK(to_date>=from_date AND to_date<='2100-12-31'::date),
-  opening_cents bigint NOT NULL,
-  ending_cents bigint NOT NULL,
-  declared_count integer NOT NULL CHECK(declared_count BETWEEN 0 AND 50000),
-  declared_debits_cents bigint NOT NULL CHECK(declared_debits_cents>=0),
-  declared_credits_cents bigint NOT NULL CHECK(declared_credits_cents>=0),
-  predecessor_id uuid REFERENCES public.acct_reconciliations(id),
-  document_id uuid NOT NULL REFERENCES public.acct_documents(id),
-  status text NOT NULL DEFAULT 'in_progress' CHECK(status IN ('in_progress','completed','superseded','cancelled')),
-  notes text NOT NULL DEFAULT '' CHECK(length(notes)<=3000),
-  proof jsonb,
-  completed_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  created_by uuid NOT NULL REFERENCES auth.users(id),
-  CHECK(predecessor_id IS DISTINCT FROM id),
-  CHECK((status IN ('completed','superseded'))=(completed_at IS NOT NULL))
-);
-CREATE TABLE public.acct_reconciliation_supersessions (
-  reconciliation_id uuid PRIMARY KEY REFERENCES public.acct_reconciliations(id),
-  reason text NOT NULL CHECK(length(btrim(reason)) BETWEEN 1 AND 1000),
-  created_by uuid NOT NULL REFERENCES auth.users(id),
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX acct_reconciliations_account_dates ON public.acct_reconciliations(account_id,to_date,status);
-CREATE TABLE public.acct_statement_items (
-  id uuid PRIMARY KEY,
-  reconciliation_id uuid NOT NULL REFERENCES public.acct_reconciliations(id),
-  ordinal integer NOT NULL CHECK(ordinal>=0),
-  entry_date date NOT NULL,
-  description text NOT NULL CHECK(length(description) BETWEEN 1 AND 1000),
-  amount_cents bigint NOT NULL CHECK(amount_cents<>0 AND amount_cents>'-9223372036854775808'::bigint),
-  UNIQUE(reconciliation_id,ordinal)
-);
-CREATE TABLE public.acct_reconciliation_items (
-  id uuid PRIMARY KEY,
-  statement_item_id uuid NOT NULL REFERENCES public.acct_statement_items(id),
-  entry_line_id uuid NOT NULL REFERENCES public.acct_journal_lines(id),
-  amount_cents bigint NOT NULL CHECK(amount_cents<>0 AND amount_cents>'-9223372036854775808'::bigint),
-  UNIQUE(statement_item_id,entry_line_id)
-);
-CREATE INDEX acct_reconciliation_line_allocations ON public.acct_reconciliation_items(entry_line_id);
-CREATE TABLE public.acct_reconciliation_opening (
-  reconciliation_id uuid NOT NULL REFERENCES public.acct_reconciliations(id),
-  entry_line_id uuid NOT NULL REFERENCES public.acct_journal_lines(id),
-  amount_cents bigint NOT NULL CHECK(amount_cents<>0 AND amount_cents>'-9223372036854775808'::bigint),
-  PRIMARY KEY(reconciliation_id,entry_line_id)
-);
-CREATE TABLE public.acct_account_lifecycle (
-  account_id uuid PRIMARY KEY REFERENCES public.acct_accounts(id),
-  version integer NOT NULL DEFAULT 1,
-  opened_on date NOT NULL CHECK(opened_on BETWEEN '1900-01-01'::date AND '2100-12-31'::date),
-  closed_on date CHECK(closed_on>=opened_on AND closed_on<='2100-12-31'::date),
-  closure_document_id uuid REFERENCES public.acct_documents(id),
-  CHECK(closed_on IS NULL OR closure_document_id IS NOT NULL)
-);
-CREATE TABLE public.acct_close_records (
-  id uuid PRIMARY KEY,
-  month_start date NOT NULL REFERENCES public.acct_periods(month_start),
-  snapshot_id uuid NOT NULL REFERENCES public.acct_report_snapshots(id),
-  proof jsonb NOT NULL,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  created_by uuid NOT NULL REFERENCES auth.users(id)
-);
-CREATE TABLE public.acct_close_reopens (
-  id uuid PRIMARY KEY,
-  close_id uuid NOT NULL UNIQUE REFERENCES public.acct_close_records(id),
-  reason text NOT NULL CHECK(length(btrim(reason)) BETWEEN 1 AND 1000),
-  created_at timestamptz NOT NULL DEFAULT now(),
-  created_by uuid NOT NULL REFERENCES auth.users(id)
-);
-CREATE TABLE public.acct_fiscal_years (
-  year integer PRIMARY KEY CHECK(year BETWEEN 1900 AND 2100),
-  version integer NOT NULL DEFAULT 1,
-  classification text NOT NULL CHECK(classification IN ('s_corp','other','unverified')),
-  filed_on date,
-  filed_snapshot_id uuid REFERENCES public.acct_report_snapshots(id),
-  filed_document_id uuid REFERENCES public.acct_documents(id),
-  CHECK((filed_on IS NULL)=(filed_snapshot_id IS NULL)),
-  CHECK(filed_on IS NULL OR filed_document_id IS NOT NULL)
-);
-CREATE TABLE public.acct_restatement_cases (
-  id uuid PRIMARY KEY,
-  fiscal_year integer NOT NULL REFERENCES public.acct_fiscal_years(year),
-  version integer NOT NULL DEFAULT 1,
-  from_date date NOT NULL,
-  to_date date NOT NULL CHECK(to_date>=from_date),
-  reason text NOT NULL CHECK(length(btrim(reason)) BETWEEN 1 AND 3000),
-  support_document_id uuid NOT NULL REFERENCES public.acct_documents(id),
-  original_snapshot_id uuid NOT NULL REFERENCES public.acct_report_snapshots(id),
-  replacement_snapshot_id uuid REFERENCES public.acct_report_snapshots(id),
-  affected_periods jsonb NOT NULL,
-  filed_snapshots jsonb NOT NULL,
-  status text NOT NULL DEFAULT 'open' CHECK(status IN ('open','completed')),
-  external_return_review text NOT NULL CHECK(external_return_review IN ('required','not_required_with_explanation')),
-  return_review_explanation text NOT NULL CHECK(length(btrim(return_review_explanation)) BETWEEN 1 AND 3000),
-  created_by uuid NOT NULL REFERENCES auth.users(id),
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE UNIQUE INDEX acct_one_open_restatement ON public.acct_restatement_cases(fiscal_year) WHERE status='open';
-CREATE TABLE public.acct_history_checks (
-  id uuid PRIMARY KEY,
-  from_date date NOT NULL,
-  to_date date NOT NULL CHECK(to_date>=from_date),
-  source_document_id uuid NOT NULL REFERENCES public.acct_documents(id),
-  controls jsonb NOT NULL,
-  account_controls jsonb NOT NULL,
-  revision bigint NOT NULL,
-  explanation text NOT NULL CHECK(length(btrim(explanation)) BETWEEN 1 AND 3000),
-  created_by uuid NOT NULL REFERENCES auth.users(id),
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE public.acct_history_invalidations (
-  check_id uuid PRIMARY KEY REFERENCES public.acct_history_checks(id),
-  entry_id uuid NOT NULL REFERENCES public.acct_journal_entries(id),
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE OR REPLACE FUNCTION public.acct_close_checklist(p_month date) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-DECLARE ending date:=(p_month+INTERVAL '1 month -1 day')::date;report jsonb;drafts integer;imports integer;feed_pending integer;missing integer;uncategorized integer;suspense integer;clearing integer;required_accounts jsonb;obligations jsonb;
-BEGIN
-  PERFORM public.acct_require_owner();IF extract(day FROM p_month)<>1 THEN RAISE EXCEPTION 'ACCT_INVALID_RANGE'; END IF;
-  report:=public.acct_workspace(p_month,ending);
-  SELECT count(*) INTO drafts FROM public.acct_journal_entries WHERE status='draft' AND entry_date<=ending;
-  SELECT count(*) INTO imports FROM public.acct_import_batches b WHERE b.from_date<=ending AND (CASE WHEN b.mode='journal' THEN b.status<>'completed' OR NOT b.coverage_verified ELSE b.status NOT IN ('review','applying','completed') OR (SELECT count(*) FROM public.acct_import_groups WHERE batch_id=b.id)<>b.expected_groups OR EXISTS(SELECT 1 FROM public.acct_import_groups ig LEFT JOIN public.acct_journal_entries ie ON ie.id=ig.entry_id WHERE ig.batch_id=b.id AND ig.entry_date<=ending AND (ig.status NOT IN ('applied','duplicate') OR ie.id IS NULL OR ie.status<>'posted')) END) AND (b.status<>'cancelled' OR EXISTS(SELECT 1 FROM public.acct_import_groups WHERE batch_id=b.id AND status='applied'));
-  feed_pending:=public.acct_feed_unreviewed(ending);
-  SELECT count(*) INTO uncategorized FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id JOIN public.acct_account_profiles p ON p.account_id=l.account_id WHERE e.status='posted' AND e.entry_date<=ending AND e.reverses_entry_id IS NULL AND p.purpose IN ('uncategorized_income','uncategorized_expense') AND NOT EXISTS(SELECT 1 FROM public.acct_journal_entries r WHERE r.reverses_entry_id=e.id AND r.entry_date<=ending);
-  SELECT count(*) INTO suspense FROM (SELECT l.account_id FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id JOIN public.acct_account_profiles p ON p.account_id=l.account_id WHERE e.status='posted' AND e.entry_date<=ending AND p.purpose='opening_balance_equity' GROUP BY l.account_id HAVING sum(l.amount_cents)<>0) x;
-  WITH required AS (
-    SELECT a.id,a.name,(SELECT r.id FROM public.acct_reconciliations r WHERE r.account_id=a.id AND r.status='completed' AND r.from_date<=ending AND r.to_date>=ending ORDER BY r.to_date LIMIT 1) AS reconciliation_id
-    FROM public.acct_accounts a JOIN public.acct_account_profiles p ON p.account_id=a.id LEFT JOIN public.acct_account_lifecycle life ON life.account_id=a.id
-    WHERE p.cash_kind IN ('bank','card','cash') AND (life.closed_on IS NULL OR life.closed_on>=p_month) AND (EXISTS(SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.account_id=a.id AND e.status='posted' AND e.entry_date<=ending) OR EXISTS(SELECT 1 FROM public.acct_feed_accounts fa WHERE fa.account_id=a.id AND (to_timestamp(fa.history_start) AT TIME ZONE fa.posting_timezone)::date<=ending))
-  ) SELECT count(*) FILTER(WHERE reconciliation_id IS NULL),coalesce(jsonb_agg(to_jsonb(x) ORDER BY name),'[]') INTO missing,required_accounts FROM required x;
-  obligations:=public.acct_clearing_view(ending)->'rows';
-  SELECT count(*) INTO clearing FROM jsonb_array_elements(obligations) x WHERE NOT (
-    -- A recorded later settlement can explain a genuine timing item.
-    public.acct_clearing_residual((x->>'line_id')::uuid,'2100-12-31')=0
-    OR EXISTS(SELECT 1 FROM public.acct_obligation_reviews r JOIN public.acct_document_states d ON d.document_id=r.document_id WHERE r.line_id=(x->>'line_id')::uuid AND r.as_of=ending AND r.residual_cents=(x->>'residual_cents')::numeric AND r.expected_resolution>ending AND d.state='available')
-  );
-  RETURN jsonb_build_object('month_start',p_month,'through',ending,'revision',report->'revision','drafts',drafts,'unverified_imports',imports,'unreviewed_feed_movements',feed_pending,'unreconciled_accounts',missing,'uncategorized_lines',uncategorized,'opening_suspense_accounts',suspense,'unexplained_clearing_lines',clearing,'accounts',required_accounts,'obligations',obligations,'reports',report,
-    'month_ended',ending<=current_date,
-    'ready',ending<=current_date AND drafts=0 AND imports=0 AND feed_pending=0 AND missing=0 AND uncategorized=0 AND suspense=0 AND clearing=0 AND report->'reports'->>'trial_balance_cents'='0' AND report->'reports'->>'balance_difference_cents'='0');
-END $$;
-
-CREATE OR REPLACE FUNCTION public.acct_period_impact(p_month date) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-BEGIN
-  PERFORM public.acct_require_owner();
-  RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM public.acct_settings),
-    'periods',(SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY month_start),'[]') FROM public.acct_periods p WHERE month_start>=p_month AND is_locked),
-    'filed_years',(SELECT coalesce(jsonb_agg(to_jsonb(y) ORDER BY year),'[]') FROM public.acct_fiscal_years y WHERE year>=extract(year FROM p_month) AND filed_on IS NOT NULL));
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_close_history() RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-BEGIN
- PERFORM public.acct_require_owner();
- RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM public.acct_settings),
- 'periods',(SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY month_start DESC),'[]') FROM public.acct_periods p),
- 'years',(SELECT coalesce(jsonb_agg(to_jsonb(y) ORDER BY year DESC),'[]') FROM public.acct_fiscal_years y),
- 'restatements',(SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY created_at DESC,id),'[]') FROM public.acct_restatement_cases r),
- 'closes',(SELECT coalesce(jsonb_agg(to_jsonb(c)||jsonb_build_object('reopen',(SELECT to_jsonb(r) FROM public.acct_close_reopens r WHERE r.close_id=c.id)) ORDER BY c.month_start DESC,c.created_at DESC,c.id),'[]') FROM public.acct_close_records c),
- 'lifecycle',(SELECT coalesce(jsonb_agg(to_jsonb(l)),'[]') FROM public.acct_account_lifecycle l));
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_snapshot_read(p_id uuid) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-BEGIN
- PERFORM public.acct_require_owner();
- RETURN (SELECT to_jsonb(s)||jsonb_build_object('revision',s.revision::text) FROM public.acct_report_snapshots s WHERE id=p_id);
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_lifecycle_command(p_command jsonb,p_actor uuid) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE a uuid:=(p_command->>'id')::uuid;life public.acct_account_lifecycle;opened date:=(p_command->>'opened_on')::date;closed date:=nullif(p_command->>'closed_on','')::date;document uuid:=nullif(p_command->>'document_id','')::uuid;earliest date;
-BEGIN
- PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
- IF (p_command->>'expected_revision')::bigint IS DISTINCT FROM (SELECT financial_revision FROM public.acct_settings) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
- IF length(btrim(coalesce(p_command->>'reason','')))=0 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
- IF NOT EXISTS(SELECT 1 FROM public.acct_account_profiles WHERE account_id=a AND cash_kind IN ('bank','card','cash')) THEN RAISE EXCEPTION 'ACCT_BANK_ACCOUNT_REQUIRED'; END IF;
- SELECT * INTO life FROM public.acct_account_lifecycle WHERE account_id=a;
- IF coalesce(life.version,0) IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
- SELECT min(e.entry_date) INTO earliest FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.account_id=a AND e.status='posted';
- IF opened IS NULL OR opened>earliest OR EXISTS(SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.account_id=a AND e.status IN ('draft','posted') AND e.entry_date>closed) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_LIFECYCLE'; END IF;
- IF EXISTS(SELECT 1 FROM public.acct_periods WHERE is_locked AND month_start>=date_trunc('month',least(coalesce(life.closed_on,closed),coalesce(closed,life.closed_on)))::date) THEN RAISE EXCEPTION 'ACCT_LATER_PERIOD_LOCKED'; END IF;
- IF closed IS NOT NULL THEN
-  IF NOT EXISTS(SELECT 1 FROM public.acct_document_states WHERE document_id=document AND state='available') THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE'; END IF;
-  IF (SELECT coalesce(sum(l.amount_cents),0) FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.account_id=a AND e.status='posted' AND e.entry_date<=closed)<>0 OR NOT EXISTS(SELECT 1 FROM public.acct_reconciliations WHERE account_id=a AND status='completed' AND to_date=closed AND ending_cents=0) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_CLOSE_PROOF'; END IF;
  END IF;
- INSERT INTO public.acct_account_lifecycle(account_id,opened_on,closed_on,closure_document_id) VALUES(a,opened,closed,document) ON CONFLICT(account_id) DO UPDATE SET opened_on=excluded.opened_on,closed_on=excluded.closed_on,closure_document_id=excluded.closure_document_id,version=acct_account_lifecycle.version+1;
- RETURN jsonb_build_object('id',a,'version',coalesce(life.version,0)+1);
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_period_command(p_command jsonb,p_actor uuid) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE op text:=p_command->>'type';v_id uuid:=(p_command->>'id')::uuid;month date:=(p_command->>'month')::date;ending date;proof jsonb;snapshot uuid;old_close uuid;v_period record;v_year integer;restatement public.acct_restatement_cases;
+ RETURN jsonb_build_object('id',entry,'version',e.version);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.balance_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE entry uuid; e accounting.journal_entries; n integer; s numeric; reversed jsonb; original jsonb;
 BEGIN
-  PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
-  IF (p_command->>'expected_revision')::bigint IS DISTINCT FROM (SELECT financial_revision FROM public.acct_settings) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-  IF op='year.configure' THEN
-    v_year:=(p_command->>'year')::integer;
-    IF EXISTS(SELECT 1 FROM public.acct_fiscal_years WHERE year=v_year AND filed_on IS NOT NULL) THEN RAISE EXCEPTION 'ACCT_FILED_YEAR'; END IF;
-    INSERT INTO public.acct_fiscal_years(year,classification) VALUES(v_year,p_command->>'classification') ON CONFLICT(year) DO UPDATE SET classification=excluded.classification,version=acct_fiscal_years.version+1;
-    RETURN jsonb_build_object('id',v_id);
+ IF TG_TABLE_NAME='journal_entries' THEN entry:=NEW.id; ELSIF TG_OP='DELETE' THEN entry:=OLD.entry_id; ELSE entry:=NEW.entry_id; END IF;
+ SELECT * INTO e FROM accounting.journal_entries WHERE id=entry;
+ IF e.status='posted' THEN
+  SELECT count(*),coalesce(sum(amount_cents),0) INTO n,s FROM accounting.journal_lines WHERE entry_id=entry;
+  IF n<2 OR s<>0 THEN RAISE EXCEPTION 'ACCT_UNBALANCED'; END IF;
+  IF e.reverses_entry_id IS NOT NULL THEN
+   SELECT jsonb_agg(jsonb_build_array(account_id,(-amount_cents)::text,sort_order) ORDER BY sort_order) INTO reversed FROM accounting.journal_lines WHERE entry_id=entry;
+   SELECT jsonb_agg(jsonb_build_array(account_id,amount_cents::text,sort_order) ORDER BY sort_order) INTO original FROM accounting.journal_lines WHERE entry_id=e.reverses_entry_id;
+   IF reversed IS DISTINCT FROM original THEN RAISE EXCEPTION 'ACCT_REVERSAL_MUST_BE_EXACT'; END IF;
   END IF;
-  IF op='year.file' THEN
-    v_year:=(p_command->>'year')::integer;
-    IF NOT EXISTS(SELECT 1 FROM public.acct_fiscal_years WHERE year=v_year AND classification<>'unverified' AND filed_on IS NULL) OR EXISTS(SELECT 1 FROM public.acct_restatement_cases WHERE status='open') THEN RAISE EXCEPTION 'ACCT_FILED_YEAR'; END IF;
-    IF (SELECT count(*) FROM public.acct_periods WHERE extract(year FROM month_start)=v_year AND is_locked)<>12 THEN RAISE EXCEPTION 'ACCT_YEAR_CLOSE_REQUIRED'; END IF;
-    IF NOT EXISTS(SELECT 1 FROM public.acct_document_states WHERE document_id=(p_command->>'document_id')::uuid AND state='available') THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE'; END IF;
-    IF (p_command->>'filed_on')::date IS NULL OR (p_command->>'filed_on')::date>current_date OR (p_command->>'filed_on')::date<=make_date(v_year,12,31) THEN RAISE EXCEPTION 'ACCT_INVALID_DATE'; END IF;
-    snapshot:=gen_random_uuid();
-    proof:=public.acct_workspace(make_date(v_year,1,1),make_date(v_year,12,31));
-    INSERT INTO public.acct_report_snapshots(id,kind,from_date,to_date,revision,payload,created_by) VALUES(snapshot,'filing',make_date(v_year,1,1),make_date(v_year,12,31),(proof->>'revision')::bigint,proof||jsonb_build_object('close_records',(SELECT jsonb_agg(to_jsonb(c) ORDER BY month_start) FROM public.acct_close_records c WHERE extract(year FROM month_start)=v_year AND NOT EXISTS(SELECT 1 FROM public.acct_close_reopens r WHERE r.close_id=c.id))),p_actor);
-    UPDATE public.acct_fiscal_years SET filed_on=(p_command->>'filed_on')::date,filed_document_id=(p_command->>'document_id')::uuid,filed_snapshot_id=snapshot,version=version+1 WHERE year=v_year;
-    RETURN jsonb_build_object('id',v_id,'snapshot_id',snapshot);
-  ELSIF op='year.restatement.complete' THEN
-    SELECT * INTO restatement FROM public.acct_restatement_cases WHERE id=v_id AND status='open';
-    IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-    IF EXISTS(SELECT 1 FROM jsonb_array_elements_text(restatement.affected_periods) m WHERE NOT EXISTS(SELECT 1 FROM public.acct_periods p WHERE p.month_start=m.value::date AND p.is_locked)) THEN RAISE EXCEPTION 'ACCT_YEAR_CLOSE_REQUIRED'; END IF;
-    snapshot:=gen_random_uuid();proof:=public.acct_workspace(restatement.from_date,restatement.to_date);
-    INSERT INTO public.acct_report_snapshots(id,kind,from_date,to_date,revision,payload,created_by) VALUES(snapshot,'restatement',restatement.from_date,restatement.to_date,(proof->>'revision')::bigint,proof||jsonb_build_object('case',to_jsonb(restatement),'annual_reports',(SELECT jsonb_agg(public.acct_workspace(make_date(y,1,1),make_date(y,12,31))) FROM generate_series(extract(year FROM restatement.from_date)::integer,extract(year FROM restatement.to_date)::integer) y)),p_actor);
-    UPDATE public.acct_restatement_cases SET status='completed',replacement_snapshot_id=snapshot,version=version+1 WHERE id=v_id;
-    RETURN jsonb_build_object('id',v_id,'snapshot_id',snapshot);
-  END IF;
-  IF month IS NULL OR extract(day FROM month)<>1 THEN RAISE EXCEPTION 'ACCT_INVALID_RANGE'; END IF;
-  ending:=(month+INTERVAL '1 month -1 day')::date;
-  IF op='period.close' THEN
-    IF EXISTS(SELECT 1 FROM public.acct_periods WHERE month_start=month AND is_locked) THEN RAISE EXCEPTION 'ACCT_PERIOD_ALREADY_CLOSED'; END IF;
-    IF NOT EXISTS(SELECT 1 FROM public.acct_fiscal_years WHERE year=extract(year FROM month) AND classification<>'unverified') THEN RAISE EXCEPTION 'ACCT_YEAR_CLASSIFICATION_REQUIRED'; END IF;
-    proof:=public.acct_close_checklist(month);
-    IF NOT (proof->>'ready')::boolean THEN RAISE EXCEPTION 'ACCT_CLOSE_INCOMPLETE'; END IF;
-    INSERT INTO public.acct_periods(month_start) VALUES(month) ON CONFLICT DO NOTHING;
-    snapshot:=gen_random_uuid();
-    INSERT INTO public.acct_report_snapshots(id,kind,from_date,to_date,revision,payload,created_by) VALUES(snapshot,'close',month,ending,(proof->>'revision')::bigint,proof,p_actor);
-    INSERT INTO public.acct_close_records(id,month_start,snapshot_id,proof,created_by) VALUES(v_id,month,snapshot,proof,p_actor);
-    UPDATE public.acct_periods SET is_locked=true,reason='Completed month close' WHERE month_start=month;
-    RETURN jsonb_build_object('id',v_id,'snapshot_id',snapshot);
-  ELSIF op IN ('period.reopen','year.restatement.begin') THEN
-    IF length(btrim(coalesce(p_command->>'reason','')))=0 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
-    IF op='year.restatement.begin' THEN
-      IF EXISTS(SELECT 1 FROM public.acct_restatement_cases WHERE status='open') THEN RAISE EXCEPTION 'ACCT_RESTATEMENT_OPEN'; END IF;
-      SELECT min(year) INTO v_year FROM public.acct_fiscal_years WHERE filed_on IS NOT NULL AND year>=extract(year FROM month);
-      IF v_year IS NULL THEN RAISE EXCEPTION 'ACCT_FILED_YEAR_REQUIRED'; END IF;
-      IF NOT EXISTS(SELECT 1 FROM public.acct_document_states WHERE document_id=(p_command->>'document_id')::uuid AND state='available') THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE'; END IF;
-      SELECT (max(month_start)+INTERVAL '1 month -1 day')::date INTO ending FROM public.acct_periods WHERE is_locked AND month_start>=month;
-      INSERT INTO public.acct_restatement_cases(id,fiscal_year,from_date,to_date,reason,support_document_id,original_snapshot_id,affected_periods,filed_snapshots,external_return_review,return_review_explanation,created_by)
-      VALUES(v_id,v_year,month,ending,p_command->>'reason',(p_command->>'document_id')::uuid,(SELECT filed_snapshot_id FROM public.acct_fiscal_years WHERE year=v_year),(SELECT jsonb_agg(month_start ORDER BY month_start) FROM public.acct_periods WHERE is_locked AND month_start>=month),(SELECT jsonb_agg(to_jsonb(y) ORDER BY year) FROM public.acct_fiscal_years y WHERE filed_on IS NOT NULL AND year>=extract(year FROM month)),p_command->>'external_return_review',p_command->>'return_review_explanation',p_actor);
-    ELSIF EXISTS(SELECT 1 FROM public.acct_fiscal_years WHERE filed_on IS NOT NULL AND year>=extract(year FROM month)) THEN RAISE EXCEPTION 'ACCT_RESTATEMENT_REQUIRED'; END IF;
-    -- Earlier changes affect every later close's opening balances and reports.
-    FOR v_period IN SELECT month_start FROM public.acct_periods WHERE month_start>=month AND is_locked ORDER BY month_start LOOP
-      SELECT c.id INTO old_close FROM public.acct_close_records c WHERE c.month_start=v_period.month_start AND NOT EXISTS(SELECT 1 FROM public.acct_close_reopens r WHERE r.close_id=c.id) ORDER BY created_at DESC,id LIMIT 1;
-      IF old_close IS NULL THEN RAISE EXCEPTION 'ACCT_CLOSE_RECORD_MISSING'; END IF;
-      INSERT INTO public.acct_close_reopens(id,close_id,reason,created_by) VALUES(gen_random_uuid(),old_close,p_command->>'reason',p_actor);
-      UPDATE public.acct_periods SET is_locked=false,reason=p_command->>'reason' WHERE month_start=v_period.month_start;
-    END LOOP;
-    RETURN jsonb_build_object('id',v_id);
-  ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND'; END IF;
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_later_period_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-BEGIN
-  IF NEW.status='posted' AND EXISTS(SELECT 1 FROM public.acct_fiscal_years WHERE filed_on IS NOT NULL AND year>=extract(year FROM NEW.entry_date)) AND NOT EXISTS(SELECT 1 FROM public.acct_restatement_cases WHERE status='open' AND NEW.entry_date BETWEEN from_date AND to_date AND extract(year FROM to_date)>=(SELECT max(year) FROM public.acct_fiscal_years WHERE filed_on IS NOT NULL)) THEN RAISE EXCEPTION 'ACCT_RESTATEMENT_REQUIRED'; END IF;
-  IF NEW.status='posted' AND EXISTS(SELECT 1 FROM public.acct_periods WHERE is_locked AND month_start>date_trunc('month',NEW.entry_date)::date) THEN RAISE EXCEPTION 'ACCT_LATER_PERIOD_LOCKED'; END IF;
-  IF NEW.status='posted' AND EXISTS(SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_account_lifecycle a ON a.account_id=l.account_id WHERE l.entry_id=NEW.id AND (NEW.entry_date<a.opened_on OR NEW.entry_date>a.closed_on)) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_LIFECYCLE'; END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER acct_later_period_guard BEFORE UPDATE ON public.acct_journal_entries FOR EACH ROW EXECUTE FUNCTION public.acct_later_period_guard();
-CREATE OR REPLACE FUNCTION public.acct_close_period_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-BEGIN
- IF NEW.is_locked AND (TG_OP='INSERT' OR NOT OLD.is_locked) THEN
-  IF EXISTS(SELECT 1 FROM public.acct_close_records c JOIN public.acct_report_snapshots s ON s.id=c.snapshot_id JOIN public.acct_history_checks h ON h.id=(c.proof->>'history_check_id')::uuid WHERE c.month_start=NEW.month_start AND s.kind='historical_baseline' AND c.proof->>'kind'='historical_baseline' AND h.from_date<=NEW.month_start AND h.to_date>=(NEW.month_start+INTERVAL '1 month -1 day')::date AND public.acct_history_check_current(h.id) AND NOT EXISTS(SELECT 1 FROM public.acct_close_reopens WHERE close_id=c.id) AND (public.acct_history_preview(h.from_date,h.to_date,h.controls->'monthly',h.account_controls,h.controls->'totals')->>'ready')::boolean) THEN RETURN NEW; END IF;
-  IF NOT coalesce((public.acct_close_checklist(NEW.month_start)->>'ready')::boolean,false) OR NOT EXISTS(SELECT 1 FROM public.acct_close_records c WHERE c.month_start=NEW.month_start AND NOT EXISTS(SELECT 1 FROM public.acct_close_reopens r WHERE r.close_id=c.id)) THEN RAISE EXCEPTION 'ACCT_CLOSE_INCOMPLETE'; END IF;
- ELSIF TG_OP='UPDATE' AND OLD.is_locked AND NOT NEW.is_locked THEN
-  IF EXISTS(SELECT 1 FROM public.acct_fiscal_years WHERE filed_on IS NOT NULL AND year>=extract(year FROM NEW.month_start)) AND NOT EXISTS(SELECT 1 FROM public.acct_restatement_cases WHERE status='open' AND NEW.month_start BETWEEN from_date AND to_date AND extract(year FROM to_date)>=(SELECT max(year) FROM public.acct_fiscal_years WHERE filed_on IS NOT NULL)) THEN RAISE EXCEPTION 'ACCT_RESTATEMENT_REQUIRED'; END IF;
-  IF EXISTS(SELECT 1 FROM public.acct_close_records c WHERE c.month_start=NEW.month_start AND NOT EXISTS(SELECT 1 FROM public.acct_close_reopens r WHERE r.close_id=c.id)) THEN RAISE EXCEPTION 'ACCT_REOPEN_RECORD_REQUIRED'; END IF;
  END IF;
- RETURN NEW;
-END $$;
-CREATE TRIGGER acct_close_period_guard BEFORE INSERT OR UPDATE ON public.acct_periods FOR EACH ROW EXECUTE FUNCTION public.acct_close_period_guard();
+ RETURN NULL;
+END $function$
+;
 
-CREATE OR REPLACE FUNCTION public.acct_reconciliation_line_cleared(p_line uuid,p_cutoff date DEFAULT '2100-12-31',p_include uuid DEFAULT NULL) RETURNS numeric
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
- SELECT coalesce((SELECT sum(a.amount_cents) FROM public.acct_reconciliation_items a JOIN public.acct_statement_items i ON i.id=a.statement_item_id JOIN public.acct_reconciliations r ON r.id=i.reconciliation_id WHERE a.entry_line_id=p_line AND i.entry_date<=p_cutoff AND (r.status='completed' OR (r.id=p_include AND r.status='in_progress'))),0)
- +coalesce((SELECT sum(o.amount_cents) FROM public.acct_reconciliation_opening o JOIN public.acct_reconciliations r ON r.id=o.reconciliation_id WHERE o.entry_line_id=p_line AND r.from_date<=p_cutoff+1 AND (r.status='completed' OR (r.id=p_include AND r.status='in_progress'))),0);
-$$;
-CREATE OR REPLACE FUNCTION public.acct_reconciliation_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE v_reconciliation uuid;v_allocation uuid;r public.acct_reconciliations;item public.acct_statement_items;line public.acct_journal_lines;line_date date;used numeric;
+CREATE OR REPLACE FUNCTION accounting.bank_review(filter jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE result jsonb;observation accounting.bank_transactions;ledger_account uuid;selected_id uuid:=(filter->>'id')::uuid;matches jsonb;drafts jsonb;candidates jsonb;candidate_count integer;
 BEGIN
-  PERFORM public.acct_write_lock();
-  IF TG_TABLE_NAME='acct_reconciliations' THEN
-    IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE'; END IF;
-    IF TG_OP='UPDATE' THEN
-      IF NEW.id<>OLD.id OR NEW.account_id<>OLD.account_id OR NEW.created_by<>OLD.created_by OR NEW.created_at<>OLD.created_at THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY'; END IF;
-      IF OLD.status<>'in_progress' AND NOT(OLD.status='completed' AND NEW.status='superseded' AND (to_jsonb(NEW)-'status'-'version')=(to_jsonb(OLD)-'status'-'version')) THEN RAISE EXCEPTION 'ACCT_IMMUTABLE'; END IF;
-      NEW.version:=OLD.version+1;
-      IF NEW.status='completed' AND OLD.status='in_progress' THEN
-        IF (to_jsonb(NEW)-'status'-'version'-'proof'-'completed_at') IS DISTINCT FROM (to_jsonb(OLD)-'status'-'version'-'proof'-'completed_at') OR NOT coalesce((public.acct_reconciliation_proof(OLD.id)->>'ready')::boolean,false) THEN RAISE EXCEPTION 'ACCT_RECONCILIATION_INCOMPLETE'; END IF;
-      END IF;
-    ELSIF NEW.status<>'in_progress' THEN
-      RAISE EXCEPTION 'ACCT_RECONCILIATION_INCOMPLETE';
-    END IF;
-    RETURN NEW;
-  ELSIF TG_TABLE_NAME='acct_statement_items' THEN
-    v_reconciliation:=CASE WHEN TG_OP='DELETE' THEN OLD.reconciliation_id ELSE NEW.reconciliation_id END;
-    IF TG_OP='UPDATE' AND (NEW.id<>OLD.id OR NEW.reconciliation_id<>OLD.reconciliation_id) THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY'; END IF;
-  ELSIF TG_TABLE_NAME='acct_reconciliation_opening' THEN
-    v_reconciliation:=CASE WHEN TG_OP='DELETE' THEN OLD.reconciliation_id ELSE NEW.reconciliation_id END;
-  ELSE
-    SELECT * INTO item FROM public.acct_statement_items WHERE id=CASE WHEN TG_OP='DELETE' THEN OLD.statement_item_id ELSE NEW.statement_item_id END;
-    v_reconciliation:=item.reconciliation_id;
-    IF TG_OP<>'DELETE' THEN v_allocation:=NEW.id; END IF;
-    IF TG_OP='UPDATE' AND (NEW.id<>OLD.id OR NEW.statement_item_id<>OLD.statement_item_id OR NEW.entry_line_id<>OLD.entry_line_id) THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY'; END IF;
-  END IF;
-  SELECT * INTO r FROM public.acct_reconciliations WHERE id=v_reconciliation;
-  IF r.status IS DISTINCT FROM 'in_progress' THEN RAISE EXCEPTION 'ACCT_RECONCILIATION_FINAL'; END IF;
-  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
-  IF TG_TABLE_NAME='acct_statement_items' THEN
-    IF NEW.entry_date NOT BETWEEN r.from_date AND r.to_date OR NEW.ordinal>=r.declared_count THEN RAISE EXCEPTION 'ACCT_STATEMENT_SCOPE'; END IF;
-    RETURN NEW;
-  END IF;
-  SELECT * INTO line FROM public.acct_journal_lines WHERE id=NEW.entry_line_id;
-  SELECT entry_date INTO line_date FROM public.acct_journal_entries WHERE id=line.entry_id AND status='posted';
-  IF line.account_id IS DISTINCT FROM r.account_id OR line_date IS NULL OR line_date>r.to_date OR sign(NEW.amount_cents)<>sign(line.amount_cents) THEN RAISE EXCEPTION 'ACCT_RECONCILIATION_LINE'; END IF;
-  IF TG_TABLE_NAME='acct_reconciliation_opening' THEN
-    IF r.predecessor_id IS NOT NULL OR line_date>=r.from_date THEN RAISE EXCEPTION 'ACCT_OPENING_SCOPE'; END IF;
-  ELSE
-    IF sign(NEW.amount_cents)<>sign(item.amount_cents) OR line_date>item.entry_date THEN RAISE EXCEPTION 'ACCT_MATCH_AMOUNT'; END IF;
-    SELECT coalesce(sum(abs(a.amount_cents::numeric)),0) INTO used FROM public.acct_reconciliation_items a WHERE statement_item_id=item.id AND a.id<>NEW.id;
-    IF used+abs(NEW.amount_cents::numeric)>abs(item.amount_cents::numeric) THEN RAISE EXCEPTION 'ACCT_ALLOCATION_EXCEEDED'; END IF;
-  END IF;
-  SELECT coalesce(sum(abs(a.amount_cents::numeric)),0) INTO used FROM public.acct_reconciliation_items a JOIN public.acct_statement_items i ON i.id=a.statement_item_id JOIN public.acct_reconciliations s ON s.id=i.reconciliation_id WHERE a.entry_line_id=line.id AND s.status IN ('in_progress','completed') AND a.id IS DISTINCT FROM v_allocation;
-  SELECT used+coalesce(sum(abs(o.amount_cents::numeric)),0) INTO used FROM public.acct_reconciliation_opening o JOIN public.acct_reconciliations s ON s.id=o.reconciliation_id WHERE o.entry_line_id=line.id AND s.status IN ('in_progress','completed') AND (TG_TABLE_NAME<>'acct_reconciliation_opening' OR o.reconciliation_id<>v_reconciliation);
-  IF used+abs(NEW.amount_cents::numeric)>abs(line.amount_cents::numeric) THEN RAISE EXCEPTION 'ACCT_ALLOCATION_EXCEEDED'; END IF;
-  RETURN NEW;
-END $$;
-
-CREATE OR REPLACE FUNCTION public.acct_close_command(p_command jsonb,p_actor uuid) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE op text:=p_command->>'type';v_id uuid:=(p_command->>'id')::uuid;r public.acct_reconciliations;v_proof jsonb;x jsonb;v_amount bigint;line record;v_open numeric;
-BEGIN
-  PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
-  IF op='reconciliation.create' THEN
-    IF NOT EXISTS(SELECT 1 FROM public.acct_account_profiles WHERE account_id=(p_command->>'account_id')::uuid AND cash_kind IN ('bank','card','cash')) THEN RAISE EXCEPTION 'ACCT_BANK_ACCOUNT_REQUIRED'; END IF;
-    IF NOT EXISTS(SELECT 1 FROM public.acct_document_states WHERE document_id=(p_command->>'document_id')::uuid AND state='available') THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE'; END IF;
-    IF EXISTS(SELECT 1 FROM public.acct_reconciliations WHERE account_id=(p_command->>'account_id')::uuid AND status IN ('in_progress','completed') AND from_date<=(p_command->>'to')::date AND to_date>=(p_command->>'from')::date) THEN RAISE EXCEPTION 'ACCT_STATEMENT_OVERLAP'; END IF;
-    IF nullif(p_command->>'predecessor_id','') IS NOT NULL THEN
-      IF NOT EXISTS(SELECT 1 FROM public.acct_reconciliations WHERE id=(p_command->>'predecessor_id')::uuid AND status='completed' AND account_id=(p_command->>'account_id')::uuid AND to_date=(p_command->>'from')::date-1 AND ending_cents=(p_command->>'opening_cents')::bigint) THEN RAISE EXCEPTION 'ACCT_STATEMENT_PREDECESSOR'; END IF;
-    ELSIF EXISTS(SELECT 1 FROM public.acct_reconciliations WHERE account_id=(p_command->>'account_id')::uuid AND status='completed') THEN RAISE EXCEPTION 'ACCT_STATEMENT_PREDECESSOR'; END IF;
-    INSERT INTO public.acct_reconciliations(id,account_id,from_date,to_date,opening_cents,ending_cents,declared_count,declared_debits_cents,declared_credits_cents,predecessor_id,document_id,notes,created_by)
-    VALUES(v_id,(p_command->>'account_id')::uuid,(p_command->>'from')::date,(p_command->>'to')::date,(p_command->>'opening_cents')::bigint,(p_command->>'ending_cents')::bigint,(p_command->>'declared_count')::integer,(p_command->>'declared_debits_cents')::bigint,(p_command->>'declared_credits_cents')::bigint,nullif(p_command->>'predecessor_id','')::uuid,(p_command->>'document_id')::uuid,coalesce(p_command->>'notes',''),p_actor);
-    RETURN jsonb_build_object('id',v_id,'version',1);
-  END IF;
-  SELECT * INTO r FROM public.acct_reconciliations WHERE id=v_id;
-  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-  IF r.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-  IF op='reconciliation.reopen' THEN
-    IF r.status<>'completed' OR length(btrim(coalesce(p_command->>'reason','')))=0 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
-    IF EXISTS(SELECT 1 FROM public.acct_periods WHERE is_locked AND month_start>=date_trunc('month',r.from_date)::date) THEN RAISE EXCEPTION 'ACCT_LATER_PERIOD_LOCKED'; END IF;
-    INSERT INTO public.acct_reconciliation_supersessions(reconciliation_id,reason,created_by) SELECT id,p_command->>'reason',p_actor FROM public.acct_reconciliations WHERE account_id=r.account_id AND status='completed' AND to_date>=r.to_date;
-    UPDATE public.acct_reconciliations SET status='superseded' WHERE account_id=r.account_id AND status='completed' AND to_date>=r.to_date;
-    RETURN jsonb_build_object('id',v_id,'version',r.version+1);
-  END IF;
-  IF r.status<>'in_progress' THEN RAISE EXCEPTION 'ACCT_RECONCILIATION_FINAL'; END IF;
-  IF op='reconciliation.cancel' THEN
-    IF length(btrim(coalesce(p_command->>'reason','')))=0 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
-    UPDATE public.acct_reconciliations SET status='cancelled',notes=notes||E'\nCancelled: '||(p_command->>'reason'),proof=public.acct_reconciliation_proof(v_id) WHERE id=v_id;
-    RETURN jsonb_build_object('id',v_id,'version',r.version+1);
-  ELSIF op='reconciliation.item.remove' THEN
-    IF EXISTS(SELECT 1 FROM public.acct_reconciliation_items WHERE statement_item_id=(p_command->>'item_id')::uuid) THEN RAISE EXCEPTION 'ACCT_UNMATCH_FIRST'; END IF;
-    DELETE FROM public.acct_statement_items WHERE id=(p_command->>'item_id')::uuid AND reconciliation_id=v_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-  ELSIF op='reconciliation.items' THEN
-    IF jsonb_typeof(p_command->'items') IS DISTINCT FROM 'array' OR jsonb_array_length(p_command->'items') NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
-    FOR x IN SELECT value FROM jsonb_array_elements(p_command->'items') LOOP
-      INSERT INTO public.acct_statement_items(id,reconciliation_id,ordinal,entry_date,description,amount_cents) VALUES((x->>'id')::uuid,v_id,(x->>'ordinal')::integer,(x->>'entry_date')::date,x->>'description',(x->>'amount_cents')::bigint);
-    END LOOP;
-  ELSIF op='reconciliation.opening' THEN
-    IF r.predecessor_id IS NOT NULL OR (p_command->>'reviewed')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'ACCT_OPENING_SCOPE'; END IF;
-    IF (p_command->>'expected_revision')::bigint IS DISTINCT FROM (SELECT financial_revision FROM public.acct_settings) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-    IF jsonb_typeof(p_command->'outstanding') IS DISTINCT FROM 'array' OR jsonb_array_length(p_command->'outstanding')>1000 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
-    IF (SELECT count(*) FROM jsonb_array_elements(p_command->'outstanding'))<>(SELECT count(DISTINCT value->>'line_id') FROM jsonb_array_elements(p_command->'outstanding')) THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
-    FOR x IN SELECT value FROM jsonb_array_elements(p_command->'outstanding') LOOP
-      IF NOT EXISTS(SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.id=(x->>'line_id')::uuid AND l.account_id=r.account_id AND e.status='posted' AND e.entry_date<r.from_date AND sign(l.amount_cents)=sign((x->>'amount_cents')::bigint) AND abs((x->>'amount_cents')::numeric)<=abs(l.amount_cents::numeric)) THEN RAISE EXCEPTION 'ACCT_OPENING_SCOPE'; END IF;
-    END LOOP;
-    DELETE FROM public.acct_reconciliation_opening WHERE reconciliation_id=v_id;
-    FOR line IN SELECT l.* FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.account_id=r.account_id AND e.status='posted' AND e.entry_date<r.from_date LOOP
-      SELECT line.amount_cents-coalesce((SELECT (value->>'amount_cents')::bigint FROM jsonb_array_elements(p_command->'outstanding') WHERE (value->>'line_id')::uuid=line.id),0) INTO v_amount;
-      IF v_amount<>0 THEN INSERT INTO public.acct_reconciliation_opening VALUES(v_id,line.id,v_amount); END IF;
-    END LOOP;
-    SELECT coalesce(sum(amount_cents),0) INTO v_open FROM public.acct_reconciliation_opening WHERE reconciliation_id=v_id;
-    IF v_open<>r.opening_cents THEN RAISE EXCEPTION 'ACCT_OPENING_DIFFERENCE'; END IF;
-  ELSIF op='reconciliation.allocate' THEN
-    IF jsonb_typeof(p_command->'allocations') IS DISTINCT FROM 'array' OR jsonb_array_length(p_command->'allocations') NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
-    FOR x IN SELECT value FROM jsonb_array_elements(p_command->'allocations') LOOP
-      IF NOT EXISTS(SELECT 1 FROM public.acct_statement_items WHERE id=(x->>'statement_item_id')::uuid AND reconciliation_id=v_id) THEN RAISE EXCEPTION 'ACCT_STATEMENT_SCOPE'; END IF;
-      INSERT INTO public.acct_reconciliation_items(id,statement_item_id,entry_line_id,amount_cents) VALUES((x->>'id')::uuid,(x->>'statement_item_id')::uuid,(x->>'entry_line_id')::uuid,(x->>'amount_cents')::bigint);
-    END LOOP;
-  ELSIF op='reconciliation.unmatch' THEN
-    DELETE FROM public.acct_reconciliation_items a USING public.acct_statement_items i WHERE a.id=(p_command->>'allocation_id')::uuid AND i.id=a.statement_item_id AND i.reconciliation_id=v_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-  ELSIF op='reconciliation.complete' THEN
-    v_proof:=public.acct_reconciliation_proof(v_id);
-    IF NOT (v_proof->>'ready')::boolean THEN RAISE EXCEPTION 'ACCT_RECONCILIATION_INCOMPLETE'; END IF;
-    IF NOT EXISTS(SELECT 1 FROM public.acct_document_states WHERE document_id=r.document_id AND state='available') THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE'; END IF;
-    IF EXISTS(SELECT 1 FROM public.acct_import_groups g JOIN public.acct_import_batches b ON b.id=g.batch_id WHERE g.bank_account_id=r.account_id AND g.entry_date BETWEEN r.from_date AND r.to_date AND g.status IN ('review','exception','new')) THEN RAISE EXCEPTION 'ACCT_IMPORT_INCOMPLETE'; END IF;
-    UPDATE public.acct_reconciliations SET status='completed',completed_at=now(),proof=v_proof||jsonb_build_object(
-      'statement_items',(SELECT coalesce(jsonb_agg(to_jsonb(i)||jsonb_build_object('amount_cents',i.amount_cents::text) ORDER BY ordinal),'[]') FROM public.acct_statement_items i WHERE reconciliation_id=v_id),
-      'allocations',(SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('amount_cents',a.amount_cents::text)),'[]') FROM public.acct_reconciliation_items a JOIN public.acct_statement_items i ON i.id=a.statement_item_id WHERE i.reconciliation_id=v_id),
-      'opening',(SELECT coalesce(jsonb_agg(to_jsonb(o)||jsonb_build_object('amount_cents',o.amount_cents::text)),'[]') FROM public.acct_reconciliation_opening o WHERE reconciliation_id=v_id)) WHERE id=v_id;
-    RETURN jsonb_build_object('id',v_id,'version',r.version+1);
-  ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND'; END IF;
-  UPDATE public.acct_reconciliations SET notes=notes WHERE id=v_id;
-  RETURN jsonb_build_object('id',v_id,'version',r.version+1);
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_operate(p_key uuid,p_command jsonb) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE actor uuid:=public.acct_require_owner();receipt public.acct_command_receipts;result jsonb;original public.acct_journal_entries;reversal jsonb;replacement jsonb;
-BEGIN
-  IF p_key IS NULL OR p_command IS NULL OR octet_length(p_command::text)>1000000 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
-  PERFORM public.acct_write_lock();actor:=public.acct_require_owner();
-  SELECT * INTO receipt FROM public.acct_command_receipts WHERE id=p_key;
-  IF FOUND THEN
-    IF receipt.actor_id<>actor OR receipt.payload<>p_command THEN RAISE EXCEPTION 'ACCT_IDEMPOTENCY_CONFLICT'; END IF;
-    RETURN receipt.result;
-  END IF;
-  PERFORM set_config('acct.operation_id',p_key::text,true);
-  IF p_command->>'type'='import.cancel' AND EXISTS(SELECT 1 FROM public.acct_import_batches WHERE id=(p_command->>'id')::uuid AND (status='completed' OR coverage_verified)) THEN RAISE EXCEPTION 'ACCT_IMPORT_FINAL'; END IF;
-  IF p_command->>'type'='entry.correct' THEN
-    SELECT * INTO original FROM public.acct_journal_entries WHERE id=(p_command->>'id')::uuid;
-    IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-    PERFORM public.acct_validate_template(p_command->'lines');
-    reversal:=public.acct_command(gen_random_uuid(),jsonb_build_object('type','entry.reverse','id',original.id,'expected_version',p_command->'expected_version','entry_date',coalesce(p_command->>'reversal_date',original.entry_date::text),'reason',p_command->'reason'));
-    replacement:=public.acct_command(gen_random_uuid(),jsonb_build_object('type','draft.save','id',p_command->'replacement_id','expected_version',0,'entry_date',p_command->'entry_date','memo',p_command->'memo','lines',p_command->'lines'));
-    INSERT INTO public.acct_entry_context SELECT (replacement->>'id')::uuid,kind,payee_id,customer_id,project_id,business_line_id,payment_rail,contractor_treatment,contractor_reason FROM public.acct_entry_context WHERE entry_id=original.id;
-    IF EXISTS(SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_account_profiles p ON p.account_id=l.account_id WHERE l.entry_id=(replacement->>'id')::uuid AND p.purpose='opening_retained_earnings') THEN
-     PERFORM public.acct_retained_review((replacement->>'id')::uuid,'correction',(p_command->'retained_review'->>'document_id')::uuid,p_command->'retained_review'->'controls',p_command->>'reason',actor,original.id);
-    END IF;
-    replacement:=public.acct_command(gen_random_uuid(),jsonb_build_object('type','entry.post','id',replacement->'id','expected_version',replacement->'version'));
-    INSERT INTO public.acct_entry_corrections(original_entry_id,reversal_entry_id,replacement_entry_id,reason,created_by) VALUES(original.id,(reversal->>'id')::uuid,(replacement->>'id')::uuid,p_command->>'reason',actor);
-    result:=jsonb_build_object('id',replacement->'id','version',replacement->'version','reversal_id',reversal->'id','original_id',original.id);
-  ELSIF p_command->>'type' LIKE 'feed.%' THEN result:=public.acct_feed_command(p_command,actor);
-  ELSIF p_command->>'type' LIKE 'rule.%' OR p_command->>'type'='alias.save' THEN result:=public.acct_rules_command(p_command,actor);
-  ELSIF p_command->>'type' LIKE 'statement.%' THEN result:=public.acct_statement_command(p_command,actor);
-  ELSIF p_command->>'type'='retained.post' THEN result:=public.acct_retained_command(p_command,actor);
-  ELSIF p_command->>'type' LIKE 'bank.%' THEN result:=public.acct_bank_command(p_command,actor);
-  ELSIF p_command->>'type' LIKE 'transfer.%' THEN result:=public.acct_transfer_command(p_command,actor);
-  ELSIF p_command->>'type' LIKE 'history.%' OR p_command->>'type'='import.resume' THEN result:=public.acct_history_command(p_command,actor);
-  ELSIF p_command->>'type' LIKE 'reconciliation.%' THEN result:=public.acct_close_command(p_command,actor);
-  ELSIF p_command->>'type'='account.lifecycle' THEN result:=public.acct_lifecycle_command(p_command,actor);
-  ELSIF p_command->>'type' LIKE 'clearing.%' THEN result:=public.acct_clearing_command(p_command,actor);
-  ELSIF p_command->>'type' LIKE 'period.%' OR p_command->>'type' LIKE 'year.%' THEN result:=public.acct_period_command(p_command,actor);
-  ELSE RETURN public.acct_execute(p_key,p_command); END IF;
-  PERFORM set_config('acct.operation_id',p_key::text,true);
-  IF p_command->>'type' NOT LIKE 'feed.%' OR p_command->>'type'='feed.prepare' THEN UPDATE public.acct_settings SET financial_revision=financial_revision+1 WHERE singleton; END IF;
-  INSERT INTO public.acct_command_receipts(id,actor_id,payload,result) VALUES(p_key,actor,p_command,result);
-  RETURN result;
-END $$;
-CREATE TRIGGER acct_reconciliation_guard BEFORE INSERT OR UPDATE OR DELETE ON public.acct_reconciliations FOR EACH ROW EXECUTE FUNCTION public.acct_reconciliation_guard();
-CREATE TRIGGER acct_reconciliation_guard BEFORE INSERT OR UPDATE OR DELETE ON public.acct_statement_items FOR EACH ROW EXECUTE FUNCTION public.acct_reconciliation_guard();
-CREATE TRIGGER acct_reconciliation_guard BEFORE INSERT OR UPDATE OR DELETE ON public.acct_reconciliation_items FOR EACH ROW EXECUTE FUNCTION public.acct_reconciliation_guard();
-CREATE TRIGGER acct_reconciliation_guard BEFORE INSERT OR UPDATE OR DELETE ON public.acct_reconciliation_opening FOR EACH ROW EXECUTE FUNCTION public.acct_reconciliation_guard();
-
-CREATE OR REPLACE FUNCTION public.acct_reconciliation_proof(p_id uuid) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-DECLARE r public.acct_reconciliations;item_count integer;debits numeric;credits numeric;unmatched integer;opening numeric;book numeric;outstanding numeric;rows jsonb;
-BEGIN
-  PERFORM public.acct_require_owner();SELECT * INTO r FROM public.acct_reconciliations WHERE id=p_id;
-  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-  SELECT count(*),coalesce(sum(amount_cents) FILTER(WHERE amount_cents>0),0),coalesce(-sum(amount_cents) FILTER(WHERE amount_cents<0),0) INTO item_count,debits,credits FROM public.acct_statement_items WHERE reconciliation_id=p_id;
-  SELECT count(*) INTO unmatched FROM public.acct_statement_items i WHERE reconciliation_id=p_id AND i.amount_cents<>(SELECT coalesce(sum(amount_cents),0) FROM public.acct_reconciliation_items WHERE statement_item_id=i.id);
-  IF r.predecessor_id IS NOT NULL THEN SELECT ending_cents INTO opening FROM public.acct_reconciliations WHERE id=r.predecessor_id AND status='completed' AND account_id=r.account_id AND to_date=r.from_date-1;
-  ELSE SELECT coalesce(sum(amount_cents),0) INTO opening FROM public.acct_reconciliation_opening WHERE reconciliation_id=p_id; END IF;
-  WITH amounts AS (
-    SELECT l.id,l.entry_id,e.entry_date,e.memo,l.amount_cents,l.amount_cents-public.acct_reconciliation_line_cleared(l.id,r.to_date,p_id) AS residual
-    FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.account_id=r.account_id AND e.status='posted' AND e.entry_date<=r.to_date
-  ) SELECT coalesce(sum(amount_cents),0),coalesce(sum(residual),0),coalesce(jsonb_agg(jsonb_build_object('line_id',id,'entry_id',entry_id,'entry_date',entry_date,'memo',memo,'amount_cents',amount_cents::text,'outstanding_cents',residual::text) ORDER BY entry_date,id) FILTER(WHERE residual<>0),'[]') INTO book,outstanding,rows FROM amounts;
-  RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM public.acct_settings),'item_count',item_count,'declared_count',r.declared_count,'debits_cents',debits::text,'credits_cents',credits::text,'unmatched_items',unmatched,
-    'opening_difference_cents',(opening-r.opening_cents)::text,'statement_difference_cents',(r.opening_cents+debits-credits-r.ending_cents)::text,
-    'book_balance_cents',book::text,'outstanding_cents',outstanding::text,'bridge_difference_cents',(book-outstanding-r.ending_cents)::text,'outstanding',rows,
-    'ready',opening IS NOT NULL AND opening=r.opening_cents AND item_count=r.declared_count AND debits=r.declared_debits_cents AND credits=r.declared_credits_cents AND unmatched=0 AND r.opening_cents+debits-credits=r.ending_cents AND book-outstanding=r.ending_cents);
-END $$;
-
-CREATE OR REPLACE FUNCTION public.acct_reconciliation_view(p_id uuid DEFAULT NULL,p_account uuid DEFAULT NULL,p_offset integer DEFAULT 0,p_query text DEFAULT '') RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-DECLARE r public.acct_reconciliations;v_items jsonb;v_lines jsonb;v_count integer;
-BEGIN
-  PERFORM public.acct_require_owner();
-  IF p_offset<0 OR length(p_query)>200 THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER'; END IF;
-  IF p_id IS NOT NULL THEN SELECT * INTO r FROM public.acct_reconciliations WHERE id=p_id;IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;END IF;
-  SELECT coalesce(jsonb_agg(to_jsonb(x) ORDER BY ordinal),'[]') INTO v_items FROM (
-    SELECT i.id,i.ordinal,i.entry_date,i.description,i.amount_cents::text,
-      (i.amount_cents-(SELECT coalesce(sum(amount_cents),0) FROM public.acct_reconciliation_items WHERE statement_item_id=i.id))::text AS remaining_cents,
-      (SELECT coalesce(jsonb_agg(jsonb_build_object('id',a.id,'entry_line_id',a.entry_line_id,'entry_id',l.entry_id,'amount_cents',a.amount_cents::text,'memo',e.memo)),'[]') FROM public.acct_reconciliation_items a JOIN public.acct_journal_lines l ON l.id=a.entry_line_id JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE a.statement_item_id=i.id) AS allocations
-    FROM public.acct_statement_items i WHERE reconciliation_id=p_id ORDER BY ordinal LIMIT 100 OFFSET p_offset
-  ) x;
-  WITH candidates AS (
-    SELECT l.id,l.entry_id,e.entry_date,e.memo,l.amount_cents::text,
-      (l.amount_cents-public.acct_reconciliation_line_cleared(l.id,coalesce(r.to_date,'2100-12-31'::date),p_id))::text AS remaining_cents,
-      (l.amount_cents-coalesce((SELECT sum(a.amount_cents) FROM public.acct_reconciliation_items a JOIN public.acct_statement_items i ON i.id=a.statement_item_id JOIN public.acct_reconciliations s ON s.id=i.reconciliation_id WHERE a.entry_line_id=l.id AND s.status IN ('in_progress','completed')),0)-coalesce((SELECT sum(o.amount_cents) FROM public.acct_reconciliation_opening o JOIN public.acct_reconciliations s ON s.id=o.reconciliation_id WHERE o.entry_line_id=l.id AND s.status IN ('in_progress','completed')),0))::text AS available_cents
-    FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.account_id=coalesce(r.account_id,p_account) AND e.status='posted' AND (r.to_date IS NULL OR e.entry_date<=r.to_date) AND (p_query='' OR e.memo ILIKE '%'||p_query||'%' OR e.entry_date::text=p_query)
-  ), page AS(SELECT * FROM candidates ORDER BY entry_date,id LIMIT 100 OFFSET p_offset)
-  SELECT coalesce((SELECT jsonb_agg(to_jsonb(x) ORDER BY entry_date,id) FROM page x),'[]'),(SELECT count(*) FROM candidates) INTO v_lines,v_count;
-  RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM public.acct_settings),
-    'statements',(SELECT coalesce(jsonb_agg(to_jsonb(x)||jsonb_build_object('opening_cents',x.opening_cents::text,'ending_cents',x.ending_cents::text,'declared_debits_cents',x.declared_debits_cents::text,'declared_credits_cents',x.declared_credits_cents::text) ORDER BY to_date DESC,id),'[]') FROM (SELECT * FROM public.acct_reconciliations WHERE p_account IS NULL OR account_id=p_account ORDER BY to_date DESC,id LIMIT 200) x),
-    'statement',CASE WHEN r.id IS NULL THEN NULL ELSE to_jsonb(r)||jsonb_build_object('opening_cents',r.opening_cents::text,'ending_cents',r.ending_cents::text,'declared_debits_cents',r.declared_debits_cents::text,'declared_credits_cents',r.declared_credits_cents::text) END,
-    'items',v_items,'item_count',(SELECT count(*) FROM public.acct_statement_items WHERE reconciliation_id=p_id),'lines',v_lines,'line_count',v_count,
-    'next_ordinal',(SELECT min(n) FROM generate_series(0,r.declared_count-1) n WHERE NOT EXISTS(SELECT 1 FROM public.acct_statement_items WHERE reconciliation_id=p_id AND ordinal=n)),
-    'proof',CASE WHEN r.id IS NULL THEN NULL WHEN r.status='in_progress' THEN public.acct_reconciliation_proof(r.id) ELSE r.proof END,
-    'opening_book_cents',(SELECT coalesce(sum(l.amount_cents),0)::text FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.account_id=r.account_id AND e.status='posted' AND e.entry_date<r.from_date));
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_reconciliation_posting_changed() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-BEGIN
-  IF NEW.status='posted' AND OLD.status='draft' THEN
-    INSERT INTO public.acct_history_invalidations(check_id,entry_id) SELECT id,NEW.id FROM public.acct_history_checks WHERE to_date>=NEW.entry_date ON CONFLICT DO NOTHING;
-    UPDATE public.acct_import_batches SET coverage_verified=false WHERE coverage_verified AND to_date>=NEW.entry_date;
-    INSERT INTO public.acct_reconciliation_supersessions(reconciliation_id,reason,created_by)
-    SELECT r.id,'A later posting changed the books within this statement scope',NEW.created_by FROM public.acct_reconciliations r WHERE r.status='completed' AND r.to_date>=NEW.entry_date AND EXISTS(SELECT 1 FROM public.acct_journal_lines WHERE entry_id=NEW.id AND account_id=r.account_id) ON CONFLICT DO NOTHING;
-    UPDATE public.acct_reconciliations r SET status='superseded' WHERE r.status='completed' AND r.to_date>=NEW.entry_date AND EXISTS(SELECT 1 FROM public.acct_journal_lines WHERE entry_id=NEW.id AND account_id=r.account_id);
-  END IF;
-  RETURN NULL;
-END $$;
-CREATE TRIGGER acct_reconciliation_posting_changed AFTER UPDATE ON public.acct_journal_entries FOR EACH ROW EXECUTE FUNCTION public.acct_reconciliation_posting_changed();
-CREATE OR REPLACE FUNCTION public.acct_document_statement_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-BEGIN
-  IF NEW.state='archived' AND OLD.state<>'archived' AND (
-    EXISTS(SELECT 1 FROM public.acct_reconciliations WHERE document_id=NEW.document_id)
-    OR EXISTS(SELECT 1 FROM public.acct_fiscal_years WHERE filed_document_id=NEW.document_id)
-    OR EXISTS(SELECT 1 FROM public.acct_restatement_cases WHERE support_document_id=NEW.document_id)
-    OR EXISTS(SELECT 1 FROM public.acct_history_checks WHERE source_document_id=NEW.document_id)
-    OR EXISTS(SELECT 1 FROM public.acct_obligation_reviews WHERE document_id=NEW.document_id)
-    OR EXISTS(SELECT 1 FROM public.acct_account_lifecycle WHERE closure_document_id=NEW.document_id)
-  ) THEN RAISE EXCEPTION 'ACCT_DOCUMENT_LINKED'; END IF;
-  RETURN NEW;
-END $$;
-CREATE TRIGGER acct_document_statement_guard BEFORE UPDATE ON public.acct_document_states FOR EACH ROW EXECUTE FUNCTION public.acct_document_statement_guard();
-
-DO $$ DECLARE t text; BEGIN
-  FOREACH t IN ARRAY ARRAY['acct_reconciliations','acct_reconciliation_supersessions','acct_statement_items','acct_reconciliation_items','acct_reconciliation_opening','acct_account_lifecycle','acct_close_records','acct_close_reopens','acct_fiscal_years','acct_restatement_cases','acct_history_checks','acct_history_invalidations'] LOOP
-    EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t);
-    EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC,anon,authenticated,service_role',t);
-    EXECUTE format('CREATE TRIGGER acct_statement_lock BEFORE INSERT OR UPDATE OR DELETE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION public.acct_lock_statement()',t);
-    EXECUTE format('CREATE TRIGGER acct_audit AFTER INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.acct_record_workflow_audit()',t);
-  END LOOP;
-END $$;
-CREATE TRIGGER acct_close_immutable BEFORE UPDATE OR DELETE ON public.acct_close_records FOR EACH ROW EXECUTE FUNCTION public.acct_append_only();
-CREATE TRIGGER acct_reopen_immutable BEFORE UPDATE OR DELETE ON public.acct_close_reopens FOR EACH ROW EXECUTE FUNCTION public.acct_append_only();
-CREATE TRIGGER acct_reconciliation_supersession_immutable BEFORE UPDATE OR DELETE ON public.acct_reconciliation_supersessions FOR EACH ROW EXECUTE FUNCTION public.acct_append_only();
-CREATE TRIGGER acct_history_check_immutable BEFORE UPDATE OR DELETE ON public.acct_history_checks FOR EACH ROW EXECUTE FUNCTION public.acct_append_only();
-CREATE TRIGGER acct_history_invalidation_immutable BEFORE UPDATE OR DELETE ON public.acct_history_invalidations FOR EACH ROW EXECUTE FUNCTION public.acct_append_only();
-REVOKE ALL ON FUNCTION public.acct_reconciliation_line_cleared(uuid,date,uuid),public.acct_reconciliation_guard(),public.acct_reconciliation_proof(uuid) FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION public.acct_close_command(jsonb,uuid),public.acct_operate(uuid,jsonb) FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION public.acct_reconciliation_view(uuid,uuid,integer,text),public.acct_reconciliation_posting_changed() FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION public.acct_document_statement_guard() FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION public.acct_close_checklist(date),public.acct_period_impact(date),public.acct_period_command(jsonb,uuid),public.acct_later_period_guard(),public.acct_close_period_guard() FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION public.acct_close_history(),public.acct_snapshot_read(uuid) FROM PUBLIC,anon,authenticated,service_role;
-REVOKE ALL ON FUNCTION public.acct_lifecycle_command(jsonb,uuid) FROM PUBLIC,anon,authenticated,service_role;
-CREATE OR REPLACE FUNCTION public.acct_books_backup() RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-DECLARE result jsonb;section text;rows jsonb;
-BEGIN
- PERFORM public.acct_require_owner();result:=public.acct_books_export()||jsonb_build_object('version',9,'credential_recovery','SimpleFIN access credentials are excluded. Restore the separate recovery keys and reconnect before enabling any bank worker.');
- FOREACH section IN ARRAY ARRAY['reconciliations','reconciliation_supersessions','statement_items','reconciliation_items','reconciliation_opening','account_lifecycle','close_records','close_reopens','fiscal_years','restatement_cases','history_checks','history_invalidations','clearing_allocations','clearing_releases','obligation_reviews','transfer_groups','history_dispositions','history_review_invalidations','bank_match_releases','retained_reviews','statement_files','statement_item_sources','statement_amendments','rules','rule_versions','payee_aliases','rule_applications','feed_connections','feed_claims','feed_accounts','feed_identities','feed_runs','feed_requests','feed_windows','feed_observations','feed_import_links','feed_gaps'] LOOP
-  EXECUTE format('SELECT coalesce(jsonb_agg((SELECT jsonb_object_agg(key,CASE WHEN (key LIKE ''%%_cents'' OR key IN (''revision'',''financial_revision'')) AND value<>''null''::jsonb THEN to_jsonb(value#>>''{}'') ELSE value END) FROM jsonb_each(to_jsonb(x))) ORDER BY to_jsonb(x)::text),''[]'') FROM public.%I x','acct_'||section) INTO rows;
-  result:=result||jsonb_build_object(section,rows);
- END LOOP;
+ PERFORM accounting.require_owner();
+ IF selected_id IS NOT NULL THEN
+  SELECT * INTO observation FROM accounting.bank_transactions WHERE id=selected_id;
+  IF NOT FOUND THEN SELECT o.* INTO observation FROM accounting.import_rows r JOIN accounting.bank_accounts b ON b.account_id=(r.parsed->>'bank_account_id')::uuid JOIN accounting.bank_transactions o ON o.bank_account_id=b.id AND o.external_id=r.external_id WHERE r.id=selected_id;END IF;
+  IF observation.id IS NULL THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;
+  SELECT account_id INTO ledger_account FROM accounting.bank_accounts WHERE id=observation.bank_account_id;
+  SELECT coalesce(jsonb_agg(jsonb_build_object('id',m.id,'entry_id',e.id,'entry_date',e.entry_date,'memo',e.memo,'amount_cents',m.amount_cents::text,'release',NULL)),'[]') INTO matches FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE m.bank_transaction_id=observation.id;
+  SELECT coalesce(jsonb_agg(accounting.entry_detail(id)),'[]') INTO drafts FROM accounting.journal_entries e WHERE e.status='draft' AND EXISTS(SELECT 1 FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id WHERE l.entry_id=e.id AND m.bank_transaction_id=observation.id);
+  WITH matching AS(SELECT l.id line_id,e.id entry_id,e.entry_date,e.memo,l.amount_cents::text amount_cents,(abs(l.amount_cents::numeric)-coalesce((SELECT sum(amount_cents) FROM accounting.bank_matches WHERE journal_line_id=l.id),0))::text available_cents,abs(e.entry_date-observation.posted_date) days_apart
+   FROM accounting.journal_lines l JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE l.account_id=ledger_account AND e.status='posted' AND e.reverses_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries WHERE reverses_entry_id=e.id) AND sign(l.amount_cents)=sign(observation.amount_cents) AND abs(e.entry_date-observation.posted_date)<=(SELECT transfer_window_days FROM accounting.settings) AND (filter->>'query' IS NULL OR e.memo ILIKE '%'||(filter->>'query')||'%')),
+  eligible AS(SELECT * FROM matching WHERE available_cents::numeric>0),paged AS(SELECT * FROM eligible ORDER BY days_apart,entry_date,line_id LIMIT 50 OFFSET coalesce((filter->>'offset')::integer,0))
+  SELECT (SELECT count(*) FROM eligible),(SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY days_apart,entry_date,line_id),'[]') FROM paged p) INTO candidate_count,candidates;
+  RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'source_conflict',EXISTS(SELECT 1 FROM accounting.import_rows WHERE id=selected_id AND status='exception'),'remaining_cents',CASE WHEN observation.review='matched' THEN '0' ELSE (abs(observation.amount_cents::numeric)-coalesce((SELECT sum(amount_cents) FROM accounting.bank_matches WHERE bank_transaction_id=observation.id),0))::text END,
+   'total',candidate_count,'group',jsonb_build_object('id',selected_id,'bank_transaction_id',observation.id,'entry_date',observation.posted_date,'memo',observation.description,'bank_amount_cents',observation.amount_cents::text,'account_name',(SELECT name FROM accounting.accounts WHERE id=ledger_account),'source_system',observation.source,'source_scope',ledger_account::text,'status',observation.review),'drafts',drafts,'candidates',candidates,'matches',matches);
+ END IF;
+ SELECT jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'transactions',coalesce(jsonb_agg(to_jsonb(o)||jsonb_build_object('amount_cents',o.amount_cents::text,
+  'matches',(SELECT coalesce(jsonb_agg(to_jsonb(m)||jsonb_build_object('amount_cents',m.amount_cents::text)),'[]') FROM accounting.bank_matches m WHERE m.bank_transaction_id=o.id)) ORDER BY o.posted_date DESC,o.id),'[]')) INTO result
+ FROM (SELECT * FROM accounting.bank_transactions WHERE (filter->>'bank_account_id' IS NULL OR bank_account_id=(filter->>'bank_account_id')::uuid) ORDER BY posted_date DESC,id LIMIT 100 OFFSET coalesce((filter->>'offset')::integer,0)) o;
  RETURN result;
-END $$;
-REVOKE ALL ON FUNCTION public.acct_books_backup() FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.acct_books_backup() TO authenticated;
-GRANT EXECUTE ON FUNCTION public.acct_close_history(),public.acct_snapshot_read(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.acct_reconciliation_proof(uuid) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.acct_operate(uuid,jsonb) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.acct_reconciliation_view(uuid,uuid,integer,text) TO authenticated;
-GRANT EXECUTE ON FUNCTION public.acct_close_checklist(date),public.acct_period_impact(date) TO authenticated;
--- ACCOUNTING CLOSE END
+END $function$
+;
 
--- ACCOUNTING HISTORY BEGIN
-CREATE TABLE public.acct_history_dispositions (
- id uuid PRIMARY KEY,
- group_id uuid NOT NULL REFERENCES public.acct_import_groups(id),
- version integer NOT NULL CHECK(version>0),
- kind text NOT NULL CHECK(kind IN ('annual_closing','unsupported')),
- document_id uuid NOT NULL REFERENCES public.acct_documents(id),
- reason text NOT NULL CHECK(length(btrim(reason)) BETWEEN 1 AND 3000),
- created_by uuid NOT NULL REFERENCES auth.users(id),
- created_at timestamptz NOT NULL DEFAULT now(),
- UNIQUE(group_id,version)
-);
-CREATE TABLE public.acct_history_review_invalidations (
- check_id uuid PRIMARY KEY REFERENCES public.acct_history_checks(id),
- disposition_id uuid NOT NULL REFERENCES public.acct_history_dispositions(id),
- reason text NOT NULL,
- created_at timestamptz NOT NULL DEFAULT now()
-);
-ALTER TABLE public.acct_history_review_invalidations ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.acct_history_review_invalidations FROM PUBLIC,anon,authenticated,service_role;
-CREATE TRIGGER acct_statement_lock BEFORE INSERT OR UPDATE OR DELETE ON public.acct_history_review_invalidations FOR EACH STATEMENT EXECUTE FUNCTION public.acct_lock_statement();
-CREATE TRIGGER acct_audit AFTER INSERT OR UPDATE OR DELETE ON public.acct_history_review_invalidations FOR EACH ROW EXECUTE FUNCTION public.acct_record_workflow_audit();
-CREATE TRIGGER acct_history_review_invalidation_immutable BEFORE UPDATE OR DELETE ON public.acct_history_review_invalidations FOR EACH ROW EXECUTE FUNCTION public.acct_append_only();
-CREATE OR REPLACE FUNCTION public.acct_history_check_current(p_id uuid) RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
- SELECT EXISTS(SELECT 1 FROM public.acct_history_checks WHERE id=p_id) AND NOT EXISTS(SELECT 1 FROM public.acct_history_invalidations WHERE check_id=p_id) AND NOT EXISTS(SELECT 1 FROM public.acct_history_review_invalidations WHERE check_id=p_id);
-$$;
-REVOKE ALL ON FUNCTION public.acct_history_check_current(uuid) FROM PUBLIC,anon,authenticated,service_role;
-ALTER TABLE public.acct_history_dispositions ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.acct_history_dispositions FROM PUBLIC,anon,authenticated,service_role;
-CREATE TRIGGER acct_statement_lock BEFORE INSERT OR UPDATE OR DELETE ON public.acct_history_dispositions FOR EACH STATEMENT EXECUTE FUNCTION public.acct_lock_statement();
-CREATE TRIGGER acct_audit AFTER INSERT OR UPDATE OR DELETE ON public.acct_history_dispositions FOR EACH ROW EXECUTE FUNCTION public.acct_record_workflow_audit();
-CREATE TRIGGER acct_history_disposition_immutable BEFORE UPDATE OR DELETE ON public.acct_history_dispositions FOR EACH ROW EXECUTE FUNCTION public.acct_append_only();
-
-CREATE OR REPLACE FUNCTION public.acct_closing_normalization_valid(p_group uuid) RETURNS boolean
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-DECLARE g public.acct_import_groups;year integer;line record;actual numeric;
+CREATE OR REPLACE FUNCTION accounting.banking_command(c jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+<<banking_command>>
+DECLARE t text:=c->>'type'; key uuid:=coalesce((c->>'id')::uuid,gen_random_uuid());actor uuid:=CASE WHEN current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE accounting.require_owner() END;
+ v integer; current_version integer; candidate_count integer; x jsonb; result jsonb; candidate jsonb; observation accounting.bank_transactions; doc accounting.documents; item accounting.journal_lines; existing jsonb;
+ cond jsonb; actions jsonb; mapping_connection uuid; mapping_details jsonb; mapped_row accounting.bank_accounts; account uuid; transit uuid; outgoing jsonb; incoming jsonb; out_id uuid; in_id uuid; amount bigint; match_amount bigint; out_date date; in_date date;
 BEGIN
- SELECT * INTO g FROM public.acct_import_groups WHERE id=p_group;
- IF g.status IS DISTINCT FROM 'excluded' OR g.bank_account_id IS NOT NULL OR jsonb_array_length(g.lines)<2 OR to_char(g.entry_date,'MM-DD') NOT IN ('01-01','12-31') THEN RETURN false; END IF;
- year:=extract(year FROM g.entry_date)::integer-CASE WHEN to_char(g.entry_date,'MM-DD')='01-01' THEN 1 ELSE 0 END;
- IF EXISTS(SELECT 1 FROM jsonb_array_elements(g.lines) x LEFT JOIN public.acct_accounts a ON a.id=(x->>'account_id')::uuid LEFT JOIN public.acct_account_profiles p ON p.account_id=a.id WHERE a.id IS NULL OR NOT(a.account_type IN ('income','expense') OR coalesce(p.purpose='opening_retained_earnings',false))) THEN RETURN false; END IF;
- IF NOT EXISTS(SELECT 1 FROM jsonb_array_elements(g.lines) x JOIN public.acct_accounts a ON a.id=(x->>'account_id')::uuid WHERE a.account_type IN ('income','expense')) THEN RETURN false; END IF;
- IF (SELECT sum((x->>'amount_cents')::numeric) FROM jsonb_array_elements(g.lines) x)<>0 THEN RETURN false; END IF;
- FOR line IN SELECT a.id,coalesce(sum((x->>'amount_cents')::numeric),0) AS closing FROM public.acct_accounts a LEFT JOIN jsonb_array_elements(g.lines) x ON (x->>'account_id')::uuid=a.id WHERE a.account_type IN ('income','expense') GROUP BY a.id LOOP
-  SELECT coalesce(sum(l.amount_cents),0) INTO actual FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.account_id=line.id AND e.status='posted' AND e.entry_date BETWEEN make_date(year,1,1) AND make_date(year,12,31);
-  IF line.closing<>-actual THEN RETURN false; END IF;
- END LOOP;
- RETURN true;
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_history_preview(p_from date,p_to date,p_monthly jsonb DEFAULT '[]',p_accounts jsonb DEFAULT '[]',p_totals jsonb DEFAULT '{}') RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-DECLARE start_date date;end_date date;month_control jsonb;workspace jsonb;actual jsonb;monthly jsonb:='[]';accounts jsonb;differences integer:=0;source_errors integer;drafts integer;unclassified integer;expected_count integer:=0;v_key text;required_accounts integer;
-BEGIN
- PERFORM public.acct_require_owner();
- IF p_from IS NULL OR p_to IS NULL OR p_to<p_from OR extract(year FROM p_from)<>extract(year FROM p_to) OR p_from<'1900-01-01'::date OR p_to>'2100-12-31'::date THEN RAISE EXCEPTION 'ACCT_HISTORY_YEAR_RANGE'; END IF;
- IF jsonb_typeof(p_monthly) IS DISTINCT FROM 'array' OR jsonb_array_length(p_monthly)>12 OR jsonb_typeof(p_accounts) IS DISTINCT FROM 'array' OR jsonb_array_length(p_accounts)>1000 OR jsonb_typeof(p_totals) IS DISTINCT FROM 'object' THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
- IF EXISTS(SELECT 1 FROM (
-  SELECT x->>'income_cents' v FROM jsonb_array_elements(p_monthly) x UNION ALL SELECT x->>'expense_cents' FROM jsonb_array_elements(p_monthly) x UNION ALL SELECT x->>'net_income_cents' FROM jsonb_array_elements(p_monthly) x UNION ALL SELECT x->>'amount_cents' FROM jsonb_array_elements(p_accounts) x UNION ALL SELECT value#>>'{}' FROM jsonb_each(p_totals)
- ) amounts WHERE v IS NULL OR v!~'^-?(0|[1-9][0-9]{0,18})$' OR abs(v::numeric)>9223372036854775807) THEN RAISE EXCEPTION 'ACCT_INVALID_MONEY'; END IF;
- IF (SELECT count(*) FROM jsonb_array_elements(p_monthly))<>(SELECT count(DISTINCT x->>'from') FROM jsonb_array_elements(p_monthly) x) OR (SELECT count(*) FROM jsonb_array_elements(p_accounts))<>(SELECT count(DISTINCT x->>'account_id') FROM jsonb_array_elements(p_accounts) x) THEN RAISE EXCEPTION 'ACCT_DUPLICATE_CONTROL'; END IF;
- FOR start_date IN SELECT greatest(d::date,p_from) FROM generate_series(date_trunc('month',p_from),date_trunc('month',p_to),INTERVAL '1 month') d LOOP
-  end_date:=least((date_trunc('month',start_date)+INTERVAL '1 month -1 day')::date,p_to);expected_count:=expected_count+1;
-  SELECT x INTO month_control FROM jsonb_array_elements(p_monthly) x WHERE x->>'from'=start_date::text AND x->>'to'=end_date::text;
-  workspace:=public.acct_workspace(start_date,end_date);actual:=workspace->'reports';
-  FOREACH v_key IN ARRAY ARRAY['income_cents','expense_cents','net_income_cents'] LOOP
-   IF (month_control->>v_key)::numeric IS DISTINCT FROM (actual->>v_key)::numeric THEN differences:=differences+1; END IF;
+ IF t='party.save' THEN
+  SELECT version INTO current_version FROM accounting.parties WHERE id=key;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM coalesce(current_version,0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  INSERT INTO accounting.parties(id,name,kind,default_account_id,is_contractor,contractor_classification,documentation_status,notes,is_archived)
+  VALUES(key,c->>'name',c->>'kind',(c->>'default_account_id')::uuid,coalesce((c->>'is_contractor')::boolean,false),
+   CASE WHEN coalesce(c->>'contractor_classification',c->>'tax_classification','unknown')='unreviewed' THEN 'unknown' WHEN c->>'tax_classification'='partnership' THEN 'other' ELSE coalesce(c->>'contractor_classification',c->>'tax_classification','unknown') END,
+   CASE WHEN c->>'documentation'='requested' THEN 'missing' ELSE coalesce(c->>'documentation_status',c->>'documentation','missing') END,coalesce(c->>'notes',''),coalesce((c->>'is_archived')::boolean,false))
+  ON CONFLICT(id) DO UPDATE SET name=excluded.name,kind=excluded.kind,default_account_id=excluded.default_account_id,is_contractor=excluded.is_contractor,contractor_classification=excluded.contractor_classification,documentation_status=excluded.documentation_status,notes=excluded.notes,is_archived=excluded.is_archived RETURNING version INTO v;
+ ELSIF t='alias.save' THEN
+  SELECT version INTO current_version FROM accounting.payee_aliases WHERE id=key;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM coalesce(current_version,0) AND c?'expected_version' THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  INSERT INTO accounting.payee_aliases(id,party_id,match_kind,pattern,enabled,created_by)
+  VALUES(key,(c->>'party_id')::uuid,coalesce(c->>'match_kind',c->>'match_mode','key'),coalesce(c->>'pattern',c->>'description'),coalesce((c->>'enabled')::boolean,true),actor)
+  ON CONFLICT(id) DO UPDATE SET party_id=excluded.party_id,match_kind=excluded.match_kind,pattern=excluded.pattern,enabled=excluded.enabled RETURNING id,version INTO key,v;
+ ELSIF t IN ('rule.save','rule.activate') THEN
+  SELECT version INTO current_version FROM accounting.rules WHERE id=key;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM coalesce(current_version,0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  IF t='rule.activate' THEN
+   UPDATE accounting.rules SET enabled=(c->>'enabled')::boolean WHERE id=key RETURNING version INTO v;
+  ELSE
+   cond:=coalesce(c->'conditions',jsonb_strip_nulls(jsonb_build_object('description_mode',c->'description_mode','description',c->'description','bank_account_id',c->'bank_account_id','direction',c->'direction','amount_min',c->'min_cents','amount_max',c->'max_cents','payee_id',c->'match_payee_id')));
+   actions:=coalesce(c->'actions',jsonb_strip_nulls(jsonb_build_object('account_id',c->'category_account_id','payee_id',c->'assign_payee_id')));
+   IF EXISTS(SELECT 1 FROM jsonb_each(cond) v WHERE v.key IN ('amount_min','amount_max') AND (jsonb_typeof(value)<>'string' OR (value#>>'{}')!~'^[0-9]+$')) THEN RAISE EXCEPTION 'ACCT_INVALID_MONEY'; END IF;
+   IF NOT(actions?'account_id' OR actions?'splits') OR (cond->>'amount_min')::numeric>(cond->>'amount_max')::numeric THEN RAISE EXCEPTION 'ACCT_INVALID_RULE'; END IF;
+   IF actions?'account_id' AND NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=(actions->>'account_id')::uuid AND NOT is_archived AND subtype NOT IN ('bank','card','cash')) THEN RAISE EXCEPTION 'ACCT_INVALID_RULE_ACCOUNT'; END IF;
+   IF actions?'splits' THEN
+    IF jsonb_typeof(actions->'splits') IS DISTINCT FROM 'array' OR jsonb_array_length(actions->'splits')<2 THEN RAISE EXCEPTION 'ACCT_INVALID_RULE'; END IF;
+    IF EXISTS(SELECT 1 FROM jsonb_array_elements(actions->'splits') s WHERE (s->>'share_bps') IS NULL OR (s->>'share_bps')!~'^[0-9]+$' OR (s->>'share_bps')::integer NOT BETWEEN 1 AND 9999
+      OR NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=(s->>'account_id')::uuid AND NOT is_archived AND subtype NOT IN ('bank','card','cash')))
+      OR (SELECT sum((s->>'share_bps')::integer) FROM jsonb_array_elements(actions->'splits') s)<>10000 THEN RAISE EXCEPTION 'ACCT_INVALID_RULE'; END IF;
+   END IF;
+   INSERT INTO accounting.rules(id,name,priority,enabled,conditions,actions,auto_post) VALUES(key,c->>'name',coalesce((c->>'priority')::integer,100),coalesce((c->>'enabled')::boolean,false),cond,actions,coalesce((c->>'auto_post')::boolean,false))
+    ON CONFLICT(id) DO UPDATE SET name=excluded.name,priority=excluded.priority,conditions=excluded.conditions,actions=excluded.actions,enabled=excluded.enabled,auto_post=excluded.auto_post RETURNING version INTO v;
+  END IF;
+ ELSIF t IN ('rule.apply','rule.apply_preview') THEN
+  result:='[]';
+  FOR x IN SELECT value FROM jsonb_array_elements(c->'entries') LOOP
+   candidate:=accounting.rule_candidate((x->>'id')::uuid);
+   IF t='rule.apply' AND (candidate IS NULL OR NOT (candidate->>'eligible')::boolean) THEN RAISE EXCEPTION 'ACCT_RULE_INELIGIBLE'; END IF;
+   IF candidate IS NULL THEN CONTINUE; END IF;
+   IF t='rule.apply' THEN
+    IF (candidate->>'entry_version')::integer IS DISTINCT FROM (x->>'expected_version')::integer OR (candidate->>'rule_version')::integer IS DISTINCT FROM (x->>'rule_version')::integer OR candidate->>'rule_id' IS DISTINCT FROM x->>'rule_id' THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+    result:=result||jsonb_build_array(accounting.apply_treatment((x->>'id')::uuid));
+   ELSE result:=result||jsonb_build_array(candidate); END IF;
   END LOOP;
-  monthly:=monthly||jsonb_build_array(jsonb_build_object('from',start_date,'to',end_date,'actual',jsonb_build_object('income_cents',actual->'income_cents','expense_cents',actual->'expense_cents','net_income_cents',actual->'net_income_cents'),'source',month_control));
- END LOOP;
- IF jsonb_array_length(p_monthly)<>expected_count THEN differences:=differences+1; END IF;
- workspace:=public.acct_workspace(p_from,p_to);
- FOREACH v_key IN ARRAY ARRAY['assets_cents','liabilities_cents'] LOOP
-  IF (p_totals->>v_key)::numeric IS DISTINCT FROM (workspace->'reports'->>v_key)::numeric THEN differences:=differences+1; END IF;
- END LOOP;
- IF (p_totals->>'equity_total_cents')::numeric IS DISTINCT FROM (workspace->'reports'->>'equity_cents')::numeric+(workspace->'reports'->>'retained_cents')::numeric+(workspace->'reports'->>'year_income_cents')::numeric THEN differences:=differences+1; END IF;
- WITH controls AS (
-  SELECT b.value->>'id' AS account_id,b.value->>'code' AS code,b.value->>'name' AS name,b.value->>'account_type' AS account_type,CASE WHEN b.value->>'account_type' IN ('income','expense') THEN b.value->>'period_cents' ELSE b.value->>'ending_cents' END AS actual_cents,
-   (SELECT x->>'amount_cents' FROM jsonb_array_elements(p_accounts) x WHERE x->>'account_id'=b.value->>'id') AS source_cents,
-   ((CASE WHEN b.value->>'account_type' IN ('income','expense') THEN b.value->>'period_cents' ELSE b.value->>'ending_cents' END)::numeric<>0 OR EXISTS(SELECT 1 FROM public.acct_account_profiles p WHERE p.account_id=(b.value->>'id')::uuid AND p.cash_kind IN ('bank','card','cash') AND EXISTS(SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.account_id=p.account_id AND e.status='posted' AND e.entry_date<=p_to))) AS required
-  FROM jsonb_array_elements(workspace->'balances') b WHERE NOT EXISTS(SELECT 1 FROM public.acct_account_profiles p WHERE p.account_id=(b.value->>'id')::uuid AND p.purpose='opening_retained_earnings')
- ) SELECT coalesce(jsonb_agg(to_jsonb(c) ORDER BY code,name),'[]'),count(*) FILTER(WHERE required),count(*) FILTER(WHERE (required OR source_cents IS NOT NULL) AND source_cents::numeric IS DISTINCT FROM actual_cents::numeric) INTO accounts,required_accounts,unclassified FROM controls c;
- differences:=differences+unclassified;
- IF EXISTS(SELECT 1 FROM jsonb_array_elements(p_accounts) x WHERE NOT EXISTS(SELECT 1 FROM public.acct_accounts WHERE id=(x->>'account_id')::uuid)) THEN RAISE EXCEPTION 'ACCT_INVALID_ACCOUNT'; END IF;
- SELECT count(*) INTO drafts FROM public.acct_journal_entries WHERE status='draft' AND entry_date<=p_to;
- SELECT count(*) INTO source_errors FROM public.acct_import_batches b WHERE b.from_date<=p_to AND b.to_date>=p_from AND (b.status<>'completed' OR b.basis<>'cash' OR NOT EXISTS(SELECT 1 FROM public.acct_document_states WHERE document_id=b.source_document_id AND state='available')) AND (b.status<>'cancelled' OR EXISTS(SELECT 1 FROM public.acct_import_groups WHERE batch_id=b.id AND status='applied'));
- SELECT source_errors+count(*) INTO source_errors FROM public.acct_import_groups g JOIN public.acct_import_batches b ON b.id=g.batch_id WHERE g.entry_date BETWEEN p_from AND p_to AND (b.status<>'cancelled' OR EXISTS(SELECT 1 FROM public.acct_import_groups applied WHERE applied.batch_id=b.id AND applied.status='applied')) AND (
-  g.status NOT IN ('applied','duplicate','excluded')
-  OR g.status IN ('applied','duplicate') AND NOT EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE id=g.entry_id AND status='posted')
-  OR g.status='excluded' AND NOT EXISTS(SELECT 1 FROM public.acct_history_dispositions d JOIN public.acct_document_states s ON s.document_id=d.document_id WHERE d.group_id=g.id AND d.version=(SELECT max(version) FROM public.acct_history_dispositions WHERE group_id=g.id) AND d.kind='annual_closing' AND s.state='available' AND public.acct_closing_normalization_valid(g.id))
- );
- SELECT count(*) INTO unclassified FROM jsonb_array_elements(workspace->'balances') b JOIN public.acct_account_profiles p ON p.account_id=(b.value->>'id')::uuid WHERE p.purpose IN ('opening_balance_equity','uncategorized_income','uncategorized_expense') AND (b.value->>'ending_cents')::numeric<>0;
- RETURN jsonb_build_object('from',p_from,'to',p_to,'partial_year',p_from<>make_date(extract(year FROM p_from)::integer,1,1) OR p_to<>make_date(extract(year FROM p_from)::integer,12,31),'revision',workspace->'revision','monthly',monthly,'accounts',accounts,'required_accounts',required_accounts,'differences',differences,'source_errors',source_errors,'drafts',drafts,'unclassified_accounts',unclassified,'reports',workspace->'reports',
- 'scope_ended',p_to<=current_date,'entity_verified',EXISTS(SELECT 1 FROM public.acct_fiscal_years WHERE year=extract(year FROM p_from) AND classification<>'unverified'),
- 'ready',p_to<=current_date AND differences=0 AND source_errors=0 AND drafts=0 AND unclassified=0 AND EXISTS(SELECT 1 FROM public.acct_fiscal_years WHERE year=extract(year FROM p_from) AND classification<>'unverified'));
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_history_command(p_command jsonb,p_actor uuid) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE op text:=p_command->>'type';v_id uuid:=(p_command->>'id')::uuid;proof jsonb;batch public.acct_import_batches;g public.acct_import_groups;v_history public.acct_history_checks;month date;ending date;snapshot uuid;v_count integer:=0;
-BEGIN
- PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
- IF op='import.resume' THEN
-  SELECT * INTO batch FROM public.acct_import_batches WHERE id=v_id;
+  RETURN jsonb_build_object('id',key,'entries',result,'count',jsonb_array_length(result));
+ ELSIF t='document.prepare' THEN
+  INSERT INTO accounting.documents(id,storage_path,name,mime,size_bytes,sha256,kind,uploaded_by)
+   VALUES(key,key::text||'/'||coalesce(c->>'sha256',c->>'content_hash'),coalesce(c->>'name',c->>'original_name'),coalesce(c->>'mime',c->>'mime_type'),(c->>'size_bytes')::bigint,coalesce(c->>'sha256',c->>'content_hash'),coalesce(c->>'kind','receipt'),actor) RETURNING version INTO v;
+  RETURN jsonb_build_object('id',key,'version',v,'storage_path',key::text||'/'||coalesce(c->>'sha256',c->>'content_hash'));
+ ELSIF t IN ('document.complete','document.link','document.archive') THEN
+  SELECT * INTO doc FROM accounting.documents WHERE id=coalesce((c->>'document_id')::uuid,key);
   IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-  IF batch.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-  IF batch.status NOT IN ('cancelled','failed') THEN RAISE EXCEPTION 'ACCT_IMPORT_FINAL'; END IF;
-  UPDATE public.acct_import_batches SET status=CASE WHEN (SELECT count(*) FROM public.acct_import_groups WHERE batch_id=v_id)<expected_groups THEN 'staging' ELSE 'review' END,error='',coverage_verified=false,version=version+1 WHERE id=v_id;
-  RETURN jsonb_build_object('id',v_id,'version',batch.version+1);
- END IF;
- IF (p_command->>'expected_revision')::bigint IS DISTINCT FROM (SELECT financial_revision FROM public.acct_settings) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
- IF op='history.lock' THEN
-  SELECT * INTO v_history FROM public.acct_history_checks WHERE id=(p_command->>'history_id')::uuid AND public.acct_history_check_current(id);
-  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_HISTORY_INVALIDATED'; END IF;
-  IF NOT EXISTS(SELECT 1 FROM public.acct_document_states WHERE document_id=v_history.source_document_id AND state='available') THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE'; END IF;
-  proof:=public.acct_history_preview(v_history.from_date,v_history.to_date,v_history.controls->'monthly',v_history.account_controls,v_history.controls->'totals');
-  IF NOT (proof->>'ready')::boolean OR EXISTS(SELECT 1 FROM public.acct_import_batches b WHERE b.from_date<=v_history.to_date AND (b.status<>'completed' OR NOT b.coverage_verified) AND (b.status<>'cancelled' OR EXISTS(SELECT 1 FROM public.acct_import_groups WHERE batch_id=b.id AND status='applied'))) THEN RAISE EXCEPTION 'ACCT_HISTORY_DIFFERENCE'; END IF;
-  FOR month IN SELECT d::date FROM generate_series(date_trunc('month',v_history.from_date),date_trunc('month',v_history.to_date),INTERVAL '1 month') d WHERE d::date>=v_history.from_date AND (d+INTERVAL '1 month -1 day')::date<=v_history.to_date LOOP
-   ending:=(month+INTERVAL '1 month -1 day')::date;
-   IF ending>current_date THEN RAISE EXCEPTION 'ACCT_INVALID_RANGE'; END IF;
-   IF EXISTS(SELECT 1 FROM public.acct_periods WHERE month_start=month AND is_locked) THEN CONTINUE; END IF;
-   INSERT INTO public.acct_periods(month_start) VALUES(month) ON CONFLICT DO NOTHING;
-   snapshot:=gen_random_uuid();
-   INSERT INTO public.acct_report_snapshots(id,kind,from_date,to_date,revision,payload,created_by) VALUES(snapshot,'historical_baseline',month,ending,(proof->>'revision')::bigint,jsonb_build_object('kind','historical_baseline','history_check_id',v_history.id,'parity',proof,'reports',public.acct_workspace(month,ending)),p_actor);
-   INSERT INTO public.acct_close_records(id,month_start,snapshot_id,proof,created_by) SELECT gen_random_uuid(),month,snapshot,payload,p_actor FROM public.acct_report_snapshots WHERE id=snapshot;
-   UPDATE public.acct_periods SET is_locked=true,reason='Historical baseline accepted from independent source reports' WHERE month_start=month;
-   v_count:=v_count+1;
+  IF c?'expected_version' AND (c->>'expected_version')::integer IS DISTINCT FROM doc.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  IF t<>'document.archive' AND NOT EXISTS(SELECT 1 FROM storage.objects WHERE bucket_id='accounting-private' AND name=doc.storage_path) THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE'; END IF;
+  IF t='document.link' THEN
+   INSERT INTO accounting.document_links(document_id,entry_id,bank_transaction_id,import_batch_id,reconciliation_id,payroll_run_id,register_id,party_id,created_by)
+   VALUES(doc.id,(c->>'entry_id')::uuid,(c->>'bank_transaction_id')::uuid,(c->>'import_batch_id')::uuid,(c->>'reconciliation_id')::uuid,(c->>'payroll_run_id')::uuid,(c->>'register_id')::uuid,(c->>'party_id')::uuid,actor) ON CONFLICT DO NOTHING;
+  END IF;
+  IF t='document.archive' AND btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
+  UPDATE accounting.documents SET status=CASE t WHEN 'document.archive' THEN 'archived' WHEN 'document.link' THEN 'linked' ELSE status END WHERE id=doc.id RETURNING version INTO v;
+  key:=doc.id;
+ ELSIF t='feed.claim' THEN
+  IF c->>'claim_id' IS NOT NULL AND c->>'access_url_encrypted' IS NULL THEN
+   INSERT INTO accounting.bank_connections(id,name,status,access_url_encrypted,checkpoint)
+    VALUES(key,c->>'name','reconnect_required','',jsonb_build_object('claim',jsonb_build_object('id',c->>'claim_id','state','prepared'))) RETURNING version INTO v;
+  ELSE
+   IF length(coalesce(c->>'access_url_encrypted',''))<20 THEN RAISE EXCEPTION 'ACCT_ENCRYPTED_ACCESS_REQUIRED'; END IF;
+   INSERT INTO accounting.bank_connections(id,name,access_url_encrypted,key_version) VALUES(key,c->>'name',c->>'access_url_encrypted',coalesce((c->>'key_version')::smallint,1)) RETURNING version INTO v;
+  END IF;
+ ELSIF t IN ('feed.disconnect','feed.schedule','bank.sync_request') THEN
+  SELECT version INTO current_version FROM accounting.bank_connections WHERE id=key;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  IF t<>'bank.sync_request' AND (c->>'expected_version')::integer IS DISTINCT FROM current_version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  IF t='feed.disconnect' AND btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
+  UPDATE accounting.bank_connections SET status=CASE WHEN t='feed.disconnect' THEN 'disconnected' ELSE status END,
+   scheduled=CASE WHEN t='feed.disconnect' THEN false WHEN t='feed.schedule' THEN (c->>'enabled')::boolean ELSE scheduled END,
+   next_sync_at=CASE WHEN t='bank.sync_request' THEN now() ELSE next_sync_at END,
+   lease_run_id=CASE WHEN t='feed.disconnect' THEN NULL ELSE lease_run_id END,lease_until=CASE WHEN t='feed.disconnect' THEN NULL ELSE lease_until END
+   WHERE id=key RETURNING version INTO v;
+ ELSIF t='feed.map' THEN
+  IF c->>'connection_id' IS NULL THEN
+   SELECT b.id,d.value INTO mapping_connection,mapping_details FROM accounting.bank_connections b CROSS JOIN LATERAL jsonb_each(coalesce(b.checkpoint->'discovery','{}')) d WHERE d.key=banking_command.key::text;
+   IF FOUND THEN c:=c||jsonb_build_object('connection_id',mapping_connection,'provider_account_id',mapping_details->>'provider_account_id','institution',mapping_details->>'institution'); END IF;
+  END IF;
+  SELECT version INTO current_version FROM accounting.bank_accounts WHERE id=key;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM coalesce(current_version,0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  IF coalesce(c->>'ownership','company')<>'company' THEN
+   UPDATE accounting.bank_connections SET checkpoint=jsonb_set(checkpoint,ARRAY['discovery',key::text,'ownership'],c->'ownership',true) WHERE id=(c->>'connection_id')::uuid;
+   RETURN jsonb_build_object('id',key,'version',coalesce(current_version,0));
+  END IF;
+  INSERT INTO accounting.bank_accounts(id,account_id,connection_id,provider_account_id,institution,mask,movement_sign,coverage_from)
+  VALUES(key,(c->>'account_id')::uuid,(c->>'connection_id')::uuid,c->>'provider_account_id',coalesce(c->>'institution',''),coalesce(c->>'mask',''),coalesce((c->>'movement_sign')::smallint,1),coalesce((c->>'coverage_from')::date,(to_timestamp((c->>'history_start')::bigint) AT TIME ZONE (SELECT books_timezone FROM public.business_profile WHERE id=1))::date))
+  ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id,connection_id=coalesce(excluded.connection_id,accounting.bank_accounts.connection_id),provider_account_id=coalesce(excluded.provider_account_id,accounting.bank_accounts.provider_account_id),movement_sign=excluded.movement_sign,coverage_from=excluded.coverage_from RETURNING version INTO v;
+  IF c?'balance_sign' AND c->>'connection_id' IS NOT NULL THEN
+   IF (c->>'balance_sign')::integer NOT IN (-1,1) THEN RAISE EXCEPTION 'ACCT_INVALID_BALANCE_SIGN'; END IF;
+   IF EXISTS(SELECT 1 FROM accounting.bank_transactions WHERE bank_account_id=key) AND (c->>'balance_sign')::smallint IS DISTINCT FROM
+     coalesce((SELECT (checkpoint->'balance_signs'->>key::text)::smallint FROM accounting.bank_connections WHERE id=(c->>'connection_id')::uuid),1)
+     THEN RAISE EXCEPTION 'ACCT_BANK_MAPPING_FROZEN'; END IF;
+   UPDATE accounting.bank_connections SET checkpoint=jsonb_set(checkpoint,ARRAY['balance_signs'],coalesce(checkpoint->'balance_signs','{}')||jsonb_build_object(key::text,(c->>'balance_sign')::smallint)) WHERE id=(c->>'connection_id')::uuid;
+  END IF;
+ ELSIF t='feed.skip' THEN
+  IF btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
+  SELECT * INTO mapped_row FROM accounting.bank_accounts WHERE id=key;
+  IF NOT FOUND OR mapped_row.version IS DISTINCT FROM (c->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  UPDATE accounting.bank_connections SET checkpoint=jsonb_set(checkpoint,ARRAY[mapped_row.provider_account_id],to_jsonb(c->>'through')) WHERE id=mapped_row.connection_id;
+  UPDATE accounting.bank_accounts SET updated_at=now() WHERE id=key RETURNING version INTO v;
+ ELSIF t='feed.prepare' THEN RETURN jsonb_build_object('id',key,'prepared',0,'count',0);
+ ELSIF t='bank.exclude' THEN
+  UPDATE accounting.bank_transactions SET review=CASE WHEN coalesce((c->>'excluded')::boolean,true) THEN 'excluded' ELSE 'unmatched' END,excluded_reason=coalesce(c->>'reason','') WHERE id=key;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+ ELSIF t='bank.release' THEN
+  IF btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
+  DELETE FROM accounting.bank_matches WHERE id=(c->>'match_id')::uuid;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+ ELSIF t='bank.match' THEN
+  SELECT * INTO observation FROM accounting.bank_transactions WHERE id=coalesce(c->>'bank_transaction_id',c->>'group_id',c->>'id')::uuid;
+  IF NOT FOUND AND c->>'group_id' IS NOT NULL THEN
+   SELECT o.* INTO observation FROM accounting.import_rows r JOIN accounting.bank_accounts b ON b.account_id=(r.parsed->>'bank_account_id')::uuid JOIN accounting.bank_transactions o ON o.bank_account_id=b.id AND o.external_id=r.external_id WHERE r.id=(c->>'group_id')::uuid;
+  END IF;
+  IF observation.id IS NULL THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  FOR x IN SELECT value FROM jsonb_array_elements(coalesce(c->'discard_drafts','[]')) LOOP
+   PERFORM accounting.ledger_command(x||jsonb_build_object('type','draft.discard','reason',c->>'reason'));
   END LOOP;
-  RETURN jsonb_build_object('id',v_id,'locked_months',v_count);
+  FOR x IN SELECT value FROM jsonb_array_elements(coalesce(c->'allocations',jsonb_build_array(jsonb_build_object('line_id',c->'journal_line_id','amount_cents',c->'amount_cents')))) LOOP
+   INSERT INTO accounting.bank_matches(bank_transaction_id,journal_line_id,amount_cents,created_by) VALUES(observation.id,(x->>'line_id')::uuid,(x->>'amount_cents')::bigint,actor);
+  END LOOP;
+ ELSIF t='transfer.create' THEN
+  amount:=(c->>'amount_cents')::bigint;out_date:=(c->>'outgoing_date')::date;in_date:=(c->>'incoming_date')::date;
+  IF amount<=0 OR c->>'from_account_id'=c->>'to_account_id' OR (SELECT count(*) FROM accounting.accounts WHERE id IN ((c->>'from_account_id')::uuid,(c->>'to_account_id')::uuid) AND subtype IN ('bank','cash','card'))<>2 THEN RAISE EXCEPTION 'ACCT_INVALID_TRANSFER'; END IF;
+  SELECT id INTO transit FROM accounting.accounts WHERE system_purpose='transfers_in_transit';
+  outgoing:=accounting.ledger_command(jsonb_build_object('type','draft.save','id',gen_random_uuid(),'expected_version',0,'entry_date',out_date,'memo',c->'memo','kind','transfer','lines',jsonb_build_array(jsonb_build_object('account_id',c->'from_account_id','amount_cents',(-amount)::text),jsonb_build_object('account_id',CASE WHEN out_date=in_date THEN (c->>'to_account_id')::uuid ELSE transit END,'amount_cents',amount::text))));
+  out_id:=(outgoing->>'id')::uuid;
+  UPDATE accounting.journal_entries SET transfer_group_id=key WHERE id=out_id RETURNING version INTO v;
+  outgoing:=accounting.ledger_command(jsonb_build_object('type','entry.post','id',out_id,'expected_version',v));
+  in_id:=out_id;
+  IF out_date<>in_date THEN
+   incoming:=accounting.ledger_command(jsonb_build_object('type','draft.save','id',gen_random_uuid(),'expected_version',0,'entry_date',in_date,'memo',c->'memo','kind','transfer','lines',jsonb_build_array(jsonb_build_object('account_id',transit,'amount_cents',(-amount)::text),jsonb_build_object('account_id',c->'to_account_id','amount_cents',amount::text))));
+   in_id:=(incoming->>'id')::uuid;
+   UPDATE accounting.journal_entries SET transfer_group_id=key WHERE id=in_id RETURNING version INTO v;
+   incoming:=accounting.ledger_command(jsonb_build_object('type','entry.post','id',in_id,'expected_version',v));
+  END IF;
+  -- Explicit creation of a transfer consumes only unambiguous matching bank evidence.
+  FOR item IN SELECT l.* FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id IN(out_id,in_id) AND a.subtype IN ('bank','cash','card') LOOP
+   SELECT count(*) INTO candidate_count FROM accounting.bank_transactions o JOIN accounting.bank_accounts b ON b.id=o.bank_account_id
+    WHERE b.account_id=item.account_id AND o.amount_cents=item.amount_cents AND o.state='posted' AND o.review<>'excluded'
+      AND o.posted_date=(SELECT entry_date FROM accounting.journal_entries WHERE id=item.entry_id)
+      AND NOT EXISTS(SELECT 1 FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE m.bank_transaction_id=o.id AND (e.status<>'draft' OR e.origin NOT IN ('simplefin','csv')));
+   IF candidate_count=1 THEN
+    SELECT o.* INTO observation FROM accounting.bank_transactions o JOIN accounting.bank_accounts b ON b.id=o.bank_account_id
+     WHERE b.account_id=item.account_id AND o.amount_cents=item.amount_cents AND o.state='posted' AND o.review<>'excluded'
+       AND o.posted_date=(SELECT entry_date FROM accounting.journal_entries WHERE id=item.entry_id)
+       AND NOT EXISTS(SELECT 1 FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE m.bank_transaction_id=o.id AND (e.status<>'draft' OR e.origin NOT IN ('simplefin','csv')));
+    FOR existing IN SELECT DISTINCT jsonb_build_object('id',e.id,'version',e.version) FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE m.bank_transaction_id=observation.id LOOP
+     PERFORM set_config('accounting.reason','Replaced by owner-created transfer',true);
+     PERFORM accounting.ledger_command(jsonb_build_object('type','draft.discard','id',existing->'id','expected_version',existing->'version','reason','Replaced by owner-created transfer'));
+    END LOOP;
+    INSERT INTO accounting.bank_matches(bank_transaction_id,journal_line_id,amount_cents,created_by) VALUES(observation.id,item.id,abs(item.amount_cents),actor);
+   END IF;
+  END LOOP;
+  RETURN jsonb_build_object('id',key,'version',1,'outgoing_entry_id',out_id,'incoming_entry_id',in_id);
+ ELSIF t='transfer.link' THEN
+  out_id:=(c->>'outgoing_entry_id')::uuid;in_id:=(c->>'incoming_entry_id')::uuid;amount:=(c->>'amount_cents')::bigint;
+  SELECT id INTO transit FROM accounting.accounts WHERE system_purpose='transfers_in_transit';
+  IF amount<=0 OR c->>'from_account_id'=c->>'to_account_id' THEN RAISE EXCEPTION 'ACCT_INVALID_TRANSFER'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM accounting.journal_entries WHERE id=out_id AND status='posted' AND transfer_group_id IS NULL)
+   OR NOT EXISTS(SELECT 1 FROM accounting.journal_entries WHERE id=in_id AND status='posted' AND transfer_group_id IS NULL) THEN RAISE EXCEPTION 'ACCT_TRANSFER_ALREADY_LINKED_OR_UNPOSTED'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM accounting.journal_lines WHERE entry_id=out_id AND account_id=(c->>'from_account_id')::uuid AND amount_cents=-amount)
+   OR NOT EXISTS(SELECT 1 FROM accounting.journal_lines WHERE entry_id=in_id AND account_id=(c->>'to_account_id')::uuid AND amount_cents=amount) THEN RAISE EXCEPTION 'ACCT_INVALID_TRANSFER'; END IF;
+  IF out_id<>in_id AND (NOT EXISTS(SELECT 1 FROM accounting.journal_lines WHERE entry_id=out_id AND account_id=transit AND amount_cents=amount)
+   OR NOT EXISTS(SELECT 1 FROM accounting.journal_lines WHERE entry_id=in_id AND account_id=transit AND amount_cents=-amount)) THEN RAISE EXCEPTION 'ACCT_INVALID_TRANSFER'; END IF;
+  IF EXISTS(SELECT entry_id FROM accounting.journal_lines WHERE entry_id IN (out_id,in_id) GROUP BY entry_id HAVING count(*)<>2) THEN RAISE EXCEPTION 'ACCT_INVALID_TRANSFER'; END IF;
+  UPDATE accounting.journal_entries SET transfer_group_id=key WHERE id IN(out_id,in_id);
+  RETURN jsonb_build_object('id',key,'outgoing_entry_id',out_id,'incoming_entry_id',in_id);
+ ELSIF t='transfer.reverse' THEN
+  IF NOT EXISTS(SELECT 1 FROM accounting.journal_entries WHERE transfer_group_id=key AND reverses_entry_id IS NULL) THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  FOR x IN SELECT to_jsonb(e) FROM accounting.journal_entries e WHERE transfer_group_id=key AND reverses_entry_id IS NULL ORDER BY entry_date,id LOOP
+   PERFORM accounting.ledger_command(jsonb_build_object('type','entry.reverse','id',x->'id','expected_version',x->'version','entry_date',CASE WHEN EXISTS(SELECT 1 FROM accounting.journal_lines WHERE entry_id=(x->>'id')::uuid AND amount_cents<0 AND account_id<>(SELECT id FROM accounting.accounts WHERE system_purpose='transfers_in_transit')) THEN c->>'outgoing_date' ELSE c->>'incoming_date' END,'reason',c->'reason'));
+  END LOOP;
+ ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND: %',t;
  END IF;
- IF NOT EXISTS(SELECT 1 FROM public.acct_document_states WHERE document_id=(p_command->>'document_id')::uuid AND state='available') THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE'; END IF;
- IF op='history.disposition' THEN
-  SELECT * INTO g FROM public.acct_import_groups WHERE id=(p_command->>'group_id')::uuid AND status='excluded';
-  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_IMPORT_NOT_READY'; END IF;
-  IF p_command->>'kind'='annual_closing' AND NOT public.acct_closing_normalization_valid(g.id) THEN RAISE EXCEPTION 'ACCT_CLOSING_NORMALIZATION'; END IF;
-  IF EXISTS(SELECT 1 FROM public.acct_periods WHERE is_locked AND month_start>=(date_trunc('year',g.entry_date)::date-CASE WHEN to_char(g.entry_date,'MM-DD')='01-01' THEN INTERVAL '1 year' ELSE INTERVAL '0 year' END)) THEN RAISE EXCEPTION 'ACCT_LATER_PERIOD_LOCKED'; END IF;
-  INSERT INTO public.acct_history_dispositions(id,group_id,version,kind,document_id,reason,created_by) VALUES(v_id,g.id,coalesce((SELECT max(version) FROM public.acct_history_dispositions WHERE group_id=g.id),0)+1,p_command->>'kind',(p_command->>'document_id')::uuid,p_command->>'reason',p_actor);
-  INSERT INTO public.acct_history_review_invalidations(check_id,disposition_id,reason) SELECT h.id,v_id,'Source normalization review changed' FROM public.acct_history_checks h WHERE h.to_date>=(date_trunc('year',g.entry_date)::date-CASE WHEN to_char(g.entry_date,'MM-DD')='01-01' THEN INTERVAL '1 year' ELSE INTERVAL '0 year' END) ON CONFLICT DO NOTHING;
-  UPDATE public.acct_import_batches SET coverage_verified=false WHERE coverage_verified AND to_date>=(date_trunc('year',g.entry_date)::date-CASE WHEN to_char(g.entry_date,'MM-DD')='01-01' THEN INTERVAL '1 year' ELSE INTERVAL '0 year' END);
- ELSIF op='history.verify' THEN
-  IF (p_command->>'cash_basis_confirmed')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'ACCT_HISTORY_BASIS'; END IF;
-  proof:=public.acct_history_preview((p_command->>'from')::date,(p_command->>'to')::date,p_command->'monthly',p_command->'accounts',p_command->'totals');
-  IF NOT (proof->>'ready')::boolean THEN RAISE EXCEPTION 'ACCT_HISTORY_DIFFERENCE'; END IF;
-  INSERT INTO public.acct_history_checks(id,from_date,to_date,source_document_id,controls,account_controls,revision,explanation,created_by) VALUES(v_id,(p_command->>'from')::date,(p_command->>'to')::date,(p_command->>'document_id')::uuid,jsonb_build_object('monthly',p_command->'monthly','totals',p_command->'totals','proof',proof),p_command->'accounts',(proof->>'revision')::bigint,p_command->>'reason',p_actor);
-  UPDATE public.acct_import_batches b SET coverage_verified=true,version=version+1 WHERE b.status='completed' AND NOT b.coverage_verified AND NOT EXISTS(
-   SELECT 1 FROM generate_series(extract(year FROM b.from_date)::integer,extract(year FROM b.to_date)::integer) y WHERE NOT EXISTS(
-    SELECT 1 FROM public.acct_history_checks h WHERE h.from_date<=greatest(b.from_date,make_date(y,1,1)) AND h.to_date>=least(b.to_date,make_date(y,12,31)) AND public.acct_history_check_current(h.id)
-   )
-  );
- ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND'; END IF;
- RETURN jsonb_build_object('id',v_id);
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_history_view() RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
+ RETURN jsonb_strip_nulls(jsonb_build_object('id',key,'version',v));
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.banking_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE observation accounting.bank_transactions; line accounting.journal_lines; movement accounting.bank_accounts; total numeric; capacity numeric; new_review text;
 BEGIN
- PERFORM public.acct_require_owner();
- RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM public.acct_settings),
- 'checks',(SELECT coalesce(jsonb_agg(to_jsonb(h)||jsonb_build_object('revision',h.revision::text,'invalidated',NOT public.acct_history_check_current(h.id),
-  'eligible_months',(SELECT count(*) FROM generate_series(date_trunc('month',h.from_date),date_trunc('month',h.to_date),INTERVAL '1 month') d WHERE d::date>=h.from_date AND (d+INTERVAL '1 month -1 day')::date<=least(h.to_date,current_date)),
-  'locked_months',(SELECT coalesce(jsonb_agg(c.month_start ORDER BY c.month_start),'[]') FROM public.acct_close_records c JOIN public.acct_periods p ON p.month_start=c.month_start WHERE c.proof->>'history_check_id'=h.id::text AND p.is_locked AND NOT EXISTS(SELECT 1 FROM public.acct_close_reopens WHERE close_id=c.id))
- ) ORDER BY h.from_date DESC,h.created_at DESC,h.id),'[]') FROM public.acct_history_checks h),
- 'dispositions',(SELECT coalesce(jsonb_agg(to_jsonb(d) ORDER BY created_at DESC,id),'[]') FROM public.acct_history_dispositions d),
- 'excluded',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',g.id,'entry_date',g.entry_date,'memo',g.memo,'reason',g.reason,'batch_id',g.batch_id,'disposition',(SELECT to_jsonb(d) FROM public.acct_history_dispositions d WHERE d.group_id=g.id ORDER BY version DESC LIMIT 1)) ORDER BY g.entry_date,g.id),'[]') FROM public.acct_import_groups g WHERE status='excluded'),
- 'years',(SELECT coalesce(jsonb_agg(to_jsonb(y) ORDER BY year DESC),'[]') FROM public.acct_fiscal_years y));
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_history_document_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-BEGIN
- IF NEW.state='archived' AND OLD.state<>'archived' AND EXISTS(SELECT 1 FROM public.acct_history_dispositions WHERE document_id=NEW.document_id) THEN RAISE EXCEPTION 'ACCT_DOCUMENT_LINKED'; END IF;
+ IF TG_LEVEL='STATEMENT' THEN PERFORM accounting.write_lock(); RETURN NULL; END IF;
+ IF TG_TABLE_NAME NOT IN ('journal_lines','journal_entries') THEN UPDATE accounting.settings SET financial_revision=financial_revision+1 WHERE id=1; END IF;
+ IF TG_TABLE_NAME='journal_entries' THEN
+  IF TG_OP='INSERT' AND NEW.reverses_entry_id IS NOT NULL AND EXISTS(SELECT 1 FROM accounting.journal_entries e WHERE e.id=NEW.reverses_entry_id AND e.transfer_group_id IS NOT NULL AND (SELECT count(*) FROM accounting.journal_entries g WHERE g.transfer_group_id=e.transfer_group_id AND g.reverses_entry_id IS NULL)>1)
+    AND current_setting('accounting.action',true)<>'transfer.reverse' THEN RAISE EXCEPTION 'ACCT_TRANSFER_REVERSE_TOGETHER'; END IF;
+  IF TG_OP='UPDATE' AND NEW.entry_date<>OLD.entry_date AND OLD.origin IN ('simplefin','csv') AND EXISTS(SELECT 1 FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id WHERE l.entry_id=OLD.id) THEN RAISE EXCEPTION 'ACCT_BANK_SOURCE_CHANGED'; END IF;
+  RETURN NEW;
+ ELSIF TG_TABLE_NAME='journal_lines' THEN
+  IF EXISTS(SELECT 1 FROM accounting.bank_matches WHERE journal_line_id=OLD.id) THEN
+   IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_MATCHED_LINE_IMMUTABLE'; END IF;
+   IF (NEW.account_id,NEW.amount_cents,NEW.entry_id) IS DISTINCT FROM (OLD.account_id,OLD.amount_cents,OLD.entry_id) THEN RAISE EXCEPTION 'ACCT_MATCHED_LINE_IMMUTABLE'; END IF;
+  END IF;
+  IF TG_OP='DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
+ ELSIF TG_TABLE_NAME='bank_transactions' THEN
+  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_EVIDENCE'; END IF;
+  IF TG_OP='UPDATE' AND (to_jsonb(NEW)-ARRAY['state','review','excluded_reason']) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['state','review','excluded_reason']) THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_EVIDENCE'; END IF;
+  IF TG_OP='UPDATE' AND OLD.state='posted' AND NEW.state<>'posted' THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_EVIDENCE'; END IF;
+  IF TG_OP='INSERT' THEN NEW.descriptor_key:=coalesce(accounting.descriptor_key(NEW.description),''); END IF;
+  IF NEW.review='excluded' AND EXISTS(SELECT 1 FROM accounting.bank_matches WHERE bank_transaction_id=NEW.id) THEN RAISE EXCEPTION 'ACCT_MATCH_EXISTS'; END IF;
+ ELSIF TG_TABLE_NAME='bank_matches' THEN
+  IF TG_OP='UPDATE' THEN RAISE EXCEPTION 'ACCT_MATCH_IMMUTABLE'; END IF;
+  IF TG_OP='DELETE' THEN
+   IF btrim(coalesce(current_setting('accounting.reason',true),''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
+   IF OLD.amount_cents>0 AND EXISTS(SELECT 1 FROM accounting.bank_matches WHERE journal_line_id=OLD.journal_line_id AND amount_cents=0) THEN RAISE EXCEPTION 'ACCT_RELEASE_CORROBORATION_FIRST'; END IF;
+   RETURN OLD;
+  END IF;
+  SELECT * INTO observation FROM accounting.bank_transactions WHERE id=NEW.bank_transaction_id;
+  SELECT * INTO line FROM accounting.journal_lines WHERE id=NEW.journal_line_id;
+  SELECT * INTO movement FROM accounting.bank_accounts WHERE id=observation.bank_account_id;
+  IF observation.state<>'posted' OR observation.review='excluded' OR line.account_id<>movement.account_id OR sign(line.amount_cents)<>sign(observation.amount_cents) THEN RAISE EXCEPTION 'ACCT_MATCH_MISMATCH'; END IF;
+  IF (SELECT status FROM accounting.journal_entries WHERE id=line.entry_id)='discarded' THEN RAISE EXCEPTION 'ACCT_MATCH_DISCARDED'; END IF;
+  IF NEW.amount_cents=0 THEN
+   -- Additional independent source evidence carries no second financial allocation.
+   IF abs(line.amount_cents)<>abs(observation.amount_cents) OR NOT EXISTS(
+    SELECT 1 FROM accounting.bank_matches m JOIN accounting.bank_transactions other ON other.id=m.bank_transaction_id
+    WHERE m.journal_line_id=line.id AND m.amount_cents=abs(line.amount_cents) AND other.source<>observation.source
+      AND other.bank_account_id=observation.bank_account_id AND other.amount_cents=observation.amount_cents
+      AND abs(other.posted_date-observation.posted_date)<=(SELECT transfer_window_days FROM accounting.settings WHERE id=1)
+   ) THEN RAISE EXCEPTION 'ACCT_INVALID_CORROBORATION'; END IF;
+  END IF;
+  SELECT coalesce(sum(amount_cents),0) INTO total FROM accounting.bank_matches WHERE bank_transaction_id=observation.id;
+  IF total+NEW.amount_cents>abs(observation.amount_cents::numeric) THEN RAISE EXCEPTION 'ACCT_MATCH_OVERALLOCATED'; END IF;
+  SELECT coalesce(sum(amount_cents),0) INTO total FROM accounting.bank_matches WHERE journal_line_id=line.id;
+  IF total+NEW.amount_cents>abs(line.amount_cents::numeric) THEN RAISE EXCEPTION 'ACCT_MATCH_OVERALLOCATED'; END IF;
+ ELSIF TG_TABLE_NAME='bank_accounts' THEN
+  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=NEW.account_id AND subtype IN ('bank','card','cash')) THEN RAISE EXCEPTION 'ACCT_BANK_ACCOUNT_REQUIRED'; END IF;
+  IF TG_OP='UPDATE' AND (NEW.account_id,NEW.movement_sign) IS DISTINCT FROM (OLD.account_id,OLD.movement_sign) AND EXISTS(SELECT 1 FROM accounting.bank_transactions WHERE bank_account_id=OLD.id) THEN RAISE EXCEPTION 'ACCT_FEED_MAPPING_FROZEN'; END IF;
+ ELSIF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE';
+ END IF;
+ IF TG_OP='UPDATE' AND TG_TABLE_NAME IN ('parties','payee_aliases','bank_accounts','bank_connections','documents','rules') THEN
+  NEW.version:=OLD.version+1;NEW.updated_at:=now();
+ END IF;
  RETURN NEW;
-END $$;
-CREATE TRIGGER acct_history_document_guard BEFORE UPDATE ON public.acct_document_states FOR EACH ROW EXECUTE FUNCTION public.acct_history_document_guard();
+END $function$
+;
 
-REVOKE ALL ON FUNCTION public.acct_history_view(),public.acct_history_document_guard() FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.acct_history_view() TO authenticated;
-REVOKE ALL ON FUNCTION public.acct_closing_normalization_valid(uuid),public.acct_history_preview(date,date,jsonb,jsonb,jsonb),public.acct_history_command(jsonb,uuid) FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.acct_history_preview(date,date,jsonb,jsonb,jsonb) TO authenticated;
-
-
--- ACCOUNTING HISTORY END
-
--- ACCOUNTING TRANSFERS BEGIN
-CREATE OR REPLACE FUNCTION public.acct_transfer_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE outgoing public.acct_journal_entries;incoming public.acct_journal_entries;transit uuid;
+CREATE OR REPLACE FUNCTION accounting.books_package(params jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE r jsonb;detail jsonb;result jsonb;support jsonb;inventory jsonb:='[]';issues jsonb:='[]';item text;mode text:=coalesce(params->>'view','preview');start_date date:=make_date((params->>'year')::integer,1,1);end_date date:=(params->>'through')::date;
 BEGIN
- PERFORM public.acct_write_lock();
- IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_APPEND_ONLY'; END IF;
- IF TG_OP='UPDATE' THEN
-  IF OLD.status='posted' AND NEW.status='corrected' AND NEW.version=OLD.version+1 AND (to_jsonb(OLD)-'status'-'version')=(to_jsonb(NEW)-'status'-'version') AND EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE status='posted' AND reverses_entry_id IN (OLD.outgoing_entry_id,OLD.incoming_entry_id)) THEN RETURN NEW; END IF;
+ PERFORM accounting.require_owner();
+ IF mode='history' THEN
+  RETURN jsonb_build_object('count',(SELECT count(*) FROM accounting.report_snapshots WHERE kind='year_end_package' AND data->>'type'='books_package' AND (books_package.params->>'year' IS NULL OR extract(year FROM from_date)=(books_package.params->>'year')::integer)),
+   'rows',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'from_date',from_date,'to_date',to_date,'revision',financial_revision::text,'created_at',created_at,'review_items',data->'review_items') ORDER BY created_at DESC,id),'[]') FROM (SELECT * FROM accounting.report_snapshots WHERE kind='year_end_package' AND data->>'type'='books_package' AND (books_package.params->>'year' IS NULL OR extract(year FROM from_date)=(books_package.params->>'year')::integer) ORDER BY created_at DESC,id LIMIT 50 OFFSET coalesce((books_package.params->>'offset')::integer,0)) q));
+ END IF;
+ IF end_date IS NULL OR start_date IS NULL OR extract(year FROM end_date)<>(books_package.params->>'year')::integer OR end_date>(now() AT TIME ZONE (SELECT books_timezone FROM public.business_profile WHERE id=1))::date THEN RAISE EXCEPTION 'ACCT_REPORT_RANGE';END IF;
+ r:=accounting.report('summary',jsonb_build_object('from',start_date,'to',end_date));detail:=accounting.report_lines('general_ledger',jsonb_build_object('from',start_date,'to',end_date));
+ FOREACH item IN ARRAY ARRAY['payroll-register','contractor-worksheet','asset-register','loan-register','tax-workpapers'] LOOP
+  support:=accounting.support_report(jsonb_build_object('from',start_date,'to',end_date,'report_id',item,'limit',1));
+  inventory:=inventory||jsonb_build_array(jsonb_build_object('id',item,'rows',support->'count'));
+  IF support?'controls' AND NOT coalesce((support->'controls'->>'ready')::boolean,false) THEN issues:=issues||jsonb_build_array(jsonb_build_object('kind',item,'message','Register balances need review.'));END IF;
+  IF item='tax-workpapers' AND (coalesce((support->'tax_workpaper'->>'unmapped_accounts')::integer,0)>0 OR coalesce((support->'tax_workpaper'->>'unavailable_adjustments')::integer,0)>0) THEN issues:=issues||jsonb_build_array(jsonb_build_object('kind','tax','message','Tax mappings or adjustment evidence need review.'));END IF;
+ END LOOP;
+ IF NOT coalesce((accounting.payroll(jsonb_build_object('year',extract(year FROM end_date)::integer,'through',end_date))->'coverage'->>'current')::boolean,false) THEN issues:=issues||jsonb_build_array(jsonb_build_object('kind','payroll','message','Provider year-to-date payroll evidence needs review.'));END IF;
+ IF (r->'quality'->>'draft_count')::integer>0 THEN issues:=issues||jsonb_build_array(jsonb_build_object('kind','drafts','message','Draft transactions are excluded from posted reports.'));END IF;
+ RETURN jsonb_build_object('year',(books_package.params->>'year')::integer,'through',end_date,'revision',r->'revision','legal_name',r->'legal_name','ledger_count',detail->'total','incomplete_imports',r->'quality'->'incomplete_imports',
+ 'review_items',issues,
+ 'notes',jsonb_build_array('Financial statements, ledger, payroll, contractor, register and tax support share one captured revision.'),
+ 'reports',inventory);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION public.business_profile_get()
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+BEGIN
+  IF auth.uid() IS NULL THEN RAISE EXCEPTION 'ACCT_AUTH_REQUIRED'; END IF;
+  RETURN (SELECT to_jsonb(p) FROM public.business_profile p WHERE id=1);
+END
+$function$
+;
+
+CREATE OR REPLACE FUNCTION public.business_profile_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE has_observations boolean;
+BEGIN
+  IF TG_LEVEL = 'STATEMENT' THEN
+    PERFORM pg_catalog.pg_advisory_xact_lock(64219071);
+    RETURN NULL;
+  END IF;
+  IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'ACCT_PROFILE_REQUIRED'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_timezone_names WHERE name=NEW.books_timezone) THEN
+    RAISE EXCEPTION 'ACCT_INVALID_TIMEZONE';
+  END IF;
+  IF TG_OP = 'UPDATE' THEN
+    IF NEW.id IS DISTINCT FROM OLD.id THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_ID'; END IF;
+    IF NEW.books_timezone IS DISTINCT FROM OLD.books_timezone AND to_regclass('accounting.bank_transactions') IS NOT NULL THEN
+      EXECUTE 'SELECT EXISTS(SELECT 1 FROM accounting.bank_transactions)' INTO has_observations;
+      IF has_observations THEN RAISE EXCEPTION 'ACCT_TIMEZONE_FROZEN'; END IF;
+    END IF;
+    NEW.version := OLD.version + 1;
+    NEW.updated_at := now();
+  END IF;
+  RETURN NEW;
+END
+$function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.cash_lines(params jsonb)
+ RETURNS TABLE(id uuid, entry_id uuid, account_id uuid, amount_cents numeric, classification text, allocation_index bigint)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ WITH cash AS (
+ SELECT l.* FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id JOIN accounting.journal_entries e ON e.id=l.entry_id
+ WHERE a.subtype IN ('bank','cash') AND e.entry_date BETWEEN (params->>'from')::date AND (params->>'to')::date AND (e.status='posted' OR (params->>'mode'='working' AND e.status='draft' AND (SELECT count(*)>=2 AND coalesce(sum(bl.amount_cents),0)=0 FROM accounting.journal_lines bl WHERE bl.entry_id=e.id)))
+ AND (params->>'payee' IS NULL OR e.payee_id::text=params->>'payee' OR (params->>'payee'='unassigned' AND e.payee_id IS NULL))
+ AND (NOT params?'account_ids' OR a.id::text IN(SELECT jsonb_array_elements_text(params->'account_ids'))) AND (NOT params?'account_types' OR a.type IN(SELECT jsonb_array_elements_text(params->'account_types')))
+ ), weights AS (
+ SELECT l.id,l.entry_id,l.account_id,l.amount_cents,c.id counter_id,c.sort_order,abs(c.amount_cents::numeric) weight,
+ CASE WHEN l.cash_class IS NOT NULL THEN l.cash_class WHEN a.subtype IN ('bank','cash','transit') THEN 'transfer' WHEN a.type='equity' OR a.subtype='loan' THEN 'financing' WHEN a.subtype IN ('fixed_asset','accumulated_depreciation') THEN 'investing' ELSE 'operating' END classification,
+ sum(abs(c.amount_cents::numeric)) OVER(PARTITION BY l.id) total_weight
+ FROM cash l JOIN accounting.journal_lines c ON c.entry_id=l.entry_id AND sign(c.amount_cents)<>sign(l.amount_cents) JOIN accounting.accounts a ON a.id=c.account_id
+ ), shares AS(SELECT *,floor(abs(amount_cents::numeric)*weight/total_weight) base,mod(abs(amount_cents::numeric)*weight,total_weight) remainder FROM weights),ranked AS (
+ SELECT *,row_number() OVER(PARTITION BY id ORDER BY remainder DESC,sort_order,counter_id) rn,abs(amount_cents::numeric)-sum(base) OVER(PARTITION BY id) residual FROM shares)
+ SELECT id,entry_id,account_id,sign(amount_cents)*(base+CASE WHEN rn<=residual THEN 1 ELSE 0 END),CASE classification WHEN 'transfer' THEN 'internal_transfer' ELSE classification END,sort_order::bigint
+ FROM ranked WHERE base+CASE WHEN rn<=residual THEN 1 ELSE 0 END<>0
+$function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.close_checklist(month date)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE ending date:=(month+interval '1 month - 1 day')::date;drafts integer;mismatches integer;balances jsonb;observations jsonb;
+BEGIN
+ PERFORM accounting.require_owner();IF extract(day FROM month)<>1 THEN RAISE EXCEPTION 'ACCT_MONTH_REQUIRED';END IF;
+ SELECT count(*) INTO drafts FROM accounting.journal_entries WHERE entry_date BETWEEN month AND ending AND status='draft';
+ SELECT count(*) INTO mismatches FROM (SELECT DISTINCT ON(fiscal_year,kind) * FROM accounting.history_checks WHERE fiscal_year=extract(year FROM month) ORDER BY fiscal_year,kind,checked_at DESC,id DESC) checks WHERE status='mismatch';
+ balances:=accounting.report('account_balances',jsonb_build_object('from',month,'to',ending));
+ SELECT coalesce(jsonb_agg(jsonb_build_object('id',b.id,'account_id',b.account_id,'name',a.name,'book_cents',coalesce(r->>'ending_cents','0'),'observed_balance_cents',b.observed_balance_cents::text,'observed_at',b.observed_at,
+  'difference_cents',CASE WHEN b.observed_balance_cents IS NULL THEN NULL ELSE (coalesce((r->>'ending_cents')::bigint,0)-b.observed_balance_cents)::text END) ORDER BY a.name),'[]') INTO observations
+  FROM accounting.bank_accounts b JOIN accounting.accounts a ON a.id=b.account_id LEFT JOIN LATERAL (SELECT value r FROM jsonb_array_elements(balances->'rows') WHERE value->>'id'=b.account_id::text) q ON true WHERE NOT b.is_closed;
+ RETURN jsonb_build_object('month',month,'month_start',month,'through',ending,'month_ended',ending<(SELECT (now() AT TIME ZONE books_timezone)::date FROM public.business_profile),'reports',accounting.workspace(month,ending),'accounts',observations,'revision',(SELECT financial_revision::text FROM accounting.settings),'drafts',drafts,'history_mismatches',mismatches,'ready',drafts=0 AND mismatches=0,'banks',observations,
+  'period',(SELECT to_jsonb(p) FROM accounting.periods p WHERE p.month=close_checklist.month));
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.close_command(c jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE t text:=c->>'type';key uuid:=coalesce((c->>'id')::uuid,gen_random_uuid());actor uuid:=accounting.require_owner();r accounting.reconciliations;period accounting.periods;
+ v integer;bank uuid;x jsonb;month_date date:=(c->>'month')::date;ending date;checklist jsonb;snapshot jsonb;
+BEGIN
+ IF t='period.close' THEN t:='period.lock';END IF;
+ IF t='reconciliation.unmatch' THEN t:='reconciliation.item.remove';c:=c||jsonb_build_object('item_id',c->'allocation_id');PERFORM set_config('accounting.reason',coalesce(nullif(c->>'reason',''),'Owner removed reconciliation selection'),true);END IF;
+ IF t IN ('period.lock','period.reopen') THEN
+  IF month_date IS NULL OR extract(day FROM month_date)<>1 THEN RAISE EXCEPTION 'ACCT_MONTH_REQUIRED';END IF;
+  SELECT * INTO period FROM accounting.periods WHERE month=month_date;
+  IF c?'expected_version' AND (c->>'expected_version')::integer IS DISTINCT FROM coalesce(period.version,0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+  IF t='period.lock' THEN
+   IF period.status='locked' THEN RAISE EXCEPTION 'ACCT_PERIOD_LOCKED';END IF;
+   checklist:=accounting.close_checklist(month_date);
+   IF (checklist->>'drafts')::integer<>0 THEN RAISE EXCEPTION 'ACCT_DRAFTS_EXIST';END IF;
+   IF NOT (checklist->>'ready')::boolean THEN RAISE EXCEPTION 'ACCT_CLOSE_NOT_READY';END IF;
+   ending:=(month_date+interval '1 month - 1 day')::date;
+   snapshot:=jsonb_build_object('financial_revision',(SELECT financial_revision::text FROM accounting.settings),'trial_balance',accounting.report('trial_balance',jsonb_build_object('as_of',ending)),
+    'profit_loss',accounting.report('profit_loss',jsonb_build_object('from',month_date,'to',ending)),'balance_sheet',accounting.report('balance_sheet',jsonb_build_object('as_of',ending)));
+   INSERT INTO accounting.periods(month,status,locked_at,locked_by,close_snapshot) VALUES(month_date,'locked',now(),actor,snapshot)
+    ON CONFLICT(month) DO UPDATE SET status='locked',locked_at=excluded.locked_at,locked_by=excluded.locked_by,close_snapshot=excluded.close_snapshot,reopen_reason='' RETURNING version INTO v;
+  ELSE
+   IF period.status IS DISTINCT FROM 'locked' THEN RAISE EXCEPTION 'ACCT_PERIOD_NOT_LOCKED';END IF;
+   IF btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED';END IF;
+   -- Reopening an earlier month also reopens dependent later snapshots atomically.
+   UPDATE accounting.periods SET status='open',locked_at=NULL,locked_by=NULL,close_snapshot=NULL,reopen_reason=c->>'reason' WHERE month>=month_date AND status='locked';
+   SELECT version INTO v FROM accounting.periods WHERE month=month_date;
+  END IF;
+ ELSIF t IN ('reconciliation.save','reconciliation.create') THEN
+  SELECT * INTO r FROM accounting.reconciliations WHERE id=key;
+  IF c?'expected_version' AND (c->>'expected_version')::integer IS DISTINCT FROM coalesce(r.version,0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+  IF r.status='completed' THEN RAISE EXCEPTION 'ACCT_RECONCILIATION_COMPLETED';END IF;
+  bank:=(c->>'bank_account_id')::uuid;
+  IF bank IS NULL THEN
+   SELECT id INTO bank FROM accounting.bank_accounts WHERE account_id=(c->>'account_id')::uuid;
+   IF bank IS NULL THEN INSERT INTO accounting.bank_accounts(account_id) VALUES((c->>'account_id')::uuid) RETURNING id INTO bank;END IF;
+  END IF;
+  INSERT INTO accounting.reconciliations(id,bank_account_id,statement_start,statement_end,opening_balance_cents,ending_balance_cents,document_id,difference_cents,notes)
+   VALUES(key,bank,coalesce(c->>'statement_start',c->>'from')::date,coalesce(c->>'statement_end',c->>'to')::date,coalesce(c->>'opening_balance_cents',c->>'opening_cents')::bigint,coalesce(c->>'ending_balance_cents',c->>'ending_cents')::bigint,(c->>'document_id')::uuid,0,coalesce(c->>'notes',''))
+   ON CONFLICT(id) DO UPDATE SET statement_start=excluded.statement_start,statement_end=excluded.statement_end,opening_balance_cents=excluded.opening_balance_cents,ending_balance_cents=excluded.ending_balance_cents,document_id=excluded.document_id,notes=excluded.notes RETURNING version INTO v;
+  IF c?'items' THEN
+   PERFORM set_config('accounting.reason',coalesce(c->>'reason','Owner updated reconciliation selection'),true);
+   DELETE FROM accounting.reconciliation_items WHERE reconciliation_id=key;
+   FOR x IN SELECT value FROM jsonb_array_elements(c->'items') LOOP
+    INSERT INTO accounting.reconciliation_items(id,reconciliation_id,journal_line_id,amount_cents) VALUES(coalesce((x->>'id')::uuid,gen_random_uuid()),key,coalesce(x->>'journal_line_id',x->>'line_id')::uuid,(x->>'amount_cents')::bigint);
+   END LOOP;
+   UPDATE accounting.reconciliations SET updated_at=now() WHERE id=key RETURNING version INTO v;
+  END IF;
+ ELSIF t='reconciliation.allocate' THEN
+  SELECT * INTO r FROM accounting.reconciliations WHERE id=key;
+  IF r.version IS DISTINCT FROM (c->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+  FOR x IN SELECT value FROM jsonb_array_elements(c->'allocations') LOOP
+   INSERT INTO accounting.reconciliation_items(id,reconciliation_id,journal_line_id,amount_cents) VALUES((x->>'id')::uuid,key,coalesce(x->>'journal_line_id',x->>'entry_line_id')::uuid,(x->>'amount_cents')::bigint);
+  END LOOP;
+  UPDATE accounting.reconciliations SET updated_at=now() WHERE id=key RETURNING version INTO v;
+ ELSIF t IN ('reconciliation.complete','reconciliation.reopen','reconciliation.item.remove') THEN
+  SELECT * INTO r FROM accounting.reconciliations WHERE id=key;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;
+  IF r.version IS DISTINCT FROM (c->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+  IF t='reconciliation.item.remove' THEN DELETE FROM accounting.reconciliation_items WHERE id=(c->>'item_id')::uuid AND reconciliation_id=key;
+  ELSIF t='reconciliation.reopen' AND btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED';END IF;
+  UPDATE accounting.reconciliations SET status=CASE t WHEN 'reconciliation.complete' THEN 'completed' ELSE 'in_progress' END,completed_at=CASE WHEN t='reconciliation.complete' THEN now() ELSE NULL END WHERE id=key RETURNING version INTO v;
+ ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND: %',t;
+ END IF;
+ RETURN jsonb_build_object('id',key,'version',v);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.close_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE r accounting.reconciliations;l accounting.journal_lines;entry accounting.journal_entries;
+BEGIN
+ IF TG_LEVEL='STATEMENT' THEN PERFORM accounting.write_lock();RETURN NULL;END IF;
+ IF TG_TABLE_NAME='journal_entries' THEN
+  IF NEW.status='posted' AND (TG_OP='INSERT' OR OLD.status IS DISTINCT FROM 'posted') THEN
+   UPDATE accounting.reconciliations SET status='in_progress',completed_at=NULL WHERE status='completed' AND NEW.entry_date BETWEEN statement_start AND statement_end
+    AND bank_account_id IN(SELECT b.id FROM accounting.journal_lines jl JOIN accounting.bank_accounts b ON b.account_id=jl.account_id WHERE jl.entry_id=NEW.id);
+  END IF;RETURN NEW;
+ ELSIF TG_TABLE_NAME='reconciliations' THEN
+  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE';END IF;
+  IF TG_OP='UPDATE' THEN
+   IF OLD.status='completed' AND NEW.status='completed' THEN RAISE EXCEPTION 'ACCT_RECONCILIATION_COMPLETED';END IF;
+   IF OLD.status='completed' AND (NEW.bank_account_id,NEW.statement_start,NEW.statement_end,NEW.opening_balance_cents,NEW.ending_balance_cents,NEW.document_id) IS DISTINCT FROM (OLD.bank_account_id,OLD.statement_start,OLD.statement_end,OLD.opening_balance_cents,OLD.ending_balance_cents,OLD.document_id) THEN RAISE EXCEPTION 'ACCT_RECONCILIATION_COMPLETED';END IF;
+   NEW.version:=OLD.version+1;NEW.updated_at:=now();
+  END IF;
+  NEW.difference_cents:=NEW.ending_balance_cents-NEW.opening_balance_cents-coalesce((SELECT sum(amount_cents) FROM accounting.reconciliation_items WHERE reconciliation_id=NEW.id),0);
+  IF NEW.status='completed' AND NEW.difference_cents<>0 THEN RAISE EXCEPTION 'ACCT_RECONCILIATION_DIFFERENCE';END IF;
+ ELSE
+  IF TG_OP='UPDATE' THEN RAISE EXCEPTION 'ACCT_ALLOCATION_IMMUTABLE';END IF;
+  SELECT * INTO r FROM accounting.reconciliations WHERE id=CASE WHEN TG_OP='DELETE' THEN OLD.reconciliation_id ELSE NEW.reconciliation_id END;
+  IF r.status='completed' THEN RAISE EXCEPTION 'ACCT_RECONCILIATION_COMPLETED';END IF;
+  IF TG_OP='DELETE' THEN
+   IF btrim(coalesce(current_setting('accounting.reason',true),''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED';END IF;
+   RETURN OLD;
+  END IF;
+  SELECT * INTO l FROM accounting.journal_lines WHERE id=NEW.journal_line_id;SELECT * INTO entry FROM accounting.journal_entries WHERE id=l.entry_id;
+  IF l.account_id IS DISTINCT FROM (SELECT account_id FROM accounting.bank_accounts WHERE id=r.bank_account_id) OR entry.status IS DISTINCT FROM 'posted' OR entry.entry_date>r.statement_end OR sign(l.amount_cents)<>sign(NEW.amount_cents) OR abs(NEW.amount_cents)>abs(l.amount_cents) THEN RAISE EXCEPTION 'ACCT_RECONCILIATION_ALLOCATION';END IF;
+ END IF;
+ UPDATE accounting.settings SET financial_revision=financial_revision+1 WHERE id=1;
+ RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.context(view text, params jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE actor uuid:=accounting.require_owner();result jsonb;key uuid;selected_record jsonb;items jsonb;candidates jsonb;
+BEGIN
+ IF view='session' THEN RETURN jsonb_build_object('owner_id',actor); END IF;
+ IF view='manage' THEN
+  RETURN jsonb_build_object('profiles',(SELECT coalesce(jsonb_agg(jsonb_build_object('account_id',id,'version',version,'purpose',system_purpose,'cash_kind',CASE WHEN subtype IN ('bank','cash','card') THEN subtype ELSE 'none' END,'parent_account_id',parent_id,'subtype',subtype,'type',type,'external_names',external_names) ORDER BY code,name),'[]') FROM accounting.accounts),
+   'parties',(SELECT coalesce(jsonb_agg(to_jsonb(p)||jsonb_build_object('tax_classification',CASE WHEN contractor_classification='unknown' THEN 'unreviewed' ELSE contractor_classification END,'documentation',documentation_status) ORDER BY name),'[]') FROM accounting.parties p),
+   'periods',(SELECT coalesce(jsonb_agg(to_jsonb(p)||jsonb_build_object('month_start',month,'is_locked',status='locked')),'[]') FROM accounting.periods p),
+   'preferences',(SELECT to_jsonb(s)-ARRAY['owner_user_id','financial_revision']||jsonb_build_object('history_start',p.earliest_history_date,'legal_name',p.legal_name,'business_profile',to_jsonb(p)) FROM accounting.settings s CROSS JOIN public.business_profile p));
+ ELSIF view='feeds' THEN
+  RETURN jsonb_build_object('owner_id',actor,
+   'connections',(SELECT coalesce(jsonb_agg(to_jsonb(c)-ARRAY['access_url_encrypted','key_version','checkpoint','lease_run_id'] ORDER BY created_at,id),'[]') FROM accounting.bank_connections c),
+   'accounts',(SELECT coalesce(jsonb_agg(to_jsonb(b)||jsonb_build_object('history_start',extract(epoch FROM (b.coverage_from::timestamp AT TIME ZONE p.books_timezone))::bigint::text,'checkpoint',c.checkpoint->>b.provider_account_id,'posting_timezone',p.books_timezone,'balance_sign',coalesce(c.checkpoint->'balance_signs'->b.id::text,'1'),'can_edit_settings',NOT EXISTS(SELECT 1 FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id))),'[]') FROM accounting.bank_accounts b JOIN accounting.bank_connections c ON c.id=b.connection_id CROSS JOIN public.business_profile p),
+   'identities',(SELECT coalesce(jsonb_agg(d.value||jsonb_build_object('connection_id',c.id,'provider_account_id',d.value->>'raw_provider_account_id','version',coalesce(b.version,0),'feed_account_id',b.id,'last_seen_at',c.updated_at,
+    'account',CASE WHEN b.id IS NULL THEN NULL ELSE to_jsonb(b)||jsonb_build_object('history_start',extract(epoch FROM (b.coverage_from::timestamp AT TIME ZONE p.books_timezone))::bigint::text,'checkpoint',c.checkpoint->>b.provider_account_id,'posting_timezone',p.books_timezone,'balance_sign',coalesce(c.checkpoint->'balance_signs'->b.id::text,'1'),'can_edit_settings',NOT EXISTS(SELECT 1 FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id)) END,
+    'balance',jsonb_build_object('balance_cents',d.value->'balance_cents','available_cents',d.value->'available_cents','balance_at',d.value->'balance_at','issues','[]'::jsonb,'created_at',c.updated_at)) ORDER BY c.created_at,d.key),'[]') FROM accounting.bank_connections c CROSS JOIN public.business_profile p CROSS JOIN LATERAL jsonb_each(coalesce(c.checkpoint->'discovery','{}')) d LEFT JOIN accounting.bank_accounts b ON b.id=d.key::uuid),
+   'runs',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',a.operation_id,'connection_id',a.row_id,'actor_kind',a.actor_kind,'status',CASE WHEN (a.after->>'errors')::int>0 THEN 'incomplete' ELSE 'saved' END,'started_at',a.at,'finished_at',a.at,'error','') ORDER BY a.at DESC),'[]') FROM (SELECT * FROM accounting.audit_log WHERE table_name='bank_connections' AND action='sync' AND after ? 'accounts' ORDER BY at DESC LIMIT 100) a),
+   'queue',(SELECT coalesce(jsonb_agg(jsonb_build_object('feed_account_id',b.id,'ready',(SELECT count(*) FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id AND o.review='unmatched' AND state='posted'),'pending',(SELECT count(*) FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id AND state='pending'))),'[]') FROM accounting.bank_accounts b));
+ ELSIF view='rules' THEN
+  RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'rules',(SELECT coalesce(jsonb_agg(to_jsonb(r)||jsonb_build_object('description_mode',coalesce(r.conditions->>'description_mode',(SELECT d.key FROM jsonb_each(coalesce(r.conditions->'descriptor_key','{}')) d LIMIT 1)),'description',coalesce(r.conditions->>'description',(SELECT value#>>'{}' FROM jsonb_each(coalesce(r.conditions->'descriptor_key','{}')) LIMIT 1)),'bank_account_id',r.conditions->'bank_account_id','direction',r.conditions->'direction','min_cents',coalesce(r.conditions->>'amount_min','0'),'max_cents',coalesce(r.conditions->>'amount_max','9223372036854775807'),'match_payee_id',r.conditions->'payee_id','category_account_id',r.actions->'account_id','assign_payee_id',r.actions->'payee_id','reason','') ORDER BY priority,id),'[]') FROM accounting.rules r),'aliases',(SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('party_name',p.name,'match_mode',a.match_kind,'description',a.pattern) ORDER BY a.pattern),'[]') FROM accounting.payee_aliases a JOIN accounting.parties p ON p.id=a.party_id));
+ ELSIF view='history' THEN
+  RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'checks',(SELECT coalesce(jsonb_agg(to_jsonb(h)||jsonb_build_object('from_date',make_date(fiscal_year,1,1),'to_date',make_date(fiscal_year,12,31),'source_document_id',document_id,'created_at',checked_at,'invalidated',status='mismatch','controls',expected) ORDER BY checked_at DESC),'[]') FROM accounting.history_checks h));
+ ELSIF view='close-history' THEN
+  RETURN jsonb_build_object('periods',(SELECT coalesce(jsonb_agg(to_jsonb(p)||jsonb_build_object('month_start',month,'is_locked',status='locked') ORDER BY month DESC),'[]') FROM accounting.periods p),'reconciliations',(SELECT coalesce(jsonb_agg(to_jsonb(r)||jsonb_build_object('account_id',b.account_id,'from_date',statement_start,'to_date',statement_end,'opening_cents',opening_balance_cents::text,'ending_cents',ending_balance_cents::text,'difference_cents',difference_cents::text) ORDER BY statement_end DESC),'[]') FROM accounting.reconciliations r JOIN accounting.bank_accounts b ON b.id=r.bank_account_id));
+ ELSIF view='tax' THEN
+  SELECT id INTO key FROM public.tax_estimates WHERE tax_year=(context.params->>'year')::integer AND deleted_at IS NULL ORDER BY updated_at DESC,id LIMIT 1;
+  RETURN accounting.tax_link(key)||jsonb_build_object('_safe_harbor_context',jsonb_build_object('as_of',(SELECT (now() AT TIME ZONE books_timezone)::date FROM public.business_profile),'financial_revision',(SELECT financial_revision::text FROM accounting.settings),'available_documents',(SELECT coalesce(jsonb_agg(d.id),'[]') FROM accounting.documents d WHERE d.status<>'archived' AND EXISTS(SELECT 1 FROM storage.objects o WHERE o.bucket_id='accounting-private' AND o.name=d.storage_path))));
+ ELSIF view='evidence' THEN
+  key:=(context.params->>'id')::uuid;PERFORM accounting.entry_detail(key);
+  RETURN jsonb_build_object('sources',coalesce((SELECT jsonb_agg(jsonb_build_object('id',o.id,'source_system',o.source,'external_id',o.external_id,'observed_at',o.observed_at,'raw_payload',o.raw_payload)) FROM accounting.bank_transactions o WHERE EXISTS(SELECT 1 FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id WHERE m.bank_transaction_id=o.id AND l.entry_id=key)),'[]')||coalesce((SELECT jsonb_agg(jsonb_build_object('id',r.id,'source_system',b.source,'external_id',r.external_id,'observed_at',r.created_at,'raw_payload',r.raw)) FROM accounting.import_rows r JOIN accounting.import_batches b ON b.id=r.batch_id WHERE r.entry_id=key),'[]'),
+   'notes',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',a.after->>'note_id','note',a.after->>'note','created_at',a.at) ORDER BY a.at),'[]') FROM accounting.audit_log a WHERE a.row_id=key AND a.action='entry.annotate' AND a.after ? 'note_id'),
+   'documents',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',d.id,'original_name',d.name,'size_bytes',d.size_bytes::text,'mime_type',d.mime)),'[]') FROM accounting.documents d JOIN accounting.document_links l ON l.document_id=d.id WHERE l.entry_id=key),
+   'rules',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',a.id::text,'rule_id',a.before->>'rule_id','rule_version',(a.before->>'rule_version')::integer,'rule_name',a.before->'winner'->>'name','created_at',a.at,'before_value',a.before,'after_value',a.after) ORDER BY a.id),'[]') FROM accounting.audit_log a WHERE a.row_id=key AND a.action='rule.applied'),
+   'audit',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',a.id::text,'table_name',a.table_name,'action',a.action,'recorded_at',a.at,'before_value',a.before,'after_value',a.after) ORDER BY a.at DESC),'[]') FROM accounting.audit_log a WHERE a.row_id=key));
+ ELSIF view='tax-snapshot' THEN RETURN accounting.tax_link((context.params->>'id')::uuid)->'snapshot';
+ ELSIF view='period-impact' THEN
+  RETURN jsonb_build_object('month',(context.params->>'month')::date,'revision',(SELECT financial_revision::text FROM accounting.settings),'periods',(SELECT coalesce(jsonb_agg(to_jsonb(p)||jsonb_build_object('month_start',p.month,'is_locked',p.status='locked') ORDER BY p.month),'[]') FROM accounting.periods p WHERE p.month>=(context.params->>'month')::date),'snapshots',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'kind',kind,'from_date',from_date,'to_date',to_date,'revision',financial_revision::text) ORDER BY created_at DESC),'[]') FROM accounting.report_snapshots WHERE to_date>=(context.params->>'month')::date));
+ ELSIF view='cash-review' THEN
+  SELECT jsonb_build_object('line_id',l.id,'entry_id',e.id,'entry_date',e.entry_date,'memo',e.memo,'account_name',a.name,'amount_cents',l.amount_cents::text,'version',e.version,'status',e.status,
+   'allocations',(SELECT coalesce(jsonb_agg(jsonb_build_object('classification',c.classification,'amount_cents',c.amount_cents::text,'note',CASE WHEN l.cash_class IS NULL THEN 'Derived from counter-account' ELSE e.reason END)),'[]') FROM accounting.cash_lines(jsonb_build_object('from',e.entry_date,'to',e.entry_date,'mode','working')) c WHERE c.id=l.id)) INTO result
+   FROM accounting.journal_lines l JOIN accounting.journal_entries e ON e.id=l.entry_id JOIN accounting.accounts a ON a.id=l.account_id WHERE l.id=(context.params->>'line')::uuid;
+  IF result IS NULL THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;RETURN result;
+ ELSIF view='reconciliation' THEN
+  key:=(context.params->>'id')::uuid;
+  WITH records AS (SELECT r.*,b.account_id FROM accounting.reconciliations r JOIN accounting.bank_accounts b ON b.id=r.bank_account_id WHERE (context.params->>'account' IS NULL OR b.account_id=(context.params->>'account')::uuid))
+  SELECT jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'statements',coalesce(jsonb_agg(to_jsonb(r)||jsonb_build_object('from_date',statement_start,'to_date',statement_end,'opening_cents',opening_balance_cents::text,'ending_cents',ending_balance_cents::text,'difference_cents',difference_cents::text) ORDER BY statement_end DESC),'[]')) INTO result FROM records r;
+  SELECT to_jsonb(r)||jsonb_build_object('account_id',b.account_id,'from_date',statement_start,'to_date',statement_end,'opening_cents',opening_balance_cents::text,'ending_cents',ending_balance_cents::text,'difference_cents',difference_cents::text) INTO selected_record FROM accounting.reconciliations r JOIN accounting.bank_accounts b ON b.id=r.bank_account_id WHERE r.id=key;
+  IF key IS NOT NULL AND selected_record IS NULL THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;
+  SELECT coalesce(jsonb_agg(jsonb_build_object('id',i.id,'journal_line_id',i.journal_line_id,'entry_date',e.entry_date,'description',e.memo,'amount_cents',i.amount_cents::text) ORDER BY e.entry_date,i.id),'[]') INTO items FROM accounting.reconciliation_items i JOIN accounting.journal_lines l ON l.id=i.journal_line_id JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE i.reconciliation_id=key;
+  SELECT coalesce(jsonb_agg(jsonb_build_object('id',l.id,'entry_id',e.id,'entry_date',e.entry_date,'memo',e.memo,'amount_cents',l.amount_cents::text,'remaining_cents',(l.amount_cents-coalesce((SELECT sum(amount_cents) FROM accounting.reconciliation_items WHERE journal_line_id=l.id),0))::text) ORDER BY e.entry_date,l.id),'[]') INTO candidates FROM (SELECT l.* FROM accounting.journal_lines l JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE l.account_id=coalesce(selected_record->>'account_id',context.params->>'account')::uuid AND e.status='posted' AND (selected_record IS NULL OR e.entry_date<=(selected_record->>'statement_end')::date) ORDER BY e.entry_date,l.id LIMIT 100 OFFSET coalesce((context.params->>'offset')::int,0)) l JOIN accounting.journal_entries e ON e.id=l.entry_id;
+  RETURN result||jsonb_build_object('statement',selected_record,'proof',CASE WHEN selected_record IS NULL THEN NULL ELSE jsonb_build_object('ready',(selected_record->>'difference_cents')::numeric=0,'statement_difference_cents',selected_record->>'difference_cents','item_count',jsonb_array_length(items)) END,'items',items,'item_count',jsonb_array_length(items),'lines',candidates,'line_count',(SELECT count(*) FROM accounting.journal_lines l JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE l.account_id=coalesce(selected_record->>'account_id',context.params->>'account')::uuid AND e.status='posted' AND (selected_record IS NULL OR e.entry_date<=(selected_record->>'statement_end')::date)));
+ ELSIF view='transfers' THEN
+  WITH movements AS (SELECT e.transfer_group_id,e.id,e.entry_date,e.memo,e.version,l.amount_cents,a.name,
+    EXISTS(SELECT 1 FROM accounting.journal_entries re WHERE re.reverses_entry_id=e.id) reversed
+    FROM accounting.journal_entries e JOIN accounting.journal_lines l ON l.entry_id=e.id JOIN accounting.accounts a ON a.id=l.account_id WHERE e.status='posted' AND e.reverses_entry_id IS NULL AND e.transfer_group_id IS NOT NULL AND a.subtype IN ('bank','cash','card')),
+  grouped AS (SELECT transfer_group_id id,max(version) version,CASE WHEN bool_or(reversed) THEN 'corrected' ELSE 'posted' END status,
+   (array_agg(id ORDER BY entry_date,id) FILTER(WHERE amount_cents<0))[1] outgoing_entry_id,(array_agg(id ORDER BY entry_date,id) FILTER(WHERE amount_cents>0))[1] incoming_entry_id,
+   min(entry_date) FILTER(WHERE amount_cents<0) outgoing_date,max(entry_date) FILTER(WHERE amount_cents>0) incoming_date,max(abs(amount_cents))::text amount_cents,min(memo) memo,
+   max(name) FILTER(WHERE amount_cents<0) from_name,max(name) FILTER(WHERE amount_cents>0) to_name,
+   min(entry_date) FILTER(WHERE amount_cents<0)<=(context.params->>'to')::date AND max(entry_date) FILTER(WHERE amount_cents>0)>(context.params->>'to')::date in_transit FROM movements GROUP BY transfer_group_id),
+  scoped AS(SELECT * FROM grouped WHERE outgoing_date<=(context.params->>'to')::date AND incoming_date>=(context.params->>'from')::date),
+  paged AS(SELECT * FROM scoped ORDER BY outgoing_date DESC,id LIMIT 100 OFFSET coalesce((context.params->>'offset')::int,0))
+  SELECT jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'total',(SELECT count(*) FROM scoped),'groups',(SELECT coalesce(jsonb_agg(to_jsonb(p) ORDER BY outgoing_date DESC,id),'[]') FROM paged p)) INTO result;RETURN result;
+ ELSIF view='tax-history' THEN
+  RETURN jsonb_build_object('rows',(SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('recorded_at',at,'before_value',before,'after_value',after) ORDER BY at DESC),'[]') FROM (SELECT * FROM accounting.audit_log WHERE table_name IN ('tax_mappings','tax_adjustments','tax_links') AND (context.params->>'id' IS NULL OR row_id=(context.params->>'id')::uuid) ORDER BY at DESC LIMIT 100 OFFSET coalesce((context.params->>'offset')::integer,0)) a));
+ END IF;
+ RAISE EXCEPTION 'ACCT_INVALID_VIEW';
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.contractor_report(year integer, cutoff date DEFAULT NULL::date)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE threshold bigint;result jsonb;through_date date:=coalesce(cutoff,make_date(year,12,31));
+BEGIN
+ PERFORM accounting.require_owner();
+ IF extract(year FROM through_date)<>year THEN RAISE EXCEPTION 'ACCT_TAX_RANGE';END IF;
+ IF year BETWEEN 2022 AND 2025 THEN threshold:=60000;ELSIF year=2026 THEN threshold:=200000;ELSE RAISE EXCEPTION 'ACCT_CONTRACTOR_YEAR_RULE_REQUIRED';END IF;
+ SELECT jsonb_build_object('year',year,'through',through_date,'revision',(SELECT financial_revision::text FROM accounting.settings),'threshold_cents',threshold::text,
+  'rows',coalesce(jsonb_agg(jsonb_build_object('id',id,'name',name,'contractor_classification',contractor_classification,'documentation_status',documentation_status,'paid_cents',paid::text,'card_cents',card::text,'meets_threshold',paid>=threshold) ORDER BY name,id),'[]')) INTO result FROM (
+ SELECT p.id,p.name,p.contractor_classification,p.documentation_status,
+ -coalesce(sum(l.amount_cents) FILTER(WHERE a.subtype IN ('bank','cash')),0) paid,-coalesce(sum(l.amount_cents) FILTER(WHERE a.subtype='card'),0) card
+ FROM accounting.parties p LEFT JOIN accounting.journal_entries e ON e.payee_id=p.id AND e.status='posted' AND e.entry_date BETWEEN make_date(year,1,1) AND through_date
+ LEFT JOIN accounting.journal_lines l ON l.entry_id=e.id LEFT JOIN accounting.accounts a ON a.id=l.account_id WHERE p.is_contractor GROUP BY p.id) rows;
+ RETURN result;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.descriptor_key(value text)
+ RETURNS text
+ LANGUAGE plpgsql
+ IMMUTABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE v text := upper(value);
+BEGIN
+ IF v IS NULL THEN RETURN NULL; END IF;
+ v:=regexp_replace(v,'\*[[:space:]]*[0-9].*$','','g');
+ v:=regexp_replace(v,'\m[0-9]{1,4}[-/.][0-9]{1,2}[-/.][0-9]{1,4}\M',' ','g');
+ v:=regexp_replace(v,'\m(JAN(UARY)?|FEB(RUARY)?|MAR(CH)?|APR(IL)?|MAY|JUN(E)?|JUL(Y)?|AUG(UST)?|SEP(TEMBER)?|OCT(OBER)?|NOV(EMBER)?|DEC(EMBER)?)[[:space:]]+[0-9]{1,2}(,?[[:space:]]+[0-9]{4})?\M',' ','g');
+ v:=regexp_replace(v,'\m[0-9]{1,2}[[:space:]]+(JAN(UARY)?|FEB(RUARY)?|MAR(CH)?|APR(IL)?|MAY|JUN(E)?|JUL(Y)?|AUG(UST)?|SEP(TEMBER)?|OCT(OBER)?|NOV(EMBER)?|DEC(EMBER)?)([[:space:]]+[0-9]{4})?\M',' ','g');
+ v:=regexp_replace(v,'#[[:space:]]*[0-9]+|[0-9]{4,}',' ','g');
+ v:=regexp_replace(v,'\m(POS|DEBIT|CREDIT|PURCHASE|PAYMENT|CARD|ACH|RECURRING)\M',' ','g');
+ RETURN btrim(regexp_replace(v,'[[:space:]]+',' ','g'));
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.document_access(path text, uploading boolean DEFAULT false)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ SELECT EXISTS(SELECT 1 FROM accounting.settings WHERE owner_user_id=auth.uid()) AND EXISTS(SELECT 1 FROM accounting.documents WHERE storage_path=path AND status<>'archived') AND (NOT uploading OR NOT EXISTS(SELECT 1 FROM storage.objects WHERE bucket_id='accounting-private' AND name=path))
+$function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.documents(filter jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE result jsonb;
+BEGIN
+ PERFORM accounting.require_owner();
+ SELECT jsonb_build_object('documents',coalesce(jsonb_agg(to_jsonb(d)||jsonb_build_object('original_name',d.name,'mime_type',d.mime,'content_hash',d.sha256,'size_bytes',d.size_bytes::text,'created_at',d.uploaded_at,'storage_key',d.storage_path,'state',CASE WHEN d.status='archived' THEN 'archived' WHEN EXISTS(SELECT 1 FROM storage.objects o WHERE o.bucket_id='accounting-private' AND o.name=d.storage_path) THEN 'available' ELSE 'uploading' END,
+  'links',(SELECT coalesce(jsonb_agg(to_jsonb(l)),'[]') FROM accounting.document_links l WHERE document_id=d.id)) ORDER BY uploaded_at DESC),'[]')) INTO result
+ FROM accounting.documents d WHERE (filter->>'id' IS NULL OR d.id=(filter->>'id')::uuid) AND (filter->>'status' IS NULL OR d.status=filter->>'status');
+ RETURN result;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.entry_detail(entry uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE result jsonb; extra jsonb; bank_account uuid;
+BEGIN
+ PERFORM accounting.require_owner();
+ SELECT to_jsonb(e)||jsonb_build_object('primary_origin',e.origin,
+  'reversed_by_entry_id',(SELECT id FROM accounting.journal_entries WHERE reverses_entry_id=e.id),
+  'context',jsonb_build_object('kind',e.kind,'payee_id',e.payee_id),'prior_treatment',NULL,
+  'lines',coalesce((SELECT jsonb_agg(to_jsonb(l)||jsonb_build_object('amount_cents',l.amount_cents::text) ORDER BY l.sort_order) FROM accounting.journal_lines l WHERE l.entry_id=e.id),'[]')) INTO result
+ FROM accounting.journal_entries e WHERE e.id=entry;
+ IF result IS NULL THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+ SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('id',a.id::text) ORDER BY a.id),'[]') INTO extra FROM accounting.audit_log a WHERE a.row_id=entry;
+ result:=result||jsonb_build_object('audit',extra,'matches','[]'::jsonb,'documents','[]'::jsonb);
+ IF to_regclass('accounting.bank_matches') IS NOT NULL THEN
+  SELECT l.account_id INTO bank_account FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=entry AND a.subtype IN ('bank','card','cash') ORDER BY l.sort_order LIMIT 1;
+  IF bank_account IS NOT NULL AND result->>'descriptor_key' IS NOT NULL THEN
+   EXECUTE 'SELECT accounting.prior_summary($1,$2,10)' INTO extra USING result->>'descriptor_key',bank_account;
+   result:=result||jsonb_build_object('prior_treatment',extra-ARRAY['entries','memo','last_date']);
+  END IF;
+  EXECUTE 'SELECT coalesce(jsonb_agg(to_jsonb(m)||jsonb_build_object(''amount_cents'',m.amount_cents::text)),''[]''::jsonb) FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id WHERE l.entry_id=$1' INTO extra USING entry;
+  result:=result||jsonb_build_object('matches',extra);
+ END IF;
+ IF to_regclass('accounting.document_links') IS NOT NULL THEN
+  EXECUTE 'SELECT coalesce(jsonb_agg(to_jsonb(d)),''[]''::jsonb) FROM accounting.documents d JOIN accounting.document_links l ON l.document_id=d.id WHERE l.entry_id=$1' INTO extra USING entry;
+  result:=result||jsonb_build_object('documents',extra);
+ END IF;
+ RETURN result;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE e accounting.journal_entries; a accounting.accounts; parent accounting.accounts; d date;
+BEGIN
+ IF TG_LEVEL='STATEMENT' THEN PERFORM accounting.write_lock(); RETURN NULL; END IF;
+ IF TG_TABLE_NAME IN ('audit_log','command_receipts') THEN
+  IF TG_TABLE_NAME='command_receipts' THEN
+   IF TG_OP='DELETE' AND OLD.created_at<now()-interval '90 days' THEN RETURN OLD; END IF;
+  END IF;
   RAISE EXCEPTION 'ACCT_APPEND_ONLY';
  END IF;
- IF NEW.status<>'posted' OR NEW.version<>1 THEN RAISE EXCEPTION 'ACCT_TRANSFER_INVALID'; END IF;
- IF EXISTS(SELECT 1 FROM public.acct_transfer_groups WHERE outgoing_entry_id IN (NEW.outgoing_entry_id,NEW.incoming_entry_id) OR incoming_entry_id IN (NEW.outgoing_entry_id,NEW.incoming_entry_id)) THEN RAISE EXCEPTION 'ACCT_TRANSFER_ALREADY_LINKED'; END IF;
- SELECT * INTO outgoing FROM public.acct_journal_entries WHERE id=NEW.outgoing_entry_id AND status='posted';
- SELECT * INTO incoming FROM public.acct_journal_entries WHERE id=NEW.incoming_entry_id AND status='posted';
- IF outgoing.id IS NULL OR incoming.id IS NULL OR outgoing.entry_date<>NEW.outgoing_date OR incoming.entry_date<>NEW.incoming_date OR EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE reverses_entry_id IN(outgoing.id,incoming.id)) THEN RAISE EXCEPTION 'ACCT_TRANSFER_INVALID'; END IF;
- IF (SELECT count(*) FROM public.acct_account_profiles p JOIN public.acct_accounts a ON a.id=p.account_id WHERE p.account_id IN (NEW.from_account_id,NEW.to_account_id) AND ((p.cash_kind IN ('bank','cash') AND a.account_type='asset') OR (p.cash_kind='card' AND a.account_type='liability')))<>2 THEN RAISE EXCEPTION 'ACCT_BANK_ACCOUNT_REQUIRED'; END IF;
- IF NOT EXISTS(SELECT 1 FROM public.acct_journal_lines WHERE entry_id=outgoing.id AND account_id=NEW.from_account_id AND amount_cents=-NEW.amount_cents) OR NOT EXISTS(SELECT 1 FROM public.acct_journal_lines WHERE entry_id=incoming.id AND account_id=NEW.to_account_id AND amount_cents=NEW.amount_cents) THEN RAISE EXCEPTION 'ACCT_TRANSFER_INVALID'; END IF;
- IF outgoing.id=incoming.id THEN
-  IF (SELECT count(*) FROM public.acct_journal_lines WHERE entry_id=outgoing.id)<>2 THEN RAISE EXCEPTION 'ACCT_TRANSFER_INVALID'; END IF;
- ELSE
-  SELECT account_id INTO transit FROM public.acct_account_profiles WHERE purpose='transfers_in_transit';
-  IF transit IS NULL OR (SELECT count(*) FROM public.acct_journal_lines WHERE entry_id IN(outgoing.id,incoming.id))<>4 OR NOT EXISTS(SELECT 1 FROM public.acct_journal_lines WHERE entry_id=outgoing.id AND account_id=transit AND amount_cents=NEW.amount_cents) OR NOT EXISTS(SELECT 1 FROM public.acct_journal_lines WHERE entry_id=incoming.id AND account_id=transit AND amount_cents=-NEW.amount_cents) THEN RAISE EXCEPTION 'ACCT_TRANSFER_INVALID'; END IF;
-  IF coalesce((SELECT sum(a.amount_cents) FROM public.acct_clearing_allocations a JOIN public.acct_journal_lines o ON o.id=a.obligation_line_id JOIN public.acct_journal_lines i ON i.id=a.settlement_line_id WHERE o.account_id=transit AND i.account_id=transit AND ((o.entry_id=outgoing.id AND i.entry_id=incoming.id) OR (i.entry_id=outgoing.id AND o.entry_id=incoming.id)) AND NOT EXISTS(SELECT 1 FROM public.acct_clearing_releases WHERE allocation_id=a.id)),0)<>NEW.amount_cents THEN RAISE EXCEPTION 'ACCT_TRANSFER_CLEARING_REQUIRED'; END IF;
- END IF;
- RETURN NEW;
-END $$;
-CREATE TRIGGER acct_transfer_guard BEFORE INSERT OR UPDATE OR DELETE ON public.acct_transfer_groups FOR EACH ROW EXECUTE FUNCTION public.acct_transfer_guard();
-
-CREATE OR REPLACE FUNCTION public.acct_transfer_reversal_complete() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-BEGIN
- IF NEW.status='posted' AND NEW.reverses_entry_id IS NOT NULL AND EXISTS(
-  SELECT 1 FROM public.acct_transfer_groups g WHERE NEW.reverses_entry_id IN(g.outgoing_entry_id,g.incoming_entry_id) AND
-  (NOT EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE status='posted' AND reverses_entry_id=g.outgoing_entry_id) OR NOT EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE status='posted' AND reverses_entry_id=g.incoming_entry_id))
- ) THEN RAISE EXCEPTION 'ACCT_TRANSFER_REVERSE_TOGETHER'; END IF;
- RETURN NULL;
-END $$;
-CREATE CONSTRAINT TRIGGER acct_transfer_reversal_complete AFTER INSERT OR UPDATE ON public.acct_journal_entries DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.acct_transfer_reversal_complete();
-
-CREATE OR REPLACE FUNCTION public.acct_transfer_command(p_command jsonb,p_actor uuid) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE op text:=p_command->>'type';v_id uuid:=(p_command->>'id')::uuid;outgoing uuid;incoming uuid;from_account uuid;to_account uuid;out_date date;in_date date;amount bigint;transit uuid;saved jsonb;out_line uuid;in_line uuid;allocated numeric;g public.acct_transfer_groups;reversal jsonb;
-BEGIN
- PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
- IF (p_command->>'expected_revision')::bigint IS DISTINCT FROM (SELECT financial_revision FROM public.acct_settings) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
- IF op='transfer.reverse' THEN
-  SELECT * INTO g FROM public.acct_transfer_groups WHERE id=v_id AND status='posted';
-  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_TRANSFER_INVALID'; END IF;
-  reversal:=public.acct_command(gen_random_uuid(),jsonb_build_object('type','entry.reverse','id',g.outgoing_entry_id,'expected_version',(SELECT version FROM public.acct_journal_entries WHERE id=g.outgoing_entry_id),'entry_date',p_command->'outgoing_date','reason',p_command->'reason'));
-  IF g.outgoing_entry_id<>g.incoming_entry_id THEN
-   saved:=public.acct_command(gen_random_uuid(),jsonb_build_object('type','entry.reverse','id',g.incoming_entry_id,'expected_version',(SELECT version FROM public.acct_journal_entries WHERE id=g.incoming_entry_id),'entry_date',p_command->'incoming_date','reason',p_command->'reason'));
-  ELSE saved:=reversal; END IF;
-  RETURN jsonb_build_object('id',v_id,'outgoing_reversal_id',reversal->'id','incoming_reversal_id',saved->'id');
- END IF;
- IF op NOT IN ('transfer.create','transfer.link') THEN RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND'; END IF;
- IF p_command->>'amount_cents' IS NULL OR p_command->>'amount_cents'!~'^[1-9][0-9]{0,18}$' THEN RAISE EXCEPTION 'ACCT_INVALID_MONEY'; END IF;
- amount:=(p_command->>'amount_cents')::bigint;from_account:=(p_command->>'from_account_id')::uuid;to_account:=(p_command->>'to_account_id')::uuid;
- IF from_account=to_account OR length(btrim(coalesce(p_command->>'memo',''))) NOT BETWEEN 1 AND 1000 THEN RAISE EXCEPTION 'ACCT_TRANSFER_INVALID'; END IF;
- SELECT account_id INTO transit FROM public.acct_account_profiles WHERE purpose='transfers_in_transit';
- IF op='transfer.create' THEN
-  out_date:=(p_command->>'outgoing_date')::date;in_date:=(p_command->>'incoming_date')::date;
-  IF out_date IS NULL OR in_date IS NULL OR least(out_date,in_date)<'1900-01-01'::date OR greatest(out_date,in_date)>'2100-12-31'::date THEN RAISE EXCEPTION 'ACCT_INVALID_RANGE'; END IF;
-  outgoing:=gen_random_uuid();incoming:=CASE WHEN out_date=in_date THEN outgoing ELSE gen_random_uuid() END;
-  IF outgoing<>incoming AND transit IS NULL THEN RAISE EXCEPTION 'ACCT_TRANSIT_ACCOUNT_REQUIRED'; END IF;
-  saved:=public.acct_command(gen_random_uuid(),jsonb_build_object('type','draft.save','id',outgoing,'expected_version',0,'entry_date',out_date,'memo',p_command->'memo','lines',jsonb_build_array(jsonb_build_object('account_id',from_account,'amount_cents',(-amount)::text,'memo','Transfer out'),jsonb_build_object('account_id',CASE WHEN outgoing=incoming THEN to_account ELSE transit END,'amount_cents',amount::text,'memo','Transfer in'))));
-  INSERT INTO public.acct_entry_context(entry_id,kind) VALUES(outgoing,'transfer');
-  PERFORM public.acct_command(gen_random_uuid(),jsonb_build_object('type','entry.post','id',outgoing,'expected_version',saved->'version'));
-  IF outgoing<>incoming THEN
-   saved:=public.acct_command(gen_random_uuid(),jsonb_build_object('type','draft.save','id',incoming,'expected_version',0,'entry_date',in_date,'memo',p_command->'memo','lines',jsonb_build_array(jsonb_build_object('account_id',transit,'amount_cents',(-amount)::text,'memo','Transfer in transit'),jsonb_build_object('account_id',to_account,'amount_cents',amount::text,'memo','Transfer received'))));
-   INSERT INTO public.acct_entry_context(entry_id,kind) VALUES(incoming,'transfer');
-   PERFORM public.acct_command(gen_random_uuid(),jsonb_build_object('type','entry.post','id',incoming,'expected_version',saved->'version'));
+ IF TG_TABLE_NAME='settings' THEN
+  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_SETTINGS_REQUIRED'; END IF;
+  IF TG_OP='UPDATE' AND NEW.owner_user_id IS DISTINCT FROM OLD.owner_user_id THEN RAISE EXCEPTION 'ACCT_OWNER_IMMUTABLE'; END IF;
+ ELSIF TG_TABLE_NAME='journal_entries' THEN
+  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE'; END IF;
+  IF TG_OP='INSERT' THEN
+   NEW.descriptor_key:=accounting.descriptor_key(NEW.source_description);
+   PERFORM accounting.require_open(NEW.entry_date);
+   INSERT INTO accounting.periods(month) VALUES(date_trunc('month',NEW.entry_date)::date) ON CONFLICT DO NOTHING;
+  ELSE
+   IF NEW.id IS DISTINCT FROM OLD.id OR NEW.source_description IS DISTINCT FROM OLD.source_description OR NEW.descriptor_key IS DISTINCT FROM OLD.descriptor_key OR NEW.origin IS DISTINCT FROM OLD.origin OR NEW.created_at IS DISTINCT FROM OLD.created_at OR NEW.created_by IS DISTINCT FROM OLD.created_by THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_PROVENANCE'; END IF;
+   IF OLD.transfer_group_id IS NOT NULL AND NEW.transfer_group_id IS DISTINCT FROM OLD.transfer_group_id THEN RAISE EXCEPTION 'ACCT_TRANSFER_GROUP_IMMUTABLE'; END IF;
+   IF OLD.status='discarded' THEN RAISE EXCEPTION 'ACCT_DISCARDED'; END IF;
+   IF OLD.status='posted' AND (to_jsonb(NEW)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','version','updated_at']) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','version','updated_at']) THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
+   IF OLD.status<>'posted' THEN PERFORM accounting.require_open(OLD.entry_date); PERFORM accounting.require_open(NEW.entry_date); END IF;
+   NEW.version:=OLD.version+1; NEW.updated_at:=now();
   END IF;
- ELSE
-  outgoing:=(p_command->>'outgoing_entry_id')::uuid;incoming:=(p_command->>'incoming_entry_id')::uuid;
-  SELECT entry_date INTO out_date FROM public.acct_journal_entries WHERE id=outgoing AND status='posted';
-  SELECT entry_date INTO in_date FROM public.acct_journal_entries WHERE id=incoming AND status='posted';
-  IF out_date IS NULL OR in_date IS NULL THEN RAISE EXCEPTION 'ACCT_POSTED_REQUIRED'; END IF;
- END IF;
- IF outgoing<>incoming THEN
-  SELECT id INTO out_line FROM public.acct_journal_lines WHERE entry_id=outgoing AND account_id=transit AND amount_cents=amount;
-  SELECT id INTO in_line FROM public.acct_journal_lines WHERE entry_id=incoming AND account_id=transit AND amount_cents=-amount;
-  IF out_line IS NULL OR in_line IS NULL THEN RAISE EXCEPTION 'ACCT_TRANSFER_INVALID'; END IF;
-  SELECT coalesce(sum(amount_cents),0) INTO allocated FROM public.acct_clearing_allocations WHERE ((obligation_line_id=out_line AND settlement_line_id=in_line) OR (settlement_line_id=out_line AND obligation_line_id=in_line)) AND NOT EXISTS(SELECT 1 FROM public.acct_clearing_releases WHERE allocation_id=acct_clearing_allocations.id);
-  IF allocated<amount THEN
-   IF EXISTS(SELECT 1 FROM public.acct_periods WHERE is_locked AND month_start>=date_trunc('month',greatest(out_date,in_date))::date) THEN RAISE EXCEPTION 'ACCT_LATER_PERIOD_LOCKED'; END IF;
-   INSERT INTO public.acct_clearing_allocations(id,obligation_line_id,settlement_line_id,amount_cents,effective_date,reason,created_by) VALUES(gen_random_uuid(),out_line,in_line,amount-allocated,greatest(out_date,in_date),'Linked transfer legs',p_actor);
-  END IF;
- END IF;
- INSERT INTO public.acct_transfer_groups(id,outgoing_entry_id,incoming_entry_id,from_account_id,to_account_id,outgoing_date,incoming_date,amount_cents,status,memo,created_by) VALUES(v_id,outgoing,incoming,from_account,to_account,out_date,in_date,amount,'posted',p_command->>'memo',p_actor);
- RETURN jsonb_build_object('id',v_id,'outgoing_entry_id',outgoing,'incoming_entry_id',incoming);
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_transfers_view(p_from date,p_to date,p_offset integer DEFAULT 0) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-BEGIN
- PERFORM public.acct_require_owner();
- IF p_from IS NULL OR p_to IS NULL OR p_to<p_from OR p_offset<0 THEN RAISE EXCEPTION 'ACCT_INVALID_RANGE'; END IF;
- RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM public.acct_settings),'total',(SELECT count(*) FROM public.acct_transfer_groups WHERE greatest(outgoing_date,incoming_date)>=p_from AND least(outgoing_date,incoming_date)<=p_to),'groups',(
-  SELECT coalesce(jsonb_agg(to_jsonb(g)||jsonb_build_object('amount_cents',g.amount_cents::text,'from_name',a.name,'to_name',b.name,'in_transit',g.status='posted' AND least(g.outgoing_date,g.incoming_date)<=p_to AND greatest(g.outgoing_date,g.incoming_date)>p_to) ORDER BY greatest(outgoing_date,incoming_date) DESC,g.id),'[]') FROM (SELECT * FROM public.acct_transfer_groups WHERE greatest(outgoing_date,incoming_date)>=p_from AND least(outgoing_date,incoming_date)<=p_to ORDER BY greatest(outgoing_date,incoming_date) DESC,id LIMIT 50 OFFSET p_offset) g JOIN public.acct_accounts a ON a.id=g.from_account_id JOIN public.acct_accounts b ON b.id=g.to_account_id
- ));
-END $$;
-REVOKE ALL ON FUNCTION public.acct_transfer_guard(),public.acct_transfer_reversal_complete(),public.acct_transfer_command(jsonb,uuid),public.acct_transfers_view(date,date,integer) FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.acct_transfers_view(date,date,integer) TO authenticated;
-
--- ACCOUNTING TRANSFERS END
-
--- ACCOUNTING BANK MATCHING BEGIN
-
-CREATE INDEX acct_bank_matches_source ON public.acct_bank_matches(source_record_id);
-CREATE INDEX acct_bank_matches_line ON public.acct_bank_matches(entry_line_id);
-CREATE TABLE public.acct_bank_match_releases (
- id uuid PRIMARY KEY,
- match_id uuid NOT NULL UNIQUE REFERENCES public.acct_bank_matches(id),
- reason text NOT NULL CHECK(length(btrim(reason)) BETWEEN 1 AND 1000),
- reversal_entry_id uuid REFERENCES public.acct_journal_entries(id),
- created_by uuid NOT NULL REFERENCES auth.users(id),
- created_at timestamptz NOT NULL DEFAULT now()
-);
-ALTER TABLE public.acct_bank_match_releases ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.acct_bank_match_releases FROM PUBLIC,anon,authenticated,service_role;
-CREATE TRIGGER acct_statement_lock BEFORE INSERT OR UPDATE OR DELETE ON public.acct_bank_match_releases FOR EACH STATEMENT EXECUTE FUNCTION public.acct_lock_statement();
-CREATE TRIGGER acct_audit AFTER INSERT OR UPDATE OR DELETE ON public.acct_bank_match_releases FOR EACH ROW EXECUTE FUNCTION public.acct_record_workflow_audit();
-CREATE TRIGGER acct_bank_match_release_immutable BEFORE UPDATE OR DELETE ON public.acct_bank_match_releases FOR EACH ROW EXECUTE FUNCTION public.acct_append_only();
-
-CREATE OR REPLACE FUNCTION public.acct_bank_source_used(p_source uuid) RETURNS numeric
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
- SELECT coalesce(sum(abs(m.amount_cents::numeric)),0) FROM public.acct_bank_matches m JOIN public.acct_source_records s ON s.id=m.source_record_id JOIN public.acct_source_records current_source ON current_source.id=p_source WHERE s.source_system=current_source.source_system AND s.source_scope=current_source.source_scope AND s.external_id=current_source.external_id AND NOT EXISTS(SELECT 1 FROM public.acct_bank_match_releases WHERE match_id=m.id);
-$$;
-CREATE OR REPLACE FUNCTION public.acct_bank_line_used(p_line uuid,p_source uuid) RETURNS numeric
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
- SELECT coalesce(sum(abs(m.amount_cents::numeric)),0) FROM public.acct_bank_matches m JOIN public.acct_source_records s ON s.id=m.source_record_id JOIN public.acct_source_records current_source ON current_source.id=p_source WHERE m.entry_line_id=p_line AND s.source_system=current_source.source_system AND s.source_scope=current_source.source_scope AND NOT EXISTS(SELECT 1 FROM public.acct_bank_match_releases WHERE match_id=m.id);
-$$;
-CREATE OR REPLACE FUNCTION public.acct_bank_match_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE g public.acct_import_groups;line public.acct_journal_lines;s public.acct_source_records;
-BEGIN
- PERFORM public.acct_write_lock();
- SELECT * INTO s FROM public.acct_source_records WHERE id=NEW.source_record_id;
- SELECT * INTO g FROM public.acct_import_groups WHERE source_record_id=s.id AND bank_account_id IS NOT NULL ORDER BY id LIMIT 1;
- SELECT * INTO line FROM public.acct_journal_lines WHERE id=NEW.entry_line_id;
- IF g.id IS NULL OR line.account_id IS DISTINCT FROM g.bank_account_id OR sign(line.amount_cents) IS DISTINCT FROM sign(g.bank_amount_cents) OR sign(NEW.amount_cents) IS DISTINCT FROM sign(g.bank_amount_cents) OR NOT EXISTS(SELECT 1 FROM public.acct_journal_entries e WHERE e.id=line.entry_id AND e.status='posted' AND e.reverses_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE reverses_entry_id=e.id)) THEN RAISE EXCEPTION 'ACCT_MATCH_AMOUNT'; END IF;
- IF EXISTS(SELECT 1 FROM public.acct_import_groups other JOIN public.acct_source_records os ON os.id=other.source_record_id WHERE os.source_system=s.source_system AND os.source_scope=s.source_scope AND os.external_id=s.external_id AND (other.bank_account_id IS DISTINCT FROM g.bank_account_id OR other.bank_amount_cents IS DISTINCT FROM g.bank_amount_cents OR other.entry_date IS DISTINCT FROM g.entry_date)) THEN RAISE EXCEPTION 'ACCT_BANK_SOURCE_CONFLICT'; END IF;
- IF abs(NEW.amount_cents::numeric)>abs(g.bank_amount_cents::numeric)-public.acct_bank_source_used(s.id) OR abs(NEW.amount_cents::numeric)>abs(line.amount_cents::numeric)-public.acct_bank_line_used(line.id,s.id) THEN RAISE EXCEPTION 'ACCT_ALLOCATION_EXCEEDED'; END IF;
- RETURN NEW;
-END $$;
-CREATE TRIGGER acct_bank_match_guard BEFORE INSERT ON public.acct_bank_matches FOR EACH ROW EXECUTE FUNCTION public.acct_bank_match_guard();
-
-CREATE OR REPLACE FUNCTION public.acct_bank_group_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE used numeric;
-BEGIN
- IF NEW.bank_account_id IS NOT NULL THEN
-  used:=public.acct_bank_source_used(NEW.source_record_id);
-  IF used>0 AND (NEW.status IN ('new','applied','excluded') OR NEW.status='duplicate' AND used<>abs(NEW.bank_amount_cents::numeric)) THEN RAISE EXCEPTION 'ACCT_BANK_PARTIAL_REVIEW'; END IF;
- END IF;
- RETURN NEW;
-END $$;
-CREATE TRIGGER acct_bank_group_guard BEFORE UPDATE ON public.acct_import_groups FOR EACH ROW EXECUTE FUNCTION public.acct_bank_group_guard();
-REVOKE ALL ON FUNCTION public.acct_bank_group_guard() FROM PUBLIC,anon,authenticated,service_role;
-
-CREATE OR REPLACE FUNCTION public.acct_bank_reopen_source(p_source uuid,p_reason text) RETURNS void
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-BEGIN
- UPDATE public.acct_import_groups g SET status='review',entry_id=CASE WHEN EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE id=g.entry_id AND status='draft') THEN g.entry_id ELSE NULL END,version=version+1,reason=p_reason FROM public.acct_source_records s,public.acct_source_records current_source WHERE current_source.id=p_source AND s.id=g.source_record_id AND s.source_system=current_source.source_system AND s.source_scope=current_source.source_scope AND s.external_id=current_source.external_id AND g.status<>'excluded';
- UPDATE public.acct_import_batches b SET status=CASE WHEN status='completed' THEN 'review' ELSE status END,coverage_verified=false,version=version+1 WHERE EXISTS(SELECT 1 FROM public.acct_import_groups g JOIN public.acct_source_records s ON s.id=g.source_record_id JOIN public.acct_source_records current_source ON current_source.id=p_source WHERE g.batch_id=b.id AND s.source_system=current_source.source_system AND s.source_scope=current_source.source_scope AND s.external_id=current_source.external_id);
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_bank_posting_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE match public.acct_bank_matches;
-BEGIN
- IF NEW.status='posted' AND OLD.status='draft' THEN
-  IF NEW.reverses_entry_id IS NULL AND EXISTS(SELECT 1 FROM public.acct_import_groups g WHERE g.bank_account_id IS NOT NULL AND (g.entry_id=NEW.id OR EXISTS(SELECT 1 FROM public.acct_source_links WHERE entry_id=NEW.id AND source_record_id=g.source_record_id)) AND (g.entry_date<>NEW.entry_date OR g.bank_amount_cents IS DISTINCT FROM (SELECT sum(amount_cents) FROM public.acct_journal_lines WHERE entry_id=NEW.id AND account_id=g.bank_account_id))) THEN RAISE EXCEPTION 'ACCT_BANK_SOURCE_CHANGED'; END IF;
-  IF NEW.reverses_entry_id IS NULL AND EXISTS(SELECT 1 FROM public.acct_import_groups g JOIN public.acct_source_records source ON source.id=g.source_record_id JOIN public.acct_source_records s ON s.source_system=source.source_system AND s.source_scope=source.source_scope AND s.external_id=source.external_id JOIN public.acct_bank_matches m ON m.source_record_id=s.id JOIN public.acct_journal_lines l ON l.id=m.entry_line_id WHERE (g.entry_id=NEW.id OR EXISTS(SELECT 1 FROM public.acct_source_links WHERE source_record_id=g.source_record_id AND entry_id=NEW.id)) AND l.entry_id<>NEW.id AND NOT EXISTS(SELECT 1 FROM public.acct_bank_match_releases WHERE match_id=m.id)) THEN RAISE EXCEPTION 'ACCT_BANK_PARTIAL_REVIEW'; END IF;
   IF NEW.reverses_entry_id IS NOT NULL THEN
-   FOR match IN SELECT m.* FROM public.acct_bank_matches m JOIN public.acct_journal_lines l ON l.id=m.entry_line_id WHERE l.entry_id=NEW.reverses_entry_id AND NOT EXISTS(SELECT 1 FROM public.acct_bank_match_releases WHERE match_id=m.id) LOOP
-    INSERT INTO public.acct_bank_match_releases(id,match_id,reason,reversal_entry_id,created_by) VALUES(gen_random_uuid(),match.id,'Matched entry reversed; bank evidence needs review',NEW.id,NEW.created_by);
-    PERFORM public.acct_bank_reopen_source(match.source_record_id,'Matched posting reversed; review the remaining bank allocation');
+   SELECT * INTO e FROM accounting.journal_entries WHERE id=NEW.reverses_entry_id;
+   IF e.status<>'posted' OR NEW.entry_date<e.entry_date OR btrim(NEW.reason)='' THEN RAISE EXCEPTION 'ACCT_INVALID_REVERSAL_DATE_OR_REASON'; END IF;
+  END IF;
+  IF NEW.replaces_entry_id IS NOT NULL THEN
+   SELECT * INTO e FROM accounting.journal_entries WHERE id=NEW.replaces_entry_id;
+   IF NEW.entry_date<(SELECT earliest_history_date FROM public.business_profile WHERE id=1) OR btrim(NEW.reason)='' THEN RAISE EXCEPTION 'ACCT_INVALID_CORRECTION_DATE_OR_REASON'; END IF;
+  END IF;
+ ELSIF TG_TABLE_NAME='journal_lines' THEN
+  IF TG_OP='UPDATE' AND (NEW.id<>OLD.id OR NEW.entry_id<>OLD.entry_id) THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY'; END IF;
+  SELECT * INTO e FROM accounting.journal_entries WHERE id=CASE WHEN TG_OP='DELETE' THEN OLD.entry_id ELSE NEW.entry_id END;
+  IF e.status<>'draft' THEN RAISE EXCEPTION 'ACCT_IMMUTABLE'; END IF;
+  PERFORM accounting.require_open(e.entry_date);
+  IF TG_OP<>'DELETE' THEN
+   SELECT * INTO a FROM accounting.accounts WHERE id=NEW.account_id;
+   IF a.is_archived THEN RAISE EXCEPTION 'ACCT_ACCOUNT_ARCHIVED'; END IF;
+  END IF;
+ ELSIF TG_TABLE_NAME='accounts' THEN
+  IF TG_OP<>'DELETE' AND (
+   (NEW.subtype IN ('bank','cash','undeposited','transit','fixed_asset','accumulated_depreciation','receivable') AND NEW.type<>'asset') OR
+   (NEW.subtype IN ('card','loan','payroll_liability') AND NEW.type<>'liability') OR
+   (NEW.subtype IN ('owner_equity','retained_earnings','opening_balance') AND NEW.type<>'equity') OR
+   (NEW.subtype='revenue' AND NEW.type<>'income') OR
+   (NEW.subtype IN ('operating_expense','payroll_expense') AND NEW.type<>'expense') OR
+   (NEW.subtype IN ('bank','cash','card') AND NEW.is_contra) OR
+   (NEW.subtype='accumulated_depreciation' AND NOT NEW.is_contra)
+  ) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_KIND';END IF;
+  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE'; END IF;
+  IF TG_OP='UPDATE' THEN
+   IF NEW.id<>OLD.id THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_ID'; END IF;
+   IF (NEW.type,NEW.subtype,NEW.is_contra) IS DISTINCT FROM (OLD.type,OLD.subtype,OLD.is_contra) AND EXISTS(SELECT 1 FROM accounting.journal_lines l JOIN accounting.journal_entries posted_entry ON posted_entry.id=l.entry_id WHERE l.account_id=OLD.id AND posted_entry.status='posted') THEN RAISE EXCEPTION 'ACCT_ACCOUNT_IN_USE'; END IF;
+   IF NEW.system_purpose IS DISTINCT FROM OLD.system_purpose AND OLD.system_purpose IS NOT NULL THEN RAISE EXCEPTION 'ACCT_SYSTEM_ACCOUNT'; END IF;
+   NEW.version:=OLD.version+1; NEW.updated_at:=now();
+  END IF;
+  IF NEW.parent_id IS NOT NULL THEN
+   SELECT * INTO parent FROM accounting.accounts WHERE id=NEW.parent_id;
+   IF parent.parent_id IS NOT NULL OR parent.type<>NEW.type OR EXISTS(SELECT 1 FROM accounting.accounts WHERE parent_id=NEW.id) THEN RAISE EXCEPTION 'ACCT_INVALID_ACCOUNT_PARENT'; END IF;
+  END IF;
+  IF NEW.is_archived AND (NEW.system_purpose IS NOT NULL OR coalesce((SELECT sum(l.amount_cents) FROM accounting.journal_lines l JOIN accounting.journal_entries posted_entry ON posted_entry.id=l.entry_id WHERE l.account_id=NEW.id AND posted_entry.status='posted'),0)<>0) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_IN_USE'; END IF;
+ ELSIF TG_TABLE_NAME='periods' THEN
+  IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE'; END IF;
+  IF TG_OP='UPDATE' THEN
+   IF NEW.month<>OLD.month THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_ID'; END IF;
+   IF OLD.status='locked' AND NEW.status='open' AND btrim(NEW.reopen_reason)='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
+   NEW.version:=OLD.version+1; NEW.updated_at:=now();
+  END IF;
+  IF NEW.status='locked' AND EXISTS(SELECT 1 FROM accounting.journal_entries WHERE status='draft' AND entry_date>=NEW.month AND entry_date<(NEW.month+interval '1 month')::date) THEN RAISE EXCEPTION 'ACCT_DRAFTS_REMAIN'; END IF;
+ END IF;
+ IF TG_OP='DELETE' THEN RETURN OLD; END IF;
+ RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.history_command(c jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE t text:=c->>'type';key uuid:=(c->>'id')::uuid;actor uuid:=accounting.require_owner();b accounting.import_batches;r accounting.import_rows;prior accounting.import_rows;
+ x jsonb;proposal jsonb;result jsonb;kind text;source text;v integer;posted integer:=0;drafted integer:=0;skipped integer:=0;row_status text;why text;
+ movement accounting.bank_accounts;observation accounting.bank_transactions;line uuid;candidate_count integer;category uuid;allocation bigint;financial_date date;amount bigint;all_complete boolean;expected jsonb;actual jsonb;differences jsonb;fiscal integer;
+BEGIN
+ IF t='import.create' THEN
+  SELECT * INTO b FROM accounting.import_batches WHERE file_hash=c->>'file_hash';
+  IF FOUND THEN
+   IF b.mapping->>'mapping_hash' IS DISTINCT FROM c->>'mapping_hash' THEN RAISE EXCEPTION 'ACCT_IMPORT_MAPPING_CONFLICT';END IF;
+   RETURN jsonb_build_object('id',b.id,'version',b.version);
+  END IF;
+  kind:=coalesce(c->>'kind',c->>'mode');source:=coalesce(c->>'source',c->>'source_system');
+  IF kind='journal' AND c->>'basis' IS DISTINCT FROM 'cash' THEN RAISE EXCEPTION 'ACCT_CASH_BASIS_REQUIRED';END IF;
+  INSERT INTO accounting.import_batches(id,kind,source,document_id,file_hash,mapping,row_count,coverage_from,coverage_to,parity_status,created_by,control_totals)
+   VALUES(key,kind,source,coalesce(c->>'document_id',c->>'source_document_id')::uuid,c->>'file_hash',coalesce(c->'mapping','{}')||jsonb_build_object('mapping_version',1,'mapping_hash',c->'mapping_hash','source_scope',c->'source_scope','file_name',c->'file_name','basis',c->'basis'),
+    (c->>'expected_groups')::integer,(c->>'from')::date,(c->>'to')::date,CASE kind WHEN 'bank' THEN 'n/a' ELSE 'pending' END,actor,coalesce(c->'control_totals','{}')) RETURNING version INTO v;
+ ELSIF t IN ('import.stage','import.apply','import.finish','import.cancel','import.resume') THEN
+  SELECT * INTO b FROM accounting.import_batches WHERE id=key;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;
+  IF b.version IS DISTINCT FROM (c->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+  IF t IN ('import.cancel','import.resume') AND b.status='completed' THEN RAISE EXCEPTION 'ACCT_IMPORT_FINAL';END IF;
+  IF t IN ('import.stage','import.apply','import.finish') AND b.status IN ('cancelled','completed') THEN RAISE EXCEPTION 'ACCT_IMPORT_NOT_ACTIVE';END IF;
+  IF t='import.stage' THEN
+   IF jsonb_array_length(c->'groups') NOT BETWEEN 1 AND 50 THEN RAISE EXCEPTION 'ACCT_IMPORT_CHUNK_REQUIRED';END IF;
+   FOR x IN SELECT value FROM jsonb_array_elements(c->'groups') LOOP
+    proposal:=x-ARRAY['id','ordinal','raw','fingerprint'];financial_date:=(x->>'entry_date')::date;row_status:='ready';why:='';prior:=NULL;
+    IF financial_date NOT BETWEEN b.coverage_from AND b.coverage_to OR financial_date<(SELECT earliest_history_date FROM public.business_profile WHERE id=1) THEN RAISE EXCEPTION 'ACCT_IMPORT_DATE_RANGE';END IF;
+    IF (x->>'ordinal')::integer>=b.row_count THEN RAISE EXCEPTION 'ACCT_IMPORT_ROW_COUNT';END IF;
+    IF jsonb_array_length(coalesce(x->'errors','[]'))>0 THEN row_status:='exception';why:='Source parsing errors require correction in a new import.';END IF;
+    IF b.kind='journal' AND jsonb_array_length(coalesce(x->'lines','[]'))=0 AND x->>'exclusion_reason' IS NOT NULL THEN row_status:='excluded';why:=x->>'exclusion_reason';END IF;
+    SELECT i.* INTO prior FROM accounting.import_rows i JOIN accounting.import_batches ib ON ib.id=i.batch_id
+     WHERE ib.source=b.source AND ib.kind=b.kind AND ib.mapping->>'source_scope'=b.mapping->>'source_scope' AND i.external_id=x->>'external_id' AND ib.id<>b.id
+     ORDER BY (i.entry_id IS NOT NULL) DESC,ib.created_at DESC,i.id LIMIT 1;
+    IF prior.id IS NOT NULL THEN
+     IF prior.fingerprint=x->>'fingerprint' AND prior.entry_id IS NOT NULL THEN row_status:='duplicate';why:='Identical source identity already imported';
+     ELSIF prior.fingerprint<>x->>'fingerprint' THEN row_status:='exception';why:='Source identity changed; compare and correct the posted entry with a reason';END IF;
+    END IF;
+    INSERT INTO accounting.import_rows(id,batch_id,ordinal,external_id,fingerprint,raw,parsed,status,duplicate_of_entry_id,reason)
+     VALUES((x->>'id')::uuid,key,(x->>'ordinal')::integer,x->>'external_id',x->>'fingerprint',x->'raw',proposal,row_status,prior.entry_id,why);
+    IF b.kind='bank' THEN
+     SELECT * INTO movement FROM accounting.bank_accounts WHERE account_id=(x->>'bank_account_id')::uuid;
+     IF NOT FOUND THEN
+      INSERT INTO accounting.bank_accounts(account_id,coverage_from) VALUES((x->>'bank_account_id')::uuid,financial_date) RETURNING * INTO movement;
+     END IF;
+     SELECT * INTO observation FROM accounting.bank_transactions WHERE bank_account_id=movement.id AND external_id=x->>'external_id';
+     IF FOUND AND (observation.content_hash IS DISTINCT FROM x->>'source_hash' OR observation.amount_cents<>(x->>'bank_amount_cents')::bigint OR observation.posted_date<>financial_date) THEN
+      UPDATE accounting.import_rows SET status='exception',reason='Provider identity changed; immutable observation retained' WHERE id=(x->>'id')::uuid;
+     ELSIF NOT FOUND THEN
+      INSERT INTO accounting.bank_transactions(bank_account_id,source,external_id,posted_date,amount_cents,description,descriptor_key,content_hash,raw_payload,state,import_batch_id)
+       VALUES(movement.id,b.source,x->>'external_id',financial_date,(x->>'bank_amount_cents')::bigint,x->>'memo',accounting.descriptor_key(x->>'memo'),coalesce(x->>'source_hash',x->>'fingerprint'),x->'raw','posted',b.id);
+     END IF;
+    END IF;
+   END LOOP;
+  ELSIF t='import.apply' THEN
+   IF jsonb_array_length(c->'group_ids') NOT BETWEEN 1 AND 50 THEN RAISE EXCEPTION 'ACCT_IMPORT_CHUNK_REQUIRED';END IF;
+   IF (SELECT count(*) FROM accounting.import_rows WHERE batch_id=key AND id IN(SELECT value::uuid FROM jsonb_array_elements_text(c->'group_ids')))<>jsonb_array_length(c->'group_ids') THEN RAISE EXCEPTION 'ACCT_IMPORT_ROWS_REQUIRED';END IF;
+   FOR r IN SELECT * FROM accounting.import_rows WHERE batch_id=key AND id IN(SELECT value::text::uuid FROM jsonb_array_elements_text(c->'group_ids')) ORDER BY ordinal LOOP
+    IF r.status IN ('applied','duplicate','excluded') THEN skipped:=skipped+1;CONTINUE;END IF;
+    IF r.status='exception' THEN RAISE EXCEPTION 'ACCT_IMPORT_EXCEPTION';END IF;
+    proposal:=r.parsed;
+    IF jsonb_array_length(coalesce(proposal->'errors','[]'))>0 THEN RAISE EXCEPTION 'ACCT_IMPORT_EXCEPTION';END IF;
+    IF proposal->>'exclusion_reason' IS NOT NULL AND jsonb_array_length(proposal->'lines')=0 THEN UPDATE accounting.import_rows SET status='excluded',reason=proposal->>'exclusion_reason' WHERE id=r.id;skipped:=skipped+1;CONTINUE;END IF;
+    IF r.duplicate_of_entry_id IS NOT NULL AND EXISTS(SELECT 1 FROM accounting.import_rows i WHERE i.entry_id=r.duplicate_of_entry_id AND i.fingerprint=r.fingerprint) THEN UPDATE accounting.import_rows SET status='duplicate' WHERE id=r.id;skipped:=skipped+1;CONTINUE;END IF;
+    IF r.duplicate_of_entry_id IS NOT NULL THEN RAISE EXCEPTION 'ACCT_IMPORT_CORRECTION_REQUIRED';END IF;
+    IF b.kind='journal' THEN
+     result:=accounting.ledger_command(proposal||jsonb_build_object('type','draft.save','id',gen_random_uuid(),'expected_version',0,'origin',b.source,'kind',coalesce(proposal->>'kind','manual'),'import_batch_id',b.id));
+     result:=accounting.ledger_command(jsonb_build_object('type','entry.post','id',result->'id','expected_version',result->'version'));posted:=posted+1;
+    ELSE
+     SELECT o.* INTO observation FROM accounting.bank_transactions o JOIN accounting.bank_accounts ba ON ba.id=o.bank_account_id WHERE ba.account_id=(proposal->>'bank_account_id')::uuid AND o.external_id=r.external_id;
+     IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_SOURCE_REQUIRED';END IF;
+     IF observation.review='excluded' THEN RAISE EXCEPTION 'ACCT_SOURCE_EXCLUDED';END IF;
+     SELECT m.journal_line_id INTO line FROM accounting.bank_matches m WHERE bank_transaction_id=observation.id LIMIT 1;
+     IF line IS NOT NULL THEN
+      result:=jsonb_build_object('id',(SELECT entry_id FROM accounting.journal_lines WHERE id=line));
+     ELSE
+      amount:=observation.amount_cents;
+      SELECT count(*),(array_agg(l.id ORDER BY l.id))[1] INTO candidate_count,line FROM accounting.journal_lines l JOIN accounting.journal_entries e ON e.id=l.entry_id
+       WHERE l.account_id=(proposal->>'bank_account_id')::uuid AND l.amount_cents=amount AND e.status IN ('draft','posted') AND e.reverses_entry_id IS NULL
+        AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries WHERE reverses_entry_id=e.id) AND abs(e.entry_date-observation.posted_date)<=(SELECT transfer_window_days FROM accounting.settings)
+        AND (NOT EXISTS(SELECT 1 FROM accounting.bank_matches WHERE journal_line_id=l.id) OR EXISTS(SELECT 1 FROM accounting.bank_matches m JOIN accounting.bank_transactions o ON o.id=m.bank_transaction_id WHERE m.journal_line_id=l.id AND m.amount_cents=abs(amount) AND o.source<>observation.source));
+      IF candidate_count=1 THEN
+       allocation:=CASE WHEN EXISTS(SELECT 1 FROM accounting.bank_matches WHERE journal_line_id=line) THEN 0 ELSE abs(amount) END;
+       INSERT INTO accounting.bank_matches(bank_transaction_id,journal_line_id,amount_cents,created_by) VALUES(observation.id,line,allocation,actor);
+       result:=jsonb_build_object('id',(SELECT entry_id FROM accounting.journal_lines WHERE id=line));
+      ELSE
+       SELECT id INTO category FROM accounting.accounts WHERE system_purpose=CASE WHEN amount>0 THEN 'uncategorized_income' ELSE 'uncategorized_expense' END;
+       result:=accounting.ledger_command(jsonb_build_object('type','draft.save','id',gen_random_uuid(),'expected_version',0,'entry_date',observation.posted_date,'memo',observation.description,'source_description',observation.description,'origin',b.source,'kind',CASE WHEN amount>0 THEN 'income' ELSE 'expense' END,'import_batch_id',b.id,
+        'lines',jsonb_build_array(jsonb_build_object('account_id',proposal->'bank_account_id','amount_cents',amount::text),jsonb_build_object('account_id',category,'amount_cents',(-amount)::text))));
+       SELECT id INTO line FROM accounting.journal_lines WHERE entry_id=(result->>'id')::uuid AND account_id=(proposal->>'bank_account_id')::uuid;
+       INSERT INTO accounting.bank_matches(bank_transaction_id,journal_line_id,amount_cents,created_by) VALUES(observation.id,line,abs(amount),actor);
+       PERFORM accounting.apply_treatment((result->>'id')::uuid);drafted:=drafted+1;
+      END IF;
+     END IF;
+    END IF;
+    UPDATE accounting.import_rows SET status='applied',entry_id=(result->>'id')::uuid WHERE id=r.id;
+   END LOOP;
+  ELSIF t='import.finish' THEN
+   IF (SELECT count(*) FROM accounting.import_rows WHERE batch_id=key)<>b.row_count OR EXISTS(SELECT 1 FROM accounting.import_rows WHERE batch_id=key AND status IN ('ready','exception')) THEN RAISE EXCEPTION 'ACCT_IMPORT_INCOMPLETE';END IF;
+  ELSIF t='import.cancel' THEN
+   IF btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED';END IF;
+   UPDATE accounting.import_rows SET status='ready' WHERE batch_id=key AND status<>'applied';
+  ELSIF t='import.resume' THEN
+   IF b.status<>'cancelled' THEN RAISE EXCEPTION 'ACCT_IMPORT_NOT_CANCELLED';END IF;
+  END IF;
+  UPDATE accounting.import_batches SET status=CASE t WHEN 'import.cancel' THEN 'cancelled' WHEN 'import.resume' THEN 'staged' WHEN 'import.finish' THEN 'completed' WHEN 'import.apply' THEN 'applying' ELSE status END,
+   applied_count=(SELECT count(*) FROM accounting.import_rows WHERE batch_id=key AND status='applied'),checkpoint=(SELECT coalesce(max(ordinal)+1,0) FROM accounting.import_rows WHERE batch_id=key AND status IN ('applied','duplicate','excluded')) WHERE id=key RETURNING version INTO v;
+ ELSIF t='import.resolve' THEN
+  SELECT * INTO r FROM accounting.import_rows WHERE id=key;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;
+  IF r.version IS DISTINCT FROM (c->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+  IF r.status='applied' THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_HISTORY';END IF;
+  IF btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED';END IF;
+  IF c->>'resolution'='exclude' THEN UPDATE accounting.import_rows SET status='excluded',reason=c->>'reason' WHERE id=key RETURNING version INTO v;
+  ELSIF c->>'resolution'='match' THEN
+   IF NOT EXISTS(SELECT 1 FROM accounting.journal_entries WHERE id=(c->>'entry_id')::uuid AND status='posted') THEN RAISE EXCEPTION 'ACCT_POSTED_ENTRY_REQUIRED';END IF;
+   SELECT * INTO b FROM accounting.import_batches WHERE id=r.batch_id;
+   IF b.kind='bank' THEN
+    SELECT o.* INTO observation FROM accounting.bank_transactions o JOIN accounting.bank_accounts ba ON ba.id=o.bank_account_id WHERE ba.account_id=(r.parsed->>'bank_account_id')::uuid AND o.external_id=r.external_id;
+    SELECT l.id INTO line FROM accounting.journal_lines l WHERE entry_id=(c->>'entry_id')::uuid AND account_id=(r.parsed->>'bank_account_id')::uuid AND amount_cents=observation.amount_cents;
+    IF line IS NULL OR observation.id IS NULL THEN RAISE EXCEPTION 'ACCT_MATCH_MISMATCH';END IF;
+    allocation:=CASE WHEN EXISTS(SELECT 1 FROM accounting.bank_matches WHERE journal_line_id=line) THEN 0 ELSE abs(observation.amount_cents) END;
+    INSERT INTO accounting.bank_matches(bank_transaction_id,journal_line_id,amount_cents,created_by) VALUES(observation.id,line,allocation,actor);
+   ELSE
+    IF (SELECT entry_date FROM accounting.journal_entries WHERE id=(c->>'entry_id')::uuid) IS DISTINCT FROM (r.parsed->>'entry_date')::date OR
+     (SELECT jsonb_agg(jsonb_build_array(account_id,amount_cents::text) ORDER BY account_id,amount_cents) FROM accounting.journal_lines WHERE entry_id=(c->>'entry_id')::uuid) IS DISTINCT FROM
+     (SELECT jsonb_agg(jsonb_build_array((value->>'account_id')::uuid,((value->>'amount_cents')::bigint)::text) ORDER BY (value->>'account_id')::uuid,(value->>'amount_cents')::bigint) FROM jsonb_array_elements(r.parsed->'lines')) THEN RAISE EXCEPTION 'ACCT_MATCH_MISMATCH';END IF;
+   END IF;
+   UPDATE accounting.import_rows SET status='duplicate',entry_id=(c->>'entry_id')::uuid,duplicate_of_entry_id=(c->>'entry_id')::uuid,reason=c->>'reason' WHERE id=key RETURNING version INTO v;
+  ELSIF c->>'resolution'='correct' THEN
+   SELECT * INTO b FROM accounting.import_batches WHERE id=r.batch_id;
+   IF b.kind<>'journal' OR r.duplicate_of_entry_id IS NULL THEN RAISE EXCEPTION 'ACCT_IMPORT_CORRECTION_REQUIRED';END IF;
+   result:=accounting.ledger_command(r.parsed||jsonb_build_object('type','entry.correct','id',r.duplicate_of_entry_id,'expected_version',(SELECT version FROM accounting.journal_entries WHERE id=r.duplicate_of_entry_id),'reason',c->>'reason'));
+   UPDATE accounting.import_rows SET status='applied',entry_id=(result->>'id')::uuid,reason=c->>'reason' WHERE id=key RETURNING version INTO v;
+  ELSIF c->>'resolution'='new' THEN
+   IF r.duplicate_of_entry_id IS NOT NULL THEN RAISE EXCEPTION 'ACCT_IMPORT_CORRECTION_REQUIRED';END IF;
+   UPDATE accounting.import_rows SET status='ready',reason=c->>'reason' WHERE id=key RETURNING version INTO v;
+  ELSE RAISE EXCEPTION 'ACCT_INVALID_RESOLUTION';END IF;
+ ELSIF t='history.lock' THEN
+  SELECT h.expected INTO expected FROM accounting.history_checks h WHERE h.id=(c->>'history_id')::uuid AND h.status IN ('matches','explained');
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_HISTORY_NOT_READY';END IF;
+  FOR financial_date IN SELECT d::date FROM generate_series(date_trunc('month',(expected->>'from')::date),date_trunc('month',(expected->>'to')::date),interval '1 month') d LOOP
+   PERFORM accounting.close_command(jsonb_build_object('type','period.lock','id',gen_random_uuid(),'month',financial_date));
+  END LOOP;
+ ELSIF t IN ('history.check','history.verify') THEN
+  fiscal:=coalesce((c->>'fiscal_year')::integer,extract(year FROM (c->>'from')::date)::integer);kind:=coalesce(c->>'kind',CASE WHEN fiscal=extract(year FROM (SELECT earliest_history_date FROM public.business_profile WHERE id=1)) THEN 'opening_balances' ELSE 'annual_totals' END);
+  expected:=coalesce(c->'expected',jsonb_build_object('monthly',c->'monthly','accounts',c->'accounts','totals',c->'totals'));
+  IF NOT EXISTS(SELECT 1 FROM accounting.documents d JOIN storage.objects o ON o.name=d.storage_path AND o.bucket_id='accounting-private' WHERE d.id=(c->>'document_id')::uuid AND d.status<>'archived') THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE';END IF;
+  result:=accounting.history_preview(c||jsonb_build_object('kind',kind,'from',coalesce(c->>'from',make_date(fiscal,1,1)::text),'to',coalesce(c->>'to',make_date(fiscal,12,31)::text)));
+  actual:=result->'actual';differences:=result->'difference';
+  row_status:=CASE WHEN (result->>'differences')::integer>0 OR (result->>'drafts')::integer>0 OR (result->>'source_errors')::integer>0 THEN CASE WHEN btrim(coalesce(c->>'explanation',''))<>'' AND (result->>'drafts')::integer=0 AND (result->>'source_errors')::integer=0 THEN 'explained' ELSE 'mismatch' END ELSE 'matches' END;
+  IF t='history.verify' AND row_status='mismatch' THEN RAISE EXCEPTION 'ACCT_HISTORY_NOT_READY';END IF;
+  INSERT INTO accounting.history_checks(id,fiscal_year,kind,expected,actual,difference,status,explanation,document_id,checked_by)
+   VALUES(key,fiscal,kind,expected||jsonb_build_object('from',result->'from','to',result->'to'),actual||jsonb_build_object('financial_revision',(SELECT financial_revision::text FROM accounting.settings)),differences,row_status,coalesce(c->>'explanation',c->>'reason',''),(c->>'document_id')::uuid,actor);
+  UPDATE accounting.import_batches ib SET parity_status=CASE WHEN row_status IN ('matches','explained') THEN 'verified' ELSE 'mismatch' END
+   WHERE ib.kind='journal' AND ib.coverage_from>=(result->>'from')::date AND ib.coverage_to<=(result->>'to')::date AND ib.status='completed';
+ ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND: %',t;
+ END IF;
+ RETURN jsonb_strip_nulls(jsonb_build_object('id',key,'version',v,'posted',posted,'drafted',drafted,'skipped',skipped));
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.history_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+BEGIN
+ IF TG_LEVEL='STATEMENT' THEN PERFORM accounting.write_lock();RETURN NULL;END IF;
+ IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE';END IF;
+ IF TG_TABLE_NAME='journal_entries' THEN
+  IF NEW.status='posted' AND (TG_OP='INSERT' OR OLD.status IS DISTINCT FROM 'posted') THEN
+   UPDATE accounting.history_checks SET status='mismatch' WHERE id IN (
+    SELECT DISTINCT ON(fiscal_year,kind) id FROM accounting.history_checks WHERE fiscal_year>=extract(year FROM NEW.entry_date)::integer ORDER BY fiscal_year,kind,checked_at DESC,id DESC
+   ) AND status<>'mismatch';
+   UPDATE accounting.import_batches SET parity_status='mismatch' WHERE kind='journal' AND parity_status='verified' AND coverage_to>=NEW.entry_date;
+  END IF;RETURN NEW;
+ END IF;
+ IF TG_OP='UPDATE' THEN
+  IF TG_TABLE_NAME='history_checks' THEN
+   IF (to_jsonb(NEW)-'status') IS DISTINCT FROM (to_jsonb(OLD)-'status') OR NEW.status<>'mismatch' THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_HISTORY';END IF;
+  ELSE
+   IF TG_TABLE_NAME='import_rows' THEN
+    IF (NEW.batch_id,NEW.ordinal,NEW.external_id,NEW.fingerprint,NEW.raw,NEW.parsed) IS DISTINCT FROM (OLD.batch_id,OLD.ordinal,OLD.external_id,OLD.fingerprint,OLD.raw,OLD.parsed) THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_EVIDENCE';END IF;
+   END IF;
+   IF TG_TABLE_NAME='import_batches' THEN
+    IF (NEW.kind,NEW.source,NEW.file_hash,NEW.mapping,NEW.row_count,NEW.coverage_from,NEW.coverage_to) IS DISTINCT FROM (OLD.kind,OLD.source,OLD.file_hash,OLD.mapping,OLD.row_count,OLD.coverage_from,OLD.coverage_to) THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_EVIDENCE';END IF;
+   END IF;
+   NEW.version:=OLD.version+1;NEW.updated_at:=now();
+  END IF;
+ END IF;
+ UPDATE accounting.settings SET financial_revision=financial_revision+1 WHERE id=1;
+ RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.history_preview(controls jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE start_date date:=(controls->>'from')::date;end_date date:=(controls->>'to')::date;expected jsonb:=coalesce(controls->'expected','{}');actual jsonb;difference jsonb:='{}';
+ monthly jsonb:='[]';account_rows jsonb:='[]';balance jsonb;balances jsonb;period_report jsonb;item jsonb;source_row jsonb;value_key text;actual_value text;expected_value text;difference_count integer:=0;drafts integer;errors integer;
+BEGIN
+ PERFORM accounting.require_owner();
+ IF start_date IS NULL OR end_date IS NULL OR start_date>end_date OR extract(year FROM start_date)<>extract(year FROM end_date) THEN RAISE EXCEPTION 'ACCT_HISTORY_SCOPE';END IF;
+ balance:=accounting.report('balance_sheet',jsonb_build_object('as_of',end_date));
+ actual:=accounting.report(CASE WHEN controls->>'kind'='opening_balances' THEN 'balance_sheet' ELSE 'profit_loss' END,jsonb_build_object('from',start_date,'to',end_date,'as_of',end_date));
+ actual:=balance||actual;
+ IF controls?'expected' THEN
+  IF NOT(expected ?& CASE WHEN controls->>'kind'='opening_balances' THEN ARRAY['assets_cents','liabilities_cents','equity_total_cents'] ELSE ARRAY['income_cents','expense_cents','net_income_cents'] END) THEN RAISE EXCEPTION 'ACCT_CONTROL_TOTALS_REQUIRED';END IF;
+  FOR value_key,expected_value IN SELECT key,value FROM jsonb_each_text(expected) LOOP
+   actual_value:=actual->>value_key;
+   IF actual_value IS NULL OR expected_value!~'^-?[0-9]+$' THEN RAISE EXCEPTION 'ACCT_UNKNOWN_CONTROL';END IF;
+   difference:=difference||jsonb_build_object(value_key,(actual_value::numeric-expected_value::numeric)::text);
+   IF actual_value::numeric<>expected_value::numeric THEN difference_count:=difference_count+1;END IF;
+  END LOOP;
+ ELSE
+  IF jsonb_typeof(controls->'monthly') IS DISTINCT FROM 'array' OR jsonb_typeof(controls->'accounts') IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'ACCT_CONTROL_TOTALS_REQUIRED';END IF;
+  IF EXISTS(SELECT 1 FROM jsonb_array_elements(controls->'monthly') m GROUP BY date_trunc('month',(m->>'from')::date) HAVING count(*)>1) THEN RAISE EXCEPTION 'ACCT_DUPLICATE_CONTROL';END IF;
+  IF EXISTS(SELECT 1 FROM jsonb_array_elements(controls->'accounts') a WHERE NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id::text=a->>'account_id')) THEN RAISE EXCEPTION 'ACCT_UNKNOWN_CONTROL';END IF;
+  IF EXISTS(SELECT 1 FROM jsonb_array_elements(controls->'accounts') a GROUP BY a->>'account_id' HAVING count(*)>1) THEN RAISE EXCEPTION 'ACCT_DUPLICATE_CONTROL';END IF;
+  FOR item IN SELECT value FROM jsonb_array_elements(coalesce(controls->'monthly','[]')) LOOP
+   IF (item->>'from')::date<start_date OR (item->>'to')::date>end_date OR (item->>'from')::date>(item->>'to')::date THEN RAISE EXCEPTION 'ACCT_HISTORY_SCOPE';END IF;
+   IF (item->>'from')::date<>greatest(start_date,date_trunc('month',(item->>'from')::date)::date) OR (item->>'to')::date<>least(end_date,(date_trunc('month',(item->>'from')::date)+interval '1 month -1 day')::date) THEN RAISE EXCEPTION 'ACCT_HISTORY_SCOPE';END IF;
+   period_report:=accounting.report('profit_loss',jsonb_build_object('from',item->'from','to',item->'to'));
+   FOREACH value_key IN ARRAY ARRAY['income_cents','expense_cents','net_income_cents'] LOOP
+    IF period_report->>value_key IS DISTINCT FROM item->>value_key THEN difference_count:=difference_count+1;END IF;
+   END LOOP;
+   monthly:=monthly||jsonb_build_array(jsonb_build_object('from',item->'from','to',item->'to','actual',period_report,'source',item));
+  END LOOP;
+  IF jsonb_array_length(monthly)<> (extract(year FROM end_date)::integer-extract(year FROM start_date)::integer)*12+extract(month FROM end_date)::integer-extract(month FROM start_date)::integer+1 THEN difference_count:=difference_count+1;END IF;
+  balances:=accounting.report('account_balances',jsonb_build_object('from',start_date,'to',end_date));
+  FOR item IN SELECT value FROM jsonb_array_elements(balances->'rows') LOOP
+   actual_value:=CASE WHEN item->>'account_type' IN ('income','expense') THEN item->>'movement_cents' ELSE item->>'ending_cents' END;
+   SELECT value INTO source_row FROM jsonb_array_elements(controls->'accounts') a WHERE a->>'account_id'=item->>'id';
+   IF actual_value::numeric<>0 AND source_row IS NULL THEN difference_count:=difference_count+1;
+   ELSIF source_row IS NOT NULL AND actual_value IS DISTINCT FROM source_row->>'amount_cents' THEN difference_count:=difference_count+1;END IF;
+   account_rows:=account_rows||jsonb_build_array(jsonb_build_object('account_id',item->'id','code',item->'code','name',item->'name','account_type',item->'account_type','actual_cents',actual_value,'source_cents',source_row->'amount_cents','required',actual_value::numeric<>0));
+  END LOOP;
+  FOREACH value_key IN ARRAY ARRAY['assets_cents','liabilities_cents','equity_total_cents'] LOOP
+   IF balance->>value_key IS DISTINCT FROM controls->'totals'->>value_key THEN difference_count:=difference_count+1;END IF;
+  END LOOP;
+  difference:=jsonb_build_object('differences',difference_count);
+  actual:=jsonb_build_object('monthly',monthly,'accounts',account_rows,'totals',balance);
+ END IF;
+ SELECT count(*) INTO drafts FROM accounting.journal_entries WHERE entry_date BETWEEN start_date AND end_date AND status='draft';
+ SELECT count(*) INTO errors FROM accounting.import_rows r JOIN accounting.import_batches b ON b.id=r.batch_id WHERE b.kind='journal' AND (r.parsed->>'entry_date')::date BETWEEN start_date AND end_date AND r.status IN ('ready','exception');
+ RETURN jsonb_build_object('from',start_date,'to',end_date,'revision',(SELECT financial_revision::text FROM accounting.settings),'ready',difference_count=0 AND drafts=0 AND errors=0,
+ 'scope_ended',true,'entity_verified',true,'partial_year',start_date<>make_date(extract(year FROM start_date)::integer,1,1) OR end_date<>make_date(extract(year FROM end_date)::integer,12,31),
+ 'differences',difference_count,'source_errors',errors,'drafts',drafts,'unclassified_accounts',0,'required_accounts',(SELECT count(*) FROM jsonb_array_elements(account_rows) a WHERE (a->>'required')::boolean),
+ 'monthly',monthly,'accounts',account_rows,'reports',balance,'actual',actual,'difference',difference);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.import_compare(batch_a uuid, batch_b uuid, filter jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE a accounting.import_batches;b accounting.import_batches;items jsonb;filtered jsonb;start_date date;end_date date;offset_rows integer:=coalesce((filter->>'offset')::integer,0);change_filter text:=coalesce(filter->>'change','all');
+BEGIN
+ PERFORM accounting.require_owner();SELECT * INTO a FROM accounting.import_batches WHERE id=batch_a;SELECT * INTO b FROM accounting.import_batches WHERE id=batch_b;
+ IF a.id IS NULL OR b.id IS NULL THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;
+ start_date:=coalesce((filter->>'from')::date,greatest(a.coverage_from,b.coverage_from));end_date:=coalesce((filter->>'to')::date,least(a.coverage_to,b.coverage_to));
+ IF batch_a=batch_b OR a.source<>b.source OR a.kind<>b.kind OR a.mapping->>'source_scope' IS DISTINCT FROM b.mapping->>'source_scope' OR start_date<greatest(a.coverage_from,b.coverage_from) OR end_date>least(a.coverage_to,b.coverage_to) OR start_date>end_date OR offset_rows<0 OR change_filter NOT IN ('all','differences','changed','source_only','new','missing','unchanged') THEN RAISE EXCEPTION 'ACCT_IMPORT_COMPARISON_SCOPE';END IF;
+ IF (SELECT count(*) FROM accounting.import_rows WHERE batch_id=a.id)<>a.row_count OR (SELECT count(*) FROM accounting.import_rows WHERE batch_id=b.id)<>b.row_count THEN RAISE EXCEPTION 'ACCT_IMPORT_COMPARISON_STAGING';END IF;
+ SELECT coalesce(jsonb_agg(jsonb_build_object('key',coalesce(l.external_id,r.external_id),'external_id',coalesce(l.external_id,r.external_id),'identity_kind',coalesce(l.parsed->>'identity_kind',r.parsed->>'identity_kind'),
+  'before_id',l.id,'after_id',r.id,'earlier',CASE WHEN l.id IS NULL THEN NULL ELSE to_jsonb(l)||l.parsed||jsonb_build_object('raw_payload',l.raw) END,'later',CASE WHEN r.id IS NULL THEN NULL ELSE to_jsonb(r)||r.parsed||jsonb_build_object('raw_payload',r.raw) END,
+  'change',CASE WHEN l.id IS NULL THEN 'new' WHEN r.id IS NULL THEN 'missing' WHEN l.fingerprint<>r.fingerprint THEN 'changed' WHEN l.parsed->>'source_hash' IS DISTINCT FROM r.parsed->>'source_hash' THEN 'source_only' ELSE 'unchanged' END) ORDER BY coalesce(l.external_id,r.external_id)),'[]') INTO items
+  FROM (SELECT * FROM accounting.import_rows WHERE batch_id=batch_a) l FULL JOIN (SELECT * FROM accounting.import_rows WHERE batch_id=batch_b) r ON l.external_id=r.external_id
+  WHERE (l.parsed->>'entry_date')::date BETWEEN start_date AND end_date OR (r.parsed->>'entry_date')::date BETWEEN start_date AND end_date;
+ SELECT coalesce(jsonb_agg(value),'[]') INTO filtered FROM jsonb_array_elements(items) WHERE change_filter='all' OR (change_filter='differences' AND value->>'change'<>'unchanged') OR value->>'change'=change_filter;
+ RETURN jsonb_build_object('batch_a',batch_a,'batch_b',batch_b,'earlier',to_jsonb(a),'later',to_jsonb(b),'from',start_date,'to',end_date,'revision',(SELECT financial_revision::text FROM accounting.settings),
+ 'mapping_changed',a.mapping->>'mapping_hash' IS DISTINCT FROM b.mapping->>'mapping_hash','basis_changed',a.mapping->>'basis' IS DISTINCT FROM b.mapping->>'basis','uncertain_identity_count',(SELECT count(*) FROM jsonb_array_elements(items) WHERE value->>'identity_kind'='fingerprint_multiplicity'),
+ 'total',jsonb_array_length(items),'filtered_total',jsonb_array_length(filtered),'offset',offset_rows,'rows',(SELECT coalesce(jsonb_agg(value||jsonb_build_object('status',value->'change')),'[]') FROM (SELECT value FROM jsonb_array_elements(filtered) OFFSET offset_rows LIMIT 50) page),
+ 'counts',(SELECT coalesce(jsonb_object_agg(status,n),'{}') FROM (SELECT value->>'change' status,count(*) n FROM jsonb_array_elements(items) GROUP BY value->>'change') q));
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.imports(batch uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE result jsonb;
+BEGIN
+ PERFORM accounting.require_owner();
+ SELECT jsonb_build_object('batches',(SELECT coalesce(jsonb_agg(to_jsonb(b)||jsonb_build_object('source_system',b.source,'source_scope',b.mapping->>'source_scope','file_name',b.mapping->>'file_name','mapping_hash',b.mapping->>'mapping_hash','mode',b.kind,'basis',b.mapping->>'basis','expected_groups',b.row_count,'from_date',b.coverage_from,'to_date',b.coverage_to,'error','') ORDER BY b.created_at DESC,b.id),'[]') FROM accounting.import_batches b),
+ 'groups',(SELECT coalesce(jsonb_agg(to_jsonb(r)||r.parsed||jsonb_build_object('candidate_entry_id',r.duplicate_of_entry_id) ORDER BY r.ordinal),'[]') FROM accounting.import_rows r WHERE batch_id=batch),
+ 'counts',(SELECT coalesce(jsonb_object_agg(status,n),'{}')||jsonb_build_object('new',coalesce(sum(n) FILTER(WHERE status='ready'),0)) FROM (SELECT status,count(*) n FROM accounting.import_rows WHERE batch_id=batch GROUP BY status) x),
+ 'total',(SELECT count(*) FROM accounting.import_rows WHERE batch_id=batch)) INTO result;
+ RETURN result;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.ledger(account uuid, from_date date, to_date date)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+BEGIN
+ PERFORM accounting.require_owner();RETURN accounting.report_lines('general_ledger',jsonb_build_object('from',from_date,'to',to_date),account);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.ledger_command(c jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE t text:=c->>'type'; k uuid:=coalesce((c->>'id')::uuid,gen_random_uuid()); actor uuid:=CASE WHEN current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE accounting.require_owner() END;
+ e accounting.journal_entries; account_row accounting.accounts; v integer; x jsonb; line jsonb; idx integer; r jsonb; replacement jsonb; reversal jsonb;
+ preserved uuid[]:='{}'; seen uuid[]:='{}'; existing_line uuid; original_date date; category uuid; bank_line accounting.journal_lines; total numeric; allocated bigint; remain bigint; share_sum bigint;
+BEGIN
+ IF t='cash.allocate' THEN
+  SELECT * INTO bank_line FROM accounting.journal_lines WHERE id=k;
+  SELECT * INTO e FROM accounting.journal_entries WHERE id=bank_line.entry_id;
+  IF e.id IS NULL THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;
+  IF e.status<>'draft' THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE';END IF;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM e.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+  IF NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=bank_line.account_id AND subtype IN ('bank','cash','card')) THEN RAISE EXCEPTION 'ACCT_BANK_ACCOUNT_REQUIRED';END IF;
+  IF btrim(coalesce(c->>'reason',''))='' OR jsonb_array_length(c->'allocations')<>1 THEN RAISE EXCEPTION 'ACCT_CASH_OVERRIDE_SINGLE_CLASS';END IF;
+  IF (c->'allocations'->0->>'amount_cents')::bigint IS DISTINCT FROM bank_line.amount_cents THEN RAISE EXCEPTION 'ACCT_INVALID_CASH_ALLOCATION';END IF;
+  UPDATE accounting.journal_lines SET cash_class=CASE c->'allocations'->0->>'classification' WHEN 'internal_transfer' THEN 'transfer' ELSE c->'allocations'->0->>'classification' END WHERE id=k;
+  UPDATE accounting.journal_entries SET reason=c->>'reason' WHERE id=e.id RETURNING version INTO v;
+  RETURN jsonb_build_object('id',k,'version',v);
+ ELSIF t='entry.bulkpost' THEN
+  r:='[]';
+  IF jsonb_typeof(c->'entries') IS DISTINCT FROM 'array' OR jsonb_array_length(c->'entries') NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+  FOR x IN SELECT value FROM jsonb_array_elements(c->'entries') LOOP
+   r:=r||jsonb_build_array(accounting.ledger_command(x||jsonb_build_object('type','entry.post')));
+  END LOOP;
+  RETURN jsonb_build_object('id',k,'entries',r);
+ ELSIF t='chart.seed' THEN
+  IF jsonb_typeof(c->'accounts')<>'array' OR jsonb_array_length(c->'accounts') NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+  IF EXISTS(SELECT 1 FROM jsonb_array_elements(c->'accounts') supplied(value) JOIN accounting.accounts a ON a.id=(supplied.value->>'id')::uuid) THEN RAISE EXCEPTION 'ACCT_CHART_EXISTS'; END IF;
+  FOR x IN SELECT value FROM jsonb_array_elements(c->'accounts') LOOP
+   PERFORM accounting.ledger_command(x||jsonb_build_object('type','account.create'));
+  END LOOP;
+  RETURN jsonb_build_object('id',k);
+ ELSIF t='account.create' THEN
+  INSERT INTO accounting.accounts(id,code,name,type,subtype,is_contra,parent_id,system_purpose,external_names)
+  VALUES(k,nullif(c->>'code',''),c->>'name',c->>'account_type',
+    CASE WHEN c->>'subtype' IN ('bank','cash','card','receivable','transit','undeposited','fixed_asset','accumulated_depreciation','loan','payroll_liability','owner_equity','retained_earnings','opening_balance','revenue','operating_expense','payroll_expense','other','cogs','uncategorized') THEN c->>'subtype' ELSE coalesce(nullif(nullif(c->>'cash_kind',''),'none'),nullif(c->>'subtype',''),'other') END,
+    CASE WHEN c ? 'normal_side' THEN (c->>'normal_side')<>CASE WHEN c->>'account_type' IN ('asset','expense') THEN 'debit' ELSE 'credit' END ELSE coalesce((c->>'is_contra')::boolean,false) END,
+    coalesce(c->>'parent_account_id',c->>'parent_id')::uuid,nullif(coalesce(c->>'purpose',c->>'system_purpose'),''),coalesce(c->'external_names','{}')) RETURNING version INTO v;
+  RETURN jsonb_build_object('id',k,'version',v);
+ ELSIF t='account.update' THEN
+  SELECT * INTO account_row FROM accounting.accounts WHERE id=k;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM account_row.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  UPDATE accounting.accounts SET name=coalesce(c->>'name',name),code=CASE WHEN c?'code' THEN nullif(c->>'code','') ELSE code END,
+   subtype=CASE WHEN c->>'subtype' IN ('bank','cash','card','receivable','transit','undeposited','fixed_asset','accumulated_depreciation','loan','payroll_liability','owner_equity','retained_earnings','opening_balance','revenue','operating_expense','payroll_expense','other','cogs','uncategorized') THEN c->>'subtype' ELSE coalesce(nullif(nullif(c->>'cash_kind',''),'none'),nullif(c->>'subtype',''),subtype) END,
+   parent_id=CASE WHEN c?'parent_account_id' OR c?'parent_id' THEN coalesce(c->>'parent_account_id',c->>'parent_id')::uuid ELSE parent_id END,
+   system_purpose=CASE WHEN c?'purpose' THEN nullif(c->>'purpose','') ELSE system_purpose END,
+   is_archived=coalesce((c->>'is_archived')::boolean,is_archived),external_names=coalesce(c->'external_names',external_names)
+   WHERE id=k RETURNING version INTO v;
+  RETURN jsonb_build_object('id',k,'version',v);
+ ELSIF t IN ('draft.save','transaction.save','transaction.review') THEN
+  IF jsonb_typeof(c->'lines') IS DISTINCT FROM 'array' OR jsonb_array_length(c->'lines')>100 THEN RAISE EXCEPTION 'ACCT_INVALID_LINES'; END IF;
+  SELECT * INTO e FROM accounting.journal_entries WHERE id=k;
+  IF FOUND THEN
+   IF (c->>'expected_version')::integer IS DISTINCT FROM e.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+   IF e.status<>'draft' THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
+   IF to_regclass('accounting.bank_matches') IS NOT NULL THEN
+    EXECUTE 'SELECT coalesce(array_agg(l.id),ARRAY[]::uuid[]) FROM accounting.journal_lines l WHERE l.entry_id=$1 AND EXISTS(SELECT 1 FROM accounting.bank_matches m WHERE m.journal_line_id=l.id)' INTO preserved USING k;
+   END IF;
+   DELETE FROM accounting.journal_lines WHERE entry_id=k AND NOT (id=ANY(preserved));
+   UPDATE accounting.journal_entries SET entry_date=(c->>'entry_date')::date,memo=c->>'memo',kind=coalesce(c->'context'->>'kind',c->>'kind',kind),
+    payee_id=CASE WHEN c?'payee_id' OR c->'context'?'payee_id' THEN coalesce(c->>'payee_id',c->'context'->>'payee_id')::uuid ELSE payee_id END WHERE id=k RETURNING version INTO v;
+  ELSE
+   IF coalesce((c->>'expected_version')::integer,-1)<>0 THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+   INSERT INTO accounting.journal_entries(id,entry_date,memo,source_description,origin,kind,payee_id,created_by,import_batch_id,register_id,reason)
+    VALUES(k,(c->>'entry_date')::date,c->>'memo',c->>'source_description',coalesce(c->>'origin','manual'),coalesce(c->'context'->>'kind',c->>'kind','manual'),
+    coalesce(c->>'payee_id',c->'context'->>'payee_id')::uuid,actor,(c->>'import_batch_id')::uuid,(c->>'register_id')::uuid,coalesce(c->>'reason','')) RETURNING version INTO v;
+  END IF;
+  idx:=0;
+  FOR line IN SELECT value FROM jsonb_array_elements(c->'lines') LOOP
+   IF coalesce(line->>'amount_cents','') !~ '^-?[0-9]+$' THEN RAISE EXCEPTION 'ACCT_INVALID_CENTS'; END IF;
+   SELECT id INTO existing_line FROM accounting.journal_lines WHERE id=ANY(preserved) AND NOT(id=ANY(seen))
+    AND account_id=(line->>'account_id')::uuid AND amount_cents=(line->>'amount_cents')::bigint ORDER BY sort_order LIMIT 1;
+   IF FOUND THEN
+    seen:=array_append(seen,existing_line);
+    UPDATE accounting.journal_lines SET memo=coalesce(line->>'memo','') WHERE id=existing_line;
+   ELSE
+    WHILE EXISTS(SELECT 1 FROM accounting.journal_lines WHERE entry_id=k AND sort_order=idx) LOOP idx:=idx+1; END LOOP;
+    INSERT INTO accounting.journal_lines(entry_id,account_id,amount_cents,memo,sort_order,cash_class)
+     VALUES(k,(line->>'account_id')::uuid,(line->>'amount_cents')::bigint,coalesce(line->>'memo',''),idx,line->>'cash_class');
+    idx:=idx+1;
+   END IF;
+  END LOOP;
+  IF cardinality(seen)<>cardinality(preserved) THEN RAISE EXCEPTION 'ACCT_MATCHED_LINE_IMMUTABLE'; END IF;
+  IF t='transaction.review' THEN
+   IF EXISTS(SELECT 1 FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=k AND a.system_purpose IN ('uncategorized_income','uncategorized_expense')) THEN RAISE EXCEPTION 'ACCT_CATEGORY_REQUIRED'; END IF;
+   RETURN accounting.ledger_command(jsonb_build_object('type','entry.post','id',k,'expected_version',v));
+  END IF;
+  RETURN jsonb_build_object('id',k,'version',v);
+ ELSIF t IN ('entry.post','entry.discard','draft.discard','entry.reverse','entry.correct','entry.context','entry.categorize','entry.split','entry.annotate') THEN
+  IF t='entry.annotate' THEN k:=(c->>'entry_id')::uuid; END IF;
+  SELECT * INTO e FROM accounting.journal_entries WHERE id=k;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  IF t<>'entry.annotate' AND (c->>'expected_version')::integer IS DISTINCT FROM e.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  IF t='entry.post' THEN
+   IF e.status<>'draft' THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
+   IF EXISTS(SELECT 1 FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=k AND a.system_purpose IN ('uncategorized_income','uncategorized_expense')) THEN RAISE EXCEPTION 'ACCT_CATEGORY_REQUIRED'; END IF;
+   UPDATE accounting.journal_entries SET status='posted',posted_at=now() WHERE id=k RETURNING version INTO v;
+  ELSIF t IN ('entry.discard','draft.discard') THEN
+   IF e.status<>'draft' THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
+   IF btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
+   IF to_regclass('accounting.bank_matches') IS NOT NULL THEN
+    EXECUTE 'DELETE FROM accounting.bank_matches m USING accounting.journal_lines l WHERE m.journal_line_id=l.id AND l.entry_id=$1 AND m.amount_cents=0' USING k;
+    EXECUTE 'DELETE FROM accounting.bank_matches m USING accounting.journal_lines l WHERE m.journal_line_id=l.id AND l.entry_id=$1' USING k;
+   END IF;
+   UPDATE accounting.journal_entries SET status='discarded',reason=c->>'reason' WHERE id=k RETURNING version INTO v;
+  ELSIF t IN ('entry.reverse','entry.correct') THEN
+   IF e.status<>'posted' THEN RAISE EXCEPTION 'ACCT_POSTED_REQUIRED'; END IF;
+   IF EXISTS(SELECT 1 FROM accounting.journal_entries WHERE reverses_entry_id=k) THEN RAISE EXCEPTION 'ACCT_ALREADY_REVERSED'; END IF;
+   original_date:=coalesce(c->>'reversal_date',c->>'entry_date')::date;
+   IF original_date IS NULL OR original_date<e.entry_date OR btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_INVALID_REVERSAL_DATE_OR_REASON'; END IF;
+   INSERT INTO accounting.journal_entries(entry_date,memo,origin,kind,reverses_entry_id,reason,created_by,payee_id)
+    VALUES(original_date,'Reversal: '||left(e.memo,990),'internal','correction',e.id,c->>'reason',actor,e.payee_id) RETURNING id,version INTO k,v;
+   INSERT INTO accounting.journal_lines(entry_id,account_id,amount_cents,memo,sort_order,cash_class)
+    SELECT k,account_id,-amount_cents,memo,sort_order,cash_class FROM accounting.journal_lines WHERE entry_id=e.id;
+   reversal:=accounting.ledger_command(jsonb_build_object('type','entry.post','id',k,'expected_version',v));
+   IF to_regclass('accounting.bank_matches') IS NOT NULL THEN
+    -- A reversal removes the financial treatment, so its bank evidence returns to review.
+    EXECUTE 'DELETE FROM accounting.bank_matches m USING accounting.journal_lines l WHERE m.journal_line_id=l.id AND l.entry_id=$1 AND m.amount_cents=0' USING e.id;
+    EXECUTE 'DELETE FROM accounting.bank_matches m USING accounting.journal_lines l WHERE m.journal_line_id=l.id AND l.entry_id=$1' USING e.id;
+   END IF;
+   IF t='entry.correct' THEN
+    IF (c->>'entry_date')::date<(SELECT earliest_history_date FROM public.business_profile WHERE id=1) THEN RAISE EXCEPTION 'ACCT_INVALID_CORRECTION_DATE_OR_REASON'; END IF;
+    replacement:=accounting.ledger_command(c||jsonb_build_object('type','draft.save','id',coalesce((c->>'replacement_id')::uuid,gen_random_uuid()),'expected_version',0,'origin','internal','kind','correction','payee_id',e.payee_id));
+    k:=(replacement->>'id')::uuid;
+    UPDATE accounting.journal_entries SET replaces_entry_id=e.id WHERE id=k RETURNING version INTO v;
+    replacement:=accounting.ledger_command(jsonb_build_object('type','entry.post','id',k,'expected_version',v));
+    RETURN replacement||jsonb_build_object('reversal_id',reversal->'id','original_id',e.id);
+   END IF;
+   RETURN reversal;
+  ELSIF t IN ('entry.context','entry.annotate') THEN
+   UPDATE accounting.journal_entries SET memo=coalesce(c->>'memo',memo),
+    payee_id=CASE WHEN c?'payee_id' THEN (c->>'payee_id')::uuid ELSE payee_id END,
+    kind=CASE WHEN c?'kind' THEN c->>'kind' ELSE kind END,
+    reason=coalesce(c->>'note',c->>'reason',reason),register_id=CASE WHEN c?'register_id' THEN (c->>'register_id')::uuid ELSE register_id END WHERE id=k RETURNING version INTO v;
+   IF t='entry.annotate' THEN
+    INSERT INTO accounting.audit_log(actor_user_id,actor_kind,operation_id,table_name,row_id,action,after)
+     VALUES(auth.uid(),'owner',current_setting('accounting.operation_id')::uuid,'journal_entries',k,'entry.annotate',jsonb_build_object('note_id',c->'id','note',c->'note'));
+   END IF;
+  ELSE
+   IF e.status<>'draft' THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
+   SELECT l.* INTO bank_line FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id
+    WHERE l.entry_id=k AND a.subtype IN ('bank','card','cash');
+   IF NOT FOUND OR (SELECT count(*) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=k AND a.subtype IN ('bank','card','cash'))<>1 THEN RAISE EXCEPTION 'ACCT_SIMPLE_MOVEMENT_REQUIRED'; END IF;
+   DELETE FROM accounting.journal_lines WHERE entry_id=k AND id<>bank_line.id;
+   -- Preserve the bank line's identity so existing observation matches stay attached.
+   IF t='entry.categorize' THEN
+    category:=coalesce(c->>'account_id',c->>'category_id')::uuid;
+    IF EXISTS(SELECT 1 FROM accounting.accounts WHERE id=category AND subtype IN ('bank','card','cash')) THEN RAISE EXCEPTION 'ACCT_TRANSFER_REQUIRED'; END IF;
+    INSERT INTO accounting.journal_lines(entry_id,account_id,amount_cents,sort_order) VALUES(k,category,-bank_line.amount_cents,CASE WHEN bank_line.sort_order=0 THEN 1 ELSE 0 END);
+   ELSE
+    IF jsonb_typeof(c->'splits') IS DISTINCT FROM 'array' OR jsonb_array_length(c->'splits') NOT BETWEEN 2 AND 99 THEN RAISE EXCEPTION 'ACCT_INVALID_SPLIT'; END IF;
+    IF EXISTS(SELECT 1 FROM jsonb_array_elements(c->'splits') WHERE (value?'share_bps') IS DISTINCT FROM ((c->'splits'->0)?'share_bps')) THEN RAISE EXCEPTION 'ACCT_INVALID_SPLIT'; END IF;
+    IF (c->'splits'->0)?'share_bps' THEN
+     SELECT sum((value->>'share_bps')::bigint) INTO share_sum FROM jsonb_array_elements(c->'splits');
+     IF share_sum<>10000 OR EXISTS(SELECT 1 FROM jsonb_array_elements(c->'splits') WHERE (value->>'share_bps')::bigint<=0) THEN RAISE EXCEPTION 'ACCT_INVALID_SPLIT'; END IF;
+     total:=abs(bank_line.amount_cents::numeric);
+     SELECT (total-sum(trunc(total*(value->>'share_bps')::numeric/10000)))::bigint INTO remain FROM jsonb_array_elements(c->'splits');
+    END IF;
+    -- Allocation below works for exact-cent splits or basis-point shares without floating point.
+    idx:=0; total:=0;
+    FOR line IN SELECT value FROM jsonb_array_elements(c->'splits') LOOP
+     IF line?'share_bps' THEN
+      SELECT (trunc(abs(bank_line.amount_cents::numeric)*(line->>'share_bps')::numeric/10000)+CASE WHEN rank<=remain THEN 1 ELSE 0 END)::bigint * CASE WHEN bank_line.amount_cents>0 THEN -1 ELSE 1 END INTO allocated
+      FROM (SELECT ordinality-1 ordinal,row_number() OVER(ORDER BY mod(abs(bank_line.amount_cents::numeric)*(value->>'share_bps')::numeric,10000) DESC,ordinality) rank FROM jsonb_array_elements(c->'splits') WITH ORDINALITY) ranked WHERE ordinal=idx;
+     ELSE
+      IF coalesce(line->>'amount_cents','')!~'^-?[0-9]+$' THEN RAISE EXCEPTION 'ACCT_INVALID_CENTS'; END IF;
+      allocated:=(line->>'amount_cents')::bigint;
+     END IF;
+     IF EXISTS(SELECT 1 FROM accounting.accounts WHERE id=(line->>'account_id')::uuid AND subtype IN ('bank','card','cash')) THEN RAISE EXCEPTION 'ACCT_TRANSFER_REQUIRED'; END IF;
+     IF allocated=0 OR sign(allocated)=sign(bank_line.amount_cents) THEN RAISE EXCEPTION 'ACCT_INVALID_SPLIT'; END IF;
+     total:=total+allocated;
+     INSERT INTO accounting.journal_lines(entry_id,account_id,amount_cents,memo,sort_order) VALUES(k,(line->>'account_id')::uuid,allocated,coalesce(line->>'memo',''),CASE WHEN idx>=bank_line.sort_order THEN idx+1 ELSE idx END);
+     idx:=idx+1;
+    END LOOP;
+    IF total<>-bank_line.amount_cents THEN RAISE EXCEPTION 'ACCT_UNBALANCED'; END IF;
+   END IF;
+   UPDATE accounting.journal_entries SET memo=coalesce(c->>'memo',memo),kind=coalesce(c->>'kind',kind),payee_id=CASE WHEN c?'payee_id' THEN (c->>'payee_id')::uuid ELSE payee_id END WHERE id=k RETURNING version INTO v;
+   IF coalesce((c->>'remember')::boolean,false) AND e.descriptor_key IS NOT NULL THEN
+    PERFORM accounting.banking_command(jsonb_build_object('type','alias.save','id',gen_random_uuid(),'party_id',c->'payee_id','match_kind','key','pattern',e.descriptor_key,'enabled',true,'expected_version',0));
+   END IF;
+  END IF;
+  RETURN jsonb_build_object('id',k,'version',v);
+ ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND: %',t;
+ END IF;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.match_review()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE key uuid; total numeric; zero_evidence boolean; observation accounting.bank_transactions;
+BEGIN
+ IF TG_OP='DELETE' THEN key:=OLD.bank_transaction_id; ELSE key:=NEW.bank_transaction_id; END IF;
+ SELECT * INTO observation FROM accounting.bank_transactions WHERE id=key;
+ SELECT coalesce(sum(amount_cents),0),coalesce(bool_or(amount_cents=0),false) INTO total,zero_evidence FROM accounting.bank_matches WHERE bank_transaction_id=key;
+ UPDATE accounting.bank_transactions SET review=CASE WHEN total=abs(observation.amount_cents::numeric) OR zero_evidence THEN 'matched' ELSE 'unmatched' END WHERE id=key;
+ RETURN NULL;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.operate(command jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE c jsonb:=command->'command'; key uuid:=(command->>'key')::uuid; actor uuid; receipt accounting.command_receipts; hash text; result jsonb; t text; current_version integer; initialized boolean:=false;
+BEGIN
+ IF key IS NULL OR jsonb_typeof(c) IS DISTINCT FROM 'object' OR octet_length(c::text)>1000000 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+ PERFORM accounting.write_lock();
+ t:=c->>'type'; actor:=auth.uid();
+ PERFORM set_config('accounting.operation_id',key::text,true); PERFORM set_config('accounting.actor_kind','owner',true);
+ PERFORM set_config('accounting.action',t,true); PERFORM set_config('accounting.reason',coalesce(c->>'reason',''),true);
+ IF t='settings.save' AND NOT EXISTS(SELECT 1 FROM accounting.settings) THEN
+  IF actor IS NULL THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
+  INSERT INTO accounting.settings(owner_user_id) VALUES(actor); initialized:=true;
+ END IF;
+ actor:=accounting.require_owner(); hash:=encode(sha256(convert_to(c::text,'UTF8')),'hex');
+ SELECT * INTO receipt FROM accounting.command_receipts WHERE idempotency_key=key;
+ IF FOUND THEN
+  IF receipt.actor_user_id<>actor OR receipt.payload_hash<>hash THEN RAISE EXCEPTION 'ACCT_IDEMPOTENCY_CONFLICT'; END IF;
+  RETURN receipt.result;
+ END IF;
+ IF c?'expected_revision' AND (c->>'expected_revision')::bigint IS DISTINCT FROM (SELECT financial_revision FROM accounting.settings WHERE id=1) THEN RAISE EXCEPTION 'ACCT_STALE_REVISION'; END IF;
+ PERFORM set_config('accounting.operation_id',key::text,true); PERFORM set_config('accounting.actor_kind','owner',true);
+ PERFORM set_config('accounting.action',t,true); PERFORM set_config('accounting.reason',coalesce(c->>'reason',''),true);
+ IF t IN ('settings.save','preferences.save') THEN
+  SELECT version INTO current_version FROM accounting.settings WHERE id=1;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM current_version AND NOT (initialized AND coalesce((c->>'expected_version')::integer,0)=0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  UPDATE accounting.settings SET primary_system=coalesce(c->>'primary_system',CASE c->>'authority_mode' WHEN 'admin_primary' THEN 'admin' WHEN 'wave_primary' THEN 'wave' WHEN 'parallel_pilot' THEN 'wave' END,primary_system),
+   primary_system_since=CASE WHEN c?'primary_system_since' THEN (c->>'primary_system_since')::date ELSE primary_system_since END,
+   transfer_window_days=coalesce((c->>'transfer_window_days')::smallint,transfer_window_days),version=version+1,updated_at=now() WHERE id=1 RETURNING version INTO current_version;
+  IF c?'business_profile' THEN
+   IF (c->>'profile_version')::integer IS DISTINCT FROM (SELECT version FROM public.business_profile WHERE id=1) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+   IF EXISTS(SELECT 1 FROM jsonb_object_keys(c->'business_profile') k WHERE k NOT IN ('legal_name','dba','entity_type','ein','formation_date','state_of_formation','address','phone','email','tax_classification','tax_classification_since','home_state','is_sstb','fiscal_year_start_month','books_timezone','earliest_history_date','owner_name','owner_title','accountant_name','accountant_email','default_email_account_id')) THEN RAISE EXCEPTION 'ACCT_INVALID_PROFILE'; END IF;
+   UPDATE public.business_profile p SET (legal_name,dba,entity_type,ein,formation_date,state_of_formation,address,phone,email,tax_classification,tax_classification_since,home_state,is_sstb,fiscal_year_start_month,books_timezone,earliest_history_date,owner_name,owner_title,accountant_name,accountant_email,default_email_account_id)=
+    (SELECT v.legal_name,v.dba,v.entity_type,v.ein,v.formation_date,v.state_of_formation,v.address,v.phone,v.email,v.tax_classification,v.tax_classification_since,v.home_state,v.is_sstb,v.fiscal_year_start_month,v.books_timezone,v.earliest_history_date,v.owner_name,v.owner_title,v.accountant_name,v.accountant_email,v.default_email_account_id FROM jsonb_populate_record(p,c->'business_profile') v) WHERE p.id=1;
+  ELSIF c?'legal_name' OR c->>'history_start' IS NOT NULL THEN
+   UPDATE public.business_profile SET legal_name=coalesce(c->>'legal_name',legal_name),earliest_history_date=coalesce((c->>'history_start')::date,earliest_history_date) WHERE id=1;
+  END IF;
+  result:=jsonb_build_object('id',coalesce(c->>'id','1'),'version',current_version);
+ ELSIF t LIKE 'account.%' OR t='chart.seed' OR t LIKE 'entry.%' OR t LIKE 'draft.%' OR t LIKE 'transaction.%' OR t='cash.allocate' THEN result:=accounting.ledger_command(c);
+ ELSIF t LIKE 'bank.%' OR t LIKE 'feed.%' OR t LIKE 'transfer.%' OR t LIKE 'party.%' OR t LIKE 'alias.%' OR t LIKE 'rule.%' OR t LIKE 'document.%' THEN result:=accounting.banking_command(c);
+ ELSIF t LIKE 'import.%' OR t LIKE 'history.%' THEN result:=accounting.history_command(c);
+ ELSIF t LIKE 'period.%' OR t LIKE 'reconciliation.%' THEN result:=accounting.close_command(c);
+ ELSIF t LIKE 'payroll.%' OR t LIKE 'register.%' THEN result:=accounting.register_command(c);
+ ELSIF t LIKE 'tax.%' THEN result:=accounting.tax_command(c);
+ ELSIF t LIKE 'report.%' OR t LIKE 'package.%' THEN result:=accounting.report_command(c);
+ ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND: %',t;
+ END IF;
+ INSERT INTO accounting.command_receipts(idempotency_key,payload_hash,actor_user_id,result) VALUES(key,hash,actor,result);
+ RETURN result;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.payroll(view jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE result jsonb;employees jsonb;coverage jsonb;cutoff date:=coalesce((view->>'through')::date,(view->>'to')::date,(view->>'as_of')::date,(SELECT (now() AT TIME ZONE books_timezone)::date FROM public.business_profile));y integer:=coalesce((view->>'year')::integer,extract(year FROM cutoff)::integer);latest accounting.payroll_runs;run accounting.payroll_runs;body jsonb;preview jsonb;record jsonb;posting jsonb;
+BEGIN
+ PERFORM accounting.require_owner();
+ IF view->>'view'='detail' THEN
+  SELECT * INTO run FROM accounting.payroll_runs WHERE id=(view->>'id')::uuid;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;
+  body:=jsonb_build_object('pay_date',run.pay_date,'period_from',run.period_start,'period_to',run.period_end,'declared_gross_cents',run.gross_cents::text,'declared_net_cents',run.net_cents::text,'components',run.components,'employees',coalesce(run.ytd->'run_employees','[]'),'ytd',run.ytd);
+  posting:=CASE WHEN run.entry_id IS NULL THEN NULL ELSE jsonb_build_object('id',run.entry_id,'entry_id',run.entry_id,'mode','new','void',(SELECT jsonb_build_object('effective_date',entry_date,'reason',reason,'reversal_entry_id',id) FROM accounting.journal_entries WHERE reverses_entry_id=run.entry_id)) END;
+  record:=jsonb_build_object('run_id',run.id,'revision',run.version,'body',body,'body_text',body::text,'body_hash',encode(sha256(convert_to(body::text,'UTF8')),'hex'),'document_id',run.document_id,'reason','','created_at',run.updated_at,'posting',posting);
+  IF run.status='draft' THEN
+   BEGIN preview:=accounting.payroll_plan(view);EXCEPTION WHEN raise_exception THEN preview:=jsonb_build_object('ready',false,'issues',jsonb_build_array(SQLERRM),'lines','[]'::jsonb,'totals',jsonb_build_object('gross_cents',run.gross_cents::text,'net_cents',run.net_cents::text,'employer_cents',run.employer_tax_cents::text,'deductions_cents',run.employee_withholding_cents::text,'officer_cents','0','other_wages_cents','0','reimbursements_cents','0'));END;
+  ELSE preview:=jsonb_build_object('ready',false,'issues','[]'::jsonb,'lines',CASE WHEN run.entry_id IS NULL THEN '[]'::jsonb ELSE accounting.entry_detail(run.entry_id)->'lines' END,'totals',jsonb_build_object('gross_cents',run.gross_cents::text,'net_cents',run.net_cents::text,'employer_cents',run.employer_tax_cents::text,'deductions_cents',run.employee_withholding_cents::text));END IF;
+  RETURN jsonb_build_object('id',run.id,'version',run.version,'provider_run_id',run.provider_run_id,'head_revision',run.version,'status',CASE run.status WHEN 'void' THEN 'voided' ELSE run.status END,'register',record,'preview',preview,'posting',posting,
+   'history',(SELECT coalesce(jsonb_agg(jsonb_build_object('run_id',run.id,'revision',a.after->'version','body',a.after,'document_id',a.after->'document_id','reason',a.reason,'created_at',a.at) ORDER BY a.at DESC),'[]') FROM accounting.audit_log a WHERE a.table_name='payroll_runs' AND a.row_id=run.id),'history_count',(SELECT count(*) FROM accounting.audit_log WHERE table_name='payroll_runs' AND row_id=run.id),'history_offset',0);
+ END IF;
+
+ IF view?'year' AND NOT (view?'through' OR view?'to' OR view?'as_of') THEN cutoff:=make_date(y,12,31);END IF;
+ WITH filtered AS (
+  SELECT * FROM accounting.payroll_runs r WHERE (view->>'id' IS NULL OR r.id=(view->>'id')::uuid) AND (view->>'year' IS NULL OR extract(year FROM pay_date)=y) AND pay_date<=cutoff
+   AND (view->>'from' IS NULL OR pay_date>=(view->>'from')::date) AND (view->>'status' IS NULL OR r.status=CASE view->>'status' WHEN 'voided' THEN 'void' ELSE view->>'status' END)
+   AND (coalesce(view->>'query','')='' OR r.provider_run_id ILIKE '%'||(view->>'query')||'%')
+ ), paged AS (SELECT * FROM filtered ORDER BY pay_date DESC,id LIMIT 100 OFFSET greatest(coalesce((view->>'offset')::integer,0),0))
+ SELECT jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'rows',(SELECT coalesce(jsonb_agg(to_jsonb(r)||jsonb_build_object('gross_cents',gross_cents::text,'net_cents',net_cents::text,'employee_withholding_cents',employee_withholding_cents::text,'employer_tax_cents',employer_tax_cents::text) ORDER BY pay_date DESC,id),'[]') FROM paged r),
+ 'count',count(*),'totals',jsonb_build_object('gross_cents',coalesce(sum(gross_cents) FILTER(WHERE status<>'void'),0)::text,'net_cents',coalesce(sum(net_cents) FILTER(WHERE status<>'void'),0)::text,'drafts',count(*) FILTER(WHERE status='draft'))) INTO result FROM filtered;
+
+ WITH active_runs AS (
+  SELECT * FROM accounting.payroll_runs p WHERE p.entry_id IS NOT NULL AND p.pay_date BETWEEN make_date(y,1,1) AND cutoff AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries re WHERE re.reverses_entry_id=p.entry_id AND re.status='posted' AND re.entry_date<=cutoff)
+ ), per_employee AS (
+  SELECT x.value FROM active_runs r CROSS JOIN LATERAL jsonb_array_elements(coalesce(r.ytd->'run_employees','[]')) x
+ ), employee_totals AS (
+  SELECT value->>'key' key,max(value->>'name') name,bool_or((value->>'is_officer')::boolean) is_officer,sum((value->>'gross_cash_cents')::numeric) gross,
+   CASE WHEN bool_and(value->>'federal_taxable_cents' IS NOT NULL) THEN sum((value->>'federal_taxable_cents')::numeric)::text END federal_taxable,
+   CASE WHEN bool_and(value->>'federal_withheld_cents' IS NOT NULL) THEN sum((value->>'federal_withheld_cents')::numeric)::text END federal_withheld,
+   CASE WHEN bool_and(value->>'state_taxable_cents' IS NOT NULL) THEN sum((value->>'state_taxable_cents')::numeric)::text END state_taxable,
+   CASE WHEN bool_and(value->>'state_withheld_cents' IS NOT NULL) THEN sum((value->>'state_withheld_cents')::numeric)::text END state_withheld,
+   CASE WHEN bool_and(value->>'social_security_wages_cents' IS NOT NULL) THEN sum((value->>'social_security_wages_cents')::numeric)::text END social_security,
+   CASE WHEN bool_and(value->>'medicare_wages_cents' IS NOT NULL) THEN sum((value->>'medicare_wages_cents')::numeric)::text END medicare
+  FROM per_employee GROUP BY value->>'key')
+ SELECT coalesce(jsonb_agg(jsonb_build_object('key',key,'name',name,'is_officer',is_officer,'gross_cash_cents',gross::text,'federal_taxable_cents',federal_taxable,'federal_withheld_cents',federal_withheld,'state_taxable_cents',state_taxable,'state_withheld_cents',state_withheld,'social_security_wages_cents',social_security,'medicare_wages_cents',medicare) ORDER BY name,key),'[]') INTO employees FROM employee_totals;
+ SELECT p.* INTO latest FROM accounting.payroll_runs p WHERE p.entry_id IS NOT NULL AND p.pay_date BETWEEN make_date(y,1,1) AND cutoff AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries re WHERE re.reverses_entry_id=p.entry_id AND re.status='posted' AND re.entry_date<=cutoff) ORDER BY p.pay_date DESC,p.created_at DESC,p.id LIMIT 1;
+ IF latest.ytd->>'verified'='true' THEN coverage:=jsonb_build_object('id',latest.id,'tax_year',y,'version',latest.version,'through_date',cutoff,'source_through_date',latest.pay_date,'current',EXISTS(SELECT 1 FROM accounting.documents d WHERE d.id=latest.document_id AND d.status<>'archived' AND EXISTS(SELECT 1 FROM storage.objects o WHERE o.bucket_id='accounting-private' AND o.name=d.storage_path)),'employees',coalesce(latest.ytd->'employees','[]'),'document_id',latest.document_id,'reason','Verified YTD from the latest recorded payroll run.','created_at',latest.created_at);END IF;
+ result:=result||jsonb_build_object('year',y,'through',cutoff,'employees',employees,'coverage',coverage,
+  'run_count',(SELECT count(*) FROM accounting.payroll_runs p WHERE p.entry_id IS NOT NULL AND p.pay_date BETWEEN make_date(y,1,1) AND cutoff AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries re WHERE re.reverses_entry_id=p.entry_id AND re.status='posted' AND re.entry_date<=cutoff)),
+  'drafts',(SELECT count(*) FROM accounting.payroll_runs p WHERE p.status='draft' AND p.pay_date BETWEEN make_date(y,1,1) AND cutoff));
+ result:=result||jsonb_build_object('as_of',cutoff,'offset',coalesce((view->>'offset')::integer,0),'runs',(SELECT coalesce(jsonb_agg(value||jsonb_build_object('head_revision',value->'version','status',CASE value->>'status' WHEN 'void' THEN 'voided' ELSE value->>'status' END)),'[]') FROM jsonb_array_elements(result->'rows')));
+ RETURN result||jsonb_build_object('fingerprint',encode(sha256(convert_to(result::text,'UTF8')),'hex'));
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.payroll_plan(c jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE run accounting.payroll_runs;mode text:=coalesce(c->>'template','cash');bank uuid;wages uuid;taxes uuid;lines jsonb:='[]';x jsonb;amount bigint;action_kind text;
+BEGIN
+ PERFORM accounting.require_owner();SELECT * INTO run FROM accounting.payroll_runs WHERE id=(c->>'id')::uuid;
+ IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;
+   IF run.status<>'draft' THEN RAISE EXCEPTION 'ACCT_PAYROLL_ALREADY_POSTED';END IF;
+   IF c->>'verified'='false' THEN RAISE EXCEPTION 'ACCT_PAYROLL_EVIDENCE';END IF;
+   IF jsonb_array_length(coalesce(run.ytd->'run_employees','[]'))>0 THEN
+    IF EXISTS(SELECT 1 FROM jsonb_array_elements(run.ytd->'run_employees') WHERE coalesce(value->>'gross_cash_cents','')!~'^[0-9]+$') OR
+     (SELECT sum((value->>'gross_cash_cents')::numeric) FROM jsonb_array_elements(run.ytd->'run_employees'))<>run.gross_cents OR
+     EXISTS(SELECT 1 FROM jsonb_array_elements(run.ytd->'run_employees') GROUP BY value->>'key' HAVING count(*)>1) THEN RAISE EXCEPTION 'ACCT_PAYROLL_EMPLOYEE_TOTALS';END IF;
+    IF EXISTS(SELECT 1 FROM jsonb_array_elements(run.components) WHERE value->>'kind' IN ('officer_wages','other_wages')) AND
+     (SELECT coalesce(sum((value->>'gross_cash_cents')::numeric),0) FROM jsonb_array_elements(run.ytd->'run_employees') WHERE value->>'is_officer'='true')<>
+     (SELECT coalesce(sum((value->>'amount_cents')::numeric),0) FROM jsonb_array_elements(run.components) WHERE value->>'kind'='officer_wages') THEN RAISE EXCEPTION 'ACCT_PAYROLL_EMPLOYEE_TOTALS';END IF;
+   END IF;
+   IF NOT EXISTS(SELECT 1 FROM accounting.documents d JOIN storage.objects o ON o.name=d.storage_path AND o.bucket_id='accounting-private' WHERE d.id=run.document_id AND d.status<>'archived') THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE';END IF;
+   IF EXISTS(SELECT 1 FROM jsonb_array_elements(run.components) component(value) WHERE component.value->>'kind'='employee_tax') AND (SELECT sum((component.value->>'amount_cents')::bigint) FROM jsonb_array_elements(run.components) component(value) WHERE component.value->>'kind'='employee_tax')<>run.employee_withholding_cents THEN RAISE EXCEPTION 'ACCT_PAYROLL_TOTALS';END IF;
+   IF EXISTS(SELECT 1 FROM jsonb_array_elements(run.components) component(value) WHERE component.value->>'kind'='employer_tax') AND (SELECT sum((component.value->>'amount_cents')::bigint) FROM jsonb_array_elements(run.components) component(value) WHERE component.value->>'kind'='employer_tax')<>run.employer_tax_cents THEN RAISE EXCEPTION 'ACCT_PAYROLL_TOTALS';END IF;
+   IF EXISTS(SELECT 1 FROM jsonb_array_elements(run.components) WHERE value->>'kind'='net_pay') AND (SELECT sum((value->>'amount_cents')::bigint) FROM jsonb_array_elements(run.components) WHERE value->>'kind'='net_pay')<>run.net_cents THEN RAISE EXCEPTION 'ACCT_PAYROLL_TOTALS';END IF;
+   IF mode='cash' THEN
+    IF run.gross_cents<>run.net_cents+run.employee_withholding_cents OR EXISTS(SELECT 1 FROM jsonb_array_elements(run.components) WHERE value->>'kind' NOT IN ('officer_wages','other_wages','net_pay','employee_tax','employer_tax')) THEN RAISE EXCEPTION 'ACCT_CASH_PAYROLL_COMPONENTS_REQUIRE_EXPLICIT_TEMPLATE';END IF;
+    bank:=(c->>'bank_account_id')::uuid;
+    IF NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=bank AND subtype IN ('bank','cash')) THEN RAISE EXCEPTION 'ACCT_BANK_ACCOUNT_REQUIRED';END IF;
+    SELECT id INTO wages FROM accounting.accounts WHERE system_purpose='officer_wages';SELECT id INTO taxes FROM accounting.accounts WHERE system_purpose='employer_payroll_taxes';
+    IF EXISTS(SELECT 1 FROM jsonb_array_elements(run.components) component(value) WHERE component.value->>'kind' IN ('officer_wages','other_wages')) THEN
+     IF (SELECT sum((component.value->>'amount_cents')::bigint) FROM jsonb_array_elements(run.components) component(value) WHERE component.value->>'kind' IN ('officer_wages','other_wages'))<>run.gross_cents THEN RAISE EXCEPTION 'ACCT_PAYROLL_TOTALS';END IF;
+     FOR x IN SELECT value FROM jsonb_array_elements(run.components) WHERE value->>'kind' IN ('officer_wages','other_wages') LOOP
+      IF x->>'kind'='other_wages' AND x->>'account_id' IS NULL THEN RAISE EXCEPTION 'ACCT_PAYROLL_WAGE_ACCOUNT_REQUIRED';END IF;
+      IF NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=coalesce((x->>'account_id')::uuid,wages) AND type='expense') THEN RAISE EXCEPTION 'ACCT_PAYROLL_WAGE_ACCOUNT_REQUIRED';END IF;
+      lines:=lines||jsonb_build_array(jsonb_build_object('account_id',coalesce((x->>'account_id')::uuid,wages),'amount_cents',x->>'amount_cents'));
+     END LOOP;
+    ELSE lines:=jsonb_build_array(jsonb_build_object('account_id',wages,'amount_cents',run.gross_cents::text));END IF;
+    lines:=lines||jsonb_build_array(jsonb_build_object('account_id',taxes,'amount_cents',run.employer_tax_cents::text),jsonb_build_object('account_id',bank,'amount_cents',(-run.net_cents)::text),jsonb_build_object('account_id',bank,'amount_cents',(-run.employee_withholding_cents-run.employer_tax_cents)::text));
+   ELSIF mode='accrual' THEN
+    FOR x IN SELECT value FROM jsonb_array_elements(run.components) LOOP
+     amount:=(x->>'amount_cents')::bigint;action_kind:=x->>'kind';
+     IF action_kind IN ('officer_wages','other_wages','reimbursement','employer_tax','employer_retirement','employer_benefit','provider_fee','noncash_reclass') AND NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=(x->>'account_id')::uuid AND type='expense') THEN RAISE EXCEPTION 'ACCT_PAYROLL_EXPENSE_ACCOUNT';END IF;
+     IF action_kind IN ('net_pay','employee_tax','retirement_deferral','other_deduction') AND NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=(x->>'account_id')::uuid AND type='liability') THEN RAISE EXCEPTION 'ACCT_PAYROLL_LIABILITY_ACCOUNT';END IF;
+     IF action_kind IN ('employer_tax','employer_retirement','employer_benefit','provider_fee') AND NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=(x->>'offset_account_id')::uuid AND type='liability') THEN RAISE EXCEPTION 'ACCT_PAYROLL_LIABILITY_ACCOUNT';END IF;
+     IF action_kind IN ('officer_wages','other_wages','reimbursement') THEN lines:=lines||jsonb_build_array(jsonb_build_object('account_id',x->'account_id','amount_cents',amount::text));
+     ELSIF action_kind IN ('net_pay','employee_tax','retirement_deferral','other_deduction') THEN lines:=lines||jsonb_build_array(jsonb_build_object('account_id',x->'account_id','amount_cents',(-amount)::text));
+     ELSIF action_kind='noncash_reclass' THEN
+      IF NOT EXISTS(SELECT 1 FROM accounting.journal_lines l JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE l.id=(x->>'source_line_id')::uuid AND l.account_id=(x->>'offset_account_id')::uuid AND l.amount_cents>0 AND e.status='posted' AND e.entry_date<=run.pay_date AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries WHERE reverses_entry_id=e.id)) THEN RAISE EXCEPTION 'ACCT_NONCASH_SOURCE_REQUIRED';END IF;
+      IF (SELECT sum((part.value->>'amount_cents')::numeric) FROM jsonb_array_elements(run.components) part(value) WHERE part.value->>'kind'='noncash_reclass' AND part.value->>'source_line_id'=x->>'source_line_id')+coalesce((SELECT sum((component.value->>'amount_cents')::bigint) FROM accounting.payroll_runs p CROSS JOIN LATERAL jsonb_array_elements(p.components) component(value) WHERE p.status='posted' AND component.value->>'kind'='noncash_reclass' AND component.value->>'source_line_id'=x->>'source_line_id'),0)>(SELECT amount_cents FROM accounting.journal_lines WHERE id=(x->>'source_line_id')::uuid) THEN RAISE EXCEPTION 'ACCT_NONCASH_CAPACITY';END IF;
+      lines:=lines||jsonb_build_array(jsonb_build_object('account_id',x->'account_id','amount_cents',amount::text),jsonb_build_object('account_id',x->'offset_account_id','amount_cents',(-amount)::text));
+     ELSIF action_kind IN ('employer_tax','employer_retirement','employer_benefit','provider_fee') THEN lines:=lines||jsonb_build_array(jsonb_build_object('account_id',x->'account_id','amount_cents',amount::text),jsonb_build_object('account_id',x->'offset_account_id','amount_cents',(-amount)::text));
+     ELSE RAISE EXCEPTION 'ACCT_PAYROLL_UNSUPPORTED_COMPONENT';END IF;
+    END LOOP;
+    IF (SELECT coalesce(sum((value->>'amount_cents')::bigint),0) FROM jsonb_array_elements(run.components) WHERE value->>'kind' IN ('officer_wages','other_wages'))<>run.gross_cents OR (SELECT coalesce(sum((value->>'amount_cents')::bigint),0) FROM jsonb_array_elements(run.components) WHERE value->>'kind'='net_pay')<>run.net_cents THEN RAISE EXCEPTION 'ACCT_PAYROLL_TOTALS';END IF;
+   ELSE RAISE EXCEPTION 'ACCT_PAYROLL_TEMPLATE';END IF;
+   SELECT coalesce(jsonb_agg(value),'[]') INTO lines FROM jsonb_array_elements(lines) WHERE (value->>'amount_cents')::bigint<>0;
+ IF jsonb_array_length(lines)<2 OR (SELECT sum((value->>'amount_cents')::numeric) FROM jsonb_array_elements(lines))<>0 THEN RAISE EXCEPTION 'ACCT_UNBALANCED';END IF;
+ RETURN jsonb_build_object('ready',true,'issues','[]'::jsonb,'lines',lines,'totals',jsonb_build_object('gross_cents',run.gross_cents::text,'net_cents',run.net_cents::text,'employer_cents',run.employer_tax_cents::text,'deductions_cents',run.employee_withholding_cents::text,
+ 'officer_cents',(SELECT coalesce(sum((value->>'amount_cents')::numeric),0)::text FROM jsonb_array_elements(run.components) WHERE value->>'kind'='officer_wages'),'other_wages_cents',(SELECT coalesce(sum((value->>'amount_cents')::numeric),0)::text FROM jsonb_array_elements(run.components) WHERE value->>'kind'='other_wages'),'reimbursements_cents',(SELECT coalesce(sum((value->>'amount_cents')::numeric),0)::text FROM jsonb_array_elements(run.components) WHERE value->>'kind'='reimbursement')));
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.prior_summary(key text, bank_account uuid, max_rows integer DEFAULT 10)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE result jsonb;
+BEGIN
+ WITH matched AS (
+  SELECT e.* FROM accounting.journal_entries e WHERE e.status='posted' AND e.descriptor_key=key
+   AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries reversal WHERE reversal.reverses_entry_id=e.id)
+   AND e.reverses_entry_id IS NULL AND EXISTS(SELECT 1 FROM accounting.journal_lines l WHERE l.entry_id=e.id AND l.account_id=bank_account)
+ ), recent AS (SELECT * FROM matched ORDER BY entry_date DESC,created_at DESC,id LIMIT greatest(1,least(max_rows,100)))
+ SELECT jsonb_build_object('count',(SELECT count(*) FROM matched),'last_date',(SELECT max(entry_date) FROM matched),
+  'last_category',(SELECT l.account_id FROM recent e JOIN accounting.journal_lines l ON l.entry_id=e.id WHERE l.account_id<>bank_account ORDER BY e.entry_date DESC,e.created_at DESC,l.sort_order LIMIT 1),
+  'payee_id',(SELECT payee_id FROM recent ORDER BY entry_date DESC,created_at DESC,id LIMIT 1),
+  'memo',(SELECT memo FROM recent ORDER BY entry_date DESC,created_at DESC,id LIMIT 1),
+  'entries',coalesce((SELECT jsonb_agg(jsonb_build_object('id',e.id,'memo',e.memo,'payee_id',e.payee_id,'entry_date',e.entry_date,
+   'lines',(SELECT jsonb_agg(jsonb_build_object('account_id',l.account_id,'amount_cents',l.amount_cents::text,'memo',l.memo) ORDER BY l.sort_order) FROM accounting.journal_lines l WHERE l.entry_id=e.id AND l.account_id<>bank_account)) ORDER BY e.entry_date DESC,e.created_at DESC,e.id) FROM recent e),'[]')) INTO result;
+ RETURN result;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.prior_treatment(descriptor_key text, bank_account_id uuid, max_rows integer DEFAULT 10)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+BEGIN PERFORM accounting.require_owner(); RETURN accounting.prior_summary(descriptor_key,bank_account_id,max_rows); END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.record_audit()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE b jsonb; a jsonb; payload jsonb; actor uuid:=auth.uid(); op uuid; kind text; identity text; action_name text; money_key text;
+BEGIN
+ b:=CASE WHEN TG_OP='INSERT' THEN NULL ELSE to_jsonb(OLD) END; a:=CASE WHEN TG_OP='DELETE' THEN NULL ELSE to_jsonb(NEW) END;
+ IF TG_TABLE_NAME='settings' AND TG_OP='UPDATE' AND (b-'financial_revision')=(a-'financial_revision') THEN RETURN NULL; END IF;
+ FOR money_key IN SELECT unnest(ARRAY['amount_cents','financial_revision','size_bytes','observed_balance_cents','gross_cents','net_cents','employee_withholding_cents','employer_tax_cents','difference_cents','opening_balance_cents','ending_balance_cents']) LOOP
+  IF b?money_key AND b->money_key<>'null'::jsonb THEN b:=jsonb_set(b,ARRAY[money_key],to_jsonb(b->>money_key)); END IF;
+  IF a?money_key AND a->money_key<>'null'::jsonb THEN a:=jsonb_set(a,ARRAY[money_key],to_jsonb(a->>money_key)); END IF;
+ END LOOP;
+ IF TG_TABLE_NAME='bank_connections' THEN
+  b:=b-ARRAY['access_url_encrypted','checkpoint','last_error']; a:=a-ARRAY['access_url_encrypted','checkpoint','last_error'];
+ END IF;
+ IF TG_TABLE_NAME='bank_transactions' THEN b:=b-'raw_payload'; a:=a-'raw_payload'; END IF;
+ IF TG_TABLE_NAME='tax_links' THEN b:=b-ARRAY['inputs','results','forecast_inputs']; a:=a-ARRAY['inputs','results','forecast_inputs']; END IF;
+ op:=coalesce(nullif(current_setting('accounting.operation_id',true),'')::uuid,gen_random_uuid());
+ kind:=coalesce(nullif(current_setting('accounting.actor_kind',true),''),CASE WHEN actor IS NULL THEN 'system' ELSE 'owner' END);
+ IF kind<>'owner' THEN actor:=NULL; END IF;
+ payload:=coalesce(a,b); identity:=coalesce(payload->>'id',payload->>'month',payload->>'idempotency_key','1');
+ action_name:=coalesce(nullif(current_setting('accounting.action',true),''),lower(TG_OP));
+ INSERT INTO accounting.audit_log(actor_user_id,actor_kind,operation_id,table_name,row_id,action,before,after,reason)
+ VALUES(actor,kind,op,TG_TABLE_NAME,CASE WHEN identity ~ '^[0-9a-f-]{36}$' THEN identity::uuid ELSE md5(TG_TABLE_NAME||':'||identity)::uuid END,action_name,b,a,coalesce(nullif(current_setting('accounting.reason',true),''),payload->>'reason',''));
+ IF TG_TABLE_NAME IN ('accounts','journal_entries','journal_lines','tax_mappings','tax_adjustments','payroll_runs','registers') THEN
+  UPDATE accounting.settings SET financial_revision=financial_revision+1 WHERE id=1;
+ END IF;
+ RETURN NULL;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.register_command(c jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE t text:=c->>'type';key uuid:=coalesce((c->>'id')::uuid,gen_random_uuid());actor uuid:=accounting.require_owner();run accounting.payroll_runs;reg accounting.registers;
+ body jsonb:=coalesce(c->'body',c);components jsonb;lines jsonb:='[]';result jsonb;x jsonb;config jsonb;v integer;gross bigint;net bigint;withheld bigint;employer bigint;bank uuid;wages uuid;taxes uuid;entry uuid;amount bigint;cost bigint;depreciation bigint;principal bigint;total bigint;action_kind text;mode text:=coalesce(c->>'template','cash');action_date date;candidate_count integer;source_id uuid;bank_line record;discarded jsonb;match_list jsonb;
+BEGIN
+ IF t='payroll.save' THEN
+  SELECT * INTO run FROM accounting.payroll_runs WHERE id=key;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM coalesce(run.version,0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+  IF run.status IS NOT NULL AND run.status<>'draft' THEN RAISE EXCEPTION 'ACCT_PAYROLL_IMMUTABLE';END IF;
+  PERFORM accounting.require_open((body->>'pay_date')::date);
+  components:=coalesce(body->'components','[]');gross:=coalesce(body->>'gross_cents',body->>'declared_gross_cents')::bigint;net:=coalesce(body->>'net_cents',body->>'declared_net_cents')::bigint;
+  SELECT coalesce(sum((value->>'amount_cents')::bigint) FILTER(WHERE value->>'kind'='employee_tax'),0),coalesce(sum((value->>'amount_cents')::bigint) FILTER(WHERE value->>'kind'='employer_tax'),0) INTO withheld,employer FROM jsonb_array_elements(components);
+  withheld:=coalesce((body->>'employee_withholding_cents')::bigint,withheld);employer:=coalesce((body->>'employer_tax_cents')::bigint,employer);
+  IF EXISTS(SELECT 1 FROM jsonb_array_elements(components) WHERE coalesce(value->>'amount_cents','')!~'^[0-9]+$' OR (value->>'amount_cents')::numeric>9223372036854775807) THEN RAISE EXCEPTION 'ACCT_INVALID_CENTS';END IF;
+  INSERT INTO accounting.payroll_runs(id,provider_run_id,pay_date,period_start,period_end,gross_cents,net_cents,employee_withholding_cents,employer_tax_cents,components,document_id,ytd,created_by)
+   VALUES(key,c->>'provider_run_id',(body->>'pay_date')::date,coalesce(body->>'period_start',body->>'period_from')::date,coalesce(body->>'period_end',body->>'period_to')::date,gross,net,withheld,employer,components,(c->>'document_id')::uuid,
+    coalesce(c->'ytd',body->'ytd',jsonb_build_object('verified',false))||jsonb_build_object('run_employees',coalesce(body->'employees','[]')),actor)
+   ON CONFLICT(id) DO UPDATE SET provider_run_id=excluded.provider_run_id,pay_date=excluded.pay_date,period_start=excluded.period_start,period_end=excluded.period_end,gross_cents=excluded.gross_cents,net_cents=excluded.net_cents,employee_withholding_cents=excluded.employee_withholding_cents,employer_tax_cents=excluded.employer_tax_cents,components=excluded.components,document_id=excluded.document_id,ytd=excluded.ytd RETURNING version INTO v;
+ ELSIF t IN ('payroll.post','payroll.approve','payroll.void','payroll.discard') THEN
+  SELECT * INTO run FROM accounting.payroll_runs WHERE id=key;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;
+  IF run.version IS DISTINCT FROM (c->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+  IF t='payroll.discard' THEN
+   IF run.status<>'draft' OR btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_PAYROLL_DISCARD';END IF;
+   UPDATE accounting.payroll_runs SET status='void' WHERE id=key RETURNING version INTO v;
+  ELSIF t='payroll.void' THEN
+   IF run.status<>'posted' THEN RAISE EXCEPTION 'ACCT_PAYROLL_NOT_POSTED';END IF;
+   result:=accounting.ledger_command(jsonb_build_object('type','entry.reverse','id',run.entry_id,'expected_version',(SELECT version FROM accounting.journal_entries WHERE id=run.entry_id),'entry_date',c->>'effective_date','reason',c->>'reason'));
+   UPDATE accounting.payroll_runs SET status='void' WHERE id=key RETURNING version INTO v;
+  ELSE
+   result:=accounting.payroll_plan(c);lines:=result->'lines';bank:=(c->>'bank_account_id')::uuid;
+   IF coalesce(c->>'mode','new')='historical' THEN
+    entry:=(c->>'entry_id')::uuid;
+    IF c?'entry_version' AND (c->>'entry_version')::integer IS DISTINCT FROM (SELECT version FROM accounting.journal_entries WHERE id=entry) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+    IF EXISTS(SELECT 1 FROM accounting.journal_entries WHERE reverses_entry_id=entry) THEN RAISE EXCEPTION 'ACCT_REVERSED_ENTRY';END IF;
+    IF NOT EXISTS(SELECT 1 FROM accounting.journal_entries WHERE id=entry AND status='posted' AND entry_date=run.pay_date) OR
+     (SELECT jsonb_agg(jsonb_build_array(account_id,amount_cents::text) ORDER BY account_id,amount_cents) FROM accounting.journal_lines WHERE entry_id=entry) IS DISTINCT FROM
+     (SELECT jsonb_agg(jsonb_build_array((value->>'account_id')::uuid,((value->>'amount_cents')::bigint)::text) ORDER BY (value->>'account_id')::uuid,(value->>'amount_cents')::bigint) FROM jsonb_array_elements(lines)) THEN RAISE EXCEPTION 'ACCT_PAYROLL_JOURNAL_MISMATCH';END IF;
+   ELSE
+    result:=accounting.ledger_command(jsonb_build_object('type','draft.save','id',gen_random_uuid(),'expected_version',0,'entry_date',run.pay_date,'memo','Payroll '||run.provider_run_id,'kind','payroll','lines',lines));
+    result:=accounting.ledger_command(jsonb_build_object('type','entry.post','id',result->'id','expected_version',result->'version'));entry:=(result->>'id')::uuid;
+   END IF;
+   UPDATE accounting.payroll_runs SET status='posted',entry_id=entry WHERE id=key RETURNING version INTO v;
+   INSERT INTO accounting.document_links(document_id,payroll_run_id,created_by) VALUES(run.document_id,key,actor) ON CONFLICT DO NOTHING;
+   match_list:=coalesce(c->'bank_matches','[]');
+   IF jsonb_array_length(match_list)=0 AND mode='cash' THEN
+    FOR bank_line IN SELECT * FROM accounting.journal_lines WHERE entry_id=entry AND account_id=bank LOOP
+     SELECT count(*),(array_agg(o.id ORDER BY o.id))[1] INTO candidate_count,source_id FROM accounting.bank_transactions o JOIN accounting.bank_accounts ba ON ba.id=o.bank_account_id
+      WHERE ba.account_id=bank AND o.amount_cents=bank_line.amount_cents AND o.state='posted' AND o.review<>'excluded' AND abs(o.posted_date-run.pay_date)<=(SELECT transfer_window_days FROM accounting.settings)
+      AND NOT EXISTS(SELECT 1 FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE m.bank_transaction_id=o.id AND e.status='posted');
+     IF candidate_count=1 THEN match_list:=match_list||jsonb_build_array(jsonb_build_object('bank_transaction_id',source_id,'sort_order',bank_line.sort_order,'amount_cents',abs(bank_line.amount_cents)::text));END IF;
+    END LOOP;
+   END IF;
+   FOR x IN SELECT value FROM jsonb_array_elements(match_list) LOOP
+    SELECT coalesce(jsonb_agg(d),'[]') INTO discarded FROM (
+     SELECT DISTINCT jsonb_build_object('id',e.id,'expected_version',e.version) d FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id JOIN accounting.journal_entries e ON e.id=l.entry_id
+     WHERE m.bank_transaction_id=(x->>'bank_transaction_id')::uuid AND e.status='draft' AND e.origin IN ('csv','simplefin')) q;
+    PERFORM set_config('accounting.reason','Matched payroll register',true);
+    PERFORM accounting.banking_command(jsonb_build_object('type','bank.match','id',gen_random_uuid(),'bank_transaction_id',x->'bank_transaction_id','reason','Matched payroll register','discard_drafts',discarded,
+      'allocations',jsonb_build_array(jsonb_build_object('line_id',(SELECT id FROM accounting.journal_lines WHERE entry_id=entry AND sort_order=(x->>'sort_order')::integer),'amount_cents',x->'amount_cents'))));
    END LOOP;
   END IF;
+ ELSIF t='register.save' THEN
+  SELECT * INTO reg FROM accounting.registers WHERE id=key;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM coalesce(reg.version,0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+  action_kind:=CASE WHEN c->>'kind'='asset' THEN 'fixed_asset' ELSE c->>'kind' END;
+  IF NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=(body->>'account_id')::uuid AND type=CASE action_kind WHEN 'fixed_asset' THEN 'asset' ELSE 'liability' END AND subtype=CASE action_kind WHEN 'fixed_asset' THEN 'fixed_asset' ELSE 'loan' END) THEN RAISE EXCEPTION 'ACCT_REGISTER_ACCOUNT_TYPE';END IF;
+  IF action_kind='fixed_asset' AND NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=coalesce(body->>'contra_account_id',body->>'accumulated_account_id')::uuid AND type='asset' AND is_contra) THEN RAISE EXCEPTION 'ACCT_REGISTER_CONTRA_REQUIRED';END IF;
+  config:=jsonb_strip_nulls(jsonb_build_object('kind','configuration','expense_account_id',body->'expense_account_id','fee_account_id',body->'fee_account_id','lender',body->'lender','document_id',c->'document_id'));
+  INSERT INTO accounting.registers(id,kind,name,account_id,contra_account_id,started_on,amount_cents,in_service_on,method,schedule,notes)
+   VALUES(key,action_kind,body->>'name',(body->>'account_id')::uuid,coalesce(body->>'contra_account_id',body->>'accumulated_account_id')::uuid,(body->>'started_on')::date,coalesce(body->>'amount_cents',body->>'initial_cents')::bigint,(body->>'in_service_on')::date,coalesce(body->>'method',''),jsonb_build_array(config)||coalesce(c->'schedule','[]'),coalesce(body->>'notes',body->>'terms',''))
+   ON CONFLICT(id) DO UPDATE SET name=excluded.name,kind=excluded.kind,account_id=excluded.account_id,contra_account_id=excluded.contra_account_id,started_on=excluded.started_on,amount_cents=excluded.amount_cents,in_service_on=excluded.in_service_on,method=excluded.method,notes=excluded.notes,
+    schedule=jsonb_build_array(config)||(SELECT coalesce(jsonb_agg(value),'[]') FROM jsonb_array_elements(accounting.registers.schedule) WHERE value->>'kind'<>'configuration') RETURNING version INTO v;
+ ELSIF t IN ('register.post','register.void') THEN
+  SELECT * INTO reg FROM accounting.registers WHERE id=(c->>'register_id')::uuid;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;
+  IF reg.version IS DISTINCT FROM (c->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+  IF t='register.void' THEN
+   SELECT value INTO x FROM jsonb_array_elements(reg.schedule) WHERE value->>'entry_id'=c->>'movement_id' OR value->>'id'=c->>'movement_id';
+   entry:=coalesce(x->>'entry_id',c->>'movement_id')::uuid;
+   IF NOT EXISTS(SELECT 1 FROM accounting.journal_entries WHERE id=entry AND register_id=reg.id) THEN RAISE EXCEPTION 'ACCT_REGISTER_MOVEMENT_REQUIRED';END IF;
+   result:=accounting.ledger_command(jsonb_build_object('type','entry.reverse','id',entry,'expected_version',(SELECT version FROM accounting.journal_entries WHERE id=entry),'entry_date',c->>'date','reason',c->>'reason'));
+   UPDATE accounting.journal_entries SET register_id=reg.id WHERE id=(result->>'id')::uuid;
+   UPDATE accounting.registers SET status='active',ended_on=NULL,schedule=(SELECT jsonb_agg(CASE WHEN value->>'entry_id'=entry::text THEN value||jsonb_build_object('void',result,'void_date',c->'date') ELSE value END) FROM jsonb_array_elements(schedule)) WHERE id=reg.id RETURNING version INTO v;
+  ELSE
+   result:=accounting.register_plan(reg.id,body);lines:=result->'lines';principal:=(result->'state'->>'principal_cents')::bigint;
+   action_kind:=body->>'kind';action_date:=(body->>'date')::date;amount:=(body->>'amount_cents')::bigint;
+   IF c->>'mode'='historical' THEN
+    entry:=(c->>'entry_id')::uuid;
+    IF c?'entry_version' AND (c->>'entry_version')::integer IS DISTINCT FROM (SELECT version FROM accounting.journal_entries WHERE id=entry) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+    IF EXISTS(SELECT 1 FROM accounting.journal_entries WHERE reverses_entry_id=entry) THEN RAISE EXCEPTION 'ACCT_REVERSED_ENTRY';END IF;
+    IF NOT EXISTS(SELECT 1 FROM accounting.journal_entries WHERE id=entry AND status='posted' AND entry_date=action_date AND (register_id IS NULL OR register_id=reg.id)) OR
+      (SELECT jsonb_agg(jsonb_build_array(account_id,amount_cents::text) ORDER BY account_id,amount_cents) FROM accounting.journal_lines WHERE entry_id=entry) IS DISTINCT FROM
+      (SELECT jsonb_agg(jsonb_build_array((value->>'account_id')::uuid,((value->>'amount_cents')::bigint)::text) ORDER BY (value->>'account_id')::uuid,(value->>'amount_cents')::bigint) FROM jsonb_array_elements(lines)) THEN RAISE EXCEPTION 'ACCT_REGISTER_JOURNAL_MISMATCH';END IF;
+    UPDATE accounting.journal_entries SET register_id=reg.id WHERE id=entry;
+   ELSE
+    result:=accounting.ledger_command(jsonb_build_object('type','draft.save','id',gen_random_uuid(),'expected_version',0,'entry_date',action_date,'memo',reg.name||': '||action_kind,'kind',CASE reg.kind WHEN 'fixed_asset' THEN 'asset' ELSE 'loan' END,'register_id',reg.id,'lines',lines));
+    result:=accounting.ledger_command(jsonb_build_object('type','entry.post','id',result->'id','expected_version',result->'version'));entry:=(result->>'id')::uuid;
+   END IF;
+   UPDATE accounting.registers SET schedule=schedule||jsonb_build_array(body||jsonb_build_object('id',key,'entry_id',entry)),status=CASE WHEN action_kind='disposal' THEN 'disposed' WHEN action_kind='payment' AND amount=principal THEN 'paid_off' ELSE status END,
+    ended_on=CASE WHEN action_kind='disposal' OR (action_kind='payment' AND amount=principal) THEN action_date ELSE ended_on END WHERE id=reg.id RETURNING version INTO v;
+   IF c->>'document_id' IS NOT NULL THEN INSERT INTO accounting.document_links(document_id,entry_id,created_by) VALUES((c->>'document_id')::uuid,entry,actor) ON CONFLICT DO NOTHING;END IF;
+  END IF;
+ ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND: %',t;
+ END IF;
+ RETURN jsonb_strip_nulls(jsonb_build_object('id',key,'version',v,'entry_id',entry));
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.register_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE tracked accounting.registers;invalid boolean;
+BEGIN
+ IF TG_LEVEL='STATEMENT' THEN PERFORM accounting.write_lock();RETURN NULL;END IF;
+ IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE';END IF;
+ IF TG_TABLE_NAME='journal_entries' THEN
+  IF TG_WHEN='AFTER' AND NEW.status='posted' AND NEW.register_id IS NOT NULL THEN
+   SELECT * INTO tracked FROM accounting.registers WHERE id=NEW.register_id;
+   WITH daily AS(SELECT e.entry_date,coalesce(sum(l.amount_cents) FILTER(WHERE l.account_id=tracked.account_id),0) cost,coalesce(sum(l.amount_cents) FILTER(WHERE l.account_id=tracked.contra_account_id),0) contra
+    FROM accounting.journal_entries e JOIN accounting.journal_lines l ON l.entry_id=e.id WHERE e.register_id=tracked.id AND e.status='posted' GROUP BY e.entry_date),running AS(SELECT sum(cost) OVER(ORDER BY entry_date) cost,sum(contra) OVER(ORDER BY entry_date) contra FROM daily)
+    SELECT coalesce(bool_or(CASE WHEN tracked.kind='loan' THEN cost>0 ELSE cost<0 OR contra>0 OR cost+contra<0 END),false) INTO invalid FROM running;
+   IF invalid THEN RAISE EXCEPTION 'ACCT_REGISTER_NEGATIVE_BASIS';END IF;
+  END IF;
+  IF NEW.reverses_entry_id IS NOT NULL AND EXISTS(SELECT 1 FROM accounting.payroll_runs p CROSS JOIN LATERAL jsonb_array_elements(p.components) component(value) JOIN accounting.journal_lines l ON l.id=(component.value->>'source_line_id')::uuid WHERE p.status='posted' AND component.value->>'kind'='noncash_reclass' AND l.entry_id=NEW.reverses_entry_id) THEN RAISE EXCEPTION 'ACCT_NONCASH_DEPENDENCY';END IF;
+  IF NEW.reverses_entry_id IS NOT NULL AND EXISTS(SELECT 1 FROM accounting.payroll_runs WHERE entry_id=NEW.reverses_entry_id AND status='posted') AND current_setting('accounting.action',true)<>'payroll.void' THEN RAISE EXCEPTION 'ACCT_PAYROLL_VOID_REQUIRED';END IF;
+  RETURN NEW;
+ END IF;
+ IF TG_OP='UPDATE' THEN
+  IF TG_TABLE_NAME='payroll_runs' THEN
+   IF OLD.status<>'draft' AND (to_jsonb(NEW)-ARRAY['status','version','updated_at']) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['status','version','updated_at']) THEN RAISE EXCEPTION 'ACCT_PAYROLL_IMMUTABLE';END IF;
+   IF OLD.status='void' OR (OLD.status='posted' AND NEW.status<>'void') THEN RAISE EXCEPTION 'ACCT_PAYROLL_IMMUTABLE';END IF;
+  ELSE
+   IF (NEW.kind,NEW.account_id,NEW.contra_account_id,NEW.started_on,NEW.amount_cents) IS DISTINCT FROM (OLD.kind,OLD.account_id,OLD.contra_account_id,OLD.started_on,OLD.amount_cents) AND EXISTS(SELECT 1 FROM accounting.journal_entries WHERE register_id=OLD.id AND status='posted') THEN RAISE EXCEPTION 'ACCT_REGISTER_FINANCIAL_TERMS_FROZEN';END IF;
+  END IF;
+  NEW.version:=OLD.version+1;NEW.updated_at:=now();
  END IF;
  RETURN NEW;
-END $$;
-CREATE TRIGGER acct_bank_posting_guard BEFORE UPDATE ON public.acct_journal_entries FOR EACH ROW EXECUTE FUNCTION public.acct_bank_posting_guard();
+END $function$
+;
 
-CREATE OR REPLACE FUNCTION public.acct_bank_command(p_command jsonb,p_actor uuid) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE op text:=p_command->>'type';v_id uuid:=(p_command->>'id')::uuid;g public.acct_import_groups;s public.acct_source_records;match public.acct_bank_matches;x jsonb;entry public.acct_journal_entries;used numeric;ids uuid[];drafts uuid[]:='{}';target uuid;
+CREATE OR REPLACE FUNCTION accounting.register_plan(requested_id uuid, body jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE reg accounting.registers;config jsonb;lines jsonb;action_kind text;action_date date;amount bigint;cost bigint;depreciation bigint;principal bigint;total bigint;
 BEGIN
- PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
- IF (p_command->>'expected_revision')::bigint IS DISTINCT FROM (SELECT financial_revision FROM public.acct_settings) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
- IF length(btrim(coalesce(p_command->>'reason',''))) NOT BETWEEN 1 AND 1000 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
- IF op='bank.release' THEN
-  SELECT * INTO match FROM public.acct_bank_matches WHERE id=(p_command->>'match_id')::uuid;
-  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-  INSERT INTO public.acct_bank_match_releases(id,match_id,reason,created_by) VALUES(v_id,match.id,p_command->>'reason',p_actor);
-  PERFORM public.acct_bank_reopen_source(match.source_record_id,p_command->>'reason');
-  RETURN jsonb_build_object('id',v_id);
+ PERFORM accounting.require_owner();SELECT * INTO reg FROM accounting.registers WHERE registers.id=requested_id;
+ IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;
+   action_kind:=body->>'kind';action_date:=(body->>'date')::date;amount:=(body->>'amount_cents')::bigint;
+   IF reg.status<>'active' OR action_date<reg.started_on OR amount<0 THEN RAISE EXCEPTION 'ACCT_REGISTER_ACTION';END IF;
+   IF body?'schedule_row_key' AND EXISTS(SELECT 1 FROM jsonb_array_elements(reg.schedule) WHERE value->>'schedule_row_key'=body->>'schedule_row_key' AND value->>'entry_id' IS NOT NULL AND NOT value?'void') THEN RAISE EXCEPTION 'ACCT_REGISTER_ALREADY_POSTED';END IF;
+   SELECT value INTO config FROM jsonb_array_elements(reg.schedule) WHERE value->>'kind'='configuration';
+   IF (action_kind='depreciation' OR (action_kind='payment' AND coalesce((body->>'interest_cents')::bigint,0)>0)) AND NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=(config->>'expense_account_id')::uuid AND type='expense') THEN RAISE EXCEPTION 'ACCT_REGISTER_EXPENSE_ACCOUNT';END IF;
+   IF action_kind='payment' AND coalesce((body->>'fee_cents')::bigint,0)>0 AND NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=(config->>'fee_account_id')::uuid AND type='expense') THEN RAISE EXCEPTION 'ACCT_REGISTER_EXPENSE_ACCOUNT';END IF;
+   SELECT coalesce(sum(l.amount_cents) FILTER(WHERE l.account_id=reg.account_id),0),-coalesce(sum(l.amount_cents) FILTER(WHERE l.account_id=reg.contra_account_id),0) INTO cost,depreciation FROM accounting.journal_entries e JOIN accounting.journal_lines l ON l.entry_id=e.id WHERE e.register_id=reg.id AND e.status='posted' AND e.entry_date<=action_date;
+   principal:=-cost;
+   IF reg.kind='fixed_asset' AND action_kind='acquisition' THEN
+    IF cost<>0 OR amount<>reg.amount_cents THEN RAISE EXCEPTION 'ACCT_REGISTER_COST';END IF;
+    lines:=jsonb_build_array(jsonb_build_object('account_id',reg.account_id,'amount_cents',amount::text),jsonb_build_object('account_id',body->'counter_account_id','amount_cents',(-amount)::text));
+   ELSIF reg.kind='fixed_asset' AND action_kind='depreciation' THEN
+    IF action_date<reg.in_service_on OR amount>cost-depreciation OR amount<=0 THEN RAISE EXCEPTION 'ACCT_DEPRECIATION_EXCEEDS_BASIS';END IF;
+    lines:=jsonb_build_array(jsonb_build_object('account_id',config->'expense_account_id','amount_cents',amount::text),jsonb_build_object('account_id',reg.contra_account_id,'amount_cents',(-amount)::text));
+   ELSIF reg.kind='fixed_asset' AND action_kind='disposal' THEN
+    IF cost<=0 THEN RAISE EXCEPTION 'ACCT_REGISTER_COST';END IF;
+    IF cost-depreciation-amount<>0 AND NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=(body->>'gain_loss_account_id')::uuid AND type=CASE WHEN cost-depreciation-amount>0 THEN 'expense' ELSE 'income' END) THEN RAISE EXCEPTION 'ACCT_REGISTER_GAIN_LOSS_ACCOUNT';END IF;
+    lines:=jsonb_build_array(jsonb_build_object('account_id',body->'counter_account_id','amount_cents',amount::text),jsonb_build_object('account_id',reg.contra_account_id,'amount_cents',depreciation::text),jsonb_build_object('account_id',reg.account_id,'amount_cents',(-cost)::text),jsonb_build_object('account_id',body->'gain_loss_account_id','amount_cents',(cost-depreciation-amount)::text));
+   ELSIF reg.kind='loan' AND action_kind='draw' THEN
+    lines:=jsonb_build_array(jsonb_build_object('account_id',body->'counter_account_id','amount_cents',amount::text),jsonb_build_object('account_id',reg.account_id,'amount_cents',(-amount)::text));
+   ELSIF reg.kind='loan' AND action_kind='payment' THEN
+    IF amount>principal OR amount<0 OR coalesce((body->>'interest_cents')::bigint,0)<0 OR coalesce((body->>'fee_cents')::bigint,0)<0 THEN RAISE EXCEPTION 'ACCT_LOAN_PAYMENT_EXCEEDS_PRINCIPAL';END IF;
+    total:=amount+coalesce((body->>'interest_cents')::bigint,0)+coalesce((body->>'fee_cents')::bigint,0);
+    lines:=jsonb_build_array(jsonb_build_object('account_id',reg.account_id,'amount_cents',amount::text),jsonb_build_object('account_id',config->'expense_account_id','amount_cents',coalesce(body->>'interest_cents','0')),jsonb_build_object('account_id',config->'fee_account_id','amount_cents',coalesce(body->>'fee_cents','0')),jsonb_build_object('account_id',body->'counter_account_id','amount_cents',(-total)::text));
+   ELSE RAISE EXCEPTION 'ACCT_REGISTER_ACTION';END IF;
+   SELECT jsonb_agg(value) INTO lines FROM jsonb_array_elements(lines) WHERE (value->>'amount_cents')::bigint<>0;
+ RETURN jsonb_build_object('lines',coalesce(lines,'[]'),'cost_delta',CASE action_kind WHEN 'acquisition' THEN amount WHEN 'disposal' THEN -cost ELSE 0 END::text,
+ 'depreciation_delta',CASE action_kind WHEN 'depreciation' THEN amount WHEN 'disposal' THEN -depreciation ELSE 0 END::text,
+ 'principal_delta',CASE action_kind WHEN 'draw' THEN amount WHEN 'payment' THEN -amount ELSE 0 END::text,'gain_cents',CASE WHEN action_kind='disposal' THEN amount-cost+depreciation ELSE 0 END::text,
+ 'state',jsonb_build_object('cost_cents',CASE WHEN reg.kind='fixed_asset' THEN cost ELSE 0 END::text,'depreciation_cents',depreciation::text,'carrying_cents',CASE WHEN reg.kind='fixed_asset' THEN cost-depreciation ELSE 0 END::text,'principal_cents',CASE WHEN reg.kind='loan' THEN principal ELSE 0 END::text,'initialized',EXISTS(SELECT 1 FROM accounting.journal_entries WHERE register_id=reg.id AND status='posted' AND entry_date<=action_date),'disposed',reg.status='disposed' AND reg.ended_on<=action_date));
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.registers(view jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE result jsonb;detail jsonb;rows jsonb;cutoff date:=coalesce((view->>'date')::date,current_date);offset_rows integer:=coalesce((view->>'offset')::integer,0);total_count integer;
+BEGIN
+ PERFORM accounting.require_owner();
+ IF view->>'view'='preview' THEN RETURN accounting.register_plan((view->>'id')::uuid,view->'body');END IF;
+ SELECT count(*) INTO total_count FROM accounting.registers r WHERE (view->>'id' IS NULL OR r.id=(view->>'id')::uuid) AND (view->>'kind' IS NULL OR r.kind=CASE view->>'kind' WHEN 'asset' THEN 'fixed_asset' ELSE view->>'kind' END) AND (view->>'query' IS NULL OR r.name ILIKE '%'||(view->>'query')||'%');
+ WITH scoped AS (SELECT * FROM accounting.registers r WHERE (view->>'id' IS NULL OR r.id=(view->>'id')::uuid) AND (view->>'kind' IS NULL OR r.kind=CASE view->>'kind' WHEN 'asset' THEN 'fixed_asset' ELSE view->>'kind' END) AND (view->>'query' IS NULL OR r.name ILIKE '%'||(view->>'query')||'%') ORDER BY name,id LIMIT 100 OFFSET offset_rows),
+ shaped AS (SELECT r.*,coalesce((SELECT value FROM jsonb_array_elements(schedule) WHERE value->>'kind'='configuration'),'{}') config,
+ coalesce((SELECT sum(l.amount_cents) FROM accounting.journal_entries e JOIN accounting.journal_lines l ON l.entry_id=e.id WHERE e.register_id=r.id AND e.status='posted' AND e.entry_date<=cutoff AND l.account_id=r.account_id),0) cost,
+ -coalesce((SELECT sum(l.amount_cents) FROM accounting.journal_entries e JOIN accounting.journal_lines l ON l.entry_id=e.id WHERE e.register_id=r.id AND e.status='posted' AND e.entry_date<=cutoff AND l.account_id=r.contra_account_id),0) depreciation FROM scoped r)
+ SELECT coalesce(jsonb_agg(to_jsonb(r)-ARRAY['cost','depreciation','config']||jsonb_build_object('kind',CASE r.kind WHEN 'fixed_asset' THEN 'asset' ELSE r.kind END,'amount_cents',amount_cents::text,'book_cents',cost::text,
+ 'body',jsonb_build_object('name',name,'started_on',started_on,'initial_cents',amount_cents::text,'account_id',account_id,'expense_account_id',config->'expense_account_id','terms',notes,'in_service_on',in_service_on,'accumulated_account_id',contra_account_id,'method',method,'lender',config->'lender','fee_account_id',config->'fee_account_id'),'document_id',config->'document_id',
+ 'state',jsonb_build_object('cost_cents',CASE WHEN r.kind='fixed_asset' THEN cost ELSE 0 END::text,'depreciation_cents',depreciation::text,'carrying_cents',CASE WHEN r.kind='fixed_asset' THEN cost-depreciation ELSE 0 END::text,'principal_cents',CASE WHEN r.kind='loan' THEN -cost ELSE 0 END::text,'initialized',EXISTS(SELECT 1 FROM accounting.journal_entries WHERE register_id=r.id AND status='posted' AND entry_date<=cutoff),'disposed',status='disposed' AND ended_on<=cutoff)) ORDER BY name,id),'[]') INTO rows FROM shaped r;
+ IF view->>'view'='detail' THEN
+  result:=rows->0;IF result IS NULL THEN RAISE EXCEPTION 'ACCT_NOT_FOUND';END IF;
+  SELECT coalesce(jsonb_agg(jsonb_build_object('id',e.id,'entry_id',e.id,'kind',coalesce(item->>'kind',e.kind),'effective_date',e.entry_date,'mode',CASE WHEN item IS NULL THEN 'historical' ELSE 'new' END,'body',item,'lines',(SELECT jsonb_agg(jsonb_build_object('account_id',l.account_id,'amount_cents',l.amount_cents::text)) FROM accounting.journal_lines l WHERE l.entry_id=e.id),'document_id',(SELECT document_id FROM accounting.document_links WHERE entry_id=e.id LIMIT 1),'reason',e.reason,'void',(SELECT jsonb_build_object('effective_date',re.entry_date,'reason',re.reason,'reversal_entry_id',re.id) FROM accounting.journal_entries re WHERE re.reverses_entry_id=e.id)) ORDER BY e.entry_date DESC,e.id),'[]') INTO detail
+   FROM accounting.journal_entries e LEFT JOIN LATERAL (SELECT value item FROM jsonb_array_elements(result->'schedule') WHERE value->>'entry_id'=e.id::text LIMIT 1) schedule_item ON true WHERE e.register_id=(view->>'id')::uuid AND e.status='posted' AND e.reverses_entry_id IS NULL AND e.entry_date<=cutoff;
+  RETURN result||jsonb_build_object('as_of',cutoff,'offset',offset_rows,'record',jsonb_build_object('revision',result->'version','body',result->'body','document_id',result->'document_id','reason',result->>'notes','created_at',result->'updated_at'),'movements',detail,'movement_count',jsonb_array_length(detail),
+   'revisions',(SELECT coalesce(jsonb_agg(jsonb_build_object('revision',a.after->'version','body',a.after,'document_id',a.after->'schedule'->0->'document_id','reason',a.reason,'created_at',a.at) ORDER BY a.at DESC),'[]') FROM accounting.audit_log a WHERE a.table_name='registers' AND a.row_id=(view->>'id')::uuid),'revision_count',(SELECT count(*) FROM accounting.audit_log a WHERE a.table_name='registers' AND a.row_id=(view->>'id')::uuid));
  END IF;
- IF op<>'bank.match' THEN RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND'; END IF;
- SELECT * INTO g FROM public.acct_import_groups WHERE id=(p_command->>'group_id')::uuid AND bank_account_id IS NOT NULL AND status<>'excluded';
- IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_IMPORT_NOT_READY'; END IF;
- IF EXISTS(SELECT 1 FROM public.acct_import_batches WHERE id=g.batch_id AND status IN ('staging','cancelled','failed')) THEN RAISE EXCEPTION 'ACCT_IMPORT_NOT_READY'; END IF;
- SELECT * INTO s FROM public.acct_source_records WHERE id=g.source_record_id;
- SELECT array_agg(src.id) INTO ids FROM public.acct_source_records src WHERE src.source_system=s.source_system AND src.source_scope=s.source_scope AND src.external_id=s.external_id;
- IF jsonb_typeof(p_command->'allocations') IS DISTINCT FROM 'array' OR jsonb_array_length(p_command->'allocations') NOT BETWEEN 0 AND 50 OR jsonb_typeof(coalesce(p_command->'discard_drafts','[]')) IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
- IF jsonb_array_length(p_command->'allocations')=0 AND public.acct_bank_source_used(s.id)<>abs(g.bank_amount_cents::numeric) THEN RAISE EXCEPTION 'ACCT_IMPORT_NOT_READY'; END IF;
- IF EXISTS(SELECT 1 FROM public.acct_import_groups other JOIN public.acct_source_records os ON os.id=other.source_record_id WHERE os.id=ANY(ids) AND (other.bank_account_id IS DISTINCT FROM g.bank_account_id OR other.bank_amount_cents IS DISTINCT FROM g.bank_amount_cents OR other.entry_date IS DISTINCT FROM g.entry_date)) THEN RAISE EXCEPTION 'ACCT_BANK_SOURCE_CONFLICT'; END IF;
- IF (SELECT count(*) FROM jsonb_array_elements(p_command->'allocations'))<>(SELECT count(DISTINCT item.value->>'line_id') FROM jsonb_array_elements(p_command->'allocations') item(value)) THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
- FOR x IN SELECT value FROM jsonb_array_elements(p_command->'allocations') LOOP
-  IF x->>'amount_cents' IS NULL OR x->>'amount_cents'!~'^[1-9][0-9]{0,18}$' THEN RAISE EXCEPTION 'ACCT_INVALID_MONEY'; END IF;
-  INSERT INTO public.acct_bank_matches(id,source_record_id,entry_line_id,amount_cents,created_by) VALUES(gen_random_uuid(),s.id,(x->>'line_id')::uuid,sign(g.bank_amount_cents)*(x->>'amount_cents')::bigint,p_actor);
-  INSERT INTO public.acct_source_links(source_record_id,entry_id) SELECT s.id,entry_id FROM public.acct_journal_lines WHERE id=(x->>'line_id')::uuid ON CONFLICT DO NOTHING;
- END LOOP;
- used:=public.acct_bank_source_used(s.id);
- IF used=abs(g.bank_amount_cents::numeric) THEN
-  SELECT l.entry_id INTO target FROM public.acct_bank_matches m JOIN public.acct_journal_lines l ON l.id=m.entry_line_id WHERE m.source_record_id=ANY(ids) AND NOT EXISTS(SELECT 1 FROM public.acct_bank_match_releases WHERE match_id=m.id) ORDER BY m.created_at,m.id LIMIT 1;
-  FOR entry IN SELECT DISTINCT e.* FROM public.acct_journal_entries e JOIN public.acct_import_groups groups ON groups.entry_id=e.id WHERE groups.source_record_id=ANY(ids) AND e.status='draft' LOOP
-   drafts:=array_append(drafts,entry.id);
-   IF NOT EXISTS(SELECT 1 FROM jsonb_array_elements(coalesce(p_command->'discard_drafts','[]')) d WHERE (d->>'id')::uuid=entry.id AND (d->>'expected_version')::integer=entry.version) THEN RAISE EXCEPTION 'ACCT_REDUNDANT_DRAFT_APPROVAL'; END IF;
-   IF (SELECT count(*) FROM public.acct_journal_lines l JOIN public.acct_account_profiles p ON p.account_id=l.account_id WHERE l.entry_id=entry.id AND p.cash_kind IN ('bank','cash','card'))<>1 OR NOT EXISTS(SELECT 1 FROM public.acct_journal_lines WHERE entry_id=entry.id AND account_id=g.bank_account_id AND amount_cents=g.bank_amount_cents) THEN RAISE EXCEPTION 'ACCT_REDUNDANT_DRAFT_CHANGED'; END IF;
-   INSERT INTO public.acct_document_links(document_id,entry_id) SELECT d.document_id,l.entry_id FROM public.acct_document_links d CROSS JOIN public.acct_bank_matches m JOIN public.acct_journal_lines l ON l.id=m.entry_line_id WHERE d.entry_id=entry.id AND m.source_record_id=ANY(ids) AND NOT EXISTS(SELECT 1 FROM public.acct_bank_match_releases WHERE match_id=m.id) ON CONFLICT DO NOTHING;
-   PERFORM public.acct_command(gen_random_uuid(),jsonb_build_object('type','draft.discard','id',entry.id,'expected_version',entry.version,'reason',p_command->'reason'));
+ RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'as_of',cutoff,'offset',offset_rows,'count',total_count,'rows',rows);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.report(kind text, params jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE start_date date:=coalesce((params->>'from')::date,date_trunc('year',coalesce((params->>'as_of')::date,current_date))::date);
+ end_date date:=coalesce((params->>'as_of')::date,(params->>'to')::date,current_date);year_start date;compare_year_start date;compare_start date:=(params->>'compare_from')::date;compare_end date:=(params->>'compare_to')::date;
+ accounts jsonb;totals jsonb;comparison jsonb;monthly jsonb;cash jsonb;quality jsonb;dimensions jsonb;result jsonb;
+BEGIN
+ IF NOT (current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker') THEN PERFORM accounting.require_owner();END IF;
+ PERFORM accounting.report_validate(params);
+ IF kind NOT IN ('profit_loss','balance_sheet','trial_balance','general_ledger','cash_movements','account_balances','summary','owner_activity','payee') THEN RAISE EXCEPTION 'ACCT_REPORT_KIND';END IF;
+ IF start_date>end_date OR (compare_start IS NULL)<>(compare_end IS NULL) OR compare_start>compare_end THEN RAISE EXCEPTION 'ACCT_REPORT_RANGE';END IF;
+ year_start:=make_date(extract(year FROM end_date)::integer,(SELECT fiscal_year_start_month FROM public.business_profile WHERE id=1),1);
+ IF year_start>end_date THEN year_start:=(year_start-interval '1 year')::date;END IF;
+ IF compare_end IS NOT NULL THEN compare_year_start:=make_date(extract(year FROM compare_end)::integer,(SELECT fiscal_year_start_month FROM public.business_profile WHERE id=1),1);IF compare_year_start>compare_end THEN compare_year_start:=(compare_year_start-interval '1 year')::date;END IF;END IF;
+ WITH selected AS (
+  SELECT e.entry_date,e.status,l.* FROM accounting.journal_entries e JOIN accounting.journal_lines l ON l.entry_id=e.id
+  WHERE (e.status='posted' OR (params->>'mode'='working' AND e.status='draft' AND (SELECT count(*)>=2 AND coalesce(sum(bl.amount_cents),0)=0 FROM accounting.journal_lines bl WHERE bl.entry_id=e.id)))
+    AND (params->>'payee' IS NULL OR (params->>'payee'='unassigned' AND e.payee_id IS NULL) OR e.payee_id::text=params->>'payee')
+ ), rows AS (
+ SELECT a.*,p.name parent_name,
+  coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date<start_date),0) opening,
+  coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date BETWEEN start_date AND end_date AND l.amount_cents>0),0) debit,
+  -coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date BETWEEN start_date AND end_date AND l.amount_cents<0),0) credit,
+  coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date BETWEEN start_date AND end_date),0) movement,
+  coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date<=end_date),0) ending,
+  coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date<year_start),0) prior,
+  coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date BETWEEN year_start AND end_date),0) current_year,
+  coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date BETWEEN compare_start AND compare_end),0) compare_movement,
+  coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date<=compare_end),0) compare_ending,
+  coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date<compare_year_start),0) compare_prior,
+  coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date BETWEEN compare_year_start AND compare_end),0) compare_year
+ FROM accounting.accounts a LEFT JOIN accounting.accounts p ON p.id=a.parent_id LEFT JOIN selected l ON l.account_id=a.id
+ WHERE (NOT params?'account_ids' OR a.id::text IN(SELECT jsonb_array_elements_text(params->'account_ids'))) AND (NOT params?'account_types' OR a.type IN(SELECT jsonb_array_elements_text(params->'account_types')))
+ GROUP BY a.id,p.name
+ )
+ SELECT coalesce(jsonb_agg(to_jsonb(r)-ARRAY['opening','debit','credit','movement','ending','prior','current_year','compare_movement','compare_ending','compare_prior','compare_year']||jsonb_build_object(
+  'code',coalesce(r.code,''),'account_type',r.type,'normal_side',CASE WHEN (r.type IN ('asset','expense'))<>r.is_contra THEN 'debit' ELSE 'credit' END,'parent_account_id',r.parent_id,'purpose',r.system_purpose,'cash_kind',CASE WHEN r.subtype IN ('bank','cash','card') THEN r.subtype ELSE 'none' END,
+  'opening_cents',opening::text,'debit_cents',debit::text,'credit_cents',credit::text,'movement_cents',movement::text,'period_cents',movement::text,'ending_cents',ending::text,'prior_cents',prior::text,'year_cents',current_year::text,
+  'compare_period_cents',compare_movement::text,'compare_ending_cents',compare_ending::text,'compare_prior_cents',compare_prior::text,'compare_year_cents',compare_year::text) ORDER BY r.code NULLS LAST,r.name,r.id),'[]') INTO accounts FROM rows r;
+ WITH a AS(SELECT value r FROM jsonb_array_elements(accounts)),s AS(SELECT
+  -coalesce(sum((r->>'period_cents')::numeric) FILTER(WHERE r->>'type'='income'),0) income,
+  coalesce(sum((r->>'period_cents')::numeric) FILTER(WHERE r->>'type'='expense'),0) expense,
+  coalesce(sum((r->>'period_cents')::numeric) FILTER(WHERE r->>'type'='expense' AND r->>'subtype'='cost_of_goods_sold'),0) cogs,
+  coalesce(sum((r->>'ending_cents')::numeric) FILTER(WHERE r->>'type'='asset'),0) assets,
+  -coalesce(sum((r->>'ending_cents')::numeric) FILTER(WHERE r->>'type'='liability'),0) liabilities,
+  -coalesce(sum((r->>'ending_cents')::numeric) FILTER(WHERE r->>'type'='equity'),0) equity,
+  -coalesce(sum((r->>'prior_cents')::numeric) FILTER(WHERE r->>'type' IN ('income','expense')),0) prior,
+  -coalesce(sum((r->>'year_cents')::numeric) FILTER(WHERE r->>'type' IN ('income','expense')),0) current_year,
+  coalesce(sum((r->>'opening_cents')::numeric) FILTER(WHERE r->>'subtype' IN ('bank','cash')),0) cash_opening,
+  coalesce(sum((r->>'ending_cents')::numeric) FILTER(WHERE r->>'subtype' IN ('bank','cash')),0) cash_ending
+ FROM a)
+ SELECT jsonb_build_object('income_cents',income::text,'expense_cents',expense::text,'cogs_cents',cogs::text,'net_cents',(income-expense)::text,'assets_cents',assets::text,'liabilities_cents',liabilities::text,'equity_cents',equity::text,'prior_cents',prior::text,'year_cents',current_year::text,'difference_cents',(assets-liabilities-equity-prior-current_year)::text,'cash_opening_cents',cash_opening::text,'cash_ending_cents',cash_ending::text) INTO totals FROM s;
+ IF kind='balance_sheet' AND coalesce(params->>'mode','posted')='posted' AND NOT params ?| ARRAY['account_ids','account_types','payee'] AND (totals->>'difference_cents')::numeric<>0 THEN RAISE EXCEPTION 'ACCT_BALANCE_SHEET_UNBALANCED';END IF;
+ IF compare_start IS NOT NULL THEN comparison:=accounting.report(kind,(params-ARRAY['compare_from','compare_to','as_of'])||jsonb_build_object('from',compare_start,'to',compare_end))->'totals';
+ ELSE comparison:=(SELECT jsonb_object_agg(key,'0'::text) FROM jsonb_each(totals));END IF;
+ SELECT coalesce(jsonb_agg(jsonb_build_object('month',month,'income_cents',income::text,'expense_cents',expense::text,'net_cents',(income-expense)::text) ORDER BY month),'[]') INTO monthly FROM (
+ SELECT d::date AS month,-coalesce(sum(l.amount_cents) FILTER(WHERE a.type='income' AND (NOT params?'account_ids' OR a.id::text IN(SELECT jsonb_array_elements_text(params->'account_ids'))) AND (NOT params?'account_types' OR a.type IN(SELECT jsonb_array_elements_text(params->'account_types')))),0) income,coalesce(sum(l.amount_cents) FILTER(WHERE a.type='expense' AND (NOT params?'account_ids' OR a.id::text IN(SELECT jsonb_array_elements_text(params->'account_ids'))) AND (NOT params?'account_types' OR a.type IN(SELECT jsonb_array_elements_text(params->'account_types')))),0) expense
+ FROM generate_series(date_trunc('month',start_date),date_trunc('month',end_date),interval '1 month') d
+ LEFT JOIN accounting.journal_entries e ON e.entry_date>=d::date AND e.entry_date<(d+interval '1 month')::date AND e.entry_date BETWEEN start_date AND end_date AND (e.status='posted' OR (params->>'mode'='working' AND e.status='draft' AND (SELECT count(*)>=2 AND coalesce(sum(bl.amount_cents),0)=0 FROM accounting.journal_lines bl WHERE bl.entry_id=e.id))) AND (params->>'payee' IS NULL OR e.payee_id::text=params->>'payee' OR (params->>'payee'='unassigned' AND e.payee_id IS NULL))
+ LEFT JOIN accounting.journal_lines l ON l.entry_id=e.id LEFT JOIN accounting.accounts a ON a.id=l.account_id GROUP BY d) m;
+ SELECT coalesce(jsonb_agg(jsonb_build_object('classification',classification,'amount_cents',cents::text,'line_count',n) ORDER BY classification),'[]') INTO cash FROM (SELECT classification,sum(amount_cents) cents,count(DISTINCT id) n FROM accounting.cash_lines(params||jsonb_build_object('from',start_date,'to',end_date)) GROUP BY classification) c;
+ SELECT jsonb_build_object('draft_count',(SELECT count(*) FROM accounting.journal_entries WHERE status='draft' AND entry_date BETWEEN start_date AND end_date),
+ 'unbalanced_drafts',(SELECT count(*) FROM accounting.journal_entries e WHERE e.status='draft' AND e.entry_date BETWEEN start_date AND end_date AND (SELECT coalesce(sum(amount_cents),0) FROM accounting.journal_lines WHERE entry_id=e.id)<>0),
+ 'incomplete_imports',(SELECT count(*) FROM accounting.import_batches ib WHERE ib.kind='journal' AND parity_status<>'verified' AND coverage_from<=end_date AND (report.kind IN ('balance_sheet','trial_balance','general_ledger','account_balances','summary','cash_movements') OR coverage_to>=start_date) AND (status<>'cancelled' OR applied_count>0)),
+ 'unclassified_cash_lines',0,'uncategorized_lines',(SELECT count(*) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE a.subtype='uncategorized' AND e.status='posted' AND e.entry_date BETWEEN start_date AND end_date),
+ 'reconciliations',(SELECT coalesce(jsonb_agg(jsonb_build_object('account_id',b.account_id,'through',r.statement_end)),'[]') FROM accounting.reconciliations r JOIN accounting.bank_accounts b ON b.id=r.bank_account_id WHERE r.status='completed'),
+ 'feeds',(SELECT coalesce(jsonb_agg(jsonb_build_object('name',name,'last_success_at',last_success_at,'status',status)),'[]') FROM accounting.bank_connections)) INTO quality;
+ SELECT coalesce(jsonb_agg(jsonb_build_object('kind','payee','id',party,'name',name,'income_cents',income::text,'expense_cents',expense::text,'compare_income_cents',compare_income::text,'compare_expense_cents',compare_expense::text)),'[]') INTO dimensions FROM (
+ SELECT coalesce(e.payee_id::text,'unassigned') party,coalesce(p.name,'Unassigned') name,
+ -coalesce(sum(l.amount_cents) FILTER(WHERE a.type='income' AND e.entry_date BETWEEN start_date AND end_date),0) income,coalesce(sum(l.amount_cents) FILTER(WHERE a.type='expense' AND e.entry_date BETWEEN start_date AND end_date),0) expense,
+ -coalesce(sum(l.amount_cents) FILTER(WHERE a.type='income' AND e.entry_date BETWEEN compare_start AND compare_end),0) compare_income,coalesce(sum(l.amount_cents) FILTER(WHERE a.type='expense' AND e.entry_date BETWEEN compare_start AND compare_end),0) compare_expense
+ FROM accounting.journal_entries e JOIN accounting.journal_lines l ON l.entry_id=e.id JOIN accounting.accounts a ON a.id=l.account_id LEFT JOIN accounting.parties p ON p.id=e.payee_id
+ WHERE (e.status='posted' OR (params->>'mode'='working' AND e.status='draft' AND (SELECT count(*)>=2 AND coalesce(sum(bl.amount_cents),0)=0 FROM accounting.journal_lines bl WHERE bl.entry_id=e.id))) AND (NOT params?'account_ids' OR a.id::text IN(SELECT jsonb_array_elements_text(params->'account_ids'))) AND (NOT params?'account_types' OR a.type IN(SELECT jsonb_array_elements_text(params->'account_types'))) AND (params->>'payee' IS NULL OR e.payee_id::text=params->>'payee' OR (params->>'payee'='unassigned' AND e.payee_id IS NULL)) AND (e.entry_date BETWEEN start_date AND end_date OR e.entry_date BETWEEN compare_start AND compare_end) GROUP BY e.payee_id,p.name) q;
+ result:=jsonb_build_object('legal_name',(SELECT legal_name FROM public.business_profile WHERE id=1),'revision',(SELECT financial_revision::text FROM accounting.settings),'definition_version',1,'currency','USD','basis','cash','generated_at',now(),
+ 'filter',(params-'as_of')||jsonb_build_object('from',start_date,'to',end_date,'mode',coalesce(params->>'mode','posted'),'offset',coalesce((params->>'offset')::integer,0)),'accounts',accounts,'rows',accounts,'totals',totals,'comparison',comparison,'monthly',monthly,'dimensions',dimensions,'cash',cash,'quality',quality);
+ RETURN result||jsonb_build_object('income_cents',totals->'income_cents','expense_cents',totals->'expense_cents','net_income_cents',totals->'net_cents','cost_of_goods_sold_cents',totals->'cogs_cents',
+ 'gross_profit_cents',((totals->>'income_cents')::numeric-(totals->>'cogs_cents')::numeric)::text,'operating_expense_cents',((totals->>'expense_cents')::numeric-(totals->>'cogs_cents')::numeric)::text,
+ 'assets_cents',totals->'assets_cents','liabilities_cents',totals->'liabilities_cents','equity_cents',totals->'equity_cents','retained_cents',totals->'prior_cents','year_income_cents',totals->'year_cents',
+ 'equity_total_cents',((totals->>'equity_cents')::numeric+(totals->>'prior_cents')::numeric+(totals->>'year_cents')::numeric)::text,'balance_difference_cents',totals->'difference_cents','trial_balance_cents',totals->'difference_cents');
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.report_command(c jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE k uuid:=coalesce((c->>'id')::uuid,gen_random_uuid());t text:=c->>'type';p jsonb:=coalesce(c->'params',c->'filter',jsonb_build_object('from',c->>'from','to',c->>'to'));r jsonb;payload jsonb;kind text;detail jsonb;rows jsonb;offset_rows integer:=0;revision bigint;actor uuid:=accounting.require_owner();report_id text:=c->'options'->>'report_id';parts jsonb;item text;support jsonb:='[]';
+BEGIN
+ SELECT financial_revision INTO revision FROM accounting.settings;
+ IF c->>'expected_revision' IS NOT NULL AND (c->>'expected_revision')::bigint<>revision THEN RAISE EXCEPTION 'ACCT_STALE_REPORT';END IF;
+ IF t='report.books.capture' THEN p:=jsonb_build_object('from',make_date((c->>'year')::integer,1,1),'to',(c->>'through')::date,'mode','posted');END IF;
+ IF t='report.capture' AND coalesce(report_id,'')<>'general-ledger' AND p ?| ARRAY['account_ids','account_types','cash_class'] THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
+ IF p->>'mode'='working' THEN RAISE EXCEPTION 'ACCT_POSTED_REPORT_REQUIRED';END IF;
+ kind:=coalesce(c->>'kind',CASE report_id WHEN 'profit-loss' THEN 'profit_loss' WHEN 'balance-sheet' THEN 'balance_sheet' WHEN 'trial-balance' THEN 'trial_balance' WHEN 'general-ledger' THEN 'general_ledger' WHEN 'cash-flow' THEN 'cash_movements' ELSE 'profit_loss' END);
+ IF t='report.books.capture' THEN kind:='year_end_package';END IF;
+ r:=accounting.report(CASE WHEN kind='year_end_package' THEN 'summary' ELSE kind END,p);
+ IF (r->'quality'->>'incomplete_imports')::integer>0 THEN RAISE EXCEPTION 'ACCT_IMPORT_PARITY_REQUIRED';END IF;
+ p:=r->'filter';
+ IF t='report.books.capture' AND extract(year FROM (p->>'to')::date)<>(c->>'year')::integer THEN RAISE EXCEPTION 'ACCT_REPORT_RANGE';END IF;
+ IF t IN ('report.capture','report.snapshot') THEN
+  payload:=jsonb_build_object('type','detailed_report','export_definition',1,'data',r,'options',coalesce(c->'options',jsonb_build_object('report_id',replace(kind,'_','-'),'show_zero',false,'details',true)));
+  IF kind='general_ledger' THEN detail:=accounting.report_lines('general_ledger',p||jsonb_build_object('offset',0,'limit',100000));IF (detail->>'total')::integer>100000 THEN RAISE EXCEPTION 'ACCT_EXPORT_TOO_LARGE';END IF;payload:=jsonb_set(payload,'{ledger}',detail->'rows');END IF;
+ ELSIF t='report.books.capture' THEN
+  detail:=accounting.report_lines('general_ledger',p||jsonb_build_object('offset',0,'limit',100000));IF (detail->>'total')::integer>100000 THEN RAISE EXCEPTION 'ACCT_EXPORT_TOO_LARGE';END IF;
+  FOREACH item IN ARRAY ARRAY['payroll-register','contractor-worksheet','asset-register','loan-register','tax-workpapers'] LOOP
+   support:=support||jsonb_build_array(accounting.support_report(p||jsonb_build_object('report_id',item,'offset',0,'limit',100000)));
   END LOOP;
-  IF EXISTS(SELECT 1 FROM jsonb_array_elements(coalesce(p_command->'discard_drafts','[]')) d WHERE NOT((d->>'id')::uuid=ANY(drafts))) THEN RAISE EXCEPTION 'ACCT_REDUNDANT_DRAFT_CHANGED'; END IF;
-  INSERT INTO public.acct_source_links(source_record_id,entry_id) SELECT src,l.entry_id FROM unnest(ids) src CROSS JOIN public.acct_bank_matches m JOIN public.acct_journal_lines l ON l.id=m.entry_line_id WHERE m.source_record_id=ANY(ids) AND NOT EXISTS(SELECT 1 FROM public.acct_bank_match_releases WHERE match_id=m.id) ON CONFLICT DO NOTHING;
-  UPDATE public.acct_import_groups SET status='duplicate',entry_id=target,version=version+1,reason=p_command->>'reason' WHERE source_record_id=ANY(ids) AND status<>'excluded';
- ELSE
-  IF jsonb_array_length(coalesce(p_command->'discard_drafts','[]'))>0 THEN RAISE EXCEPTION 'ACCT_REDUNDANT_DRAFT_APPROVAL'; END IF;
-  UPDATE public.acct_import_groups SET status='review',version=version+1,reason='Partially matched; finish or release the bank allocation' WHERE source_record_id=ANY(ids) AND status<>'excluded';
+  payload:=jsonb_build_object('type','books_package','export_definition',1,'year',(c->>'year')::integer,'through',c->>'through','core',r,'ledger',detail->'rows','ledger_count',detail->'total','support',support,'payroll',accounting.payroll(jsonb_build_object('year',(c->>'year')::integer,'through',c->>'through')),
+  'review_items',accounting.books_package(jsonb_build_object('year',(c->>'year')::integer,'through',c->>'through'))->'review_items','notes',jsonb_build_array('This package contains posted books and retained source references. Payroll and tax support are review worksheets, not a completed tax return.'),
+  'account_mappings',(SELECT coalesce(jsonb_agg(value||jsonb_build_object('profile',jsonb_build_object('account_id',value->'id','purpose',value->'purpose','cash_kind',value->'cash_kind','subtype',value->'subtype','parent_account_id',value->'parent_account_id'))),'[]') FROM jsonb_array_elements(r->'accounts')),
+  'document_index',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'original_name',name,'content_hash',sha256,'mime_type',mime,'size_bytes',size_bytes::text,'state',CASE WHEN status<>'archived' AND EXISTS(SELECT 1 FROM storage.objects o WHERE o.bucket_id='accounting-private' AND o.name=documents.storage_path) THEN 'available' ELSE status END) ORDER BY uploaded_at,id),'[]') FROM accounting.documents));
+ ELSIF t='report.support.capture' THEN
+  kind:='year_end_package';
+  payload:=jsonb_build_object('type','support_report','export_definition',1,'data',accounting.support_report(p||jsonb_build_object('report_id',c->'filter'->>'report_id','offset',0,'limit',100000)));
+ ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND';END IF;
+ IF c->>'document_id' IS NOT NULL AND NOT EXISTS(SELECT 1 FROM accounting.documents d WHERE d.id=(c->>'document_id')::uuid AND d.status<>'archived' AND EXISTS(SELECT 1 FROM storage.objects o WHERE o.name=d.storage_path AND o.bucket_id='accounting-private')) THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE';END IF;
+ IF t='report.support.capture' AND jsonb_array_length(payload->'data'->'rows')<>(payload->'data'->>'count')::integer THEN RAISE EXCEPTION 'ACCT_EXPORT_TOO_LARGE';END IF;
+ INSERT INTO accounting.report_snapshots(id,kind,params,from_date,to_date,financial_revision,data,document_id,created_by) VALUES(k,kind,p,(p->>'from')::date,(p->>'to')::date,revision,payload,(c->>'document_id')::uuid,actor);
+ RETURN jsonb_build_object('id',k,'revision',revision::text);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.report_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+BEGIN
+ IF TG_OP<>'INSERT' THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_SNAPSHOT';END IF;
+ RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.report_lines(kind text, params jsonb, account uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE start_date date:=(params->>'from')::date;end_date date:=coalesce((params->>'as_of')::date,(params->>'to')::date);offset_rows integer:=coalesce((params->>'offset')::integer,0);limit_rows integer:=coalesce((params->>'limit')::integer,100);result jsonb;opening numeric;
+BEGIN
+ PERFORM accounting.require_owner();
+ PERFORM accounting.report_validate(params);
+ IF start_date IS NULL OR end_date IS NULL OR start_date>end_date OR offset_rows<0 OR limit_rows NOT BETWEEN 1 AND 100000 THEN RAISE EXCEPTION 'ACCT_REPORT_RANGE';END IF;
+ IF report_lines.kind NOT IN ('general_ledger','profit_loss','balance_sheet','trial_balance','account_balances','cash_movements','owner_activity','summary','payee') THEN RAISE EXCEPTION 'ACCT_REPORT_KIND';END IF;
+ IF account IS NOT NULL THEN params:=params||jsonb_build_object('account_ids',jsonb_build_array(account));END IF;
+ params:=(params-'as_of')||jsonb_build_object('from',start_date,'to',end_date);
+ WITH selected AS (
+ SELECT l.*,e.entry_date,e.memo entry_memo,e.status,e.origin,a.name account_name,a.type account_type
+ FROM accounting.journal_lines l JOIN accounting.journal_entries e ON e.id=l.entry_id JOIN accounting.accounts a ON a.id=l.account_id
+ WHERE e.entry_date<=end_date AND (e.status='posted' OR (params->>'mode'='working' AND e.status='draft' AND (SELECT count(*)>=2 AND coalesce(sum(bl.amount_cents),0)=0 FROM accounting.journal_lines bl WHERE bl.entry_id=e.id)))
+ AND (params->>'payee' IS NULL OR e.payee_id::text=params->>'payee' OR (params->>'payee'='unassigned' AND e.payee_id IS NULL))
+ AND (NOT params?'account_ids' OR a.id::text IN(SELECT jsonb_array_elements_text(params->'account_ids'))) AND (NOT params?'account_types' OR a.type IN(SELECT jsonb_array_elements_text(params->'account_types')))
+ AND (report_lines.kind<>'owner_activity' OR a.type='equity') AND (report_lines.kind<>'profit_loss' OR a.type IN ('income','expense')) AND (report_lines.kind<>'cash_movements' OR a.subtype IN ('bank','cash'))
+ ), scoped AS (
+ SELECT s.id,s.entry_id,s.account_id,s.entry_date,s.entry_memo,s.memo,s.status,s.origin,s.account_name,s.account_type,s.sort_order,s.amount_cents::numeric amount_cents,NULL::text classification,0::bigint allocation_index FROM selected s WHERE report_lines.kind<>'cash_movements'
+ UNION ALL SELECT s.id,s.entry_id,s.account_id,s.entry_date,s.entry_memo,s.memo,s.status,s.origin,s.account_name,s.account_type,s.sort_order,c.amount_cents,c.classification,c.allocation_index FROM selected s JOIN accounting.cash_lines(params||jsonb_build_object('from','1900-01-01')) c ON c.id=s.id WHERE report_lines.kind='cash_movements' AND (params->>'cash_class' IS NULL OR c.classification=params->>'cash_class')
+ ), running AS (
+ SELECT *,sum(amount_cents) OVER(PARTITION BY account_id ORDER BY entry_date,entry_id,sort_order,id,allocation_index ROWS UNBOUNDED PRECEDING) running_cents FROM scoped
+ ), in_range AS(SELECT * FROM running WHERE entry_date>=start_date),paged AS(SELECT * FROM in_range ORDER BY entry_date,entry_id,sort_order,id,allocation_index LIMIT limit_rows OFFSET offset_rows)
+ SELECT jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'total',(SELECT count(*) FROM in_range),'total_cents',(SELECT coalesce(sum(amount_cents),0)::text FROM in_range),
+ 'opening_cents',(SELECT coalesce(sum(amount_cents),0)::text FROM scoped WHERE entry_date<start_date),
+ 'rows',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'entry_id',entry_id,'entry_date',entry_date,'memo',entry_memo,'line_memo',memo,'account_id',account_id,'account_name',account_name,'account_type',account_type,'amount_cents',amount_cents::text,'running_cents',running_cents::text,'status',status,'primary_origin',origin,'classification',classification,'allocation_index',allocation_index,'allocation_source',CASE WHEN report_lines.kind='cash_movements' THEN 'derived' ELSE NULL END) ORDER BY entry_date,entry_id,sort_order,id,allocation_index),'[]') FROM paged)) INTO result;
+ RETURN result;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.report_validate(params jsonb)
+ RETURNS void
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE ids jsonb;value text;
+BEGIN
+ IF jsonb_typeof(params) IS DISTINCT FROM 'object' THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
+ IF coalesce(params->>'mode','posted') NOT IN ('posted','working') THEN RAISE EXCEPTION 'ACCT_REPORT_RANGE';END IF;
+ IF params ?| ARRAY['customer','project','business_line'] THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
+ IF params?'account_ids' THEN
+  ids:=params->'account_ids';IF jsonb_typeof(ids) IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
+  IF jsonb_array_length(ids) NOT BETWEEN 1 AND 500 THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
+  IF EXISTS(SELECT 1 FROM jsonb_array_elements_text(ids) x WHERE NOT EXISTS(SELECT 1 FROM accounting.accounts a WHERE a.id::text=x.value)) THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
  END IF;
- UPDATE public.acct_import_batches SET status=CASE WHEN status='completed' AND used<abs(g.bank_amount_cents::numeric) THEN 'review' ELSE status END,version=version+1,coverage_verified=false WHERE id IN(SELECT batch_id FROM public.acct_import_groups WHERE source_record_id=ANY(ids));
- RETURN jsonb_build_object('id',v_id,'group_id',g.id,'remaining_cents',(abs(g.bank_amount_cents::numeric)-used)::text);
-END $$;
+ IF params?'account_types' THEN
+  ids:=params->'account_types';IF jsonb_typeof(ids) IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
+  IF jsonb_array_length(ids) NOT BETWEEN 1 AND 5 OR EXISTS(SELECT 1 FROM jsonb_array_elements_text(ids) x WHERE x.value NOT IN ('asset','liability','equity','income','expense')) THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
+ END IF;
+ IF params?'payee' AND params->>'payee'<>'unassigned' AND NOT EXISTS(SELECT 1 FROM accounting.parties WHERE id::text=params->>'payee') THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
+ IF params?'cash_class' AND params->>'cash_class' NOT IN ('operating','investing','financing','internal_transfer','unclassified') THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
+END $function$
+;
 
-CREATE OR REPLACE FUNCTION public.acct_bank_review(p_group uuid,p_query text DEFAULT '',p_offset integer DEFAULT 0) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-DECLARE g public.acct_import_groups;s public.acct_source_records;ids uuid[];candidates jsonb;total integer;
+CREATE OR REPLACE FUNCTION accounting.require_open(d date)
+ RETURNS void
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
 BEGIN
- PERFORM public.acct_require_owner();
- IF p_offset<0 OR length(p_query)>200 THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER'; END IF;
- SELECT * INTO g FROM public.acct_import_groups WHERE id=p_group AND bank_account_id IS NOT NULL;
- IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
- SELECT * INTO s FROM public.acct_source_records WHERE id=g.source_record_id;
- SELECT array_agg(id) INTO ids FROM public.acct_source_records WHERE source_system=s.source_system AND source_scope=s.source_scope AND external_id=s.external_id;
- WITH available AS (
-  SELECT l.id AS line_id,l.entry_id,e.entry_date,e.memo,l.amount_cents::text,(abs(l.amount_cents::numeric)-public.acct_bank_line_used(l.id,s.id))::text AS available_cents,abs(e.entry_date-g.entry_date) AS days_apart FROM public.acct_journal_lines l JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE l.account_id=g.bank_account_id AND sign(l.amount_cents)=sign(g.bank_amount_cents) AND e.status='posted' AND e.reverses_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE reverses_entry_id=e.id) AND (p_query='' OR strpos(lower(e.memo),lower(p_query))>0 OR e.entry_date::text=p_query)
- ), eligible AS (SELECT * FROM available WHERE available_cents::numeric>0), page AS (SELECT * FROM eligible ORDER BY days_apart,entry_date,line_id LIMIT 25 OFFSET p_offset)
- SELECT (SELECT count(*) FROM eligible),coalesce(jsonb_agg(to_jsonb(page) ORDER BY days_apart,entry_date,line_id),'[]') INTO total,candidates FROM page;
- RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM public.acct_settings),'group',to_jsonb(g)||jsonb_build_object('bank_amount_cents',g.bank_amount_cents::text,'account_name',(SELECT name FROM public.acct_accounts WHERE id=g.bank_account_id),'source_system',s.source_system,'source_scope',s.source_scope),'source_conflict',EXISTS(SELECT 1 FROM public.acct_import_groups other WHERE other.source_record_id=ANY(ids) AND (other.bank_account_id IS DISTINCT FROM g.bank_account_id OR other.bank_amount_cents IS DISTINCT FROM g.bank_amount_cents OR other.entry_date IS DISTINCT FROM g.entry_date)),'remaining_cents',(abs(g.bank_amount_cents::numeric)-public.acct_bank_source_used(s.id))::text,'candidates',candidates,'total',total,
- 'drafts',(SELECT coalesce(jsonb_agg(to_jsonb(e)||jsonb_build_object('lines',(SELECT jsonb_agg(to_jsonb(l)||jsonb_build_object('amount_cents',l.amount_cents::text,'account_name',a.name) ORDER BY l.sort_order) FROM public.acct_journal_lines l JOIN public.acct_accounts a ON a.id=l.account_id WHERE l.entry_id=e.id))),'[]') FROM (SELECT DISTINCT entry.* FROM public.acct_journal_entries entry JOIN public.acct_import_groups groups ON groups.entry_id=entry.id WHERE groups.source_record_id=ANY(ids) AND entry.status='draft') e),
- 'matches',(SELECT coalesce(jsonb_agg(to_jsonb(m)||jsonb_build_object('amount_cents',m.amount_cents::text,'entry_id',l.entry_id,'entry_date',e.entry_date,'memo',e.memo,'release',(SELECT to_jsonb(r) FROM public.acct_bank_match_releases r WHERE r.match_id=m.id)) ORDER BY m.created_at,m.id),'[]') FROM public.acct_bank_matches m JOIN public.acct_journal_lines l ON l.id=m.entry_line_id JOIN public.acct_journal_entries e ON e.id=l.entry_id WHERE m.source_record_id=ANY(ids)));
-END $$;
-REVOKE ALL ON FUNCTION public.acct_bank_source_used(uuid),public.acct_bank_line_used(uuid,uuid),public.acct_bank_match_guard(),public.acct_bank_reopen_source(uuid,text),public.acct_bank_posting_guard(),public.acct_bank_command(jsonb,uuid),public.acct_bank_review(uuid,text,integer) FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.acct_bank_review(uuid,text,integer) TO authenticated;
+ IF EXISTS(SELECT 1 FROM accounting.periods WHERE month=date_trunc('month',d)::date AND status='locked') THEN RAISE EXCEPTION 'ACCT_PERIOD_LOCKED'; END IF;
+ IF EXISTS(SELECT 1 FROM accounting.periods WHERE month>date_trunc('month',d)::date AND status='locked') THEN RAISE EXCEPTION 'ACCT_LATER_PERIOD_LOCKED'; END IF;
+END $function$
+;
 
-
--- ACCOUNTING BANK MATCHING END
-
--- ACCOUNTING RETAINED REVIEW BEGIN
-CREATE TABLE public.acct_retained_reviews (
- id uuid PRIMARY KEY,
- entry_id uuid NOT NULL REFERENCES public.acct_journal_entries(id),
- entry_version integer NOT NULL CHECK(entry_version>0),
- kind text NOT NULL CHECK(kind IN ('opening','historical','correction')),
- original_entry_id uuid REFERENCES public.acct_journal_entries(id),
- source_group_id uuid REFERENCES public.acct_import_groups(id),
- document_id uuid NOT NULL REFERENCES public.acct_documents(id),
- controls jsonb NOT NULL CHECK(jsonb_typeof(controls)='array'),
- reviewed_payload jsonb NOT NULL,
- reason text NOT NULL CHECK(length(btrim(reason)) BETWEEN 1 AND 3000),
- created_by uuid NOT NULL REFERENCES auth.users(id),
- created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX acct_retained_reviews_entry ON public.acct_retained_reviews(entry_id,entry_version);
-ALTER TABLE public.acct_retained_reviews ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON public.acct_retained_reviews FROM PUBLIC,anon,authenticated,service_role;
-CREATE TRIGGER acct_statement_lock BEFORE INSERT OR UPDATE OR DELETE ON public.acct_retained_reviews FOR EACH STATEMENT EXECUTE FUNCTION public.acct_lock_statement();
-CREATE TRIGGER acct_audit AFTER INSERT OR UPDATE OR DELETE ON public.acct_retained_reviews FOR EACH ROW EXECUTE FUNCTION public.acct_record_workflow_audit();
-CREATE TRIGGER acct_retained_review_immutable BEFORE UPDATE OR DELETE ON public.acct_retained_reviews FOR EACH ROW EXECUTE FUNCTION public.acct_append_only();
-
-CREATE OR REPLACE FUNCTION public.acct_retained_payload(p_entry uuid) RETURNS jsonb
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
- SELECT jsonb_build_object('entry_date',e.entry_date,'memo',e.memo,'lines',(SELECT jsonb_agg(jsonb_build_object('account_id',l.account_id,'amount_cents',l.amount_cents::text,'memo',l.memo,'sort_order',l.sort_order) ORDER BY l.sort_order,l.id) FROM public.acct_journal_lines l WHERE l.entry_id=e.id)) FROM public.acct_journal_entries e WHERE e.id=p_entry;
-$$;
-CREATE OR REPLACE FUNCTION public.acct_retained_review(p_entry uuid,p_kind text,p_document uuid,p_controls jsonb,p_reason text,p_actor uuid,p_original uuid DEFAULT NULL,p_group uuid DEFAULT NULL) RETURNS uuid
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE entry public.acct_journal_entries;v_id uuid:=gen_random_uuid();actual jsonb;control jsonb;
+CREATE OR REPLACE FUNCTION accounting.require_owner()
+ RETURNS uuid
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE actor uuid:=auth.uid();
 BEGIN
- PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
- SELECT * INTO entry FROM public.acct_journal_entries WHERE id=p_entry AND status='draft';
- IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_IMMUTABLE'; END IF;
- IF NOT EXISTS(SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_account_profiles p ON p.account_id=l.account_id WHERE l.entry_id=p_entry AND p.purpose='opening_retained_earnings') THEN RAISE EXCEPTION 'ACCT_RETAINED_NOT_USED'; END IF;
- IF NOT EXISTS(SELECT 1 FROM public.acct_document_states WHERE document_id=p_document AND state='available') THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE'; END IF;
- IF p_kind IN ('opening','historical') AND EXISTS(SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_accounts a ON a.id=l.account_id WHERE l.entry_id=p_entry AND a.account_type IN ('income','expense')) THEN RAISE EXCEPTION 'ACCT_NOMINAL_CLOSING_FORBIDDEN'; END IF;
- IF p_kind='opening' AND EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE status='posted' AND entry_date<=entry.entry_date) THEN RAISE EXCEPTION 'ACCT_OPENING_HISTORY_EXISTS'; END IF;
- IF p_kind='correction' AND NOT EXISTS(SELECT 1 FROM public.acct_journal_entries original WHERE original.id=p_original AND original.status='posted' AND EXISTS(SELECT 1 FROM public.acct_journal_entries WHERE reverses_entry_id=original.id AND status='posted')) THEN RAISE EXCEPTION 'ACCT_RETAINED_CORRECTION'; END IF;
- IF p_kind='historical' AND NOT EXISTS(SELECT 1 FROM public.acct_import_groups g JOIN public.acct_import_batches b ON b.id=g.batch_id WHERE g.id=p_group AND b.source_document_id=p_document AND b.mode='journal' AND b.basis='cash' AND b.source_system=entry.primary_origin AND g.entry_date=entry.entry_date AND g.status='new') THEN RAISE EXCEPTION 'ACCT_IMPORT_NOT_READY'; END IF;
- IF jsonb_typeof(p_controls) IS DISTINCT FROM 'array' OR jsonb_array_length(p_controls) NOT BETWEEN 2 AND 100 OR EXISTS(SELECT 1 FROM jsonb_array_elements(p_controls) c WHERE c->>'amount_cents' IS NULL OR c->>'amount_cents'!~'^-?(0|[1-9][0-9]{0,18})$' OR abs((c->>'amount_cents')::numeric)>9223372036854775807) OR (SELECT count(*) FROM jsonb_array_elements(p_controls))<>(SELECT count(DISTINCT c->>'account_id') FROM jsonb_array_elements(p_controls) c) THEN RAISE EXCEPTION 'ACCT_INVALID_CONTROL'; END IF;
- SELECT jsonb_agg(jsonb_build_array(account_id,amount::text) ORDER BY account_id) INTO actual FROM (SELECT account_id,sum(amount_cents) amount FROM public.acct_journal_lines WHERE entry_id=p_entry GROUP BY account_id) totals;
- SELECT jsonb_agg(jsonb_build_array((c->>'account_id')::uuid,((c->>'amount_cents')::numeric)::text) ORDER BY (c->>'account_id')::uuid) INTO control FROM jsonb_array_elements(p_controls) c;
- IF actual IS DISTINCT FROM control THEN RAISE EXCEPTION 'ACCT_RETAINED_CONTROL_DIFFERENCE'; END IF;
- INSERT INTO public.acct_retained_reviews(id,entry_id,entry_version,kind,original_entry_id,source_group_id,document_id,controls,reviewed_payload,reason,created_by) VALUES(v_id,p_entry,entry.version,p_kind,p_original,p_group,p_document,p_controls,public.acct_retained_payload(p_entry),p_reason,p_actor);
- INSERT INTO public.acct_document_links(document_id,entry_id) VALUES(p_document,p_entry) ON CONFLICT DO NOTHING;
- RETURN v_id;
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_retained_post_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
+ IF actor IS NULL OR NOT EXISTS(SELECT 1 FROM accounting.settings WHERE id=1 AND owner_user_id=actor) THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
+ RETURN actor;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.rule_candidate(entry uuid, rule_filter uuid DEFAULT NULL::uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE e accounting.journal_entries; bank accounting.journal_lines; r accounting.rules; descriptor text; mode text; pattern text;
+ matches jsonb:='[]';winner jsonb;why text:='';alias_count integer;
 BEGIN
- IF NEW.status='posted' AND OLD.status='draft' AND NEW.reverses_entry_id IS NULL AND EXISTS(SELECT 1 FROM public.acct_journal_lines l JOIN public.acct_account_profiles p ON p.account_id=l.account_id WHERE l.entry_id=NEW.id AND p.purpose='opening_retained_earnings') AND NOT EXISTS(SELECT 1 FROM public.acct_retained_reviews r JOIN public.acct_document_states d ON d.document_id=r.document_id WHERE r.entry_id=NEW.id AND r.entry_version=OLD.version AND r.reviewed_payload=public.acct_retained_payload(NEW.id) AND d.state='available') THEN RAISE EXCEPTION 'ACCT_RETAINED_REVIEW_REQUIRED'; END IF;
- RETURN NEW;
-END $$;
-CREATE TRIGGER acct_retained_post_guard BEFORE UPDATE ON public.acct_journal_entries FOR EACH ROW EXECUTE FUNCTION public.acct_retained_post_guard();
-CREATE OR REPLACE FUNCTION public.acct_retained_command(p_command jsonb,p_actor uuid) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE entry public.acct_journal_entries;
-BEGIN
- PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
- IF p_command->>'type'<>'retained.post' THEN RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND'; END IF;
- SELECT * INTO entry FROM public.acct_journal_entries WHERE id=(p_command->>'id')::uuid;
- IF entry.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
- PERFORM public.acct_retained_review(entry.id,'opening',(p_command->>'document_id')::uuid,p_command->'controls',p_command->>'reason',p_actor);
- RETURN public.acct_command(gen_random_uuid(),jsonb_build_object('type','entry.post','id',entry.id,'expected_version',entry.version));
-END $$;
-REVOKE ALL ON FUNCTION public.acct_retained_payload(uuid),public.acct_retained_review(uuid,text,uuid,jsonb,text,uuid,uuid,uuid),public.acct_retained_post_guard(),public.acct_retained_command(jsonb,uuid) FROM PUBLIC,anon,authenticated,service_role;
-
-
-
--- ACCOUNTING RETAINED REVIEW END
-
--- ACCOUNTING STATEMENT FILES BEGIN
-CREATE TABLE public.acct_statement_files (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
- reconciliation_id uuid NOT NULL REFERENCES public.acct_reconciliations(id),
- document_id uuid NOT NULL REFERENCES public.acct_documents(id),
- file_hash text NOT NULL CHECK(file_hash~'^[a-f0-9]{64}$'),
- mapping_hash text NOT NULL CHECK(mapping_hash~'^[a-f0-9]{64}$'),
- mapping jsonb NOT NULL CHECK(jsonb_typeof(mapping)='object'),
- created_by uuid NOT NULL REFERENCES auth.users(id),
- created_at timestamptz NOT NULL DEFAULT now(),
- UNIQUE(reconciliation_id,document_id,mapping_hash)
-);
-CREATE TABLE public.acct_statement_item_sources (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
- reconciliation_id uuid NOT NULL REFERENCES public.acct_reconciliations(id),
- file_id uuid NOT NULL REFERENCES public.acct_statement_files(id),
- external_id text NOT NULL CHECK(length(external_id) BETWEEN 1 AND 500),
- fingerprint text NOT NULL CHECK(fingerprint~'^[a-f0-9]{64}$'),
- -- Preserve the original identity after an unmatched item is removed. Restoration is explicit.
- original_item_id uuid NOT NULL UNIQUE,
- source_row integer NOT NULL CHECK(source_row>0),
- entry_date date NOT NULL,
- description text NOT NULL CHECK(length(description) BETWEEN 1 AND 1000),
- amount_cents bigint NOT NULL CHECK(amount_cents<>0 AND amount_cents>'-9223372036854775808'::bigint),
- raw_payload jsonb NOT NULL CHECK(jsonb_typeof(raw_payload)='object'),
- created_at timestamptz NOT NULL DEFAULT now(),
- UNIQUE(reconciliation_id,external_id)
-);
-CREATE TABLE public.acct_statement_amendments (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
- reconciliation_id uuid NOT NULL REFERENCES public.acct_reconciliations(id),
- previous_document_id uuid NOT NULL REFERENCES public.acct_documents(id),
- next_document_id uuid NOT NULL REFERENCES public.acct_documents(id),
- before_value jsonb NOT NULL,
- after_value jsonb NOT NULL,
- reason text NOT NULL CHECK(length(btrim(reason)) BETWEEN 1 AND 1000),
- created_by uuid NOT NULL REFERENCES auth.users(id),
- created_at timestamptz NOT NULL DEFAULT now()
-);
-DO $$ DECLARE t text; BEGIN
- FOREACH t IN ARRAY ARRAY['acct_statement_files','acct_statement_item_sources','acct_statement_amendments'] LOOP
-  EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t);
-  EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC,anon,authenticated,service_role',t);
-  EXECUTE format('CREATE TRIGGER acct_statement_lock BEFORE INSERT OR UPDATE OR DELETE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION public.acct_lock_statement()',t);
-  EXECUTE format('CREATE TRIGGER acct_audit AFTER INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.acct_record_workflow_audit()',t);
-  EXECUTE format('CREATE TRIGGER acct_statement_evidence_immutable BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.acct_append_only()',t);
+ SELECT * INTO e FROM accounting.journal_entries WHERE id=entry;
+ IF NOT FOUND OR e.status='discarded' THEN RETURN NULL; END IF;
+ SELECT l.* INTO bank FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=entry AND a.subtype IN ('bank','cash','card');
+ IF NOT FOUND OR (SELECT count(*) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=entry AND a.subtype IN ('bank','cash','card'))<>1 THEN RETURN NULL; END IF;
+ FOR r IN SELECT * FROM accounting.rules WHERE (rule_filter IS NULL AND enabled) OR id=rule_filter ORDER BY priority,id LOOP
+  descriptor:=upper(regexp_replace(btrim(CASE WHEN r.conditions?'description' THEN coalesce(e.source_description,e.memo) ELSE coalesce(e.descriptor_key,accounting.descriptor_key(e.memo)) END),'\s+',' ','g'));
+  mode:=coalesce(r.conditions->>'description_mode',(SELECT key FROM jsonb_each(coalesce(r.conditions->'descriptor_key','{}')) LIMIT 1));
+  pattern:=upper(regexp_replace(btrim(coalesce(r.conditions->>'description',r.conditions->'descriptor_key'->>mode)),'\s+',' ','g'));
+  IF mode NOT IN ('exact','equals','prefix','contains') OR pattern IS NULL THEN CONTINUE; END IF;
+  IF (mode IN ('exact','equals') AND descriptor<>pattern) OR (mode='prefix' AND left(descriptor,length(pattern))<>pattern) OR (mode='contains' AND position(pattern IN descriptor)=0) THEN CONTINUE; END IF;
+  IF r.conditions->>'bank_account_id' IS NOT NULL AND (r.conditions->>'bank_account_id')::uuid<>bank.account_id THEN CONTINUE; END IF;
+  IF r.conditions->>'direction' IN ('increase','in') AND bank.amount_cents<0 OR r.conditions->>'direction' IN ('decrease','out') AND bank.amount_cents>0 THEN CONTINUE; END IF;
+  IF r.conditions->>'amount_min' IS NOT NULL AND abs(bank.amount_cents::numeric)<(r.conditions->>'amount_min')::numeric THEN CONTINUE; END IF;
+  IF r.conditions->>'amount_max' IS NOT NULL AND abs(bank.amount_cents::numeric)>(r.conditions->>'amount_max')::numeric THEN CONTINUE; END IF;
+  IF r.conditions->>'payee_id' IS NOT NULL AND e.payee_id IS DISTINCT FROM (r.conditions->>'payee_id')::uuid THEN CONTINUE; END IF;
+  matches:=matches||jsonb_build_array(to_jsonb(r)||jsonb_build_object('rule_id',r.id,
+   'description_mode',CASE WHEN mode='equals' THEN 'exact' ELSE mode END,'description',pattern,
+   'bank_account_id',r.conditions->'bank_account_id','direction',r.conditions->'direction',
+   'min_cents',coalesce(r.conditions->>'amount_min','0'),'max_cents',coalesce(r.conditions->>'amount_max','9223372036854775807'),
+   'match_payee_id',r.conditions->'payee_id','category_account_id',r.actions->'account_id','assign_payee_id',r.actions->'payee_id',
+   'category_name',coalesce((SELECT name FROM accounting.accounts WHERE id=(r.actions->>'account_id')::uuid),'Split categories'),'reason',''));
  END LOOP;
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_statement_header(p_id uuid) RETURNS jsonb
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
- SELECT to_jsonb(r)||jsonb_build_object('opening_cents',r.opening_cents::text,'ending_cents',r.ending_cents::text,'declared_debits_cents',r.declared_debits_cents::text,'declared_credits_cents',r.declared_credits_cents::text) FROM public.acct_reconciliations r WHERE id=p_id;
-$$;
-CREATE OR REPLACE FUNCTION public.acct_statement_command(p_command jsonb,p_actor uuid) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE r public.acct_reconciliations;x jsonb;existing public.acct_statement_item_sources;file_id uuid;item_id uuid;slot integer;added integer:=0;skipped integer:=0;restored integer:=0;previous jsonb;
-BEGIN
- PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
- SELECT * INTO r FROM public.acct_reconciliations WHERE id=(p_command->>'id')::uuid;
- IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
- IF r.status<>'in_progress' THEN RAISE EXCEPTION 'ACCT_RECONCILIATION_FINAL'; END IF;
- IF r.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
- IF NOT EXISTS(SELECT 1 FROM public.acct_document_states WHERE document_id=(p_command->>'document_id')::uuid AND state='available') THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE'; END IF;
- IF p_command->>'type'='statement.import' THEN
-  IF NOT EXISTS(SELECT 1 FROM public.acct_documents WHERE id=(p_command->>'document_id')::uuid AND content_hash=p_command->>'file_hash' AND mime_type='text/csv') THEN RAISE EXCEPTION 'ACCT_STATEMENT_SOURCE_FILE'; END IF;
-  IF jsonb_typeof(p_command->'items') IS DISTINCT FROM 'array' OR jsonb_array_length(p_command->'items') NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
-  INSERT INTO public.acct_statement_files(reconciliation_id,document_id,file_hash,mapping_hash,mapping,created_by) VALUES(r.id,(p_command->>'document_id')::uuid,p_command->>'file_hash',p_command->>'mapping_hash',p_command->'mapping',p_actor) ON CONFLICT DO NOTHING;
-  SELECT id INTO file_id FROM public.acct_statement_files WHERE reconciliation_id=r.id AND document_id=(p_command->>'document_id')::uuid AND mapping_hash=p_command->>'mapping_hash';
-  FOR x IN SELECT value FROM jsonb_array_elements(p_command->'items') LOOP
-   IF x->>'amount_cents' IS NULL OR x->>'amount_cents'!~'^-?[1-9][0-9]{0,18}$' THEN RAISE EXCEPTION 'ACCT_INVALID_MONEY'; END IF;
-   IF (x->>'entry_date')::date NOT BETWEEN r.from_date AND r.to_date THEN RAISE EXCEPTION 'ACCT_STATEMENT_SCOPE'; END IF;
-   SELECT * INTO existing FROM public.acct_statement_item_sources WHERE reconciliation_id=r.id AND external_id=x->>'external_id';
-   IF FOUND THEN
-    IF existing.fingerprint<>x->>'fingerprint' OR existing.entry_date<>(x->>'entry_date')::date OR existing.description<>x->>'description' OR existing.amount_cents<>(x->>'amount_cents')::bigint THEN RAISE EXCEPTION 'ACCT_STATEMENT_SOURCE_CHANGED'; END IF;
-    IF EXISTS(SELECT 1 FROM public.acct_statement_items WHERE id=existing.original_item_id) THEN skipped:=skipped+1;CONTINUE; END IF;
-    IF (p_command->>'restore_removed')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'ACCT_STATEMENT_ITEM_REMOVED'; END IF;
-    item_id:=existing.original_item_id;restored:=restored+1;
-   ELSE item_id:=gen_random_uuid();added:=added+1; END IF;
-   SELECT coalesce(max(ordinal)+1,0) INTO slot FROM public.acct_statement_items WHERE reconciliation_id=r.id;
-   IF slot>=r.declared_count THEN SELECT n INTO slot FROM generate_series(0,r.declared_count-1) n WHERE NOT EXISTS(SELECT 1 FROM public.acct_statement_items WHERE reconciliation_id=r.id AND ordinal=n) ORDER BY n LIMIT 1; END IF;
-   IF slot IS NULL THEN RAISE EXCEPTION 'ACCT_STATEMENT_SCOPE'; END IF;
-   INSERT INTO public.acct_statement_items(id,reconciliation_id,ordinal,entry_date,description,amount_cents) VALUES(item_id,r.id,slot,(x->>'entry_date')::date,x->>'description',(x->>'amount_cents')::bigint);
-   IF existing.id IS NULL THEN INSERT INTO public.acct_statement_item_sources(reconciliation_id,file_id,external_id,fingerprint,original_item_id,source_row,entry_date,description,amount_cents,raw_payload) VALUES(r.id,file_id,x->>'external_id',x->>'fingerprint',item_id,(x->>'source_row')::integer,(x->>'entry_date')::date,x->>'description',(x->>'amount_cents')::bigint,x->'raw'); END IF;
-  END LOOP;
-  UPDATE public.acct_reconciliations SET notes=notes WHERE id=r.id;
- ELSIF p_command->>'type'='statement.amend' THEN
-  IF length(btrim(coalesce(p_command->>'reason',''))) NOT BETWEEN 1 AND 1000 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
-  IF EXISTS(SELECT 1 FROM public.acct_statement_items WHERE reconciliation_id=r.id AND (entry_date NOT BETWEEN (p_command->>'from')::date AND (p_command->>'to')::date OR ordinal>=(p_command->>'declared_count')::integer)) THEN RAISE EXCEPTION 'ACCT_STATEMENT_SCOPE'; END IF;
-  IF EXISTS(SELECT 1 FROM public.acct_reconciliations WHERE id<>r.id AND account_id=r.account_id AND status IN ('in_progress','completed') AND from_date<=(p_command->>'to')::date AND to_date>=(p_command->>'from')::date) THEN RAISE EXCEPTION 'ACCT_STATEMENT_OVERLAP'; END IF;
-  IF nullif(p_command->>'predecessor_id','') IS NOT NULL THEN
-   IF NOT EXISTS(SELECT 1 FROM public.acct_reconciliations WHERE id=(p_command->>'predecessor_id')::uuid AND status='completed' AND account_id=r.account_id AND to_date=(p_command->>'from')::date-1 AND ending_cents=(p_command->>'opening_cents')::bigint) THEN RAISE EXCEPTION 'ACCT_STATEMENT_PREDECESSOR'; END IF;
-  ELSIF EXISTS(SELECT 1 FROM public.acct_reconciliations WHERE id<>r.id AND account_id=r.account_id AND status='completed') THEN RAISE EXCEPTION 'ACCT_STATEMENT_PREDECESSOR'; END IF;
-  previous:=public.acct_statement_header(r.id);
-  IF r.from_date<>(p_command->>'from')::date OR r.opening_cents<>(p_command->>'opening_cents')::bigint OR r.predecessor_id IS DISTINCT FROM nullif(p_command->>'predecessor_id','')::uuid THEN DELETE FROM public.acct_reconciliation_opening WHERE reconciliation_id=r.id; END IF;
-  UPDATE public.acct_reconciliations SET from_date=(p_command->>'from')::date,to_date=(p_command->>'to')::date,opening_cents=(p_command->>'opening_cents')::bigint,ending_cents=(p_command->>'ending_cents')::bigint,declared_count=(p_command->>'declared_count')::integer,declared_debits_cents=(p_command->>'declared_debits_cents')::bigint,declared_credits_cents=(p_command->>'declared_credits_cents')::bigint,document_id=(p_command->>'document_id')::uuid,predecessor_id=nullif(p_command->>'predecessor_id','')::uuid,notes=coalesce(p_command->>'notes','') WHERE id=r.id;
-  INSERT INTO public.acct_statement_amendments(reconciliation_id,previous_document_id,next_document_id,before_value,after_value,reason,created_by) VALUES(r.id,r.document_id,(p_command->>'document_id')::uuid,previous,public.acct_statement_header(r.id),p_command->>'reason',p_actor);
- ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND'; END IF;
- RETURN jsonb_build_object('id',r.id,'version',(SELECT version FROM public.acct_reconciliations WHERE id=r.id),'added',added,'skipped',skipped,'restored',restored);
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_statement_documents_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-BEGIN
- IF NEW.state='archived' AND OLD.state<>'archived' AND (EXISTS(SELECT 1 FROM public.acct_statement_files WHERE document_id=NEW.document_id) OR EXISTS(SELECT 1 FROM public.acct_statement_amendments WHERE NEW.document_id IN(previous_document_id,next_document_id))) THEN RAISE EXCEPTION 'ACCT_DOCUMENT_LINKED'; END IF;
- RETURN NEW;
-END $$;
-CREATE TRIGGER acct_statement_documents_guard BEFORE UPDATE ON public.acct_document_states FOR EACH ROW EXECUTE FUNCTION public.acct_statement_documents_guard();
-CREATE OR REPLACE FUNCTION public.acct_statement_sources(p_statement uuid) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-BEGIN
- PERFORM public.acct_require_owner();
- RETURN jsonb_build_object('files',(SELECT coalesce(jsonb_agg(to_jsonb(f)||jsonb_build_object('original_name',d.original_name,'rows',(SELECT count(*) FROM public.acct_statement_item_sources WHERE file_id=f.id)) ORDER BY f.created_at,f.id),'[]') FROM public.acct_statement_files f JOIN public.acct_documents d ON d.id=f.document_id WHERE reconciliation_id=p_statement),'amendments',(SELECT coalesce(jsonb_agg(to_jsonb(a) ORDER BY created_at,id),'[]') FROM public.acct_statement_amendments a WHERE reconciliation_id=p_statement));
-END $$;
-REVOKE ALL ON FUNCTION public.acct_statement_header(uuid),public.acct_statement_command(jsonb,uuid),public.acct_statement_documents_guard(),public.acct_statement_sources(uuid) FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.acct_statement_sources(uuid) TO authenticated;
-
-
--- ACCOUNTING STATEMENT FILES END
-
--- ACCOUNTING RULES BEGIN
-CREATE OR REPLACE FUNCTION public.acct_normalize_description(p_text text) RETURNS text
-LANGUAGE sql IMMUTABLE SET search_path='' AS $$ SELECT lower(regexp_replace(btrim(coalesce(p_text,'')),'\s+',' ','g')); $$;
-CREATE TABLE public.acct_rules (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
- version integer NOT NULL DEFAULT 1 CHECK(version>0),
- created_by uuid NOT NULL REFERENCES auth.users(id),
- created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE public.acct_rule_versions (
- rule_id uuid NOT NULL REFERENCES public.acct_rules(id),
- version integer NOT NULL CHECK(version>0),
- name text NOT NULL CHECK(length(btrim(name)) BETWEEN 1 AND 120),
- priority integer NOT NULL CHECK(priority BETWEEN 1 AND 10000),
- enabled boolean NOT NULL DEFAULT false,
- description_mode text NOT NULL CHECK(description_mode IN ('exact','prefix','contains')),
- description text NOT NULL CHECK(length(btrim(description)) BETWEEN 1 AND 250),
- bank_account_id uuid NOT NULL REFERENCES public.acct_accounts(id),
- direction text NOT NULL CHECK(direction IN ('increase','decrease')),
- min_cents bigint NOT NULL CHECK(min_cents>=0),
- max_cents bigint NOT NULL CHECK(max_cents>0 AND max_cents>=min_cents),
- match_payee_id uuid REFERENCES public.acct_parties(id),
- category_account_id uuid NOT NULL REFERENCES public.acct_accounts(id),
- assign_payee_id uuid REFERENCES public.acct_parties(id),
- reason text NOT NULL CHECK(length(btrim(reason)) BETWEEN 1 AND 1000),
- created_by uuid NOT NULL REFERENCES auth.users(id),
- created_at timestamptz NOT NULL DEFAULT now(),
- PRIMARY KEY(rule_id,version)
-);
-CREATE TABLE public.acct_payee_aliases (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
- version integer NOT NULL DEFAULT 1 CHECK(version>0),
- party_id uuid NOT NULL REFERENCES public.acct_parties(id),
- match_mode text NOT NULL CHECK(match_mode IN ('exact','prefix')),
- description text NOT NULL CHECK(length(btrim(description)) BETWEEN 1 AND 250),
- enabled boolean NOT NULL DEFAULT true,
- created_by uuid NOT NULL REFERENCES auth.users(id),
- created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX acct_alias_party ON public.acct_payee_aliases(party_id);
-CREATE TABLE public.acct_rule_applications (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
- rule_id uuid NOT NULL,
- rule_version integer NOT NULL,
- entry_id uuid NOT NULL REFERENCES public.acct_journal_entries(id),
- before_value jsonb NOT NULL,
- after_value jsonb NOT NULL,
- matched_aliases jsonb NOT NULL,
- created_by uuid NOT NULL REFERENCES auth.users(id),
- created_at timestamptz NOT NULL DEFAULT now(),
- FOREIGN KEY(rule_id,rule_version) REFERENCES public.acct_rule_versions(rule_id,version)
-);
-DO $$ DECLARE t text; BEGIN
- FOREACH t IN ARRAY ARRAY['acct_rules','acct_rule_versions','acct_payee_aliases','acct_rule_applications'] LOOP
-  EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t);
-  EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC,anon,authenticated,service_role',t);
-  EXECUTE format('CREATE TRIGGER acct_statement_lock BEFORE INSERT OR UPDATE OR DELETE ON public.%I FOR EACH STATEMENT EXECUTE FUNCTION public.acct_lock_statement()',t);
-  EXECUTE format('CREATE TRIGGER acct_audit AFTER INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.acct_record_workflow_audit()',t);
- END LOOP;
- FOREACH t IN ARRAY ARRAY['acct_rule_versions','acct_rule_applications'] LOOP
-  EXECUTE format('CREATE TRIGGER acct_rule_immutable BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.acct_append_only()',t);
- END LOOP;
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_rule_payee(p_description text) RETURNS jsonb
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
- WITH matches AS (SELECT a.*,p.name FROM public.acct_payee_aliases a JOIN public.acct_parties p ON p.id=a.party_id AND NOT p.is_archived WHERE a.enabled AND CASE WHEN a.match_mode='exact' THEN public.acct_normalize_description(p_description)=public.acct_normalize_description(a.description) ELSE starts_with(public.acct_normalize_description(p_description),public.acct_normalize_description(a.description)) END)
- SELECT jsonb_build_object('party_id',CASE WHEN count(DISTINCT party_id)=1 THEN min(party_id::text) ELSE NULL END,'conflict',count(DISTINCT party_id)>1,'aliases',coalesce(jsonb_agg(jsonb_build_object('id',id,'version',version,'party_id',party_id,'name',name,'description',description,'match_mode',match_mode) ORDER BY id),'[]')) FROM matches;
-$$;
-CREATE OR REPLACE FUNCTION public.acct_rule_candidate(p_entry uuid,p_rule uuid DEFAULT NULL) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-DECLARE e public.acct_journal_entries;bank public.acct_journal_lines;category public.acct_journal_lines;party uuid;aliases jsonb;matches jsonb;winner jsonb;reason text:='';payload jsonb;
-BEGIN
- SELECT * INTO e FROM public.acct_journal_entries WHERE id=p_entry;
- IF NOT FOUND THEN RETURN NULL; END IF;
- IF (SELECT count(*) FROM public.acct_journal_lines WHERE entry_id=e.id)<>2 THEN RETURN NULL; END IF;
- IF (SELECT count(*) FROM public.acct_journal_lines l JOIN public.acct_account_profiles p ON p.account_id=l.account_id WHERE l.entry_id=e.id AND p.cash_kind IN ('bank','cash','card'))<>1 THEN RETURN NULL; END IF;
- SELECT l.* INTO bank FROM public.acct_journal_lines l JOIN public.acct_account_profiles p ON p.account_id=l.account_id WHERE l.entry_id=e.id AND p.cash_kind IN ('bank','cash','card');
- SELECT l.* INTO category FROM public.acct_journal_lines l JOIN public.acct_accounts a ON a.id=l.account_id WHERE l.entry_id=e.id AND l.id<>bank.id AND a.account_type IN ('income','expense');
- IF NOT FOUND OR category.amount_cents<>-bank.amount_cents THEN RETURN NULL; END IF;
- aliases:=public.acct_rule_payee(e.memo);SELECT payee_id INTO party FROM public.acct_entry_context WHERE entry_id=e.id;
- party:=coalesce(party,(aliases->>'party_id')::uuid);
- SELECT coalesce(jsonb_agg(to_jsonb(v)||jsonb_build_object('min_cents',v.min_cents::text,'max_cents',v.max_cents::text,'category_name',a.name) ORDER BY v.priority,v.rule_id),'[]') INTO matches
- FROM public.acct_rule_versions v JOIN public.acct_rules r ON r.id=v.rule_id AND r.version=v.version JOIN public.acct_accounts a ON a.id=v.category_account_id AND NOT a.is_archived
- WHERE (v.enabled OR v.rule_id=p_rule) AND v.bank_account_id=bank.account_id AND (v.direction='increase')=(bank.amount_cents>0) AND abs(bank.amount_cents::numeric) BETWEEN v.min_cents AND v.max_cents AND (v.match_payee_id IS NULL OR v.match_payee_id=party)
- AND CASE v.description_mode WHEN 'exact' THEN public.acct_normalize_description(e.memo)=public.acct_normalize_description(v.description) WHEN 'prefix' THEN starts_with(public.acct_normalize_description(e.memo),public.acct_normalize_description(v.description)) ELSE strpos(public.acct_normalize_description(e.memo),public.acct_normalize_description(v.description))>0 END;
+ IF jsonb_array_length(matches)=0 THEN RETURN NULL; END IF;
  winner:=matches->0;
- IF winner IS NULL THEN reason:='No matching rule';
- ELSIF (aliases->>'conflict')::boolean THEN reason:='Conflicting payee aliases';
- ELSIF jsonb_array_length(matches)>1 AND matches->0->>'priority'=matches->1->>'priority' THEN reason:='Rules share the winning priority';
- ELSIF e.status<>'draft' THEN reason:='Posted history is preview only';
- ELSIF NOT EXISTS(SELECT 1 FROM public.acct_account_profiles WHERE account_id=category.account_id AND purpose IN ('uncategorized_income','uncategorized_expense')) THEN reason:='Category already reviewed';
- ELSIF EXISTS(SELECT 1 FROM public.acct_periods WHERE is_locked AND month_start>=date_trunc('month',e.entry_date)::date) THEN reason:='Period is locked';
- ELSIF EXISTS(SELECT 1 FROM public.acct_source_links sl WHERE sl.entry_id=e.id AND public.acct_bank_source_used(sl.source_record_id)<>0) THEN reason:='Source already has bank allocations';
- ELSIF winner->>'assign_payee_id' IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.acct_parties WHERE id=(winner->>'assign_payee_id')::uuid AND NOT is_archived) THEN reason:='Assigned payee is archived';
- ELSIF EXISTS(SELECT 1 FROM public.acct_entry_context c WHERE c.entry_id=e.id AND c.payee_id IS NOT NULL AND winner->>'assign_payee_id' IS NOT NULL AND c.payee_id<>(winner->>'assign_payee_id')::uuid) THEN reason:='Payee already reviewed';
+ descriptor:=upper(regexp_replace(btrim(coalesce(e.source_description,e.memo)),'\s+',' ','g'));
+ SELECT count(DISTINCT party_id) INTO alias_count FROM accounting.payee_aliases a WHERE enabled AND
+  ((match_kind='key' AND a.pattern=e.descriptor_key) OR (match_kind='exact' AND upper(a.pattern)=descriptor) OR (match_kind='prefix' AND left(descriptor,length(a.pattern))=upper(a.pattern)));
+ IF e.status='posted' THEN why:='Posted history is preview only';
+ ELSIF NOT EXISTS(SELECT 1 FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=entry AND a.system_purpose IN ('uncategorized_income','uncategorized_expense')) THEN why:='Category already reviewed';
+ ELSIF alias_count>1 THEN why:='Conflicting payee aliases';
+ ELSIF (SELECT count(*) FROM jsonb_array_elements(matches) m WHERE m->>'priority'=winner->>'priority')>1 THEN why:='Rules share the winning priority'; END IF;
+ RETURN winner||jsonb_build_object('id',e.id,'version',e.version,'entry_id',entry,'entry_version',e.version,'rule_id',winner->'id','rule_version',winner->'version',
+  'entry_date',e.entry_date,'memo',e.memo,'status',e.status,'payee_id',e.payee_id,
+  'aliases',jsonb_build_object('conflict',alias_count>1,'aliases',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',a.id,'name',p.name,'description',a.pattern)),'[]') FROM accounting.payee_aliases a JOIN accounting.parties p ON p.id=a.party_id WHERE a.enabled AND ((a.match_kind='key' AND a.pattern=e.descriptor_key) OR (a.match_kind='exact' AND upper(a.pattern)=descriptor) OR (a.match_kind='prefix' AND left(descriptor,length(a.pattern))=upper(a.pattern))))),
+  'eligible',why='','reason',why,'winner',winner,'matches',matches,'bank_account_id',bank.account_id,'bank_amount_cents',bank.amount_cents::text,
+  'lines',(SELECT jsonb_agg(jsonb_build_object('account_id',account_id,'amount_cents',amount_cents::text) ORDER BY sort_order) FROM accounting.journal_lines WHERE entry_id=entry));
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.rules_preview(filter jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE result jsonb;
+BEGIN
+ PERFORM accounting.require_owner();
+ SELECT coalesce(jsonb_agg(candidate ORDER BY entry_date,id),'[]') INTO result FROM (
+ SELECT e.id,e.entry_date,accounting.rule_candidate(e.id,(filter->>'rule_id')::uuid) candidate FROM accounting.journal_entries e
+ WHERE (filter->>'from' IS NULL OR e.entry_date>=(filter->>'from')::date) AND (filter->>'to' IS NULL OR e.entry_date<=(filter->>'to')::date)) q WHERE candidate IS NOT NULL;
+ RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'total',jsonb_array_length(result),'rows',result);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.snapshot_read(id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+BEGIN
+ PERFORM accounting.require_owner();RETURN (SELECT jsonb_build_object('id',s.id,'revision',financial_revision::text,'created_at',created_at,'payload',data,'document_id',document_id) FROM accounting.report_snapshots s WHERE s.id=snapshot_read.id);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.support_report(params jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE report_id text:=params->>'report_id';start_date date:=(params->>'from')::date;end_date date:=(params->>'to')::date;rows jsonb;columns jsonb;total_cells jsonb;source jsonb;controls jsonb;notes jsonb:='[]';result jsonb;offset_rows integer:=coalesce((params->>'offset')::integer,0);limit_rows integer:=coalesce((params->>'limit')::integer,100);row_count integer;
+BEGIN
+ PERFORM accounting.require_owner();
+ PERFORM accounting.report_validate(params);
+ IF start_date IS NULL OR end_date IS NULL OR start_date>end_date OR offset_rows<0 OR limit_rows NOT BETWEEN 1 AND 100000 THEN RAISE EXCEPTION 'ACCT_REPORT_RANGE';END IF;
+ IF report_id='payroll-register' THEN
+  columns:='[{"label":"Pay date","numeric":false},{"label":"Provider run","numeric":false},{"label":"Gross wages","numeric":true},{"label":"Employee withholding","numeric":true},{"label":"Employer taxes","numeric":true},{"label":"Net pay","numeric":true}]';
+  SELECT coalesce(jsonb_agg(jsonb_build_object('id',p.id,'run_id',p.id,'cells',jsonb_build_array(p.pay_date,p.provider_run_id,p.gross_cents::text,p.employee_withholding_cents::text,p.employer_tax_cents::text,p.net_cents::text)) ORDER BY pay_date,id),'[]'),
+   jsonb_build_array('Total','',coalesce(sum(gross_cents),0)::text,coalesce(sum(employee_withholding_cents),0)::text,coalesce(sum(employer_tax_cents),0)::text,coalesce(sum(net_cents),0)::text) INTO rows,total_cells
+  FROM accounting.payroll_runs p WHERE p.pay_date BETWEEN start_date AND end_date AND p.entry_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries re WHERE re.reverses_entry_id=p.entry_id AND re.status='posted' AND re.entry_date<=end_date);
+  notes:=jsonb_build_array('Includes posted runs not reversed by the selected cutoff. A later void does not remove a run from an earlier report.');
+ ELSIF report_id IN ('asset-register','loan-register') THEN
+  columns:=CASE report_id WHEN 'asset-register' THEN '[{"label":"Asset","numeric":false},{"label":"Acquired","numeric":false},{"label":"Recorded cost","numeric":true},{"label":"Accumulated depreciation","numeric":true},{"label":"Carrying value","numeric":true}]'::jsonb ELSE '[{"label":"Loan","numeric":false},{"label":"Originated","numeric":false},{"label":"Principal balance","numeric":true}]'::jsonb END;
+  WITH balances AS (
+   SELECT r.id,r.kind,r.name,r.started_on,r.account_id,r.contra_account_id,coalesce(sum(l.amount_cents) FILTER(WHERE l.account_id=r.account_id),0) cost,-coalesce(sum(l.amount_cents) FILTER(WHERE l.account_id=r.contra_account_id),0) depreciation
+   FROM accounting.registers r LEFT JOIN accounting.journal_entries e ON e.register_id=r.id AND e.status='posted' AND e.entry_date<=end_date LEFT JOIN accounting.journal_lines l ON l.entry_id=e.id
+   WHERE r.started_on<=end_date AND r.kind=CASE report_id WHEN 'asset-register' THEN 'fixed_asset' ELSE 'loan' END GROUP BY r.id)
+  SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'register_id',id,'register_kind',CASE kind WHEN 'fixed_asset' THEN 'asset' ELSE 'loan' END,'cells',CASE kind WHEN 'fixed_asset' THEN jsonb_build_array(name,started_on,cost::text,depreciation::text,(cost-depreciation)::text) ELSE jsonb_build_array(name,started_on,(-cost)::text) END) ORDER BY name,id),'[]'),
+  CASE report_id WHEN 'asset-register' THEN jsonb_build_array('Total','',coalesce(sum(cost),0)::text,coalesce(sum(depreciation),0)::text,coalesce(sum(cost-depreciation),0)::text) ELSE jsonb_build_array('Total','',(-coalesce(sum(cost),0))::text) END INTO rows,total_cells FROM balances;
+  WITH scoped AS (
+   SELECT l.account_id,sum(l.amount_cents) register_amount FROM accounting.journal_entries e JOIN accounting.journal_lines l ON l.entry_id=e.id JOIN accounting.registers r ON r.id=e.register_id AND l.account_id IN(r.account_id,r.contra_account_id)
+   WHERE e.status='posted' AND e.entry_date<=end_date AND r.kind=CASE report_id WHEN 'asset-register' THEN 'fixed_asset' ELSE 'loan' END GROUP BY l.account_id
+  ), balances AS (
+   SELECT a.id,a.name,coalesce(s.register_amount,0) register_amount,coalesce(sum(l.amount_cents) FILTER(WHERE e.id IS NOT NULL),0) book_amount
+   FROM accounting.accounts a LEFT JOIN scoped s ON s.account_id=a.id LEFT JOIN accounting.journal_lines l ON l.account_id=a.id LEFT JOIN accounting.journal_entries e ON e.id=l.entry_id AND e.status='posted' AND e.entry_date<=end_date
+   WHERE a.subtype=CASE report_id WHEN 'asset-register' THEN 'fixed_asset' ELSE 'loan' END OR (report_id='asset-register' AND a.subtype='accumulated_depreciation') GROUP BY a.id,s.register_amount)
+  SELECT jsonb_build_object('rows',coalesce(jsonb_agg(jsonb_build_object('account_id',id,'name',name,'register_cents',register_amount::text,'book_cents',book_amount::text,'difference_cents',(book_amount-register_amount)::text) ORDER BY name,id),'[]'),'ready',coalesce(bool_and(register_amount=book_amount),true),'missing_documents',0) INTO controls FROM balances;
+  notes:=jsonb_build_array('Balances include actual posted movements through the cutoff. Proposed schedule rows do not change the ledger.');
+ ELSIF report_id='contractor-worksheet' THEN
+  IF extract(year FROM start_date)<>extract(year FROM end_date) THEN RAISE EXCEPTION 'ACCT_TAX_RANGE';END IF;
+  source:=accounting.contractor_report(extract(year FROM end_date)::integer);
+  columns:='[{"label":"Payee","numeric":false},{"label":"Classification","numeric":false},{"label":"Documentation","numeric":false},{"label":"Cash paid net of refunds","numeric":true},{"label":"Card payments excluded","numeric":true}]';
+  WITH paid AS (
+   SELECT p.id,p.name,p.contractor_classification,p.documentation_status,-coalesce(sum(l.amount_cents) FILTER(WHERE a.subtype IN ('bank','cash')),0) cash,-coalesce(sum(l.amount_cents) FILTER(WHERE a.subtype='card'),0) card
+   FROM accounting.parties p LEFT JOIN accounting.journal_entries e ON e.payee_id=p.id AND e.status='posted' AND e.entry_date BETWEEN start_date AND end_date LEFT JOIN accounting.journal_lines l ON l.entry_id=e.id LEFT JOIN accounting.accounts a ON a.id=l.account_id WHERE p.is_contractor GROUP BY p.id)
+  SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'contractor_party_id',id,'cells',jsonb_build_array(name,contractor_classification,documentation_status,cash::text,card::text)) ORDER BY name,id),'[]'),jsonb_build_array('Total','','',coalesce(sum(cash),0)::text,coalesce(sum(card),0)::text) INTO rows,total_cells FROM paid;
+  notes:=jsonb_build_array('Annual reporting threshold in cents: '||(source->>'threshold_cents')||'. Owner classifications and exclusions require review; this worksheet does not file a return.');
+ ELSIF report_id='tax-workpapers' THEN
+  IF start_date<>make_date(extract(year FROM end_date)::integer,1,1) THEN RAISE EXCEPTION 'ACCT_TAX_RANGE';END IF;
+  source:=accounting.tax_source(extract(year FROM end_date)::integer,end_date);
+  columns:='[{"label":"Account or adjustment","numeric":false},{"label":"Treatment","numeric":false},{"label":"Book profit contribution","numeric":true},{"label":"Ordinary taxable contribution","numeric":true},{"label":"Book-to-tax difference","numeric":true}]';
+  SELECT coalesce(jsonb_agg(row ORDER BY label,id),'[]') INTO rows FROM (
+   SELECT value->>'name' label,value->>'account_id' id,jsonb_build_object('id',value->'account_id','tax_kind','account','tax_account_id',value->'account_id','cells',jsonb_build_array(value->>'name',coalesce(value->'mapping'->>'concept','Unmapped'),value->>'book_cents',value->>'ordinary_cents',((value->>'ordinary_cents')::numeric-(value->>'book_cents')::numeric)::text)) row FROM jsonb_array_elements(source->'accounts') WHERE (value->>'line_count')::integer>0
+   UNION ALL SELECT value->>'reason',value->>'id',jsonb_build_object('id',value->'id','tax_kind','adjustment','cells',jsonb_build_array(value->>'reason',value->>'concept','0',CASE WHEN value->>'concept' IN ('stock_basis_opening','debt_basis_opening','interest','qualified_dividend','short_gain','long_gain','charity','tax_exempt') THEN '0' ELSE value->>'amount_cents' END,CASE WHEN value->>'concept' IN ('stock_basis_opening','debt_basis_opening','interest','qualified_dividend','short_gain','long_gain','charity','tax_exempt') THEN '0' ELSE value->>'amount_cents' END)) FROM jsonb_array_elements(source->'adjustments')) q;
+  total_cells:=jsonb_build_array('Total','',source->>'book_profit_cents',source->>'adjusted_ordinary_cents',source->>'book_to_tax_cents');
+  notes:=jsonb_build_array('Tax workpapers use year-to-date posted activity through the cutoff. Separately stated items and basis amounts are retained in the attached tax source.');
+ ELSE RAISE EXCEPTION 'ACCT_REPORT_KIND';END IF;
+ row_count:=jsonb_array_length(rows);
+ result:=jsonb_build_object('definition_version',1,'report_id',report_id,'legal_name',(SELECT legal_name FROM public.business_profile WHERE id=1),'revision',(SELECT financial_revision::text FROM accounting.settings),'filter',params- 'limit','columns',columns,
+ 'rows',(SELECT coalesce(jsonb_agg(value ORDER BY ordinality),'[]') FROM jsonb_array_elements(rows) WITH ORDINALITY WHERE ordinality>offset_rows AND ordinality<=offset_rows+limit_rows),'count',row_count,'total_cells',total_cells,'notes',notes);
+ IF controls IS NOT NULL THEN result:=result||jsonb_build_object('controls',controls);END IF;
+ IF report_id='tax-workpapers' THEN result:=result||jsonb_build_object('tax_workpaper',source);END IF;
+ RETURN result;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.sync_server(command jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE c accounting.bank_connections; ba accounting.bank_accounts; observation accounting.bank_transactions; a jsonb; tx jsonb; normalized jsonb;
+ provider_key text; discover_id uuid; new_checkpoint jsonb; discovered jsonb; zone text; run uuid:=coalesce((command->>'run_id')::uuid,gen_random_uuid());
+ run_complete boolean:=coalesce((command->>'complete')::boolean,true);count_new integer:=0;count_pending integer:=0;count_drafts integer:=0;count_conflicts integer:=0; book_date date; amount bigint; existing_id uuid;
+ candidate_id uuid; candidate_count integer; allocation bigint; draft jsonb; bank_line uuid; category uuid; account_complete boolean; balance_sign smallint; seen jsonb; blocked jsonb; conflicts_before integer; partial boolean:=coalesce((command->>'partial')::boolean,false); discovery_only boolean:=coalesce((command->>'discovery')::boolean,false);
+BEGIN
+ IF current_setting('role',true)<>'service_role' THEN RAISE EXCEPTION 'ACCT_WORKER_REQUIRED'; END IF;
+ PERFORM accounting.write_lock();
+ PERFORM set_config('accounting.operation_id',run::text,true);PERFORM set_config('accounting.actor_kind','worker',true);PERFORM set_config('accounting.action','sync',true);
+ IF command->>'action'='due' THEN
+  RETURN coalesce((SELECT jsonb_agg(id ORDER BY next_sync_at NULLS FIRST,id) FROM accounting.bank_connections WHERE status='active' AND scheduled AND (next_sync_at IS NULL OR next_sync_at<=now()) AND (lease_until IS NULL OR lease_until<=now())),'[]');
  END IF;
- SELECT jsonb_agg(jsonb_build_object('account_id',l.account_id,'amount_cents',l.amount_cents::text,'memo',l.memo) ORDER BY l.sort_order) INTO payload FROM public.acct_journal_lines l WHERE l.entry_id=e.id;
- RETURN jsonb_build_object('id',e.id,'version',e.version,'entry_date',e.entry_date,'memo',e.memo,'status',e.status,'bank_account_id',bank.account_id,'bank_amount_cents',bank.amount_cents::text,'category_account_id',category.account_id,'category_line_id',category.id,'payee_id',party,'aliases',aliases,'matches',matches,'winner',winner,'eligible',reason='','reason',reason,'lines',payload);
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_rules_view() RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-BEGIN
- PERFORM public.acct_require_owner();
- RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM public.acct_settings),'rules',(SELECT coalesce(jsonb_agg(to_jsonb(v)||jsonb_build_object('id',v.rule_id,'min_cents',v.min_cents::text,'max_cents',v.max_cents::text,'history',(SELECT jsonb_agg(to_jsonb(h)||jsonb_build_object('min_cents',h.min_cents::text,'max_cents',h.max_cents::text) ORDER BY h.version DESC) FROM public.acct_rule_versions h WHERE h.rule_id=v.rule_id)) ORDER BY v.priority,v.name,v.rule_id),'[]') FROM public.acct_rules r JOIN public.acct_rule_versions v ON v.rule_id=r.id AND v.version=r.version),'aliases',(SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('party_name',p.name) ORDER BY a.description,a.id),'[]') FROM public.acct_payee_aliases a JOIN public.acct_parties p ON p.id=a.party_id));
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_rules_preview(p_from date,p_to date,p_rule uuid DEFAULT NULL,p_offset integer DEFAULT 0) RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
-DECLARE rows jsonb;total integer;
-BEGIN
- PERFORM public.acct_require_owner();
- IF p_from IS NULL OR p_to IS NULL OR p_to<p_from OR p_to-p_from>3660 OR p_offset IS NULL OR p_offset<0 THEN RAISE EXCEPTION 'ACCT_INVALID_RANGE'; END IF;
- WITH candidates AS MATERIALIZED (SELECT public.acct_rule_candidate(e.id,p_rule) candidate FROM public.acct_journal_entries e WHERE e.entry_date BETWEEN p_from AND p_to AND e.status IN ('draft','posted') AND e.reverses_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM public.acct_journal_entries reversal WHERE reversal.reverses_entry_id=e.id))
- SELECT count(*),(SELECT coalesce(jsonb_agg(x.candidate ORDER BY x.candidate->>'entry_date',x.candidate->>'id'),'[]') FROM (SELECT candidate FROM candidates WHERE candidate IS NOT NULL AND jsonb_array_length(candidate->'matches')>0 AND (p_rule IS NULL OR EXISTS(SELECT 1 FROM jsonb_array_elements(candidate->'matches') m WHERE m->>'rule_id'=p_rule::text)) ORDER BY candidate->>'entry_date',candidate->>'id' LIMIT 100 OFFSET p_offset) x) INTO total,rows FROM candidates WHERE candidate IS NOT NULL AND jsonb_array_length(candidate->'matches')>0 AND (p_rule IS NULL OR EXISTS(SELECT 1 FROM jsonb_array_elements(candidate->'matches') m WHERE m->>'rule_id'=p_rule::text));
- RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM public.acct_settings),'rows',rows,'total',total,'from',p_from,'to',p_to);
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_rules_command(p_command jsonb,p_actor uuid) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE op text:=p_command->>'type';command_id uuid:=(p_command->>'id')::uuid;current_version integer;v public.acct_rule_versions;x jsonb;c jsonb;lines jsonb;saved jsonb;after_value jsonb;count integer:=0;assign uuid;
-BEGIN
- PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
- IF op='alias.save' THEN
-  SELECT a.version INTO current_version FROM public.acct_payee_aliases a WHERE a.id=command_id;
-  IF coalesce(current_version,0) IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-  IF NOT EXISTS(SELECT 1 FROM public.acct_parties WHERE id=(p_command->>'party_id')::uuid AND (NOT is_archived OR (p_command->>'enabled')::boolean=false)) THEN RAISE EXCEPTION 'ACCT_INVALID_PAYEE'; END IF;
-  INSERT INTO public.acct_payee_aliases(id,party_id,match_mode,description,enabled,created_by) VALUES(command_id,(p_command->>'party_id')::uuid,p_command->>'match_mode',public.acct_normalize_description(p_command->>'description'),(p_command->>'enabled')::boolean,p_actor)
-  ON CONFLICT ON CONSTRAINT acct_payee_aliases_pkey DO UPDATE SET party_id=excluded.party_id,match_mode=excluded.match_mode,description=excluded.description,enabled=excluded.enabled,version=acct_payee_aliases.version+1;
-  RETURN jsonb_build_object('id',command_id,'version',coalesce(current_version,0)+1);
- ELSIF op='rule.save' OR op='rule.activate' THEN
-  SELECT r.version INTO current_version FROM public.acct_rules r WHERE r.id=command_id;
-  IF coalesce(current_version,0) IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-  IF op='rule.activate' THEN
-   IF current_version IS NULL THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-   IF (p_command->>'reviewed')::boolean IS DISTINCT FROM true OR (p_command->>'expected_revision')::bigint IS DISTINCT FROM (SELECT financial_revision FROM public.acct_settings) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-   SELECT * INTO v FROM public.acct_rule_versions WHERE rule_id=command_id AND acct_rule_versions.version=current_version;
+ SELECT * INTO c FROM accounting.bank_connections WHERE id=(command->>'id')::uuid FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+ IF command->>'action' IN ('claim.send','claim.complete','claim.fail') THEN
+  IF c.status<>'reconnect_required' OR c.checkpoint->'claim'->>'id' IS DISTINCT FROM command->>'claim_id' THEN RAISE EXCEPTION 'ACCT_FEED_CLAIM'; END IF;
+  IF command->>'action'='claim.send' THEN
+   IF c.checkpoint->'claim'->>'state'<>'prepared' THEN RAISE EXCEPTION 'ACCT_FEED_CLAIM'; END IF;
+   UPDATE accounting.bank_connections SET checkpoint=jsonb_set(checkpoint,'{claim,state}','"sent"') WHERE id=c.id;
+  ELSIF command->>'action'='claim.complete' THEN
+   IF c.checkpoint->'claim'->>'state'<>'sent' OR length(coalesce(command->>'ciphertext',''))<20 THEN RAISE EXCEPTION 'ACCT_FEED_CLAIM'; END IF;
+   UPDATE accounting.bank_connections SET access_url_encrypted=command->>'ciphertext',key_version=coalesce((command->>'key_version')::smallint,1),status='active',last_error='',checkpoint=jsonb_set(checkpoint,'{claim,state}','"completed"') WHERE id=c.id;
   ELSE
-   IF jsonb_typeof(p_command->'min_cents') IS DISTINCT FROM 'string' OR jsonb_typeof(p_command->'max_cents') IS DISTINCT FROM 'string' OR p_command->>'min_cents'!~'^[0-9]{1,19}$' OR p_command->>'max_cents'!~'^[0-9]{1,19}$' THEN RAISE EXCEPTION 'ACCT_INVALID_MONEY'; END IF;
-   v:=jsonb_populate_record(NULL::public.acct_rule_versions,p_command);
-   v.enabled:=false;v.description:=public.acct_normalize_description(v.description);
-  END IF;
-  IF op='rule.save' OR (p_command->>'enabled')::boolean=true THEN
-  IF NOT EXISTS(SELECT 1 FROM public.acct_account_profiles p JOIN public.acct_accounts a ON a.id=p.account_id WHERE p.account_id=v.bank_account_id AND p.cash_kind IN ('bank','cash','card') AND NOT a.is_archived) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_KIND'; END IF;
-  IF NOT EXISTS(SELECT 1 FROM public.acct_accounts a LEFT JOIN public.acct_account_profiles p ON p.account_id=a.id WHERE a.id=v.category_account_id AND NOT a.is_archived AND a.account_type IN ('income','expense') AND coalesce(p.purpose,'') NOT IN ('uncategorized_income','uncategorized_expense')) THEN RAISE EXCEPTION 'ACCT_RULE_CATEGORY'; END IF;
-  IF v.assign_payee_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.acct_parties WHERE id=v.assign_payee_id AND NOT is_archived) THEN RAISE EXCEPTION 'ACCT_INVALID_PAYEE'; END IF;
-  IF v.match_payee_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.acct_parties WHERE id=v.match_payee_id AND NOT is_archived) THEN RAISE EXCEPTION 'ACCT_INVALID_PAYEE'; END IF;
-  END IF;
-  INSERT INTO public.acct_rules(id,created_by) VALUES(command_id,p_actor) ON CONFLICT ON CONSTRAINT acct_rules_pkey DO UPDATE SET version=acct_rules.version+1;
-  INSERT INTO public.acct_rule_versions(rule_id,version,name,priority,enabled,description_mode,description,bank_account_id,direction,min_cents,max_cents,match_payee_id,category_account_id,assign_payee_id,reason,created_by)
-  VALUES(command_id,coalesce(current_version,0)+1,v.name,v.priority,CASE WHEN op='rule.activate' THEN (p_command->>'enabled')::boolean ELSE false END,v.description_mode,v.description,v.bank_account_id,v.direction,v.min_cents,v.max_cents,v.match_payee_id,v.category_account_id,v.assign_payee_id,p_command->>'reason',p_actor);
-  RETURN jsonb_build_object('id',command_id,'version',coalesce(current_version,0)+1);
- ELSIF op='rule.apply' THEN
-  IF (p_command->>'expected_revision')::bigint IS DISTINCT FROM (SELECT financial_revision FROM public.acct_settings) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-  IF jsonb_typeof(p_command->'entries') IS DISTINCT FROM 'array' OR jsonb_array_length(p_command->'entries') NOT BETWEEN 1 AND 100 OR (SELECT count(DISTINCT value->>'id') FROM jsonb_array_elements(p_command->'entries'))<>jsonb_array_length(p_command->'entries') THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
-  FOR x IN SELECT value FROM jsonb_array_elements(p_command->'entries') LOOP
-   c:=public.acct_rule_candidate((x->>'id')::uuid,NULL);
-   IF c IS NULL OR (c->>'eligible')::boolean IS DISTINCT FROM true THEN RAISE EXCEPTION 'ACCT_RULE_INELIGIBLE'; END IF;
-   IF c->>'version' IS DISTINCT FROM x->>'expected_version' OR c->'winner'->>'rule_id' IS DISTINCT FROM x->>'rule_id' OR c->'winner'->>'version' IS DISTINCT FROM x->>'rule_version' THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-   SELECT jsonb_agg(CASE WHEN l->>'account_id'=c->>'category_account_id' THEN l||jsonb_build_object('account_id',c->'winner'->>'category_account_id') ELSE l END ORDER BY ordinal) INTO lines FROM jsonb_array_elements(c->'lines') WITH ORDINALITY AS item(l,ordinal);
-   saved:=public.acct_command(gen_random_uuid(),jsonb_build_object('type','draft.save','id',c->>'id','expected_version',c->'version','entry_date',c->>'entry_date','memo',c->>'memo','lines',lines));
-   assign:=coalesce((c->'winner'->>'assign_payee_id')::uuid,(c->>'payee_id')::uuid);
-   IF assign IS NOT NULL THEN INSERT INTO public.acct_entry_context(entry_id,payee_id) VALUES((c->>'id')::uuid,assign) ON CONFLICT(entry_id) DO UPDATE SET payee_id=excluded.payee_id; END IF;
-   after_value:=jsonb_build_object('version',saved->'version','lines',lines,'payee_id',assign);
-   INSERT INTO public.acct_rule_applications(rule_id,rule_version,entry_id,before_value,after_value,matched_aliases,created_by) VALUES((c->'winner'->>'rule_id')::uuid,(c->'winner'->>'version')::integer,(c->>'id')::uuid,c,after_value,c->'aliases',p_actor);count:=count+1;
-  END LOOP;
-  RETURN jsonb_build_object('id',command_id,'count',count);
- END IF;
- RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND';
-END $$;
-REVOKE ALL ON FUNCTION public.acct_normalize_description(text),public.acct_rule_payee(text),public.acct_rule_candidate(uuid,uuid),public.acct_rules_view(),public.acct_rules_preview(date,date,uuid,integer),public.acct_rules_command(jsonb,uuid) FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.acct_rules_view(),public.acct_rules_preview(date,date,uuid,integer) TO authenticated;
-
-
-
-
--- ACCOUNTING RULES END
-
--- ACCOUNTING SIMPLEFIN BEGIN
-CREATE TABLE public.acct_feed_connections (
- id uuid PRIMARY KEY, name text NOT NULL CHECK(length(btrim(name)) BETWEEN 1 AND 120),
- status text NOT NULL DEFAULT 'claiming' CHECK(status IN ('claiming','active','reconnect_required','disconnected')),
- version integer NOT NULL DEFAULT 1, generation integer NOT NULL DEFAULT 1,
- scheduled boolean NOT NULL DEFAULT false, next_sync_at timestamptz, retry_at timestamptz,
- last_success_at timestamptz, last_error text NOT NULL DEFAULT '',
- lease_run_id uuid, lease_until timestamptz, created_by uuid NOT NULL REFERENCES auth.users(id), created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE public.acct_feed_secrets (
- connection_id uuid PRIMARY KEY REFERENCES public.acct_feed_connections(id),
- ciphertext text NOT NULL CHECK(length(ciphertext) BETWEEN 50 AND 20000 AND ciphertext ~ '^v[1-9][0-9]*:[0-9a-f]{24}:[0-9a-f]{32}:[0-9a-f]+$'),
- changed_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE public.acct_feed_claims (
- id uuid PRIMARY KEY, connection_id uuid NOT NULL REFERENCES public.acct_feed_connections(id), generation integer NOT NULL,
- status text NOT NULL DEFAULT 'started' CHECK(status IN ('started','transmitting','completed','failed')),
- error text NOT NULL DEFAULT '', created_by uuid NOT NULL REFERENCES auth.users(id), created_at timestamptz NOT NULL DEFAULT now(), completed_at timestamptz,
- UNIQUE(connection_id,generation)
-);
-CREATE TABLE public.acct_feed_accounts (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), account_id uuid NOT NULL UNIQUE REFERENCES public.acct_accounts(id),
- history_start bigint NOT NULL CHECK(history_start BETWEEN 1 AND 4133980800), checkpoint bigint, resume_floor bigint,
- posting_timezone text NOT NULL CHECK(posting_timezone IN ('UTC','America/Phoenix')),
- movement_sign integer NOT NULL CHECK(movement_sign IN (-1,1)), balance_sign integer NOT NULL CHECK(balance_sign IN (-1,1)),
- version integer NOT NULL DEFAULT 1, created_by uuid NOT NULL REFERENCES auth.users(id), created_at timestamptz NOT NULL DEFAULT now(),
- CHECK(checkpoint IS NULL OR checkpoint>=history_start), CHECK(resume_floor IS NULL OR resume_floor BETWEEN history_start AND checkpoint)
-);
-CREATE TABLE public.acct_feed_identities (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), connection_id uuid NOT NULL REFERENCES public.acct_feed_connections(id),
- provider_connection_id text NOT NULL CHECK(length(provider_connection_id) BETWEEN 1 AND 500), provider_account_id text NOT NULL CHECK(length(provider_account_id) BETWEEN 1 AND 500),
- name text NOT NULL CHECK(length(name) BETWEEN 1 AND 500), institution text NOT NULL CHECK(length(institution)<=500), currency text NOT NULL CHECK(length(currency)<=500),
- observed_generation integer NOT NULL, approved_generation integer,
- ownership text NOT NULL DEFAULT 'unreviewed' CHECK(ownership IN ('unreviewed','company','personal','ignored')),
- feed_account_id uuid REFERENCES public.acct_feed_accounts(id), version integer NOT NULL DEFAULT 1,
- last_seen_at timestamptz NOT NULL DEFAULT now(), last_attempt_at timestamptz,
- UNIQUE(connection_id,provider_connection_id,provider_account_id), CHECK((ownership='company')=(feed_account_id IS NOT NULL))
-);
-CREATE TABLE public.acct_feed_runs (
- id uuid PRIMARY KEY, connection_id uuid NOT NULL REFERENCES public.acct_feed_connections(id), generation integer NOT NULL,
- actor_kind text NOT NULL CHECK(actor_kind IN ('owner','worker')), requested_by uuid REFERENCES auth.users(id),
- status text NOT NULL DEFAULT 'running' CHECK(status IN ('running','completed','partial','failed','expired')),
- started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz, error text NOT NULL DEFAULT '',
- CHECK((actor_kind='owner')=(requested_by IS NOT NULL))
-);
-CREATE TABLE public.acct_feed_requests (
- id uuid PRIMARY KEY, run_id uuid NOT NULL REFERENCES public.acct_feed_runs(id),
- identity_id uuid REFERENCES public.acct_feed_identities(id), from_stamp bigint NOT NULL, to_stamp bigint NOT NULL,
- discovery boolean NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
- CHECK(to_stamp>from_stamp AND to_stamp-from_stamp<=7776000), UNIQUE(run_id,identity_id)
-);
-CREATE INDEX acct_feed_request_time ON public.acct_feed_requests(created_at);
-CREATE TABLE public.acct_feed_windows (
- id uuid PRIMARY KEY, request_id uuid NOT NULL REFERENCES public.acct_feed_requests(id), identity_id uuid NOT NULL REFERENCES public.acct_feed_identities(id),
- feed_account_id uuid REFERENCES public.acct_feed_accounts(id), protocol text NOT NULL CHECK(length(protocol)<100),
- response_hash text NOT NULL CHECK(response_hash ~ '^[0-9a-f]{64}$'), account_hash text NOT NULL CHECK(account_hash ~ '^[0-9a-f]{64}$'),
- balance_cents bigint, available_cents bigint, balance_at bigint NOT NULL, issues jsonb NOT NULL CHECK(jsonb_typeof(issues)='array'),
- complete_response boolean NOT NULL, expected_count integer NOT NULL CHECK(expected_count BETWEEN 0 AND 50000),
- status text NOT NULL DEFAULT 'receiving' CHECK(status IN ('receiving','accepted','incomplete')),
- received_count integer NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now(),
- UNIQUE(request_id,identity_id), CHECK(received_count BETWEEN 0 AND expected_count)
-);
-CREATE TABLE public.acct_feed_observations (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), window_id uuid NOT NULL REFERENCES public.acct_feed_windows(id), ordinal integer NOT NULL CHECK(ordinal>=0),
- external_id text NOT NULL CHECK(length(external_id) BETWEEN 1 AND 500), state text NOT NULL CHECK(state IN ('posted','pending','nonfinancial')),
- posted bigint NOT NULL CHECK(posted BETWEEN 0 AND 4133980800), transacted_at bigint CHECK(transacted_at BETWEEN 0 AND 4133980800),
- amount_cents bigint NOT NULL CHECK(amount_cents>'-9223372036854775808'::bigint), description text NOT NULL CHECK(length(description) BETWEEN 1 AND 1000),
- content_hash text NOT NULL CHECK(content_hash ~ '^[0-9a-f]{64}$'), raw_payload jsonb NOT NULL CHECK(jsonb_typeof(raw_payload)='object'),
- UNIQUE(window_id,ordinal), UNIQUE(window_id,external_id), CHECK(state<>'posted' OR posted>0 AND amount_cents<>0)
-);
-CREATE TABLE public.acct_feed_import_links (
- observation_id uuid PRIMARY KEY REFERENCES public.acct_feed_observations(id), group_id uuid NOT NULL REFERENCES public.acct_import_groups(id), created_at timestamptz NOT NULL DEFAULT now()
-);
-CREATE TABLE public.acct_feed_gaps (
- id uuid PRIMARY KEY DEFAULT gen_random_uuid(), feed_account_id uuid NOT NULL REFERENCES public.acct_feed_accounts(id),
- from_stamp bigint NOT NULL, to_stamp bigint NOT NULL CHECK(to_stamp>from_stamp),
- reason text NOT NULL CHECK(length(reason) BETWEEN 1 AND 1000), created_by uuid REFERENCES auth.users(id),
- document_id uuid REFERENCES public.acct_documents(id), created_at timestamptz NOT NULL DEFAULT now(),
- UNIQUE(feed_account_id,from_stamp,to_stamp)
-);
-
--- Feed tables deliberately do not increment financial_revision. A network sync
--- cannot change the ledger. Runs retain the authenticated worker/owner identity.
-CREATE OR REPLACE FUNCTION public.acct_feed_audit() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-BEGIN
- INSERT INTO public.acct_audit_log(table_name,action,actor_id,operation_id,before_value,after_value)
- VALUES(TG_TABLE_NAME,TG_OP,auth.uid(),nullif(current_setting('acct.operation_id',true),''),CASE WHEN TG_OP<>'INSERT' THEN to_jsonb(OLD) END,CASE WHEN TG_OP<>'DELETE' THEN to_jsonb(NEW) END);
- RETURN coalesce(NEW,OLD);
-END $$;
-CREATE OR REPLACE FUNCTION public.acct_feed_assert_lease(p_run uuid) RETURNS public.acct_feed_runs
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE r public.acct_feed_runs;c public.acct_feed_connections;
-BEGIN
- SELECT * INTO r FROM public.acct_feed_runs WHERE id=p_run;
- SELECT * INTO c FROM public.acct_feed_connections WHERE id=r.connection_id FOR UPDATE;
- IF r.id IS NULL OR r.status<>'running' OR c.status<>'active' OR c.lease_run_id IS DISTINCT FROM r.id OR c.generation<>r.generation OR c.lease_until IS NULL OR c.lease_until<=clock_timestamp() THEN RAISE EXCEPTION 'ACCT_FEED_LEASE'; END IF;
- UPDATE public.acct_feed_connections SET lease_until=clock_timestamp()+interval '2 minutes' WHERE id=c.id;
- PERFORM set_config('acct.operation_id',r.id::text,true);
- RETURN r;
-END $$;
-
--- This is the only service-role entry point. It cannot post, alter journals,
--- create a connection, choose account mappings, or enable a schedule.
-CREATE OR REPLACE FUNCTION public.acct_feed_server(p_command jsonb) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE op text:=p_command->>'type'; c public.acct_feed_connections; r public.acct_feed_runs; a public.acct_feed_identities;
- f public.acct_feed_accounts; q public.acct_feed_requests; w public.acct_feed_windows; claim public.acct_feed_claims;
- actor uuid; v_id uuid; x jsonb; n integer; count_before integer; result jsonb; is_complete boolean;
-BEGIN
- IF p_command IS NULL OR octet_length(p_command::text)>4000000 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
- PERFORM public.acct_write_lock();
- IF op='due' THEN
-  RETURN (SELECT coalesce(jsonb_agg(id),'[]') FROM (SELECT id FROM public.acct_feed_connections WHERE status='active' AND scheduled AND coalesce(next_sync_at,'-infinity')<=now() AND coalesce(retry_at,'-infinity')<=now() AND coalesce(lease_until,'-infinity')<=now() ORDER BY next_sync_at NULLS FIRST,id LIMIT 4) s);
- ELSIF op IN ('claim.send','claim.complete','claim.fail') THEN
-  SELECT * INTO claim FROM public.acct_feed_claims WHERE id=(p_command->>'id')::uuid;
-  SELECT * INTO c FROM public.acct_feed_connections WHERE id=claim.connection_id;
-  IF claim.id IS NULL OR c.generation<>claim.generation THEN RAISE EXCEPTION 'ACCT_FEED_CLAIM'; END IF;
-  IF op='claim.complete' AND claim.status='completed' AND c.status='active' AND EXISTS(SELECT 1 FROM public.acct_feed_secrets WHERE connection_id=c.id AND ciphertext=p_command->>'ciphertext') THEN RETURN jsonb_build_object('id',c.id); END IF;
-  IF c.status<>'claiming' OR claim.status IS DISTINCT FROM (CASE WHEN op='claim.send' THEN 'started' ELSE 'transmitting' END) THEN RAISE EXCEPTION 'ACCT_FEED_CLAIM'; END IF;
-  PERFORM set_config('acct.operation_id',claim.id::text,true);
-  IF op='claim.send' THEN
-   UPDATE public.acct_feed_claims SET status='transmitting' WHERE id=claim.id;
-  ELSIF op='claim.complete' THEN
-   INSERT INTO public.acct_feed_secrets(connection_id,ciphertext) VALUES(c.id,p_command->>'ciphertext') ON CONFLICT(connection_id) DO UPDATE SET ciphertext=EXCLUDED.ciphertext,changed_at=now();
-   UPDATE public.acct_feed_connections SET status='active',last_error='',retry_at=NULL,version=version+1 WHERE id=c.id;
-   UPDATE public.acct_feed_claims SET status='completed',completed_at=now() WHERE id=claim.id;
-  ELSE
-   UPDATE public.acct_feed_connections SET status='reconnect_required',last_error=left(p_command->>'error',1000),version=version+1 WHERE id=c.id;
-   UPDATE public.acct_feed_claims SET status='failed',error=left(p_command->>'error',1000),completed_at=now() WHERE id=claim.id;
+   IF c.checkpoint->'claim'->>'state'<>'sent' THEN RAISE EXCEPTION 'ACCT_FEED_CLAIM'; END IF;
+   UPDATE accounting.bank_connections SET last_error=left(coalesce(command->>'error','Connection setup failed'),1000),checkpoint=jsonb_set(checkpoint,'{claim,state}','"failed"') WHERE id=c.id;
   END IF;
   RETURN jsonb_build_object('id',c.id);
- ELSIF op='lease' THEN
-  SELECT * INTO c FROM public.acct_feed_connections WHERE id=(p_command->>'id')::uuid;
-  actor:=nullif(p_command->>'actor_id','')::uuid;
-  IF c.id IS NULL OR c.status<>'active' OR actor IS NOT NULL AND actor IS DISTINCT FROM (SELECT owner_user_id FROM public.acct_settings) OR actor IS NULL AND (NOT c.scheduled OR coalesce(c.next_sync_at,'-infinity')>now()) THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
-  IF coalesce(c.retry_at,'-infinity')>now() THEN RAISE EXCEPTION 'ACCT_FEED_BACKOFF'; END IF;
-  IF coalesce(c.lease_until,'-infinity')>clock_timestamp() THEN RAISE EXCEPTION 'ACCT_FEED_BUSY'; END IF;
-  UPDATE public.acct_feed_runs SET status='expired',finished_at=now(),error='A prior sync stopped before releasing its lease. Its saved observations remain available.' WHERE id=c.lease_run_id AND status='running';
-  v_id:=(p_command->>'run_id')::uuid;
-  INSERT INTO public.acct_feed_runs(id,connection_id,generation,actor_kind,requested_by) VALUES(v_id,c.id,c.generation,CASE WHEN actor IS NULL THEN 'worker' ELSE 'owner' END,actor);
-  PERFORM set_config('acct.operation_id',v_id::text,true);
-  UPDATE public.acct_feed_connections SET lease_run_id=v_id,lease_until=clock_timestamp()+interval '2 minutes' WHERE id=c.id;
-  RETURN jsonb_build_object('id',v_id,'ciphertext',(SELECT ciphertext FROM public.acct_feed_secrets WHERE connection_id=c.id),'identities',(SELECT coalesce(jsonb_agg(to_jsonb(s)),'[]') FROM (SELECT i.id,i.provider_connection_id,i.provider_account_id,fa.history_start::text,fa.checkpoint::text,fa.resume_floor::text FROM public.acct_feed_identities i JOIN public.acct_feed_accounts fa ON fa.id=i.feed_account_id WHERE i.connection_id=c.id AND i.ownership='company' AND i.approved_generation=c.generation AND i.observed_generation=c.generation ORDER BY i.last_attempt_at NULLS FIRST,i.id LIMIT 4) s));
  END IF;
- r:=public.acct_feed_assert_lease((p_command->>'run_id')::uuid);
- SELECT * INTO c FROM public.acct_feed_connections WHERE id=r.connection_id;
- IF op='request' THEN
-  IF (SELECT count(*) FROM public.acct_feed_requests rq JOIN public.acct_feed_runs sr ON sr.id=rq.run_id WHERE sr.connection_id=c.id AND rq.created_at>now()-interval '24 hours')>=24 THEN RAISE EXCEPTION 'ACCT_FEED_QUOTA'; END IF;
-  IF (SELECT count(*) FROM public.acct_feed_requests WHERE run_id=r.id)>=4 THEN RAISE EXCEPTION 'ACCT_FEED_QUOTA'; END IF;
-  IF NOT coalesce((p_command->>'discovery')::boolean,false) THEN
-   SELECT * INTO a FROM public.acct_feed_identities WHERE id=(p_command->>'identity_id')::uuid AND connection_id=c.id AND ownership='company' AND approved_generation=c.generation AND observed_generation=c.generation;
-   IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_FEED_MAPPING'; END IF;
-   SELECT * INTO f FROM public.acct_feed_accounts WHERE id=a.feed_account_id;
-   IF (p_command->>'from')::bigint IS DISTINCT FROM greatest(f.history_start,coalesce(f.checkpoint,f.history_start)-432000,coalesce(f.resume_floor,f.history_start)) OR (p_command->>'to')::bigint>extract(epoch FROM now())::bigint+1 THEN RAISE EXCEPTION 'ACCT_FEED_WINDOW'; END IF;
-   UPDATE public.acct_feed_identities SET last_attempt_at=now() WHERE id=a.id;
-  ELSIF r.actor_kind<>'owner' THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
-  INSERT INTO public.acct_feed_requests(id,run_id,identity_id,from_stamp,to_stamp,discovery) VALUES((p_command->>'id')::uuid,r.id,a.id,(p_command->>'from')::bigint,(p_command->>'to')::bigint,coalesce((p_command->>'discovery')::boolean,false));
-  RETURN jsonb_build_object('id',p_command->>'id');
- ELSIF op='window.begin' THEN
-  SELECT * INTO q FROM public.acct_feed_requests WHERE id=(p_command->>'request_id')::uuid AND run_id=r.id;
-  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-  SELECT * INTO a FROM public.acct_feed_identities WHERE connection_id=c.id AND provider_connection_id=p_command->>'provider_connection_id' AND provider_account_id=p_command->>'provider_account_id';
-  IF NOT q.discovery AND (a.id IS NULL OR a.id<>q.identity_id OR a.approved_generation<>c.generation OR a.ownership<>'company') THEN RAISE EXCEPTION 'ACCT_FEED_MAPPING'; END IF;
-  IF a.id IS NULL THEN
-   INSERT INTO public.acct_feed_identities(connection_id,provider_connection_id,provider_account_id,name,institution,currency,observed_generation) VALUES(c.id,p_command->>'provider_connection_id',p_command->>'provider_account_id',p_command->>'name',p_command->>'institution',p_command->>'currency',c.generation) RETURNING * INTO a;
-  ELSE
-   UPDATE public.acct_feed_identities SET name=p_command->>'name',institution=p_command->>'institution',currency=p_command->>'currency',observed_generation=c.generation,last_seen_at=now() WHERE id=a.id;
+ IF command->>'action'='lease' THEN
+  IF c.status<>'active' OR (c.lease_until>now() AND c.lease_run_id<>run) THEN RETURN jsonb_build_object('id',c.id,'acquired',false); END IF;
+  UPDATE accounting.bank_connections SET lease_run_id=run,lease_until=now()+interval '5 minutes',checkpoint=jsonb_set(checkpoint,ARRAY['sync_run'],CASE WHEN c.lease_run_id=run AND c.lease_until>now() THEN coalesce(checkpoint->'sync_run','{}') ELSE jsonb_build_object('seen','[]'::jsonb,'complete',true) END) WHERE id=c.id;
+  RETURN jsonb_build_object('id',c.id,'acquired',true,'run_id',run,'access_url_encrypted',c.access_url_encrypted,'key_version',c.key_version,'checkpoint',c.checkpoint,'books_timezone',(SELECT books_timezone FROM public.business_profile WHERE id=1),
+   'identities',coalesce((SELECT jsonb_agg(jsonb_build_object('id',b.id,'provider_connection_id',(b.provider_account_id::jsonb)->>0,'provider_account_id',(b.provider_account_id::jsonb)->>1,
+    'history_start',extract(epoch FROM (coalesce(b.coverage_from,(SELECT earliest_history_date FROM public.business_profile WHERE id=1))::timestamp AT TIME ZONE (SELECT books_timezone FROM public.business_profile WHERE id=1)))::bigint::text,'checkpoint',c.checkpoint->>b.provider_account_id,'resume_floor',NULL)) FROM accounting.bank_accounts b WHERE b.connection_id=c.id AND NOT b.is_closed),'[]'));
+ END IF;
+ IF c.lease_run_id IS DISTINCT FROM run OR c.lease_until<=now() OR c.status<>'active' THEN RAISE EXCEPTION 'ACCT_STALE_LEASE'; END IF;
+ IF command->>'action'='fail' THEN
+  UPDATE accounting.bank_connections SET last_error=left(coalesce(command->>'error','Bank sync failed'),1000),
+   status=CASE WHEN coalesce((command->>'reconnect_required')::boolean,false) THEN 'reconnect_required' ELSE status END,
+   next_sync_at=now()+interval '1 hour',lease_run_id=NULL,lease_until=NULL WHERE id=c.id;
+  RETURN jsonb_build_object('id',c.id,'status','error');
+ END IF;
+ IF command->>'action'<>'complete' OR jsonb_typeof(command->'accounts') IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+ zone:=(SELECT books_timezone FROM public.business_profile WHERE id=1);new_checkpoint:=c.checkpoint;
+ discovered:=coalesce(c.checkpoint->'discovery','{}');seen:=coalesce(c.checkpoint->'sync_run'->'seen','[]');blocked:=coalesce(c.checkpoint->'sync_run'->'blocked','[]');
+ run_complete:=run_complete AND coalesce((c.checkpoint->'sync_run'->>'complete')::boolean,true);
+ FOR a IN SELECT value FROM jsonb_array_elements(command->'accounts') LOOP
+  provider_key:=jsonb_build_array(a->>'provider_connection_id',a->>'provider_account_id')::text;
+  discover_id:=md5(c.id::text||':'||provider_key)::uuid;
+  discovered:=jsonb_set(discovered,ARRAY[discover_id::text],jsonb_build_object('id',discover_id,'provider_account_id',provider_key,'raw_provider_account_id',a->>'provider_account_id','provider_connection_id',a->>'provider_connection_id','name',a->>'name','institution',a->>'institution','currency',a->>'currency','balance_cents',a->>'balance_cents','available_cents',a->>'available_cents','balance_at',a->'balance_at','ownership',coalesce(discovered->discover_id::text->>'ownership','unreviewed')));
+  SELECT * INTO ba FROM accounting.bank_accounts WHERE connection_id=c.id AND provider_account_id=provider_key AND NOT is_closed;
+  IF NOT FOUND THEN CONTINUE; END IF;
+  IF a->>'currency'<>'USD' THEN run_complete:=false; CONTINUE; END IF;
+  IF NOT seen ? provider_key THEN seen:=seen||jsonb_build_array(provider_key); END IF;
+  balance_sign:=coalesce((new_checkpoint->'balance_signs'->>ba.id::text)::smallint,1);
+  IF a->>'balance_cents' IS NOT NULL AND a->>'balance_at' IS NOT NULL THEN
+   UPDATE accounting.bank_accounts SET observed_balance_cents=(a->>'balance_cents')::bigint*balance_sign,observed_at=to_timestamp((a->>'balance_at')::bigint) WHERE id=ba.id;
   END IF;
-  IF (q.discovery OR p_command->>'currency'<>'USD') AND (p_command->>'expected_count')::integer<>0 THEN RAISE EXCEPTION 'ACCT_FEED_MAPPING'; END IF;
-  INSERT INTO public.acct_feed_windows(id,request_id,identity_id,feed_account_id,protocol,response_hash,account_hash,balance_cents,available_cents,balance_at,issues,complete_response,expected_count)
-  VALUES((p_command->>'id')::uuid,q.id,a.id,CASE WHEN NOT q.discovery THEN a.feed_account_id END,p_command->>'protocol',p_command->>'response_hash',p_command->>'account_hash',nullif(p_command->>'balance_cents','')::bigint,nullif(p_command->>'available_cents','')::bigint,(p_command->>'balance_at')::bigint,p_command->'issues',NOT q.discovery AND p_command->>'currency'='USD' AND coalesce((p_command->>'complete')::boolean,false),(p_command->>'expected_count')::integer);
-  RETURN jsonb_build_object('id',p_command->>'id');
- ELSIF op IN ('window.append','window.finish') THEN
-  SELECT w0.* INTO w FROM public.acct_feed_windows w0 JOIN public.acct_feed_requests q0 ON q0.id=w0.request_id WHERE w0.id=(p_command->>'id')::uuid AND q0.run_id=r.id;
-  IF NOT FOUND OR w.status<>'receiving' THEN RAISE EXCEPTION 'ACCT_FEED_WINDOW'; END IF;
-  SELECT * INTO q FROM public.acct_feed_requests WHERE id=w.request_id;
-  IF op='window.append' THEN
-   IF jsonb_typeof(p_command->'transactions') IS DISTINCT FROM 'array' OR jsonb_array_length(p_command->'transactions') NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
-   count_before:=w.received_count;
-   IF (p_command->>'offset')::integer IS DISTINCT FROM count_before THEN RAISE EXCEPTION 'ACCT_IMPORT_CHECKPOINT'; END IF;
-   FOR x IN SELECT value FROM jsonb_array_elements(p_command->'transactions') LOOP
-    IF x->>'state'='posted' AND ((x->>'posted')::bigint<q.from_stamp OR (x->>'posted')::bigint>=q.to_stamp) THEN RAISE EXCEPTION 'ACCT_FEED_WINDOW'; END IF;
-    INSERT INTO public.acct_feed_observations(window_id,ordinal,external_id,state,posted,transacted_at,amount_cents,description,content_hash,raw_payload)
-    VALUES(w.id,count_before,x->>'external_id',x->>'state',(x->>'posted')::bigint,nullif(x->>'transacted_at','')::bigint,(x->>'amount_cents')::bigint,x->>'description',x->>'hash',x->'raw');count_before:=count_before+1;
-   END LOOP;
-   UPDATE public.acct_feed_windows SET received_count=count_before WHERE id=w.id;
-  ELSE
-   IF w.received_count<>w.expected_count THEN RAISE EXCEPTION 'ACCT_IMPORT_INCOMPLETE'; END IF;
-   IF EXISTS(SELECT 1 FROM public.acct_feed_observations current_o JOIN public.acct_feed_observations old_o ON old_o.external_id=current_o.external_id JOIN public.acct_feed_windows old_w ON old_w.id=old_o.window_id WHERE current_o.window_id=w.id AND old_w.feed_account_id=w.feed_account_id AND old_w.created_at<w.created_at AND old_o.state='posted' AND current_o.state<>'posted') THEN
-    w.complete_response:=false;
-    UPDATE public.acct_feed_windows SET complete_response=false,issues=issues||jsonb_build_array(jsonb_build_object('code','source_regression','message','A previously posted bank movement is now pending or nonfinancial. Its earlier accounting treatment requires review.')) WHERE id=w.id;
+  IF discovery_only THEN CONTINUE; END IF;
+  conflicts_before:=count_conflicts;account_complete:=coalesce((a->>'complete')::boolean,false) AND NOT blocked ? provider_key;
+  IF coalesce((a->>'chunk_partial')::boolean,false) THEN account_complete:=false; END IF;
+  FOR tx IN SELECT value FROM jsonb_array_elements(coalesce(a->'transactions','[]')) LOOP
+   IF (tx->>'state' IN ('pending','nonfinancial') OR (tx->>'amount_cents')::bigint=0) AND EXISTS(SELECT 1 FROM accounting.bank_transactions WHERE bank_account_id=ba.id AND external_id=tx->>'external_id' AND state='posted') THEN
+    account_complete:=false;count_conflicts:=count_conflicts+1;CONTINUE;
    END IF;
-   UPDATE public.acct_feed_windows SET status=CASE WHEN complete_response THEN 'accepted' ELSE 'incomplete' END WHERE id=w.id;
-   -- Exact repeat observations inherit the existing reviewed source-group link.
-   -- No source/ledger rows are inserted or changed by the worker.
-   INSERT INTO public.acct_feed_import_links(observation_id,group_id)
-   SELECT current_o.id,matched.group_id FROM public.acct_feed_observations current_o CROSS JOIN LATERAL (
-    SELECT fl.group_id FROM public.acct_feed_observations old_o JOIN public.acct_feed_windows old_w ON old_w.id=old_o.window_id JOIN public.acct_feed_import_links fl ON fl.observation_id=old_o.id
-    WHERE old_w.feed_account_id=w.feed_account_id AND old_o.external_id=current_o.external_id AND old_o.content_hash=current_o.content_hash AND old_o.posted=current_o.posted AND old_o.amount_cents=current_o.amount_cents AND old_o.state=current_o.state ORDER BY old_w.created_at LIMIT 1
-   ) matched WHERE current_o.window_id=w.id ON CONFLICT DO NOTHING;
-   IF w.complete_response AND w.feed_account_id IS NOT NULL THEN
-    UPDATE public.acct_feed_accounts SET checkpoint=greatest(coalesce(checkpoint,history_start),q.to_stamp) WHERE id=w.feed_account_id;
-    IF q.to_stamp<extract(epoch FROM now()-interval '5 days')::bigint AND NOT EXISTS(SELECT 1 FROM public.acct_feed_observations WHERE window_id=w.id AND state='posted') THEN
-     INSERT INTO public.acct_feed_gaps(feed_account_id,from_stamp,to_stamp,reason) VALUES(w.feed_account_id,q.from_stamp,q.to_stamp,'The provider returned no posted history for this older window. Confirm coverage with original statements or a historical CSV import.') ON CONFLICT DO NOTHING;
+   IF tx->>'state'='pending' THEN count_pending:=count_pending+1; CONTINUE; END IF;
+   IF tx->>'state'='nonfinancial' OR (tx->>'amount_cents')::bigint=0 THEN CONTINUE; END IF;
+   book_date:=(to_timestamp((tx->>'posted')::bigint) AT TIME ZONE zone)::date;
+   amount:=(tx->>'amount_cents')::bigint*ba.movement_sign;
+   IF ba.coverage_from IS NOT NULL AND book_date<ba.coverage_from THEN CONTINUE; END IF;
+   SELECT * INTO observation FROM accounting.bank_transactions WHERE bank_account_id=ba.id AND external_id=tx->>'external_id';
+   IF FOUND THEN
+    IF observation.content_hash IS DISTINCT FROM tx->>'hash' OR observation.amount_cents<>amount OR observation.posted_date<>book_date THEN
+     account_complete:=false;count_conflicts:=count_conflicts+1;CONTINUE;
     END IF;
-   END IF;
-  END IF;
-  RETURN jsonb_build_object('id',w.id);
- ELSIF op='finish' THEN
-  is_complete:=coalesce((p_command->>'complete')::boolean,false) AND NOT EXISTS(SELECT 1 FROM public.acct_feed_windows w0 JOIN public.acct_feed_requests q0 ON q0.id=w0.request_id WHERE q0.run_id=r.id AND NOT q0.discovery AND w0.status<>'accepted');
-  IF EXISTS(SELECT 1 FROM public.acct_feed_requests q0 WHERE q0.run_id=r.id AND NOT q0.discovery AND NOT EXISTS(SELECT 1 FROM public.acct_feed_windows w0 WHERE w0.request_id=q0.id AND w0.identity_id=q0.identity_id AND w0.status='accepted')) THEN is_complete:=false; END IF;
-  UPDATE public.acct_feed_runs SET status=CASE WHEN is_complete THEN 'completed' ELSE 'partial' END,finished_at=now(),error=left(coalesce(p_command->>'error',''),1000) WHERE id=r.id;
-  UPDATE public.acct_feed_connections SET lease_until=NULL,lease_run_id=NULL,next_sync_at=now()+interval '24 hours'+make_interval(secs=>floor(random()*3600)::integer),last_success_at=CASE WHEN is_complete THEN now() ELSE last_success_at END,last_error=left(coalesce(p_command->>'error',''),1000) WHERE id=c.id;
-  RETURN jsonb_build_object('id',r.id,'complete',is_complete);
- ELSIF op='fail' THEN
-  UPDATE public.acct_feed_runs SET status='failed',finished_at=now(),error=left(p_command->>'error',1000) WHERE id=r.id;
-  UPDATE public.acct_feed_connections SET lease_until=NULL,lease_run_id=NULL,last_error=left(p_command->>'error',1000),retry_at=now()+make_interval(secs=>greatest(60,least(coalesce((p_command->>'retry_seconds')::integer,3600),86400))),status=CASE WHEN p_command->>'code'='access_revoked' THEN 'reconnect_required' ELSE status END WHERE id=c.id;
-  RETURN jsonb_build_object('id',r.id);
- END IF;
- RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND';
-END $$;
-
-CREATE OR REPLACE FUNCTION public.acct_feed_command(p_command jsonb,p_actor uuid) RETURNS jsonb
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-DECLARE op text:=p_command->>'type';c public.acct_feed_connections;a public.acct_feed_identities;f public.acct_feed_accounts;
- v_id uuid:=(p_command->>'id')::uuid;v_feed uuid;v_start bigint;v_checkpoint bigint;v_groups jsonb;v_batch uuid;result jsonb;x record;g record;v_offset integer:=0;
-BEGIN
- PERFORM public.acct_require_owner();PERFORM public.acct_write_lock();
- IF op='feed.claim' THEN
-  SELECT * INTO c FROM public.acct_feed_connections WHERE id=v_id;
-  IF FOUND THEN
-   IF c.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-   UPDATE public.acct_feed_runs SET status='expired',finished_at=now(),error='Connection replaced by its owner.' WHERE id=c.lease_run_id AND status='running';
-   UPDATE public.acct_feed_connections SET status='claiming',generation=generation+1,version=version+1,name=p_command->>'name',scheduled=false,lease_run_id=NULL,lease_until=NULL,last_error='' WHERE id=v_id RETURNING * INTO c;
-   DELETE FROM public.acct_feed_secrets WHERE connection_id=v_id;
-  ELSE
-   IF (p_command->>'expected_version')::integer IS DISTINCT FROM 0 THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-   INSERT INTO public.acct_feed_connections(id,name,created_by) VALUES(v_id,p_command->>'name',p_actor) RETURNING * INTO c;
-  END IF;
-  INSERT INTO public.acct_feed_claims(id,connection_id,generation,created_by) VALUES((p_command->>'claim_id')::uuid,c.id,c.generation,p_actor);
-  RETURN jsonb_build_object('id',c.id,'claim_id',p_command->>'claim_id','version',c.version);
- ELSIF op IN ('feed.disconnect','feed.schedule') THEN
-  SELECT * INTO c FROM public.acct_feed_connections WHERE id=v_id;
-  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-  IF c.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-  IF op='feed.disconnect' THEN
-   IF length(btrim(coalesce(p_command->>'reason','')))=0 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
-   UPDATE public.acct_feed_runs SET status='expired',finished_at=now(),error='Disconnected by its owner.' WHERE id=c.lease_run_id AND status='running';
-   UPDATE public.acct_feed_connections SET status='disconnected',scheduled=false,generation=generation+1,version=version+1,lease_run_id=NULL,lease_until=NULL WHERE id=v_id;
-   DELETE FROM public.acct_feed_secrets WHERE connection_id=v_id;
-  ELSE
-   IF c.status<>'active' OR coalesce((p_command->>'enabled')::boolean,false) AND NOT EXISTS(SELECT 1 FROM public.acct_feed_identities WHERE connection_id=c.id AND ownership='company' AND approved_generation=c.generation) THEN RAISE EXCEPTION 'ACCT_FEED_MAPPING'; END IF;
-   UPDATE public.acct_feed_connections SET scheduled=(p_command->>'enabled')::boolean,next_sync_at=coalesce(next_sync_at,now()+make_interval(secs=>floor(random()*3600)::integer)),version=version+1 WHERE id=v_id;
-  END IF;
-  RETURN jsonb_build_object('id',v_id,'version',c.version+1);
- ELSIF op='feed.map' THEN
-  SELECT * INTO a FROM public.acct_feed_identities WHERE id=v_id;
-  SELECT * INTO c FROM public.acct_feed_connections WHERE id=a.connection_id;
-  IF a.id IS NULL OR c.status<>'active' OR a.observed_generation<>c.generation THEN RAISE EXCEPTION 'ACCT_FEED_MAPPING'; END IF;
-  IF a.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-  IF coalesce(c.lease_until,'-infinity')>now() THEN RAISE EXCEPTION 'ACCT_FEED_BUSY'; END IF;
-  IF coalesce((p_command->>'reviewed')::boolean,false) IS NOT TRUE OR length(btrim(coalesce(p_command->>'reason','')))=0 THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
-  IF p_command->>'ownership'='company' THEN
-   IF a.currency<>'USD' OR NOT EXISTS(SELECT 1 FROM public.acct_accounts aa JOIN public.acct_account_profiles ap ON ap.account_id=aa.id WHERE aa.id=(p_command->>'account_id')::uuid AND NOT aa.is_archived AND ap.cash_kind IN ('bank','card','cash')) THEN RAISE EXCEPTION 'ACCT_BANK_ACCOUNT_REQUIRED'; END IF;
-   SELECT * INTO f FROM public.acct_feed_accounts WHERE account_id=(p_command->>'account_id')::uuid;
-   v_start:=(p_command->>'history_start')::bigint;
-   IF v_start>extract(epoch FROM now())::bigint THEN RAISE EXCEPTION 'ACCT_FEED_WINDOW'; END IF;
-   IF f.id IS NULL THEN
-    INSERT INTO public.acct_feed_accounts(account_id,history_start,posting_timezone,movement_sign,balance_sign,created_by) VALUES((p_command->>'account_id')::uuid,v_start,p_command->>'posting_timezone',(p_command->>'movement_sign')::integer,(p_command->>'balance_sign')::integer,p_actor) RETURNING * INTO f;
    ELSE
-    IF f.history_start<>v_start OR f.posting_timezone<>p_command->>'posting_timezone' OR f.movement_sign<>(p_command->>'movement_sign')::integer OR f.balance_sign<>(p_command->>'balance_sign')::integer THEN
-     IF EXISTS(SELECT 1 FROM public.acct_feed_windows WHERE feed_account_id=f.id) THEN RAISE EXCEPTION 'ACCT_FEED_MAPPING_IMMUTABLE'; END IF;
-     IF f.version IS DISTINCT FROM (p_command->>'expected_feed_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-     UPDATE public.acct_feed_accounts SET history_start=v_start,posting_timezone=p_command->>'posting_timezone',movement_sign=(p_command->>'movement_sign')::integer,balance_sign=(p_command->>'balance_sign')::integer,checkpoint=NULL,resume_floor=NULL,version=version+1 WHERE id=f.id RETURNING * INTO f;
-    END IF;
+    INSERT INTO accounting.bank_transactions(bank_account_id,source,external_id,posted_date,transacted_at,amount_cents,description,descriptor_key,content_hash,raw_payload,state)
+     VALUES(ba.id,'simplefin',tx->>'external_id',book_date,to_timestamp((tx->>'transacted_at')::bigint),amount,tx->>'description',accounting.descriptor_key(tx->>'description'),tx->>'hash',tx->'raw','posted') RETURNING * INTO observation;
+    count_new:=count_new+1;
    END IF;
-   IF a.feed_account_id IS NOT NULL AND a.feed_account_id<>f.id AND EXISTS(SELECT 1 FROM public.acct_feed_windows WHERE identity_id=a.id AND feed_account_id IS NOT NULL) THEN RAISE EXCEPTION 'ACCT_FEED_MAPPING_IMMUTABLE'; END IF;
-   IF EXISTS(SELECT 1 FROM public.acct_feed_identities i JOIN public.acct_feed_connections ic ON ic.id=i.connection_id WHERE i.id<>a.id AND i.feed_account_id=f.id AND ic.status='active' AND i.approved_generation=ic.generation) THEN RAISE EXCEPTION 'ACCT_FEED_MAPPING_DUPLICATE'; END IF;
-   v_feed:=f.id;
-  ELSIF p_command->>'ownership' NOT IN ('personal','ignored') THEN RAISE EXCEPTION 'ACCT_FEED_MAPPING'; END IF;
-  UPDATE public.acct_feed_identities SET feed_account_id=v_feed,ownership=p_command->>'ownership',approved_generation=c.generation,version=version+1 WHERE id=a.id;
-  RETURN jsonb_build_object('id',a.id,'version',a.version+1);
- ELSIF op='feed.skip' THEN
-  SELECT * INTO f FROM public.acct_feed_accounts WHERE id=v_id;
-  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-  IF f.version IS DISTINCT FROM (p_command->>'expected_version')::integer THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-  IF EXISTS(SELECT 1 FROM public.acct_feed_identities i JOIN public.acct_feed_connections c0 ON c0.id=i.connection_id WHERE i.feed_account_id=f.id AND coalesce(c0.lease_until,'-infinity')>now()) THEN RAISE EXCEPTION 'ACCT_FEED_BUSY'; END IF;
-  v_checkpoint:=coalesce(f.checkpoint,f.history_start);v_start:=(p_command->>'through')::bigint;
-  IF v_start<=v_checkpoint OR v_start>extract(epoch FROM now())::bigint OR length(btrim(coalesce(p_command->>'reason','')))=0 THEN RAISE EXCEPTION 'ACCT_FEED_WINDOW'; END IF;
-  INSERT INTO public.acct_feed_gaps(feed_account_id,from_stamp,to_stamp,reason,created_by) VALUES(f.id,v_checkpoint,v_start,p_command->>'reason',p_actor);
-  UPDATE public.acct_feed_accounts SET checkpoint=v_start,resume_floor=v_start,version=version+1 WHERE id=f.id;
-  RETURN jsonb_build_object('id',f.id,'version',f.version+1);
- ELSIF op='feed.prepare' THEN
-  SELECT * INTO f FROM public.acct_feed_accounts WHERE id=v_id;
-  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
-  -- Latest observation per canonical provider identity; pending never becomes a
-  -- financial draft. Older versions stay available as immutable source evidence.
-  SELECT jsonb_agg(jsonb_build_object('observation_id',o.id,'external_id',o.external_id,'source_hash',o.content_hash,'entry_date',(to_timestamp(o.posted) AT TIME ZONE f.posting_timezone)::date,'memo',o.description,'bank_account_id',f.account_id,'bank_amount_cents',(o.amount_cents*f.movement_sign)::text,'identity_kind','provider_id','lines','[]'::jsonb,'raw',o.raw_payload,'fingerprint',encode(sha256(convert_to(jsonb_build_array(f.account_id,(to_timestamp(o.posted) AT TIME ZONE f.posting_timezone)::date,(o.amount_cents*f.movement_sign)::text)::text,'UTF8')),'hex'))) INTO v_groups
-  FROM (SELECT latest.* FROM (SELECT DISTINCT ON (o0.external_id) o0.* FROM public.acct_feed_observations o0 JOIN public.acct_feed_windows w0 ON w0.id=o0.window_id WHERE w0.feed_account_id=f.id AND w0.status IN ('accepted','incomplete') ORDER BY o0.external_id,w0.created_at DESC,w0.id DESC) latest WHERE latest.state='posted' AND NOT EXISTS(SELECT 1 FROM public.acct_feed_import_links fl WHERE fl.observation_id=latest.id) ORDER BY latest.posted,latest.external_id LIMIT 50) o;
-  IF v_groups IS NULL THEN RETURN jsonb_build_object('count',0); END IF;
-  v_batch:=gen_random_uuid();
-  result:=public.acct_import_command(jsonb_build_object('type','import.create','id',v_batch,'source_system','simplefin','source_scope',f.id::text,'file_hash',encode(sha256(convert_to(v_groups::text,'UTF8')),'hex'),'mapping_hash',encode(sha256(convert_to(to_jsonb(f)::text,'UTF8')),'hex'),'file_name','SimpleFIN: '||(SELECT name FROM public.acct_accounts WHERE id=f.account_id),'mode','bank','basis','cash','expected_groups',jsonb_array_length(v_groups),'from',(SELECT min(value->>'entry_date') FROM jsonb_array_elements(v_groups)),'to',(SELECT max(value->>'entry_date') FROM jsonb_array_elements(v_groups))),p_actor);
-  v_batch:=(result->>'id')::uuid;
-  SELECT jsonb_agg(value||jsonb_build_object('id',gen_random_uuid(),'ordinal',ordinality-1) ORDER BY ordinality) INTO v_groups FROM jsonb_array_elements(v_groups) WITH ORDINALITY;
-  result:=public.acct_import_command(jsonb_build_object('type','import.stage','id',v_batch,'expected_version',result->'version','groups',v_groups),p_actor);
-  INSERT INTO public.acct_feed_import_links(observation_id,group_id) SELECT (value->>'observation_id')::uuid,(value->>'id')::uuid FROM jsonb_array_elements(v_groups);
-  RETURN result||jsonb_build_object('count',jsonb_array_length(v_groups));
+   IF observation.review<>'unmatched' OR EXISTS(SELECT 1 FROM accounting.bank_matches WHERE bank_transaction_id=observation.id) THEN CONTINUE; END IF;
+   SELECT count(*),(array_agg(l.id ORDER BY e.entry_date,l.id))[1] INTO candidate_count,candidate_id
+    FROM accounting.journal_lines l JOIN accounting.journal_entries e ON e.id=l.entry_id
+    WHERE l.account_id=ba.account_id AND l.amount_cents=amount AND e.status IN ('draft','posted') AND e.reverses_entry_id IS NULL
+     AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries WHERE reverses_entry_id=e.id)
+     AND abs(e.entry_date-book_date)<=(SELECT transfer_window_days FROM accounting.settings WHERE id=1)
+     AND (NOT EXISTS(SELECT 1 FROM accounting.bank_matches WHERE journal_line_id=l.id)
+      OR EXISTS(SELECT 1 FROM accounting.bank_matches m JOIN accounting.bank_transactions o ON o.id=m.bank_transaction_id WHERE m.journal_line_id=l.id AND m.amount_cents=abs(amount) AND o.source<>observation.source AND o.bank_account_id=ba.id AND o.amount_cents=amount AND abs(o.posted_date-book_date)<=(SELECT transfer_window_days FROM accounting.settings WHERE id=1)));
+   IF candidate_count=1 THEN
+    allocation:=CASE WHEN EXISTS(SELECT 1 FROM accounting.bank_matches WHERE journal_line_id=candidate_id) THEN 0 ELSE abs(amount) END;
+    INSERT INTO accounting.bank_matches(bank_transaction_id,journal_line_id,amount_cents) VALUES(observation.id,candidate_id,allocation);
+   ELSIF coalesce((command->>'create_drafts')::boolean,false) THEN
+    -- Closed-period evidence stays unmatched for owner resolution; never shift its date.
+    IF EXISTS(SELECT 1 FROM accounting.periods WHERE status='locked' AND month>=date_trunc('month',book_date)::date) THEN CONTINUE; END IF;
+    SELECT id INTO category FROM accounting.accounts WHERE system_purpose=CASE WHEN amount>0 THEN 'uncategorized_income' ELSE 'uncategorized_expense' END;
+    draft:=accounting.ledger_command(jsonb_build_object('type','draft.save','id',gen_random_uuid(),'expected_version',0,'entry_date',book_date,'memo',observation.description,'source_description',observation.description,'origin','simplefin','kind',CASE WHEN amount>0 THEN 'income' ELSE 'expense' END,
+     'lines',jsonb_build_array(jsonb_build_object('account_id',ba.account_id,'amount_cents',amount::text),jsonb_build_object('account_id',category,'amount_cents',(-amount)::text))));
+    SELECT id INTO bank_line FROM accounting.journal_lines WHERE entry_id=(draft->>'id')::uuid AND account_id=ba.account_id;
+    INSERT INTO accounting.bank_matches(bank_transaction_id,journal_line_id,amount_cents) VALUES(observation.id,bank_line,abs(amount));
+    PERFORM accounting.apply_treatment((draft->>'id')::uuid);count_drafts:=count_drafts+1;
+   END IF;
+  END LOOP;
+  IF count_conflicts>conflicts_before AND NOT blocked ? provider_key THEN blocked:=blocked||jsonb_build_array(provider_key); END IF;
+  IF NOT account_complete AND NOT coalesce((a->>'chunk_partial')::boolean,false) THEN run_complete:=false; END IF;
+  IF account_complete THEN
+   new_checkpoint:=jsonb_set(new_checkpoint,ARRAY[provider_key],coalesce(a->'through',command->'through','null'));
+  END IF;
+ END LOOP;
+ IF NOT partial AND NOT discovery_only AND EXISTS(SELECT 1 FROM accounting.bank_accounts b WHERE b.connection_id=c.id AND NOT b.is_closed AND NOT seen ? b.provider_account_id) THEN run_complete:=false; END IF;
+ new_checkpoint:=jsonb_set(new_checkpoint,ARRAY['discovery'],discovered);
+ new_checkpoint:=jsonb_set(new_checkpoint,ARRAY['sync_run'],jsonb_build_object('seen',seen,'blocked',blocked,'complete',run_complete AND count_conflicts=0));
+ UPDATE accounting.bank_connections SET checkpoint=new_checkpoint,last_success_at=CASE WHEN NOT partial AND NOT discovery_only AND count_conflicts=0 AND run_complete THEN now() ELSE last_success_at END,
+  last_error=CASE WHEN count_conflicts>0 THEN 'Provider records changed. Original evidence was retained; review before advancing coverage.' WHEN NOT run_complete THEN 'The provider reported incomplete account data.' ELSE '' END,
+  lease_run_id=CASE WHEN partial THEN run ELSE NULL END,lease_until=CASE WHEN partial THEN c.lease_until ELSE NULL END,next_sync_at=now()+CASE WHEN run_complete AND count_conflicts=0 THEN interval '6 hours' ELSE interval '1 hour' END WHERE id=c.id;
+ INSERT INTO accounting.audit_log(actor_kind,operation_id,table_name,row_id,action,after)
+  VALUES('worker',run,'bank_connections',c.id,'sync',jsonb_build_object('accounts',jsonb_array_length(command->'accounts'),'new',count_new,'pending',count_pending,'drafts',count_drafts,'errors',count_conflicts));
+ RETURN jsonb_build_object('id',c.id,'new',count_new,'pending',count_pending,'drafts',count_drafts,'conflicts',count_conflicts,'complete',run_complete AND count_conflicts=0);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.tax_command(c jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE t text:=c->>'type';k uuid:=coalesce((c->>'id')::uuid,gen_random_uuid());y integer:=coalesce((c->>'tax_year')::integer,(c->>'year')::integer);actor uuid:=accounting.require_owner();m accounting.tax_mappings;link accounting.tax_links;mapped_concept text:=c->>'concept';body jsonb:=coalesce(c->'body',c->'forecast_inputs');estimate public.tax_estimates;method text;
+BEGIN
+ mapped_concept:=CASE mapped_concept WHEN 'ordinary_income' THEN 'gross_receipts' WHEN 'ordinary_expense' THEN 'other_deduction' WHEN 'officer_wages' THEN 'officer_compensation' WHEN 'meals' THEN 'meals_50' WHEN 'excluded_book' THEN 'balance_sheet_only' ELSE mapped_concept END;
+ IF t IN ('tax.mapping','tax.mapping.save') THEN
+  SELECT * INTO m FROM accounting.tax_mappings WHERE tax_year=y AND account_id=(c->>'account_id')::uuid;
+  IF coalesce((c->>'expected_version')::integer,-1)<>coalesce(m.version,0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+  IF NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=(c->>'account_id')::uuid) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_NOT_FOUND';END IF;
+  IF m.id IS NULL THEN INSERT INTO accounting.tax_mappings(id,tax_year,account_id,concept,deductible_bps,separately_stated,notes) VALUES(k,y,(c->>'account_id')::uuid,mapped_concept,coalesce((c->>'deductible_bps')::integer,CASE WHEN mapped_concept='meals_50' THEN 5000 ELSE 10000 END),coalesce((c->>'separately_stated')::boolean,mapped_concept IN ('qualified_dividend','short_gain','long_gain','charity','tax_exempt') OR (mapped_concept='interest' AND EXISTS(SELECT 1 FROM accounting.accounts WHERE id=(c->>'account_id')::uuid AND type='income'))),coalesce(c->>'notes',c->>'reason','')) RETURNING * INTO m;
+  ELSE UPDATE accounting.tax_mappings SET concept=mapped_concept,deductible_bps=coalesce((c->>'deductible_bps')::integer,CASE WHEN mapped_concept='meals_50' THEN 5000 ELSE 10000 END),separately_stated=coalesce((c->>'separately_stated')::boolean,mapped_concept IN ('qualified_dividend','short_gain','long_gain','charity','tax_exempt') OR (mapped_concept='interest' AND EXISTS(SELECT 1 FROM accounting.accounts WHERE id=m.account_id AND type='income'))),notes=coalesce(c->>'notes',c->>'reason','') WHERE id=m.id RETURNING * INTO m;END IF;
+  RETURN jsonb_build_object('id',m.id,'version',m.version);
+ ELSIF t IN ('tax.adjustment','tax.adjustment.save') THEN
+  IF coalesce((c->>'expected_version')::integer,0)<>0 OR c->>'active'='false' THEN RAISE EXCEPTION 'ACCT_TAX_OFFSET_REQUIRED';END IF;
+  IF c->>'document_id' IS NOT NULL AND NOT EXISTS(SELECT 1 FROM accounting.documents d WHERE d.id=(c->>'document_id')::uuid AND d.status<>'archived' AND EXISTS(SELECT 1 FROM storage.objects o WHERE o.bucket_id='accounting-private' AND o.name=d.storage_path)) THEN RAISE EXCEPTION 'ACCT_DOCUMENT_UNAVAILABLE';END IF;
+  INSERT INTO accounting.tax_adjustments(id,tax_year,concept,effective_date,amount_cents,reason,document_id,created_by) VALUES(k,y,mapped_concept,coalesce((c->>'effective_date')::date,make_date(y,12,31)),(c->>'amount_cents')::bigint,c->>'reason',(c->>'document_id')::uuid,actor);
+  RETURN jsonb_build_object('id',k,'version',1);
+ ELSIF t='tax.link.save' THEN
+  SELECT * INTO link FROM accounting.tax_links WHERE id=k;
+  IF coalesce((c->>'expected_version')::integer,-1)<>coalesce(link.version,0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION';END IF;
+  SELECT * INTO estimate FROM public.tax_estimates WHERE id=coalesce((c->>'tax_estimate_id')::uuid,(c->>'estimate_id')::uuid) AND deleted_at IS NULL;
+  IF estimate.id IS NULL THEN RAISE EXCEPTION 'ACCT_TAX_ESTIMATE_NOT_FOUND';END IF;
+  IF link.id IS NOT NULL AND link.tax_estimate_id<>estimate.id THEN RAISE EXCEPTION 'ACCT_TAX_LINK_IDENTITY';END IF;
+  IF body IS NULL OR jsonb_typeof(body)<>'object' OR extract(year FROM (body->>'through')::date)<>estimate.tax_year THEN RAISE EXCEPTION 'ACCT_TAX_LINK_SCOPE';END IF;
+  method:=CASE body->'forecast'->>'method' WHEN 'average' THEN 'average_months' WHEN 'prior_pattern' THEN 'prior_year_pattern' ELSE body->'forecast'->>'method' END;
+  IF link.id IS NULL THEN INSERT INTO accounting.tax_links(id,tax_estimate_id,tax_year,cutoff_mode,cutoff_date,forecast_method,forecast_inputs) VALUES(k,estimate.id,estimate.tax_year,body->>'cutoff_mode',(body->>'through')::date,method,body||jsonb_build_object('enabled',coalesce((c->>'enabled')::boolean,true),'reason',coalesce(c->>'reason',''))) RETURNING * INTO link;
+  ELSE UPDATE accounting.tax_links SET cutoff_mode=body->>'cutoff_mode',cutoff_date=(body->>'through')::date,forecast_method=method,forecast_inputs=body||jsonb_build_object('enabled',coalesce((c->>'enabled')::boolean,true),'reason',coalesce(c->>'reason','')),status='stale',error=NULL,inputs=inputs-'_refresh' WHERE id=k RETURNING * INTO link;END IF;
+  RETURN jsonb_build_object('id',link.id,'version',link.version);
  END IF;
  RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND';
-END $$;
+END $function$
+;
 
-CREATE OR REPLACE FUNCTION public.acct_feed_gap_covered(p_gap uuid) RETURNS boolean
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
- SELECT coalesce(daterange((to_timestamp(g.from_stamp) AT TIME ZONE f.posting_timezone)::date,(to_timestamp(g.to_stamp-1) AT TIME ZONE f.posting_timezone)::date,'[]') <@ (
- SELECT range_agg(daterange(s.from_date,s.to_date,'[]')) FROM (
-  SELECT r.from_date,r.to_date FROM public.acct_reconciliations r WHERE r.account_id=f.account_id AND r.status='completed'
-  UNION ALL SELECT h.from_date,h.to_date FROM public.acct_history_checks h WHERE public.acct_history_check_current(h.id) AND EXISTS(SELECT 1 FROM jsonb_array_elements(h.account_controls) ac WHERE ac->>'account_id'=f.account_id::text)
- ) s),false) FROM public.acct_feed_gaps g JOIN public.acct_feed_accounts f ON f.id=g.feed_account_id WHERE g.id=p_gap;
-$$;
-REVOKE ALL ON FUNCTION public.acct_feed_gap_covered(uuid) FROM PUBLIC,anon,authenticated,service_role;
-
-CREATE OR REPLACE FUNCTION public.acct_feed_view() RETURNS jsonb
-LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path='' AS $$
+CREATE OR REPLACE FUNCTION accounting.tax_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
 BEGIN
- PERFORM public.acct_require_owner();
- RETURN jsonb_build_object('owner_id',auth.uid(),'connections',(SELECT coalesce(jsonb_agg(to_jsonb(c)||jsonb_build_object('requests_today',(SELECT count(*) FROM public.acct_feed_requests q JOIN public.acct_feed_runs r ON r.id=q.run_id WHERE r.connection_id=c.id AND q.created_at>now()-interval '24 hours')) ORDER BY c.created_at),'[]') FROM public.acct_feed_connections c),
- 'accounts',(SELECT coalesce(jsonb_agg(to_jsonb(fa)||jsonb_build_object('history_start',fa.history_start::text,'checkpoint',fa.checkpoint::text,'can_edit_settings',NOT EXISTS(SELECT 1 FROM public.acct_feed_windows fw WHERE fw.feed_account_id=fa.id))),'[]') FROM public.acct_feed_accounts fa),
- 'identities',(SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('account',CASE WHEN f.id IS NOT NULL THEN to_jsonb(f)||jsonb_build_object('history_start',f.history_start::text,'checkpoint',f.checkpoint::text,'can_edit_settings',NOT EXISTS(SELECT 1 FROM public.acct_feed_windows fw WHERE fw.feed_account_id=f.id)) END,'balance',(SELECT to_jsonb(w)||jsonb_build_object('balance_cents',w.balance_cents::text,'available_cents',w.available_cents::text) FROM public.acct_feed_windows w WHERE w.identity_id=a.id ORDER BY w.created_at DESC,w.id DESC LIMIT 1)) ORDER BY a.institution,a.name),'[]') FROM public.acct_feed_identities a LEFT JOIN public.acct_feed_accounts f ON f.id=a.feed_account_id),
- 'runs',(SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY r.started_at DESC),'[]') FROM (SELECT * FROM public.acct_feed_runs ORDER BY started_at DESC LIMIT 40) r),
- 'gaps',(SELECT coalesce(jsonb_agg(to_jsonb(g)||jsonb_build_object('from_stamp',g.from_stamp::text,'to_stamp',g.to_stamp::text,'covered',public.acct_feed_gap_covered(g.id)) ORDER BY g.created_at DESC),'[]') FROM public.acct_feed_gaps g),
- 'queue',(SELECT coalesce(jsonb_agg(to_jsonb(s)),'[]') FROM (SELECT latest.feed_account_id,count(*) FILTER(WHERE latest.state='posted' AND fl.observation_id IS NULL) ready,count(*) FILTER(WHERE latest.state='pending') pending FROM (SELECT DISTINCT ON (w.feed_account_id,o.external_id) w.feed_account_id,o.id,o.state FROM public.acct_feed_observations o JOIN public.acct_feed_windows w ON w.id=o.window_id WHERE w.feed_account_id IS NOT NULL AND w.status IN ('accepted','incomplete') ORDER BY w.feed_account_id,o.external_id,w.created_at DESC,w.id DESC) latest LEFT JOIN public.acct_feed_import_links fl ON fl.observation_id=latest.id GROUP BY latest.feed_account_id) s));
-END $$;
-DO $$ DECLARE t text; BEGIN
- FOREACH t IN ARRAY ARRAY['acct_feed_connections','acct_feed_secrets','acct_feed_claims','acct_feed_accounts','acct_feed_identities','acct_feed_runs','acct_feed_requests','acct_feed_windows','acct_feed_observations','acct_feed_import_links','acct_feed_gaps'] LOOP
-  EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY',t);
-  EXECUTE format('REVOKE ALL ON public.%I FROM PUBLIC,anon,authenticated,service_role',t);
-  IF t NOT IN ('acct_feed_secrets','acct_feed_observations') THEN EXECUTE format('CREATE TRIGGER acct_audit AFTER INSERT OR UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.acct_feed_audit()',t); END IF;
- END LOOP;
- FOREACH t IN ARRAY ARRAY['acct_feed_requests','acct_feed_observations','acct_feed_import_links','acct_feed_gaps'] LOOP
-  EXECUTE format('CREATE TRIGGER acct_feed_immutable BEFORE UPDATE OR DELETE ON public.%I FOR EACH ROW EXECUTE FUNCTION public.acct_append_only()',t);
- END LOOP;
-END $$;
-REVOKE ALL ON FUNCTION public.acct_feed_audit(),public.acct_feed_assert_lease(uuid),public.acct_feed_server(jsonb),public.acct_feed_command(jsonb,uuid),public.acct_feed_view() FROM PUBLIC,anon,authenticated,service_role;
-GRANT EXECUTE ON FUNCTION public.acct_feed_server(jsonb) TO service_role;
-GRANT EXECUTE ON FUNCTION public.acct_feed_view() TO authenticated;
-
-
-
-
-
-CREATE OR REPLACE FUNCTION public.acct_feed_unreviewed(p_through date) RETURNS integer
-LANGUAGE sql STABLE SECURITY DEFINER SET search_path='' AS $$
- SELECT count(*)::integer FROM (
-  SELECT DISTINCT ON (w.feed_account_id,o.external_id) o.id,o.state,o.posted,f.posting_timezone
-  FROM public.acct_feed_observations o JOIN public.acct_feed_windows w ON w.id=o.window_id JOIN public.acct_feed_accounts f ON f.id=w.feed_account_id
-  WHERE w.status IN ('accepted','incomplete') ORDER BY w.feed_account_id,o.external_id,w.created_at DESC,w.id DESC
- ) latest WHERE latest.state='posted' AND (to_timestamp(latest.posted) AT TIME ZONE latest.posting_timezone)::date<=p_through AND NOT EXISTS(SELECT 1 FROM public.acct_feed_import_links fl WHERE fl.observation_id=latest.id);
-$$;
-REVOKE ALL ON FUNCTION public.acct_feed_unreviewed(date) FROM PUBLIC,anon,authenticated,service_role;
-CREATE OR REPLACE FUNCTION public.acct_feed_window_guard() RETURNS trigger
-LANGUAGE plpgsql SECURITY DEFINER SET search_path='' AS $$
-BEGIN
- IF TG_OP='DELETE' OR OLD.status<>'receiving' THEN RAISE EXCEPTION 'ACCT_APPEND_ONLY'; END IF;
- IF (to_jsonb(NEW)-ARRAY['status','received_count','complete_response','issues']) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['status','received_count','complete_response','issues']) OR NEW.received_count<OLD.received_count OR NOT OLD.complete_response AND NEW.complete_response THEN RAISE EXCEPTION 'ACCT_APPEND_ONLY'; END IF;
+ PERFORM accounting.write_lock();
+ IF TG_OP='DELETE' OR (TG_TABLE_NAME='tax_adjustments' AND TG_OP<>'INSERT') THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_TAX_ADJUSTMENT';END IF;
+ IF TG_TABLE_NAME IN ('tax_adjustments','tax_mappings') THEN
+  IF NEW.concept NOT IN ('gross_receipts','cogs','officer_compensation','salaries','payroll_taxes','rent','advertising','meals_50','travel','depreciation','interest','other_deduction','nondeductible','distribution','contribution','balance_sheet_only','qualified_dividend','short_gain','long_gain','charity','tax_exempt','ordinary_adjustment','stock_basis_opening','debt_basis_opening') THEN RAISE EXCEPTION 'ACCT_TAX_CONCEPT';END IF;
+  IF TG_TABLE_NAME='tax_mappings' AND NEW.concept IN ('ordinary_adjustment','stock_basis_opening','debt_basis_opening') THEN RAISE EXCEPTION 'ACCT_TAX_CONCEPT';END IF;
+ END IF;
+ IF TG_TABLE_NAME='tax_mappings' THEN
+  IF NEW.deductible_bps NOT BETWEEN 0 AND 10000 OR
+   (NEW.concept='gross_receipts' AND (NEW.deductible_bps<>10000 OR NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=NEW.account_id AND type='income'))) OR
+   (NEW.concept IN ('cogs','officer_compensation','salaries','payroll_taxes','rent','advertising','meals_50','travel','depreciation','other_deduction','charity') AND NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=NEW.account_id AND type='expense')) OR
+   (NEW.concept IN ('qualified_dividend','short_gain','long_gain','tax_exempt') AND NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=NEW.account_id AND type='income')) OR
+   (NEW.concept='interest' AND NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=NEW.account_id AND type IN ('income','expense'))) OR
+   (NEW.concept IN ('distribution','contribution') AND NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=NEW.account_id AND type='equity'))
+   THEN RAISE EXCEPTION 'ACCT_TAX_MAPPING';END IF;
+ END IF;
+ IF TG_OP='UPDATE' THEN NEW.version:=CASE WHEN TG_TABLE_NAME='tax_links' AND current_setting('accounting.actor_kind',true)='worker' THEN OLD.version ELSE OLD.version+1 END;NEW.updated_at:=now();END IF;
  RETURN NEW;
-END $$;
-REVOKE ALL ON FUNCTION public.acct_feed_window_guard() FROM PUBLIC,anon,authenticated,service_role;
-CREATE TRIGGER acct_feed_window_immutable BEFORE UPDATE OR DELETE ON public.acct_feed_windows FOR EACH ROW EXECUTE FUNCTION public.acct_feed_window_guard();
--- ACCOUNTING SIMPLEFIN END
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.tax_lines(year integer, cutoff date)
+ RETURNS TABLE(line_id uuid, entry_id uuid, entry_date date, account_id uuid, book_cents numeric, ordinary_cents numeric, concept text, mapping_current boolean)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ SELECT l.id,e.id,e.entry_date,a.id,-l.amount_cents::numeric,
+ CASE WHEN m.separately_stated THEN 0 WHEN m.concept='gross_receipts' THEN -l.amount_cents::numeric
+ WHEN m.concept IN ('cogs','officer_compensation','salaries','payroll_taxes','rent','advertising','meals_50','travel','depreciation','interest','other_deduction') THEN -round(l.amount_cents::numeric*m.deductible_bps/10000) ELSE 0 END,
+ m.concept,m.id IS NOT NULL
+ FROM accounting.journal_entries e JOIN accounting.journal_lines l ON l.entry_id=e.id JOIN accounting.accounts a ON a.id=l.account_id
+ LEFT JOIN accounting.tax_mappings m ON m.account_id=a.id AND m.tax_year=year
+ WHERE e.status='posted' AND e.entry_date BETWEEN make_date(year,1,1) AND cutoff AND a.type IN ('income','expense')
+$function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.tax_link(id uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE l accounting.tax_links;e jsonb;personal_hash text;cutoff date;is_current boolean;
+BEGIN
+ PERFORM accounting.require_owner();SELECT * INTO l FROM accounting.tax_links WHERE tax_links.id=tax_link.id OR tax_estimate_id=tax_link.id;
+ SELECT to_jsonb(t) INTO e FROM public.tax_estimates t WHERE t.id=coalesce(l.tax_estimate_id,tax_link.id) AND deleted_at IS NULL;
+ personal_hash:=encode(sha256(convert_to(e::text,'UTF8')),'hex');
+ cutoff:=CASE WHEN l.cutoff_mode='fixed' THEN l.cutoff_date ELSE least(make_date(l.tax_year,12,31),(now() AT TIME ZONE (SELECT books_timezone FROM public.business_profile WHERE business_profile.id=1))::date) END;
+ is_current:=coalesce(l.status='fresh' AND l.financial_revision=(SELECT financial_revision FROM accounting.settings) AND l.inputs->>'personal_hash'=personal_hash AND l.inputs->>'through'=cutoff::text AND l.inputs->>'profile_hash'=encode(sha256(convert_to((SELECT to_jsonb(p)::text FROM public.business_profile p WHERE p.id=1),'UTF8')),'hex'),false);
+ RETURN jsonb_build_object('estimate',e,'personal_hash',personal_hash,'current',is_current,'link',CASE WHEN l.id IS NULL THEN NULL ELSE (to_jsonb(l)-ARRAY['inputs','results'])||jsonb_build_object('financial_revision',l.financial_revision::text,'estimate_id',l.tax_estimate_id,'enabled',coalesce((l.forecast_inputs->>'enabled')::boolean,true),'body',l.forecast_inputs-ARRAY['enabled','reason'],'reason',coalesce(l.forecast_inputs->>'reason',''),'status',CASE WHEN l.status='fresh' AND NOT is_current THEN 'stale' ELSE l.status END) END,
+ 'snapshot',CASE WHEN l.computed_at IS NULL THEN NULL ELSE jsonb_build_object('id',l.id,'link_id',l.id,'link_version',l.inputs->'link_version','financial_revision',l.financial_revision::text,'personal_hash',l.inputs->'personal_hash','through_date',l.inputs->'through','created_at',l.computed_at,'payload',l.results,'inputs',l.inputs->'calculation') END);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.tax_refresh_server(command jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE t text:=command->>'type';l accounting.tax_links;e jsonb;cutoff date;ph text;profile_hash text;rev bigint;token uuid;calc jsonb;prior jsonb;exclusions jsonb;payroll jsonb;ytd_run accounting.payroll_runs;refresh jsonb;ids jsonb;
+BEGIN
+ IF current_setting('role',true)<>'service_role' THEN RAISE EXCEPTION 'ACCT_WORKER_REQUIRED';END IF;
+ PERFORM accounting.write_lock();PERFORM set_config('accounting.actor_kind','worker',true);PERFORM set_config('accounting.operation_id',gen_random_uuid()::text,true);PERFORM set_config('accounting.action','tax_refresh',true);
+ IF t='due' THEN
+  SELECT coalesce(jsonb_agg(jsonb_build_object('id',id) ORDER BY computed_at NULLS FIRST,id),'[]') INTO ids FROM (
+   SELECT tl.id,tl.computed_at FROM accounting.tax_links tl JOIN public.tax_estimates te ON te.id=tl.tax_estimate_id AND te.deleted_at IS NULL CROSS JOIN public.business_profile bp CROSS JOIN accounting.settings st
+   WHERE coalesce((tl.forecast_inputs->>'enabled')::boolean,true) AND coalesce((tl.inputs->'_refresh'->>'until')::timestamptz,'-infinity')<=now() AND coalesce((tl.inputs->>'retry_after')::timestamptz,'-infinity')<=now()
+   AND (tl.status<>'fresh' OR tl.financial_revision<>st.financial_revision OR tl.inputs->>'personal_hash' IS DISTINCT FROM encode(sha256(convert_to(to_jsonb(te)::text,'UTF8')),'hex') OR tl.inputs->>'profile_hash' IS DISTINCT FROM encode(sha256(convert_to(to_jsonb(bp)::text,'UTF8')),'hex') OR tl.inputs->>'through' IS DISTINCT FROM (CASE WHEN tl.cutoff_mode='fixed' THEN tl.cutoff_date ELSE least(make_date(tl.tax_year,12,31),(now() AT TIME ZONE bp.books_timezone)::date) END)::text)
+   ORDER BY tl.computed_at NULLS FIRST,tl.id LIMIT 25) q;
+  RETURN ids;
+ END IF;
+ SELECT * INTO l FROM accounting.tax_links WHERE id=(command->>'link_id')::uuid FOR UPDATE;
+ IF l.id IS NULL THEN RAISE EXCEPTION 'ACCT_TAX_LINK_NOT_FOUND';END IF;
+ SELECT to_jsonb(te) INTO e FROM public.tax_estimates te WHERE te.id=l.tax_estimate_id AND deleted_at IS NULL;
+ IF e IS NULL THEN RETURN jsonb_build_object('state','disabled');END IF;
+ ph:=encode(sha256(convert_to(e::text,'UTF8')),'hex');profile_hash:=encode(sha256(convert_to((SELECT to_jsonb(p)::text FROM public.business_profile p WHERE p.id=1),'UTF8')),'hex');SELECT financial_revision INTO rev FROM accounting.settings;
+ cutoff:=CASE WHEN l.cutoff_mode='fixed' THEN l.cutoff_date ELSE least(make_date(l.tax_year,12,31),(now() AT TIME ZONE (SELECT books_timezone FROM public.business_profile WHERE id=1))::date) END;
+ IF cutoff<make_date(l.tax_year,1,1) OR NOT coalesce((l.forecast_inputs->>'enabled')::boolean,true) THEN RETURN jsonb_build_object('state','disabled');END IF;
+ IF t='start' THEN
+  IF NOT coalesce((command->>'force')::boolean,false) AND l.status='fresh' AND l.financial_revision=rev AND l.inputs->>'personal_hash'=ph AND l.inputs->>'profile_hash'=profile_hash AND l.inputs->>'through'=cutoff::text THEN RETURN jsonb_build_object('state','fresh','snapshot_id',l.id);END IF;
+  IF (l.inputs->'_refresh'->>'until')::timestamptz>now() THEN RETURN jsonb_build_object('state','busy');END IF;
+  token:=gen_random_uuid();prior:=CASE WHEN l.forecast_method='prior_year_pattern' THEN accounting.tax_source(l.tax_year-1,make_date(l.tax_year-1,12,31)) ELSE NULL END;
+  SELECT coalesce(jsonb_agg(jsonb_build_object('entry_id',entry_id,'entry_date',entry_date,'ordinary_cents',amount::text)),'[]') INTO exclusions FROM (
+   SELECT x.entry_id,x.entry_date,sum(x.ordinary_cents) amount FROM accounting.tax_lines(CASE WHEN l.forecast_method='prior_year_pattern' THEN l.tax_year-1 ELSE l.tax_year END,CASE WHEN l.forecast_method='prior_year_pattern' THEN make_date(l.tax_year-1,12,31) ELSE cutoff END) x WHERE x.entry_id::text IN(SELECT value->>'entry_id' FROM jsonb_array_elements(coalesce(l.forecast_inputs->'forecast'->'exclusions','[]'))) GROUP BY x.entry_id,x.entry_date) q;
+  SELECT p.* INTO ytd_run FROM accounting.payroll_runs p JOIN accounting.journal_entries je ON je.id=p.entry_id WHERE p.pay_date BETWEEN make_date(l.tax_year,1,1) AND cutoff AND je.status='posted' AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries re WHERE re.reverses_entry_id=je.id AND re.status='posted' AND re.entry_date<=cutoff) ORDER BY p.pay_date DESC,p.created_at DESC,p.id LIMIT 1;
+  IF ytd_run.id IS NOT NULL AND ytd_run.ytd->>'verified'='true' AND EXISTS(SELECT 1 FROM accounting.documents d WHERE d.id=ytd_run.document_id AND d.status<>'archived' AND EXISTS(SELECT 1 FROM storage.objects o WHERE o.bucket_id='accounting-private' AND o.name=d.storage_path)) THEN payroll:=jsonb_build_object('year',l.tax_year,'coverage',jsonb_build_object('current',true,'through_date',cutoff,'source_through_date',ytd_run.pay_date,'document_id',ytd_run.document_id,'employees',coalesce(ytd_run.ytd->'employees','[]')));END IF;
+  calc:=jsonb_build_object('link',jsonb_build_object('id',l.id,'version',l.version,'body',l.forecast_inputs-ARRAY['enabled','reason']),'estimate',e,'source',accounting.tax_source(l.tax_year,cutoff),'forecast_evidence',jsonb_build_object('prior',prior,'exclusions',exclusions),'payroll',payroll,
+  'manual_review_document_available',EXISTS(SELECT 1 FROM accounting.documents d WHERE d.id=(l.forecast_inputs->'manual_separate_review'->>'document_id')::uuid AND d.status<>'archived' AND EXISTS(SELECT 1 FROM storage.objects o WHERE o.bucket_id='accounting-private' AND o.name=d.storage_path)),
+  'after_cutoff_count',(SELECT count(*) FROM accounting.journal_entries WHERE status='posted' AND entry_date>cutoff AND entry_date<=make_date(l.tax_year,12,31)));
+  refresh:=jsonb_build_object('token',token,'until',now()+interval '5 minutes','revision',rev::text,'personal_hash',ph,'profile_hash',profile_hash,'through',cutoff,'calculation',calc);
+  UPDATE accounting.tax_links SET inputs=jsonb_set(inputs,'{_refresh}',refresh),status='stale',error=NULL WHERE id=l.id;
+  RETURN jsonb_build_object('state','running','lease_token',token,'inputs',calc);
+ ELSIF t IN ('finish','fail') THEN
+  refresh:=l.inputs->'_refresh';
+  IF t='finish' AND l.inputs->>'refresh_token'=command->>'lease_token' THEN
+   IF l.results IS DISTINCT FROM command->'payload' THEN RAISE EXCEPTION 'ACCT_IDEMPOTENCY_CONFLICT';END IF;RETURN jsonb_build_object('state','fresh','snapshot_id',l.id);END IF;
+  IF refresh IS NULL OR refresh->>'token' IS DISTINCT FROM command->>'lease_token' OR (refresh->>'until')::timestamptz<=now() THEN RETURN jsonb_build_object('state','superseded');END IF;
+  IF refresh->>'revision'<>rev::text OR refresh->>'personal_hash'<>ph OR refresh->>'profile_hash'<>profile_hash OR refresh->>'through'<>cutoff::text THEN
+   UPDATE accounting.tax_links SET inputs=inputs-'_refresh',status='stale' WHERE id=l.id;RETURN jsonb_build_object('state','stale');END IF;
+  IF t='fail' THEN UPDATE accounting.tax_links SET inputs=(inputs-'_refresh')||jsonb_build_object('retry_after',now()+interval '5 minutes'),status='error',error=left(command->>'error',2000) WHERE id=l.id;RETURN jsonb_build_object('state','failed');END IF;
+  IF jsonb_typeof(command->'payload') IS DISTINCT FROM 'object' OR NOT command->'payload'?'outputs' OR NOT command->'payload'?'calculation' THEN RAISE EXCEPTION 'ACCT_TAX_RESULT';END IF;
+  UPDATE accounting.tax_links SET inputs=(refresh-ARRAY['token','until','revision'])||jsonb_build_object('refresh_token',refresh->'token','link_version',refresh->'calculation'->'link'->'version'),results=command->'payload',financial_revision=rev,status='fresh',error=NULL,computed_at=now() WHERE id=l.id;
+  RETURN jsonb_build_object('state','fresh','snapshot_id',l.id);
+ END IF;
+ RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND';
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.tax_source(year integer, cutoff date)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE accounts jsonb;adjustments jsonb;monthly jsonb;separate jsonb;result jsonb;ordinary numeric;adjusted numeric;book numeric;missing integer;report_data jsonb;
+BEGIN
+ IF NOT (current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker') THEN PERFORM accounting.require_owner();END IF;
+ IF year IS NULL OR cutoff IS NULL OR year NOT BETWEEN 1900 AND 2100 OR extract(year FROM cutoff)<>year OR cutoff>(now() AT TIME ZONE (SELECT books_timezone FROM public.business_profile WHERE id=1))::date THEN RAISE EXCEPTION 'ACCT_TAX_RANGE';END IF;
+ report_data:=accounting.report('profit_loss',jsonb_build_object('from',make_date(year,1,1),'to',cutoff));book:=(report_data->>'net_income_cents')::numeric;
+ WITH grouped AS(SELECT account_id,sum(book_cents) book,sum(ordinary_cents) ordinary,count(*) n FROM accounting.tax_lines(year,cutoff) GROUP BY account_id)
+ SELECT coalesce(jsonb_agg(jsonb_build_object('account_id',a.id,'name',a.name,'code',a.code,'account_type',a.type,'mapping',CASE WHEN m.id IS NULL THEN NULL ELSE to_jsonb(m) END,
+ 'book_cents',coalesce(g.book,0)::text,'ordinary_cents',coalesce(g.ordinary,0)::text,'line_count',coalesce(g.n,0),'current',m.id IS NOT NULL) ORDER BY a.code,a.name,a.id),'[]') INTO accounts
+ FROM accounting.accounts a LEFT JOIN grouped g ON g.account_id=a.id LEFT JOIN accounting.tax_mappings m ON m.account_id=a.id AND m.tax_year=year WHERE a.type IN ('income','expense') AND (g.n>0 OR NOT a.is_archived);
+ SELECT coalesce(sum(ordinary_cents),0),count(DISTINCT account_id) FILTER(WHERE NOT mapping_current) INTO ordinary,missing FROM accounting.tax_lines(year,cutoff);
+ SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('amount_cents',a.amount_cents::text,'current',true,'active',true,'version',1) ORDER BY effective_date,id),'[]'),
+ ordinary+coalesce(sum(a.amount_cents) FILTER(WHERE a.concept NOT IN ('stock_basis_opening','debt_basis_opening','interest','qualified_dividend','short_gain','long_gain','charity','tax_exempt')),0)
+ INTO adjustments,adjusted FROM accounting.tax_adjustments a WHERE a.tax_year=year AND a.effective_date<=cutoff;
+ WITH months AS(SELECT d::date AS month FROM generate_series(make_date(year,1,1),date_trunc('month',cutoff),interval '1 month') d),
+ lines AS(SELECT date_trunc('month',entry_date)::date AS month,sum(book_cents) book,sum(ordinary_cents) ordinary FROM accounting.tax_lines(year,cutoff) GROUP BY 1),
+ adj AS(SELECT date_trunc('month',effective_date)::date AS month,sum(amount_cents) amount FROM accounting.tax_adjustments a WHERE a.tax_year=year AND a.effective_date<=cutoff AND a.concept NOT IN ('stock_basis_opening','debt_basis_opening','interest','qualified_dividend','short_gain','long_gain','charity','tax_exempt') GROUP BY 1)
+ SELECT coalesce(jsonb_agg(jsonb_build_object('month',m.month,'book_cents',coalesce(l.book,0)::text,'ordinary_cents',(coalesce(l.ordinary,0)+coalesce(a.amount,0))::text,
+ 'complete',(m.month+interval '1 month -1 day')::date<=cutoff AND EXISTS(SELECT 1 FROM accounting.periods p WHERE p.month=m.month AND p.status='locked')) ORDER BY m.month),'[]') INTO monthly FROM months m LEFT JOIN lines l USING(month) LEFT JOIN adj a USING(month);
+ SELECT coalesce(jsonb_object_agg(concept,amount::text),'{}') INTO separate FROM (
+ SELECT concept,sum(amount) amount FROM (
+ SELECT m.concept,-sum(l.amount_cents)::numeric amount FROM accounting.journal_lines l JOIN accounting.journal_entries e ON e.id=l.entry_id JOIN accounting.tax_mappings m ON m.account_id=l.account_id AND m.tax_year=year WHERE e.status='posted' AND e.entry_date BETWEEN make_date(year,1,1) AND cutoff AND m.separately_stated GROUP BY m.concept
+ UNION ALL SELECT a.concept,sum(a.amount_cents)::numeric FROM accounting.tax_adjustments a WHERE a.tax_year=year AND a.effective_date<=cutoff AND a.concept IN ('interest','qualified_dividend','short_gain','long_gain','charity','tax_exempt') GROUP BY a.concept) s GROUP BY concept) q;
+ result:=jsonb_build_object('year',year,'through',cutoff,'revision',report_data->'revision','year_settings',(SELECT jsonb_build_object('classification',tax_classification,'current',tax_classification IS NOT NULL AND (tax_classification_since IS NULL OR tax_classification_since<=year)) FROM public.business_profile WHERE id=1),
+ 'accounts',accounts,'adjustments',adjustments,'basis',NULL,'monthly',monthly,'separately_stated',separate,'book_profit_cents',book::text,'mapped_ordinary_cents',ordinary::text,'adjusted_ordinary_cents',adjusted::text,'book_to_tax_cents',(adjusted-book)::text,'unmapped_accounts',missing,
+ 'drafts',report_data->'quality'->'draft_count','incomplete_imports',report_data->'quality'->'incomplete_imports',
+ 'unavailable_adjustments',(SELECT count(*) FROM accounting.tax_adjustments a WHERE a.tax_year=year AND a.effective_date<=cutoff AND a.document_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM accounting.documents d WHERE d.id=a.document_id AND d.status<>'archived' AND EXISTS(SELECT 1 FROM storage.objects o WHERE o.bucket_id='accounting-private' AND o.name=d.storage_path))));
+ RETURN result||jsonb_build_object('fingerprint',encode(sha256(convert_to(result::text,'UTF8')),'hex'));
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.transactions(filter jsonb DEFAULT '{}'::jsonb, page jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE f jsonb:=filter||page; result jsonb; start_at integer:=coalesce((f->>'offset')::integer,0); page_size integer:=coalesce((f->>'limit')::integer,50); sort_by text:=coalesce(f->>'sort','date_desc');
+BEGIN
+ PERFORM accounting.require_owner();
+ IF start_at<0 OR page_size NOT BETWEEN 1 AND 100 OR sort_by NOT IN ('date_desc','date_asc','amount_desc','amount_asc','description') OR coalesce(f->>'status','all') NOT IN ('all','draft','posted','discarded') OR (f->>'from')::date>(f->>'to')::date THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER'; END IF;
+ WITH candidates AS (
+ SELECT e.*,CASE WHEN f->>'account' IS NOT NULL THEN abs(coalesce(m.selected_amount,0)) WHEN m.bank_count=1 THEN abs(m.bank_amount) ELSE coalesce(m.debits,0) END magnitude
+ FROM accounting.journal_entries e CROSS JOIN LATERAL (
+ SELECT sum(l.amount_cents) FILTER(WHERE l.account_id=(f->>'account')::uuid) selected_amount,
+  count(*) FILTER(WHERE a.subtype IN ('bank','cash','card')) bank_count,sum(l.amount_cents) FILTER(WHERE a.subtype IN ('bank','cash','card')) bank_amount,
+  sum(l.amount_cents) FILTER(WHERE l.amount_cents>0) debits FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id) m
+ ), matches AS (
+ SELECT e.* FROM candidates e WHERE (f->>'from' IS NULL OR e.entry_date>=(f->>'from')::date) AND (f->>'to' IS NULL OR e.entry_date<=(f->>'to')::date)
+ AND (CASE WHEN coalesce(f->>'status','all')='all' THEN (e.status<>'discarded' OR f->>'entry_id' IS NOT NULL) ELSE e.status=f->>'status' END)
+ AND (f->>'entry_id' IS NULL OR e.id=(f->>'entry_id')::uuid)
+ AND (f->>'account' IS NULL OR EXISTS(SELECT 1 FROM accounting.journal_lines WHERE entry_id=e.id AND account_id=(f->>'account')::uuid))
+ AND (f->>'source' IS NULL OR e.origin=f->>'source') AND (f->>'payee' IS NULL OR e.payee_id=(f->>'payee')::uuid)
+ AND (NOT coalesce((f->>'missing_receipt')::boolean,false) OR NOT EXISTS(SELECT 1 FROM accounting.document_links dl JOIN accounting.documents d ON d.id=dl.document_id WHERE dl.entry_id=e.id AND d.status<>'archived' AND EXISTS(SELECT 1 FROM storage.objects o WHERE o.bucket_id='accounting-private' AND o.name=d.storage_path)))
+ AND (f->>'descriptor_key' IS NULL OR e.descriptor_key=f->>'descriptor_key')
+ AND (f->>'query' IS NULL OR e.memo ILIKE '%'||(f->>'query')||'%' OR e.source_description ILIKE '%'||(f->>'query')||'%')
+ AND (f->>'min_cents' IS NULL OR e.magnitude>=(f->>'min_cents')::bigint) AND (f->>'max_cents' IS NULL OR e.magnitude<=(f->>'max_cents')::bigint)
+ ), ordered AS (
+ SELECT *,row_number() OVER(ORDER BY CASE WHEN sort_by='date_asc' THEN entry_date END ASC,CASE WHEN sort_by='date_desc' THEN entry_date END DESC,
+ CASE WHEN sort_by='amount_asc' THEN magnitude END ASC,CASE WHEN sort_by='amount_desc' THEN magnitude END DESC,
+ CASE WHEN sort_by='description' THEN memo END ASC,id ASC) ordinal FROM matches
+ ), selected AS (SELECT * FROM ordered ORDER BY ordinal OFFSET start_at LIMIT page_size)
+ SELECT jsonb_build_object('entries',coalesce((SELECT jsonb_agg(accounting.entry_detail(id) ORDER BY ordinal) FROM selected),'[]'),
+ 'total',(SELECT count(*) FROM matches),'offset',start_at,'limit',page_size,'needs_review_count',(SELECT count(*) FROM accounting.journal_entries WHERE status='draft')) INTO result;
+ RETURN result;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.workspace(from_date date, to_date date)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE r jsonb;tx jsonb;
+BEGIN
+ PERFORM accounting.require_owner();r:=accounting.report('summary',jsonb_build_object('from',from_date,'to',to_date));tx:=accounting.transactions(jsonb_build_object('from',from_date,'to',to_date));
+ RETURN jsonb_build_object('legal_name',r->'legal_name','revision',r->'revision','from',from_date,'to',to_date,'accounts',r->'accounts','balances',r->'accounts','entries',tx->'entries','entry_count',tx->'total','draft_count',r->'quality'->'draft_count',
+ 'needs_review_count',(SELECT count(*) FROM accounting.journal_entries WHERE status='draft'),'sync_due',EXISTS(SELECT 1 FROM accounting.bank_connections WHERE status='active' AND scheduled AND (last_success_at IS NULL OR last_success_at<now()-interval '6 hours')),
+ 'reports',r-ARRAY['legal_name','revision','definition_version','currency','basis','generated_at','filter','accounts','rows','totals','comparison','monthly','dimensions','cash','quality']);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.write_lock()
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+BEGIN
+ PERFORM pg_catalog.pg_advisory_xact_lock(64219071);
+ PERFORM 1 FROM accounting.settings WHERE id=1 FOR UPDATE;
+END $function$
+;
+
+REVOKE ALL ON TABLE accounting.accounts FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.accounts TO "postgres";
+
+GRANT SELECT ON TABLE accounting.accounts TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.accounts TO "postgres";
+
+GRANT DELETE ON TABLE accounting.accounts TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.accounts TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.accounts TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.accounts TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.accounts TO "postgres";
+
+REVOKE ALL ON TABLE accounting.audit_log FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.audit_log TO "postgres";
+
+GRANT SELECT ON TABLE accounting.audit_log TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.audit_log TO "postgres";
+
+GRANT DELETE ON TABLE accounting.audit_log TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.audit_log TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.audit_log TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.audit_log TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.audit_log TO "postgres";
+
+REVOKE ALL ON TABLE accounting.bank_accounts FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.bank_accounts TO "postgres";
+
+GRANT SELECT ON TABLE accounting.bank_accounts TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.bank_accounts TO "postgres";
+
+GRANT DELETE ON TABLE accounting.bank_accounts TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.bank_accounts TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.bank_accounts TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.bank_accounts TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.bank_accounts TO "postgres";
+
+REVOKE ALL ON TABLE accounting.bank_connections FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.bank_connections TO "postgres";
+
+GRANT SELECT ON TABLE accounting.bank_connections TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.bank_connections TO "postgres";
+
+GRANT DELETE ON TABLE accounting.bank_connections TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.bank_connections TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.bank_connections TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.bank_connections TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.bank_connections TO "postgres";
+
+REVOKE ALL ON TABLE accounting.bank_matches FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.bank_matches TO "postgres";
+
+GRANT SELECT ON TABLE accounting.bank_matches TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.bank_matches TO "postgres";
+
+GRANT DELETE ON TABLE accounting.bank_matches TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.bank_matches TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.bank_matches TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.bank_matches TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.bank_matches TO "postgres";
+
+REVOKE ALL ON TABLE accounting.bank_transactions FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.bank_transactions TO "postgres";
+
+GRANT SELECT ON TABLE accounting.bank_transactions TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.bank_transactions TO "postgres";
+
+GRANT DELETE ON TABLE accounting.bank_transactions TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.bank_transactions TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.bank_transactions TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.bank_transactions TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.bank_transactions TO "postgres";
+
+REVOKE ALL ON TABLE accounting.command_receipts FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.command_receipts TO "postgres";
+
+GRANT SELECT ON TABLE accounting.command_receipts TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.command_receipts TO "postgres";
+
+GRANT DELETE ON TABLE accounting.command_receipts TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.command_receipts TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.command_receipts TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.command_receipts TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.command_receipts TO "postgres";
+
+REVOKE ALL ON TABLE accounting.document_links FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.document_links TO "postgres";
+
+GRANT SELECT ON TABLE accounting.document_links TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.document_links TO "postgres";
+
+GRANT DELETE ON TABLE accounting.document_links TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.document_links TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.document_links TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.document_links TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.document_links TO "postgres";
+
+REVOKE ALL ON TABLE accounting.documents FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.documents TO "postgres";
+
+GRANT SELECT ON TABLE accounting.documents TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.documents TO "postgres";
+
+GRANT DELETE ON TABLE accounting.documents TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.documents TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.documents TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.documents TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.documents TO "postgres";
+
+REVOKE ALL ON TABLE accounting.history_checks FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.history_checks TO "postgres";
+
+GRANT SELECT ON TABLE accounting.history_checks TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.history_checks TO "postgres";
+
+GRANT DELETE ON TABLE accounting.history_checks TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.history_checks TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.history_checks TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.history_checks TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.history_checks TO "postgres";
+
+REVOKE ALL ON TABLE accounting.import_batches FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.import_batches TO "postgres";
+
+GRANT SELECT ON TABLE accounting.import_batches TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.import_batches TO "postgres";
+
+GRANT DELETE ON TABLE accounting.import_batches TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.import_batches TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.import_batches TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.import_batches TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.import_batches TO "postgres";
+
+REVOKE ALL ON TABLE accounting.import_rows FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.import_rows TO "postgres";
+
+GRANT SELECT ON TABLE accounting.import_rows TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.import_rows TO "postgres";
+
+GRANT DELETE ON TABLE accounting.import_rows TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.import_rows TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.import_rows TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.import_rows TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.import_rows TO "postgres";
+
+REVOKE ALL ON TABLE accounting.journal_entries FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.journal_entries TO "postgres";
+
+GRANT SELECT ON TABLE accounting.journal_entries TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.journal_entries TO "postgres";
+
+GRANT DELETE ON TABLE accounting.journal_entries TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.journal_entries TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.journal_entries TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.journal_entries TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.journal_entries TO "postgres";
+
+REVOKE ALL ON TABLE accounting.journal_lines FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.journal_lines TO "postgres";
+
+GRANT SELECT ON TABLE accounting.journal_lines TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.journal_lines TO "postgres";
+
+GRANT DELETE ON TABLE accounting.journal_lines TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.journal_lines TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.journal_lines TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.journal_lines TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.journal_lines TO "postgres";
+
+REVOKE ALL ON TABLE accounting.parties FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.parties TO "postgres";
+
+GRANT SELECT ON TABLE accounting.parties TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.parties TO "postgres";
+
+GRANT DELETE ON TABLE accounting.parties TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.parties TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.parties TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.parties TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.parties TO "postgres";
+
+REVOKE ALL ON TABLE accounting.payee_aliases FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.payee_aliases TO "postgres";
+
+GRANT SELECT ON TABLE accounting.payee_aliases TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.payee_aliases TO "postgres";
+
+GRANT DELETE ON TABLE accounting.payee_aliases TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.payee_aliases TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.payee_aliases TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.payee_aliases TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.payee_aliases TO "postgres";
+
+REVOKE ALL ON TABLE accounting.payroll_runs FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.payroll_runs TO "postgres";
+
+GRANT SELECT ON TABLE accounting.payroll_runs TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.payroll_runs TO "postgres";
+
+GRANT DELETE ON TABLE accounting.payroll_runs TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.payroll_runs TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.payroll_runs TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.payroll_runs TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.payroll_runs TO "postgres";
+
+REVOKE ALL ON TABLE accounting.periods FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.periods TO "postgres";
+
+GRANT SELECT ON TABLE accounting.periods TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.periods TO "postgres";
+
+GRANT DELETE ON TABLE accounting.periods TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.periods TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.periods TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.periods TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.periods TO "postgres";
+
+REVOKE ALL ON TABLE accounting.reconciliation_items FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.reconciliation_items TO "postgres";
+
+GRANT SELECT ON TABLE accounting.reconciliation_items TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.reconciliation_items TO "postgres";
+
+GRANT DELETE ON TABLE accounting.reconciliation_items TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.reconciliation_items TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.reconciliation_items TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.reconciliation_items TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.reconciliation_items TO "postgres";
+
+REVOKE ALL ON TABLE accounting.reconciliations FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.reconciliations TO "postgres";
+
+GRANT SELECT ON TABLE accounting.reconciliations TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.reconciliations TO "postgres";
+
+GRANT DELETE ON TABLE accounting.reconciliations TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.reconciliations TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.reconciliations TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.reconciliations TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.reconciliations TO "postgres";
+
+REVOKE ALL ON TABLE accounting.registers FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.registers TO "postgres";
+
+GRANT SELECT ON TABLE accounting.registers TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.registers TO "postgres";
+
+GRANT DELETE ON TABLE accounting.registers TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.registers TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.registers TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.registers TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.registers TO "postgres";
+
+REVOKE ALL ON TABLE accounting.report_snapshots FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.report_snapshots TO "postgres";
+
+GRANT SELECT ON TABLE accounting.report_snapshots TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.report_snapshots TO "postgres";
+
+GRANT DELETE ON TABLE accounting.report_snapshots TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.report_snapshots TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.report_snapshots TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.report_snapshots TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.report_snapshots TO "postgres";
+
+REVOKE ALL ON TABLE accounting.rules FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.rules TO "postgres";
+
+GRANT SELECT ON TABLE accounting.rules TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.rules TO "postgres";
+
+GRANT DELETE ON TABLE accounting.rules TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.rules TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.rules TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.rules TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.rules TO "postgres";
+
+REVOKE ALL ON TABLE accounting.settings FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.settings TO "postgres";
+
+GRANT SELECT ON TABLE accounting.settings TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.settings TO "postgres";
+
+GRANT DELETE ON TABLE accounting.settings TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.settings TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.settings TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.settings TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.settings TO "postgres";
+
+REVOKE ALL ON TABLE accounting.tax_adjustments FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.tax_adjustments TO "postgres";
+
+GRANT SELECT ON TABLE accounting.tax_adjustments TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.tax_adjustments TO "postgres";
+
+GRANT DELETE ON TABLE accounting.tax_adjustments TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.tax_adjustments TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.tax_adjustments TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.tax_adjustments TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.tax_adjustments TO "postgres";
+
+REVOKE ALL ON TABLE accounting.tax_links FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.tax_links TO "postgres";
+
+GRANT SELECT ON TABLE accounting.tax_links TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.tax_links TO "postgres";
+
+GRANT DELETE ON TABLE accounting.tax_links TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.tax_links TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.tax_links TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.tax_links TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.tax_links TO "postgres";
+
+REVOKE ALL ON TABLE accounting.tax_mappings FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.tax_mappings TO "postgres";
+
+GRANT SELECT ON TABLE accounting.tax_mappings TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.tax_mappings TO "postgres";
+
+GRANT DELETE ON TABLE accounting.tax_mappings TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.tax_mappings TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.tax_mappings TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.tax_mappings TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.tax_mappings TO "postgres";
+
+REVOKE ALL ON TABLE public.business_profile FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE public.business_profile TO "postgres";
+
+GRANT SELECT ON TABLE public.business_profile TO "postgres";
+
+GRANT UPDATE ON TABLE public.business_profile TO "postgres";
+
+GRANT DELETE ON TABLE public.business_profile TO "postgres";
+
+GRANT TRUNCATE ON TABLE public.business_profile TO "postgres";
+
+GRANT REFERENCES ON TABLE public.business_profile TO "postgres";
+
+GRANT TRIGGER ON TABLE public.business_profile TO "postgres";
+
+GRANT MAINTAIN ON TABLE public.business_profile TO "postgres";
+
+GRANT INSERT ON TABLE public.business_profile TO "authenticated";
+
+GRANT SELECT ON TABLE public.business_profile TO "authenticated";
+
+GRANT UPDATE ON TABLE public.business_profile TO "authenticated";
+
+GRANT DELETE ON TABLE public.business_profile TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.apply_treatment(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.apply_treatment(uuid) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.balance_guard() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.balance_guard() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.bank_review(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.bank_review(jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.bank_review(jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.banking_command(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.banking_command(jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.banking_guard() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.banking_guard() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.books_package(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.books_package(jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.books_package(jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION business_profile_get() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION business_profile_get() TO "postgres";
+
+GRANT EXECUTE ON FUNCTION business_profile_get() TO "authenticated";
+
+REVOKE ALL ON FUNCTION business_profile_guard() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION business_profile_guard() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.cash_lines(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.cash_lines(jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.close_checklist(date) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.close_checklist(date) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.close_checklist(date) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.close_command(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.close_command(jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.close_guard() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.close_guard() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.context(text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.context(text,jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.context(text,jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.contractor_report(integer,date) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.contractor_report(integer,date) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.contractor_report(integer,date) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.descriptor_key(text) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.descriptor_key(text) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.descriptor_key(text) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.document_access(text,boolean) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.document_access(text,boolean) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.document_access(text,boolean) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.documents(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.documents(jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.documents(jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.entry_detail(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.entry_detail(uuid) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.entry_detail(uuid) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.guard() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.guard() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.history_command(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.history_command(jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.history_guard() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.history_guard() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.history_preview(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.history_preview(jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.history_preview(jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.import_compare(uuid,uuid,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.import_compare(uuid,uuid,jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.import_compare(uuid,uuid,jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.imports(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.imports(uuid) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.imports(uuid) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.ledger(uuid,date,date) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.ledger(uuid,date,date) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.ledger(uuid,date,date) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.ledger_command(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.ledger_command(jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.match_review() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.match_review() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.operate(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.operate(jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.operate(jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.payroll(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.payroll(jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.payroll(jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.payroll_plan(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.payroll_plan(jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.prior_summary(text,uuid,integer) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.prior_summary(text,uuid,integer) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.prior_treatment(text,uuid,integer) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.prior_treatment(text,uuid,integer) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.prior_treatment(text,uuid,integer) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.record_audit() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.record_audit() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.register_command(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.register_command(jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.register_guard() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.register_guard() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.register_plan(uuid,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.register_plan(uuid,jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.registers(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.registers(jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.registers(jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.report(text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.report(text,jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.report(text,jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.report_command(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.report_command(jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.report_guard() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.report_guard() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.report_lines(text,jsonb,uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.report_lines(text,jsonb,uuid) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.report_lines(text,jsonb,uuid) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.report_validate(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.report_validate(jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.require_open(date) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.require_open(date) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.require_owner() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.require_owner() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.rule_candidate(uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.rule_candidate(uuid,uuid) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.rules_preview(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.rules_preview(jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.rules_preview(jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.snapshot_read(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.snapshot_read(uuid) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.snapshot_read(uuid) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.support_report(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.support_report(jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.support_report(jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.sync_server(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.sync_server(jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.sync_server(jsonb) TO "service_role";
+
+REVOKE ALL ON FUNCTION accounting.tax_command(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.tax_command(jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.tax_guard() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.tax_guard() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.tax_lines(integer,date) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.tax_lines(integer,date) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.tax_link(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.tax_link(uuid) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.tax_link(uuid) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.tax_refresh_server(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.tax_refresh_server(jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.tax_refresh_server(jsonb) TO "service_role";
+
+REVOKE ALL ON FUNCTION accounting.tax_source(integer,date) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.tax_source(integer,date) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.tax_source(integer,date) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.transactions(jsonb,jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.transactions(jsonb,jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.transactions(jsonb,jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.workspace(date,date) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.workspace(date,date) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.workspace(date,date) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.write_lock() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.write_lock() TO "postgres";
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.accounts FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.accounts FOR EACH ROW EXECUTE FUNCTION accounting.guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.accounts FOR EACH STATEMENT EXECUTE FUNCTION accounting.guard();
+
+CREATE TRIGGER immutable BEFORE DELETE OR UPDATE ON accounting.audit_log FOR EACH ROW EXECUTE FUNCTION accounting.guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.bank_accounts FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.bank_accounts FOR EACH ROW EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.bank_accounts FOR EACH STATEMENT EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.bank_connections FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.bank_connections FOR EACH ROW EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.bank_connections FOR EACH STATEMENT EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.bank_matches FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.bank_matches FOR EACH ROW EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER match_review AFTER INSERT OR DELETE ON accounting.bank_matches FOR EACH ROW EXECUTE FUNCTION accounting.match_review();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.bank_matches FOR EACH STATEMENT EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.bank_transactions FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.bank_transactions FOR EACH ROW EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.bank_transactions FOR EACH STATEMENT EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER business_profile_guard BEFORE INSERT OR DELETE OR UPDATE ON public.business_profile FOR EACH ROW EXECUTE FUNCTION business_profile_guard();
+
+CREATE TRIGGER business_profile_lock BEFORE INSERT OR DELETE OR UPDATE ON public.business_profile FOR EACH STATEMENT EXECUTE FUNCTION business_profile_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.command_receipts FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER immutable BEFORE DELETE OR UPDATE ON accounting.command_receipts FOR EACH ROW EXECUTE FUNCTION accounting.guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.document_links FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.document_links FOR EACH ROW EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.document_links FOR EACH STATEMENT EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.documents FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.documents FOR EACH ROW EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.documents FOR EACH STATEMENT EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.history_checks FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.history_checks FOR EACH ROW EXECUTE FUNCTION accounting.history_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.history_checks FOR EACH STATEMENT EXECUTE FUNCTION accounting.history_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.import_batches FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.import_batches FOR EACH ROW EXECUTE FUNCTION accounting.history_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.import_batches FOR EACH STATEMENT EXECUTE FUNCTION accounting.history_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.import_rows FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.import_rows FOR EACH ROW EXECUTE FUNCTION accounting.history_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.import_rows FOR EACH STATEMENT EXECUTE FUNCTION accounting.history_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.journal_entries FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER bank_entry_date_guard BEFORE INSERT OR UPDATE ON accounting.journal_entries FOR EACH ROW EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE CONSTRAINT TRIGGER entry_balance AFTER INSERT OR UPDATE ON accounting.journal_entries DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION accounting.balance_guard();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.journal_entries FOR EACH ROW EXECUTE FUNCTION accounting.guard();
+
+CREATE TRIGGER history_invalidate AFTER INSERT OR UPDATE ON accounting.journal_entries FOR EACH ROW EXECUTE FUNCTION accounting.history_guard();
+
+CREATE TRIGGER payroll_reversal_guard BEFORE INSERT ON accounting.journal_entries FOR EACH ROW EXECUTE FUNCTION accounting.register_guard();
+
+CREATE TRIGGER reconciliation_reopen AFTER INSERT OR UPDATE ON accounting.journal_entries FOR EACH ROW EXECUTE FUNCTION accounting.close_guard();
+
+CREATE TRIGGER register_balance_guard AFTER INSERT OR UPDATE ON accounting.journal_entries FOR EACH ROW EXECUTE FUNCTION accounting.register_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.journal_entries FOR EACH STATEMENT EXECUTE FUNCTION accounting.guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.journal_lines FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER bank_line_match_guard BEFORE DELETE OR UPDATE ON accounting.journal_lines FOR EACH ROW EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.journal_lines FOR EACH ROW EXECUTE FUNCTION accounting.guard();
+
+CREATE CONSTRAINT TRIGGER line_balance AFTER INSERT OR DELETE OR UPDATE ON accounting.journal_lines DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION accounting.balance_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.journal_lines FOR EACH STATEMENT EXECUTE FUNCTION accounting.guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.parties FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.parties FOR EACH ROW EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.parties FOR EACH STATEMENT EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.payee_aliases FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.payee_aliases FOR EACH ROW EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.payee_aliases FOR EACH STATEMENT EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.payroll_runs FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.payroll_runs FOR EACH ROW EXECUTE FUNCTION accounting.register_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.payroll_runs FOR EACH STATEMENT EXECUTE FUNCTION accounting.register_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.periods FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.periods FOR EACH ROW EXECUTE FUNCTION accounting.guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.periods FOR EACH STATEMENT EXECUTE FUNCTION accounting.guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.reconciliation_items FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.reconciliation_items FOR EACH ROW EXECUTE FUNCTION accounting.close_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.reconciliation_items FOR EACH STATEMENT EXECUTE FUNCTION accounting.close_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.reconciliations FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.reconciliations FOR EACH ROW EXECUTE FUNCTION accounting.close_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.reconciliations FOR EACH STATEMENT EXECUTE FUNCTION accounting.close_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.registers FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.registers FOR EACH ROW EXECUTE FUNCTION accounting.register_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.registers FOR EACH STATEMENT EXECUTE FUNCTION accounting.register_guard();
+
+CREATE TRIGGER audit AFTER INSERT ON accounting.report_snapshots FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE DELETE OR UPDATE ON accounting.report_snapshots FOR EACH ROW EXECUTE FUNCTION accounting.report_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.rules FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.rules FOR EACH ROW EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.rules FOR EACH STATEMENT EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.settings FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.settings FOR EACH ROW EXECUTE FUNCTION accounting.guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.settings FOR EACH STATEMENT EXECUTE FUNCTION accounting.guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.tax_adjustments FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.tax_adjustments FOR EACH ROW EXECUTE FUNCTION accounting.tax_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.tax_links FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.tax_links FOR EACH ROW EXECUTE FUNCTION accounting.tax_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.tax_mappings FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.tax_mappings FOR EACH ROW EXECUTE FUNCTION accounting.tax_guard();
+
+CREATE POLICY "business_profile_delete" ON public.business_profile AS PERMISSIVE FOR DELETE TO "authenticated" USING (true);
+
+CREATE POLICY "business_profile_insert" ON public.business_profile AS PERMISSIVE FOR INSERT TO "authenticated" WITH CHECK (true);
+
+CREATE POLICY "business_profile_read" ON public.business_profile AS PERMISSIVE FOR SELECT TO "authenticated" USING (true);
+
+CREATE POLICY "business_profile_update" ON public.business_profile AS PERMISSIVE FOR UPDATE TO "authenticated" USING (true) WITH CHECK (true);
+
+CREATE POLICY "accounting_private_read" ON storage.objects AS PERMISSIVE FOR SELECT TO "authenticated" USING (((bucket_id = 'accounting-private'::text) AND accounting.document_access(name)));
+
+CREATE POLICY "accounting_private_upload" ON storage.objects AS PERMISSIVE FOR INSERT TO "authenticated" WITH CHECK (((bucket_id = 'accounting-private'::text) AND accounting.document_access(name, true)));
+
+INSERT INTO public.business_profile(legal_name,entity_type,tax_classification) VALUES ('Valiance Media LLC','llc','s_corp');
+
+INSERT INTO accounting.accounts(name,type,subtype,system_purpose) VALUES
+ ('Business checking','asset','bank',NULL),
+ ('Business credit card','liability','card',NULL),
+ ('Cash on hand','asset','cash',NULL),
+ ('Due to shareholder','liability','loan','due_to_shareholder'),
+ ('Employer payroll taxes','expense','payroll_expense','employer_payroll_taxes'),
+ ('Merchant fees','expense','operating_expense','merchant_fees'),
+ ('Office expenses','expense','operating_expense',NULL),
+ ('Officer wages','expense','payroll_expense','officer_wages'),
+ ('Opening retained earnings','equity','retained_earnings','opening_retained_earnings'),
+ ('Owner contributions','equity','owner_equity','contributions'),
+ ('Owner distributions','equity','owner_equity','distributions'),
+ ('Service revenue','income','revenue',NULL),
+ ('Software','expense','operating_expense',NULL),
+ ('Transfers in transit','asset','transit','transfers_in_transit'),
+ ('Uncategorized expense','expense','uncategorized','uncategorized_expense'),
+ ('Uncategorized income','income','uncategorized','uncategorized_income'),
+ ('Undeposited funds','asset','undeposited','undeposited_funds');
+
+INSERT INTO storage.buckets(id,name,public,file_size_limit,allowed_mime_types) VALUES ('accounting-private','accounting-private','f','26214400','{application/pdf,image/png,image/jpeg,image/webp,text/csv,application/zip}');
+
+SET check_function_bodies = true;
+
+-- ACCOUNTING CATALOG END

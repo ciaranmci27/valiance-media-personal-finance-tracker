@@ -17,19 +17,24 @@ export interface TooltipProps {
   wide?: boolean;
 }
 
-export function Tooltip({
+export function Tooltip({ disabled = false, ...props }: TooltipProps) {
+  // When disabled, render children directly without any wrapper. The hooks
+  // live in the inner component so toggling `disabled` never changes the
+  // hook order of a mounted tooltip.
+  if (disabled) {
+    return <>{props.children}</>;
+  }
+  return <TooltipInner {...props} />;
+}
+
+function TooltipInner({
   children,
   content,
   position = "top",
   delay = 200,
   className,
-  disabled = false,
   wide = false,
-}: TooltipProps) {
-  // When disabled, render children directly without any wrapper
-  if (disabled) {
-    return <>{children}</>;
-  }
+}: Omit<TooltipProps, "disabled">) {
   const [isVisible, setIsVisible] = React.useState(false);
   const [shouldRender, setShouldRender] = React.useState(false);
   const [mounted, setMounted] = React.useState(false);
@@ -85,7 +90,9 @@ export function Tooltip({
         case "top":
           return coords.top >= viewportPadding;
         case "bottom":
-          return coords.top + tooltipHeight <= viewport.height - viewportPadding;
+          return (
+            coords.top + tooltipHeight <= viewport.height - viewportPadding
+          );
         case "left":
           return coords.left >= viewportPadding;
         case "right":
@@ -109,7 +116,12 @@ export function Tooltip({
         bestPosition = opposites[position];
       } else {
         // Try all positions and pick the first that fits
-        const allPositions: ("top" | "bottom" | "left" | "right")[] = ["bottom", "top", "right", "left"];
+        const allPositions: ("top" | "bottom" | "left" | "right")[] = [
+          "bottom",
+          "top",
+          "right",
+          "left",
+        ];
         for (const pos of allPositions) {
           if (fitsInViewport(pos)) {
             bestPosition = pos;
@@ -123,12 +135,18 @@ export function Tooltip({
 
     // Clamp horizontal position to stay within viewport
     if (bestPosition === "top" || bestPosition === "bottom") {
-      left = Math.max(viewportPadding, Math.min(left, viewport.width - tooltipWidth - viewportPadding));
+      left = Math.max(
+        viewportPadding,
+        Math.min(left, viewport.width - tooltipWidth - viewportPadding),
+      );
     }
 
     // Clamp vertical position to stay within viewport
     if (bestPosition === "left" || bestPosition === "right") {
-      top = Math.max(viewportPadding, Math.min(top, viewport.height - tooltipHeight - viewportPadding));
+      top = Math.max(
+        viewportPadding,
+        Math.min(top, viewport.height - tooltipHeight - viewportPadding),
+      );
     }
 
     setActualPosition(bestPosition);
@@ -179,28 +197,29 @@ export function Tooltip({
     setActualPosition(position);
   }, [position]);
 
-  const tooltipContent = shouldRender && mounted ? (
-    <div
-      ref={tooltipRef}
-      role="tooltip"
-      className={cn(
-        "fixed z-[9999] pointer-events-none transition-all duration-150 ease-out",
-        isVisible ? "opacity-100 scale-100" : "opacity-0 scale-95"
-      )}
-      style={{ top: coords.top, left: coords.left }}
-    >
+  const tooltipContent =
+    shouldRender && mounted ? (
       <div
+        ref={tooltipRef}
+        role="tooltip"
         className={cn(
-          "relative text-foreground bg-card rounded-md border border-white/10 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.7)]",
-          wide
-            ? "px-3 py-2 text-xs leading-relaxed max-w-[280px]"
-            : "px-2.5 py-1.5 text-xs font-medium whitespace-nowrap",
+          "fixed z-[9999] pointer-events-none transition-all duration-150 ease-out",
+          isVisible ? "opacity-100 scale-100" : "opacity-0 scale-95",
         )}
+        style={{ top: coords.top, left: coords.left }}
       >
-        {content}
+        <div
+          className={cn(
+            "relative text-foreground bg-card rounded-md border border-white/10 shadow-[0_8px_24px_-8px_rgba(0,0,0,0.7)]",
+            wide
+              ? "px-3 py-2 text-xs leading-relaxed max-w-[280px]"
+              : "px-2.5 py-1.5 text-xs font-medium whitespace-nowrap",
+          )}
+        >
+          {content}
+        </div>
       </div>
-    </div>
-  ) : null;
+    ) : null;
 
   return (
     <span

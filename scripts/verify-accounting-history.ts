@@ -16,14 +16,14 @@ async function main() {
   const command = async (value: object, key = randomUUID()) =>
     (
       await db.query<{ r: { id: string; version: number } }>(
-        "SELECT acct_operate($1,$2::jsonb) r",
+        "SELECT accounting.operate(jsonb_build_object('key',$1::uuid,'command',$2::jsonb)) r",
         [key, JSON.stringify(value)],
       )
     ).rows[0].r;
   const revision = async () =>
     (
       await db.query<{ r: { revision: string } }>(
-        "SELECT acct_close_history() r",
+        "SELECT accounting.workspace('2026-01-01','2026-12-31') r",
       )
     ).rows[0].r.revision;
   const monthly = [
@@ -56,7 +56,7 @@ async function main() {
     (
       await db.query<{
         r: { ready: boolean; partial_year: boolean; differences: number };
-      }>("SELECT acct_history_preview($1,$2,$3::jsonb,$4::jsonb,$5::jsonb) r", [
+      }>("SELECT accounting.history_preview(jsonb_build_object('from',$1::date,'to',$2::date,'monthly',$3::jsonb,'accounts',$4::jsonb,'totals',$5::jsonb)) r", [
         "2026-01-01",
         "2026-02-28",
         JSON.stringify(m),
@@ -98,14 +98,6 @@ async function main() {
       });
       await command({ type: "entry.post", id, expected_version: 1 });
     }
-    check((await preview()).ready, false);
-    await command({
-      type: "year.configure",
-      id: randomUUID(),
-      year: 2026,
-      classification: "s_corp",
-      expected_revision: await revision(),
-    });
     check((await preview()).ready, true);
     check((await preview()).partial_year, true);
     check(
@@ -132,6 +124,10 @@ async function main() {
       /ACCT_DUPLICATE_CONTROL/,
     );
     checks++;
+    check((await preview(monthly.slice(0,1))).ready,false);
+    await assert.rejects(preview([monthly[0],monthly[0]]),/ACCT_DUPLICATE_CONTROL/);checks++;
+    await assert.rejects(preview(monthly,[...accounts,{account_id:randomUUID(),amount_cents:'0'}]),/ACCT_UNKNOWN_CONTROL/);checks++;
+    await assert.rejects(preview([{...monthly[0],from:'2026-01-02'},monthly[1]]),/ACCT_HISTORY_SCOPE/);checks++;
     const doc = randomUUID();
     await command({
       type: "document.prepare",
@@ -170,7 +166,7 @@ async function main() {
     check(
       (
         await db.query<{ r: { periods: { is_locked: boolean }[] } }>(
-          "SELECT acct_period_impact('2026-01-01') r",
+          "SELECT jsonb_build_object('periods',jsonb_build_array(accounting.close_checklist('2026-01-01')->'period',accounting.close_checklist('2026-02-01')->'period')) r",
         )
       ).rows[0].r.periods.length,
       2,
@@ -199,15 +195,15 @@ async function main() {
     check(
       (
         await db.query(
-          "SELECT check_id FROM acct_history_invalidations WHERE check_id=$1",
+          "SELECT id FROM accounting.history_checks WHERE id=$1 AND status='mismatch'",
           [verify.id],
         )
       ).rows.length,
       1,
     );
     await assert.rejects(
-      db.query("DELETE FROM acct_history_checks WHERE id=$1", [verify.id]),
-      /ACCT_APPEND_ONLY/,
+      db.query("DELETE FROM accounting.history_checks WHERE id=$1", [verify.id]),
+      /ACCT_NO_HARD_DELETE/,
     );
     checks++;
     await db.exec("SET ROLE anon");

@@ -3,37 +3,30 @@ import { Pool } from "pg";
 import { isLocalOrTestEnv } from "@/lib/env";
 
 const allowed = new Map<string, readonly string[]>([
-  ["acct_is_owner", []],
-  ["acct_command", ["p_key", "p_command"]],
-  ["acct_execute", ["p_key", "p_command"]],
-  ["acct_operate", ["p_key", "p_command"]],
-  ["acct_close_history", []],
-  ["acct_history_view", []],
-  ["acct_transfers_view", ["p_from", "p_to", "p_offset"]],
-  ["acct_bank_review", ["p_group", "p_query", "p_offset"]],
-  ["acct_statement_sources", ["p_statement"]],
-  ["acct_rules_view", []],
-  ["acct_feed_view", []],
-  ["acct_rules_preview", ["p_from", "p_to", "p_rule", "p_offset"]],
-  [
-    "acct_history_preview",
-    ["p_from", "p_to", "p_monthly", "p_accounts", "p_totals"],
-  ],
-  ["acct_snapshot_read", ["p_id"]],
-  ["acct_reconciliation_view", ["p_id", "p_account", "p_offset", "p_query"]],
-  ["acct_close_checklist", ["p_month"]],
-  ["acct_period_impact", ["p_month"]],
-  ["acct_clearing_view", ["p_as_of", "p_account"]],
-  ["acct_workspace", ["p_from", "p_to", "p_entry_id"]],
-  ["acct_register", ["p_filter"]],
-  ["acct_account_ledger", ["p_account", "p_from", "p_to", "p_offset"]],
-  ["acct_manage", []],
-  ["acct_export", []],
-  ["acct_books_export", []],
-  ["acct_books_backup", []],
-  ["acct_entry_evidence", ["p_entry"]],
-  ["acct_imports", ["p_batch", "p_offset"]],
-  ["acct_documents_read", ["p_id", "p_offset"]],
+  ["context", ["view", "params"]],
+  ["operate", ["command"]],
+  ["workspace", ["from_date", "to_date"]],
+  ["transactions", ["filter", "page"]],
+  ["entry_detail", ["entry"]],
+  ["documents", ["filter"]],
+  ["bank_review", ["filter"]],
+  ["prior_treatment", ["descriptor_key", "bank_account_id", "max_rows"]],
+  ["rules_preview", ["filter"]],
+  ["imports", ["batch"]],
+  ["history_preview", ["controls"]],
+  ["import_compare", ["batch_a", "batch_b", "filter"]],
+  ["close_checklist", ["month"]],
+  ["tax_source", ["year", "cutoff"]],
+  ["tax_link", ["id"]],
+  ["payroll", ["view"]],
+  ["registers", ["view"]],
+  ["contractor_report", ["year", "cutoff"]],
+  ["report", ["kind", "params"]],
+  ["report_lines", ["kind", "params", "account"]],
+  ["ledger", ["account", "from_date", "to_date"]],
+  ["snapshot_read", ["id"]],
+  ["books_package", ["params"]],
+  ["support_report", ["params"]],
 ]);
 let pool: Pool | undefined;
 /** A separately configured loopback-only fixture database for integration testing. */
@@ -62,10 +55,40 @@ function fixtureClient(service: boolean) {
     connectionTimeoutMillis: 5000,
   });
   return {
+    async recordStorageObject(key: string, mime: string, size: number) {
+      if (service) throw new Error("Owner storage uploads only.");
+      const connection = await pool!.connect();
+      try {
+        const marker = await connection.query(
+          "SELECT label FROM public.accounting_test_marker",
+        );
+        if (
+          marker.rows.length !== 1 ||
+          marker.rows[0].label !== "synthetic-local-accounting"
+        )
+          throw new Error("Accounting test database marker is missing.");
+        await connection.query("BEGIN");
+        await connection.query("SET LOCAL ROLE authenticated");
+        await connection.query(
+          "SELECT set_config('request.jwt.claim.sub',$1,true)",
+          ["10000000-0000-4000-8000-000000000001"],
+        );
+        await connection.query(
+          "INSERT INTO storage.objects(bucket_id,name,metadata) SELECT 'accounting-private',$1,$2::jsonb WHERE NOT EXISTS(SELECT 1 FROM storage.objects WHERE bucket_id='accounting-private' AND name=$1)",
+          [key, JSON.stringify({ mimetype: mime, size })],
+        );
+        await connection.query("COMMIT");
+      } catch (error) {
+        await connection.query("ROLLBACK");
+        throw error;
+      } finally {
+        connection.release();
+      }
+    },
     async rpc(name: string, args: Record<string, unknown> = {}) {
       const keys = service
-        ? name === "acct_feed_server"
-          ? ["p_command"]
+        ? ["sync_server", "tax_refresh_server"].includes(name)
+          ? ["command"]
           : undefined
         : allowed.get(name);
       if (!keys)
@@ -73,7 +96,7 @@ function fixtureClient(service: boolean) {
       const connection = await pool!.connect();
       try {
         const marker = await connection.query(
-          "SELECT label FROM public.acct_test_marker",
+          "SELECT label FROM public.accounting_test_marker",
         );
         if (
           marker.rows.length !== 1 ||
@@ -90,15 +113,20 @@ function fixtureClient(service: boolean) {
           "SELECT set_config('request.jwt.claim.sub',$1,true)",
           [service ? "" : "10000000-0000-4000-8000-000000000001"],
         );
-        const values = keys.map((k) =>
-          args[k] === undefined
-            ? null
-            : typeof args[k] === "object" && args[k] !== null
-              ? JSON.stringify(args[k])
-              : args[k],
-        );
+        const values = keys
+          .filter((k) => k in args)
+          .map((k) =>
+            args[k] === undefined
+              ? null
+              : typeof args[k] === "object" && args[k] !== null
+                ? JSON.stringify(args[k])
+                : args[k],
+          );
         const result = await connection.query(
-          `SELECT public.${name}(${keys.map((_, i) => "$" + (i + 1)).join(",")}) AS result`,
+          `SELECT accounting.${name}(${keys
+            .filter((k) => k in args)
+            .map((k, i) => `${k} => $${i + 1}`)
+            .join(",")}) AS result`,
           values,
         );
         await connection.query("COMMIT");

@@ -1,15 +1,11 @@
+import { fixtureDatabaseUrl } from "./accounting-fixture-target";
 import assert from "node:assert/strict";
 import { Client } from "pg";
 import { randomUUID } from "node:crypto";
 import { fixtureOwner, fixtureAccountId } from "../src/lib/accounting/fixtures";
 
 async function main() {
-  const url =
-    process.env.ACCOUNTING_TEST_DATABASE_URL ??
-    "postgresql://postgres@127.0.0.1:5447/accounting_test";
-  const parsed = new URL(url);
-  if (parsed.hostname !== "127.0.0.1" || parsed.pathname !== "/accounting_test")
-    throw new Error("Only the dedicated local fixture database is allowed.");
+  const url = fixtureDatabaseUrl();
   const clients = [
     new Client({ connectionString: url }),
     new Client({ connectionString: url }),
@@ -24,15 +20,15 @@ async function main() {
   };
   async function command(client: Client, value: object, key = randomUUID()) {
     return (
-      await client.query("SELECT public.acct_operate($1,$2::jsonb) result", [
-        key,
-        JSON.stringify(value),
-      ])
+      await client.query(
+        "SELECT accounting.operate(jsonb_build_object('key',$1::text,'command',$2::jsonb)) result",
+        [key, JSON.stringify(value)],
+      )
     ).rows[0].result;
   }
   try {
     const marker = await operator.query(
-      "SELECT label FROM public.acct_test_marker",
+      "SELECT label FROM public.accounting_test_marker",
     );
     check(marker.rows, [{ label: "synthetic-local-accounting" }]);
     await operator.query(
@@ -42,7 +38,7 @@ async function main() {
     const revision = async () =>
       (
         await operator.query(
-          "SELECT financial_revision::text revision FROM acct_settings",
+          "SELECT financial_revision::text revision FROM accounting.settings",
         )
       ).rows[0].revision;
     for (const client of [a, b]) {
@@ -81,7 +77,7 @@ async function main() {
     check(
       (
         await operator.query(
-          "SELECT count(*)::integer n FROM acct_journal_entries WHERE id=$1",
+          "SELECT count(*)::integer n FROM accounting.journal_entries WHERE id=$1",
           [id],
         )
       ).rows[0].n,
@@ -104,13 +100,6 @@ async function main() {
     // A reviewed close waits behind posting and rejects its now-stale report revision.
     const secondId = randomUUID();
     await command(a, { ...draft, id: secondId, entry_date: "2091-02-05" });
-    await command(operator, {
-      type: "year.configure",
-      id: randomUUID(),
-      year: 2024,
-      classification: "s_corp",
-      expected_revision: await revision(),
-    });
     const reviewedRevision = await revision();
     await a.query("BEGIN");
     await command(a, { type: "entry.post", id: secondId, expected_version: 1 });
@@ -131,7 +120,7 @@ async function main() {
     await new Promise((resolve) => setTimeout(resolve, 100));
     check(closeFinished, false);
     await a.query("COMMIT");
-    assert.match((await close).error, /ACCT_STALE_VERSION/);
+    assert.match((await close).error, /ACCT_STALE_REVISION/);
     checks++;
     await command(operator, {
       type: "period.close",
@@ -142,7 +131,7 @@ async function main() {
     check(
       (
         await operator.query(
-          "SELECT is_locked FROM acct_periods WHERE month_start='2024-01-01'",
+          "SELECT status='locked' is_locked FROM accounting.periods WHERE month='2024-01-01'",
         )
       ).rows[0].is_locked,
       true,

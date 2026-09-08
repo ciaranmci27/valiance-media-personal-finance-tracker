@@ -1,3 +1,4 @@
+import { readAccounting } from "@/lib/accounting/server/read";
 import { NextRequest, NextResponse } from "next/server";
 import {
   accountingClient,
@@ -9,8 +10,20 @@ import {
   registerFilterSchema,
 } from "@/lib/accounting/workflows";
 import { z } from "zod";
+import { contractorFilterSchema } from "@/lib/accounting/contractors";
+import { taxScopeSchema } from "@/lib/accounting/tax-workpapers";
+import {
+  validateTaxTargets,
+  type TaxLinkView,
+} from "@/lib/accounting/tax-links";
+import { payrollFilterSchema } from "@/lib/accounting/payroll";
+import { registerActionSchema } from "@/lib/accounting/registers";
+import { supportReportFilterSchema } from "@/lib/accounting/support-reports";
+import { booksPackageScopeSchema } from "@/lib/accounting/books-package";
+import { reportFilterSchema } from "@/lib/accounting/reports";
 import { sameOrigin } from "@/lib/accounting/server/request-origin";
 import { boundedBytes } from "@/lib/accounting/server/request-body";
+import { importComparisonFilterSchema } from "@/lib/accounting/imports/comparison";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,13 +41,297 @@ export async function GET(req: NextRequest) {
   const view = req.nextUrl.searchParams.get("view");
   if (view) {
     let result;
-    if (view === "manage") result = await client.rpc("acct_manage");
-    else if (view === "feeds") result = await client.rpc("acct_feed_view");
-    else if (view === "rules") result = await client.rpc("acct_rules_view");
-    else if (view === "history") result = await client.rpc("acct_history_view");
+    if (view === "import-comparison") {
+      let input: unknown;
+      try {
+        input = JSON.parse(req.nextUrl.searchParams.get("filter") ?? "{}");
+      } catch {
+        return NextResponse.json(
+          { error: "Choose valid import files and dates." },
+          { status: 400 },
+        );
+      }
+      const filter = importComparisonFilterSchema.safeParse(input);
+      if (!filter.success)
+        return NextResponse.json(
+          { error: "Choose two import files and their shared date range." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "import-comparison", {
+        p_filter: filter.data,
+      });
+    } else if (view === "books-package") {
+      const scope = booksPackageScopeSchema.safeParse({
+        year: Number(req.nextUrl.searchParams.get("year")),
+        through: req.nextUrl.searchParams.get("through"),
+      });
+      if (!scope.success)
+        return NextResponse.json(
+          { error: "Choose a year and cutoff within that year." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "books-package", {
+        p_year: scope.data.year,
+        p_through: scope.data.through,
+      });
+    } else if (view === "books-package-history") {
+      const scope = z
+        .object({
+          year: z.coerce.number().int().min(1900).max(2100),
+          offset: z.coerce.number().int().min(0).max(10000000),
+        })
+        .safeParse({
+          year: req.nextUrl.searchParams.get("year"),
+          offset: req.nextUrl.searchParams.get("offset") ?? 0,
+        });
+      if (!scope.success)
+        return NextResponse.json(
+          { error: "Choose a valid package history page." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "books-package-history", {
+        p_year: scope.data.year,
+        p_offset: scope.data.offset,
+      });
+    } else if (view === "manage")
+      result = await readAccounting(client, "manage");
+    else if (view === "feeds") result = await readAccounting(client, "feeds");
+    else if (view === "rules") result = await readAccounting(client, "rules");
+    else if (view === "history")
+      result = await readAccounting(client, "history");
     else if (view === "close-history")
-      result = await client.rpc("acct_close_history");
-    else if (view === "transfers") {
+      result = await readAccounting(client, "close-history");
+    else if (view === "tax-workpapers") {
+      const scope = taxScopeSchema.safeParse({
+        year: Number(req.nextUrl.searchParams.get("year")),
+        through: req.nextUrl.searchParams.get("through"),
+      });
+      if (!scope.success)
+        return NextResponse.json(
+          { error: "Choose a valid tax year and cutoff." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "tax-source", {
+        p_year: scope.data.year,
+        p_through: scope.data.through,
+      });
+    } else if (view === "tax-history") {
+      const parsed = z
+        .object({
+          kind: z.enum(["year", "mapping", "adjustment", "basis"]),
+          year: z.coerce.number().int().min(1900).max(2100),
+          key: z.uuid().nullable(),
+          offset: z.coerce.number().int().min(0).max(10000000),
+        })
+        .safeParse({
+          kind: req.nextUrl.searchParams.get("kind"),
+          year: req.nextUrl.searchParams.get("year"),
+          key: req.nextUrl.searchParams.get("key"),
+          offset: req.nextUrl.searchParams.get("offset") ?? "0",
+        });
+      if (!parsed.success)
+        return NextResponse.json(
+          { error: "Choose a valid workpaper history." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "tax-history", {
+        p_kind: parsed.data.kind,
+        p_year: parsed.data.year,
+        p_key: parsed.data.key,
+        p_offset: parsed.data.offset,
+      });
+    } else if (view === "contractors") {
+      let input: unknown;
+      try {
+        input = JSON.parse(req.nextUrl.searchParams.get("filter") ?? "{}");
+      } catch {
+        return NextResponse.json(
+          { error: "Choose a valid contractor scope." },
+          { status: 400 },
+        );
+      }
+      const filter = contractorFilterSchema.safeParse(input);
+      if (!filter.success)
+        return NextResponse.json(
+          { error: "Choose a valid contractor year and cutoff." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "contractors", {
+        p_filter: filter.data,
+      });
+    } else if (view === "registers" || view === "register-detail") {
+      const parsed = z
+        .object({
+          kind: z.enum(["asset", "loan"]).optional(),
+          id: z.uuid().optional(),
+          date: dateSchema,
+          query: z.string().max(200).default(""),
+          offset: z.coerce.number().int().min(0).max(10000000).default(0),
+        })
+        .safeParse(Object.fromEntries(req.nextUrl.searchParams));
+      if (
+        !parsed.success ||
+        (view === "registers" && !parsed.data.kind) ||
+        (view === "register-detail" && !parsed.data.id)
+      )
+        return NextResponse.json(
+          { error: "Choose an asset or loan register and valid date." },
+          { status: 400 },
+        );
+      result =
+        view === "registers"
+          ? await readAccounting(client, "registers", {
+              p_kind: parsed.data.kind,
+              p_date: parsed.data.date,
+              p_query: parsed.data.query,
+              p_offset: parsed.data.offset,
+            })
+          : await readAccounting(client, "register-detail", {
+              p_id: parsed.data.id,
+              p_date: parsed.data.date,
+              p_offset: parsed.data.offset,
+            });
+    } else if (view === "register-preview") {
+      let body: unknown;
+      try {
+        body = JSON.parse(req.nextUrl.searchParams.get("body") ?? "{}");
+      } catch {
+        return NextResponse.json(
+          { error: "Check the proposed register entry." },
+          { status: 400 },
+        );
+      }
+      const parsed = registerActionSchema.safeParse(body),
+        identifier = z.uuid().safeParse(req.nextUrl.searchParams.get("id"));
+      if (!parsed.success || !identifier.success)
+        return NextResponse.json(
+          { error: "Check the proposed register entry." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "register-preview", {
+        p_id: identifier.data,
+        p_body: parsed.data,
+      });
+    } else if (view === "payroll-year") {
+      const parsed = z
+        .object({
+          year: z.coerce.number().int().min(1900).max(2100),
+          through: dateSchema,
+        })
+        .safeParse(Object.fromEntries(req.nextUrl.searchParams));
+      if (!parsed.success)
+        return NextResponse.json(
+          { error: "Choose a payroll year and coverage date." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "payroll-year", {
+        p_year: parsed.data.year,
+        p_through: parsed.data.through,
+      });
+    } else if (view === "support-report") {
+      let input: unknown;
+      try {
+        input = JSON.parse(req.nextUrl.searchParams.get("filter") ?? "{}");
+      } catch {
+        return NextResponse.json(
+          { error: "Choose valid report filters." },
+          { status: 400 },
+        );
+      }
+      const parsed = supportReportFilterSchema.safeParse(input);
+      if (!parsed.success)
+        return NextResponse.json(
+          { error: "Choose a valid report and period." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "support-report", {
+        p_filter: parsed.data,
+        p_export: false,
+      });
+    } else if (view === "payroll") {
+      let input: unknown;
+      try {
+        input = JSON.parse(req.nextUrl.searchParams.get("filter") ?? "{}");
+      } catch {
+        return NextResponse.json(
+          { error: "Choose valid payroll filters." },
+          { status: 400 },
+        );
+      }
+      const parsed = payrollFilterSchema.safeParse(input);
+      if (!parsed.success)
+        return NextResponse.json(
+          { error: "Choose a valid payroll year and cutoff." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "payroll", {
+        p_filter: parsed.data,
+      });
+    } else if (view === "payroll-detail") {
+      const parsed = z
+        .object({
+          id: z.uuid(),
+          bank_account_id: z.uuid().optional(),
+          template: z.enum(["cash", "accrual"]).optional(),
+          offset: z.coerce.number().int().min(0).max(10000000).default(0),
+        })
+        .safeParse(Object.fromEntries(req.nextUrl.searchParams));
+      if (!parsed.success)
+        return NextResponse.json(
+          { error: "Choose a payroll run." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "payroll-detail", {
+        p_id: parsed.data.id,
+        p_offset: parsed.data.offset,
+        bank_account_id: parsed.data.bank_account_id,
+        template: parsed.data.template,
+      });
+    } else if (view === "report" || view === "report-detail") {
+      let input: unknown;
+      try {
+        input = JSON.parse(req.nextUrl.searchParams.get("filter") ?? "{}");
+      } catch {
+        return NextResponse.json(
+          { error: "Invalid report filters." },
+          { status: 400 },
+        );
+      }
+      const parsed = reportFilterSchema.safeParse(input);
+      const ledger =
+        view === "report" &&
+        req.nextUrl.searchParams.get("report") === "general-ledger";
+      if (
+        !parsed.success ||
+        (view === "report" &&
+          ((!ledger && parsed.data.account_ids) ||
+            parsed.data.account_types ||
+            parsed.data.cash_class))
+      )
+        return NextResponse.json(
+          { error: "Choose valid report dates and filters." },
+          { status: 400 },
+        );
+      result = await readAccounting(
+        client,
+        view === "report"
+          ? ledger
+            ? "ledger-report"
+            : "report"
+          : "report-detail",
+        { p_filter: parsed.data },
+      );
+    } else if (view === "cash-review") {
+      const line = z.uuid().safeParse(req.nextUrl.searchParams.get("line"));
+      if (!line.success)
+        return NextResponse.json(
+          { error: "Choose a bank cash movement." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "cash-review", {
+        p_line: line.data,
+      });
+    } else if (view === "transfers") {
       const parsed = z
         .object({
           from: dateSchema,
@@ -48,7 +345,7 @@ export async function GET(req: NextRequest) {
           { error: "Choose a valid transfer range." },
           { status: 400 },
         );
-      result = await client.rpc("acct_transfers_view", {
+      result = await readAccounting(client, "transfers", {
         p_from: parsed.data.from,
         p_to: parsed.data.to,
         p_offset: parsed.data.offset,
@@ -68,7 +365,7 @@ export async function GET(req: NextRequest) {
           { error: "Choose a valid rule preview range." },
           { status: 400 },
         );
-      result = await client.rpc("acct_rules_preview", {
+      result = await readAccounting(client, "rules-preview", {
         p_from: parsed.data.from,
         p_to: parsed.data.to,
         p_rule: parsed.data.rule ?? null,
@@ -87,22 +384,10 @@ export async function GET(req: NextRequest) {
           { error: "Choose an imported bank movement." },
           { status: 400 },
         );
-      result = await client.rpc("acct_bank_review", {
+      result = await readAccounting(client, "bank-review", {
         p_group: parsed.data.group,
         p_query: parsed.data.query,
         p_offset: parsed.data.offset,
-      });
-    } else if (view === "statement-sources") {
-      const parsed = z
-        .uuid()
-        .safeParse(req.nextUrl.searchParams.get("statement"));
-      if (!parsed.success)
-        return NextResponse.json(
-          { error: "Choose a statement." },
-          { status: 400 },
-        );
-      result = await client.rpc("acct_statement_sources", {
-        p_statement: parsed.data,
       });
     } else if (view === "snapshot") {
       const id = z.uuid().safeParse(req.nextUrl.searchParams.get("id"));
@@ -111,7 +396,7 @@ export async function GET(req: NextRequest) {
           { error: "Choose a saved report." },
           { status: 400 },
         );
-      result = await client.rpc("acct_snapshot_read", { p_id: id.data });
+      result = await readAccounting(client, "snapshot", { p_id: id.data });
     } else if (view === "reconciliation") {
       const parsed = z
         .object({
@@ -126,42 +411,12 @@ export async function GET(req: NextRequest) {
           { error: "Choose a statement or account." },
           { status: 400 },
         );
-      result = await client.rpc("acct_reconciliation_view", {
+      result = await readAccounting(client, "reconciliation", {
         p_id: parsed.data.id ?? null,
         p_account: parsed.data.account ?? null,
         p_offset: parsed.data.offset,
         p_query: parsed.data.query,
       });
-    } else if (
-      view === "close" ||
-      view === "period-impact" ||
-      view === "clearing"
-    ) {
-      const parsed = dateSchema.safeParse(req.nextUrl.searchParams.get("date"));
-      if (!parsed.success)
-        return NextResponse.json(
-          { error: "Choose a valid date." },
-          { status: 400 },
-        );
-      if (view === "clearing") {
-        const account = z
-          .uuid()
-          .nullable()
-          .safeParse(req.nextUrl.searchParams.get("account"));
-        if (!account.success)
-          return NextResponse.json(
-            { error: "Choose an account." },
-            { status: 400 },
-          );
-        result = await client.rpc("acct_clearing_view", {
-          p_as_of: parsed.data,
-          p_account: account.data,
-        });
-      } else
-        result = await client.rpc(
-          view === "close" ? "acct_close_checklist" : "acct_period_impact",
-          { p_month: parsed.data },
-        );
     } else if (view === "documents") {
       const offset = z.coerce
         .number()
@@ -173,7 +428,7 @@ export async function GET(req: NextRequest) {
           { error: "Invalid document page." },
           { status: 400 },
         );
-      result = await client.rpc("acct_documents_read", {
+      result = await readAccounting(client, "documents", {
         p_id: null,
         p_offset: offset.data,
       });
@@ -192,7 +447,7 @@ export async function GET(req: NextRequest) {
           { error: "Invalid import request." },
           { status: 400 },
         );
-      result = await client.rpc("acct_imports", {
+      result = await readAccounting(client, "imports", {
         p_batch: id.data,
         p_offset: offset.data,
       });
@@ -203,7 +458,7 @@ export async function GET(req: NextRequest) {
           { error: "Choose an entry." },
           { status: 400 },
         );
-      result = await client.rpc("acct_entry_evidence", { p_entry: id.data });
+      result = await readAccounting(client, "evidence", { p_entry: id.data });
     } else if (view === "register") {
       let raw: unknown;
       try {
@@ -220,7 +475,9 @@ export async function GET(req: NextRequest) {
           { error: parsed.error.issues[0]?.message ?? "Invalid filters." },
           { status: 400 },
         );
-      result = await client.rpc("acct_register", { p_filter: parsed.data });
+      result = await readAccounting(client, "register", {
+        p_filter: parsed.data,
+      });
     } else if (view === "account-ledger") {
       const schema = z
         .object({
@@ -238,7 +495,7 @@ export async function GET(req: NextRequest) {
           { error: "Choose an account and valid range." },
           { status: 400 },
         );
-      result = await client.rpc("acct_account_ledger", {
+      result = await readAccounting(client, "account-ledger", {
         p_account: parsed.data.account,
         p_from: parsed.data.from,
         p_to: parsed.data.to,
@@ -258,20 +515,7 @@ export async function GET(req: NextRequest) {
       headers: { "Cache-Control": "no-store" },
     });
   }
-  if (req.nextUrl.searchParams.get("export") === "true") {
-    const { data, error } = await client.rpc("acct_books_backup");
-    if (error)
-      return NextResponse.json(
-        { error: accountingError(error.message) },
-        { status: 400 },
-      );
-    return NextResponse.json(data, {
-      headers: {
-        "Content-Disposition": "attachment; filename=accounting-books.json",
-        "Cache-Control": "no-store",
-      },
-    });
-  }
+
   const from = dateSchema.safeParse(req.nextUrl.searchParams.get("from"));
   const to = dateSchema.safeParse(req.nextUrl.searchParams.get("to"));
   if (!from.success || !to.success || from.data > to.data)
@@ -279,7 +523,7 @@ export async function GET(req: NextRequest) {
       { error: "Choose a valid date range." },
       { status: 400 },
     );
-  const { data, error } = await client.rpc("acct_workspace", {
+  const { data, error } = await readAccounting(client, "workspace", {
     p_from: from.data,
     p_to: to.data,
   });
@@ -334,7 +578,37 @@ export async function POST(req: NextRequest) {
       { error: parsed.error.issues[0]?.message ?? "Invalid entry." },
       { status: 400 },
     );
-  const { data, error } = await client.rpc("acct_operate", {
+  if (
+    parsed.data.command.type === "tax.link.save" &&
+    parsed.data.command.enabled
+  ) {
+    const command = parsed.data.command;
+    const { data: current, error: readError } = await readAccounting(
+      client,
+      "tax",
+      { p_year: Number(command.body.through.slice(0, 4)) },
+    );
+    const view = current as TaxLinkView | null;
+    if (readError || view?.estimate?.id !== command.estimate_id)
+      return NextResponse.json(
+        { error: "Save the selected personal estimate before linking it." },
+        { status: 409 },
+      );
+    try {
+      validateTaxTargets(view.estimate, command.body);
+    } catch (e) {
+      return NextResponse.json(
+        {
+          error:
+            e instanceof Error
+              ? e.message
+              : "Review the selected estimator targets.",
+        },
+        { status: 400 },
+      );
+    }
+  }
+  const { data, error } = await readAccounting(client, "operate", {
     p_key: parsed.data.key,
     p_command: parsed.data.command,
   });

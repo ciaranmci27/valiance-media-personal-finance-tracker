@@ -114,9 +114,10 @@ export function AppearanceSettingsContent() {
                   <Image
                     src={t.image}
                     alt={t.label}
-                    width={48}
-                    height={48}
-                    className="shrink-0"
+                    width={t.value === "light" ? 384 : 373}
+                    height={377}
+                    sizes="48px"
+                    className="h-auto w-12 shrink-0"
                   />
                   <div>
                     <h3 className={cn(

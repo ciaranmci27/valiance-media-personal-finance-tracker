@@ -40,7 +40,8 @@ export async function storeDocument(
   mime: string,
 ) {
   validatedPath(key);
-  if (localAccountingTestClient()) {
+  const fixture = localAccountingTestClient();
+  if (fixture) {
     const location = path.join(fixtureRoot(), ...key.split("/"));
     await mkdir(path.dirname(location), { recursive: true });
     try {
@@ -51,6 +52,7 @@ export async function storeDocument(
       if (!saved.equals(Buffer.from(bytes)))
         throw new Error("Stored evidence differs from this upload.");
     }
+    await fixture.recordStorageObject(key, mime, bytes.byteLength);
     return;
   }
   const client = await createClient();

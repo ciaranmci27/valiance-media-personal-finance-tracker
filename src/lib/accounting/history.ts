@@ -50,6 +50,7 @@ export const historyPreviewSchema = z
     "Compare one calendar-year scope at a time.",
   );
 export const historyCommandSchema = z.discriminatedUnion("type", [
+  z.object({type:z.literal("history.lock"),id,expected_revision:revision,history_id:id,reason:reason.optional()}).strict(),
   z
     .object({
       type: z.literal("history.verify"),
@@ -61,32 +62,14 @@ export const historyCommandSchema = z.discriminatedUnion("type", [
       reason,
     })
     .strict(),
-  z
-    .object({
-      type: z.literal("history.disposition"),
-      id,
-      expected_revision: revision,
-      group_id: id,
-      kind: z.enum(["annual_closing", "unsupported"]),
-      document_id: id,
-      reason,
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("history.lock"),
-      id,
-      expected_revision: revision,
-      history_id: id,
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("import.resume"),
-      id,
-      expected_version: z.number().int().min(1).max(2147483646),
-    })
-    .strict(),
+  
+  
+  z.object({
+    type:z.literal('history.check'),id,expected_revision:revision.optional(),fiscal_year:z.number().int().min(1900).max(2100),kind:z.enum(['opening_balances','annual_totals']),
+    from:dateSchema,to:dateSchema,document_id:id,reason,explanation:z.string().trim().max(3000).optional(),
+    report_kind:z.enum(['profit_loss','balance_sheet']).optional(),basis:z.literal('cash').optional(),source_report_type:z.string().max(100).optional(),
+    expected:z.object({income_cents:cents.optional(),expense_cents:cents.optional(),net_income_cents:cents.optional(),cost_of_goods_sold_cents:cents.optional(),gross_profit_cents:cents.optional(),operating_expense_cents:cents.optional(),assets_cents:cents.optional(),liabilities_cents:cents.optional(),equity_total_cents:cents.optional(),monthly:monthly.optional(),accounts:accounts.optional(),totals:totals.optional()}).strict().refine(v=>Object.keys(v).length>0),
+  }).strict(),
 ]);
 export type HistoryControls = z.infer<typeof historyPreviewSchema>;
 export interface HistoryPreview {

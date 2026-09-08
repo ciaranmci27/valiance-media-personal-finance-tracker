@@ -1,8 +1,24 @@
 import { readFile, readdir } from "node:fs/promises";
+/** Existing app dependency, reproduced only inside isolated accounting fixtures. */
+export async function accountingTaxDependencySql() {
+  const canonical = await readFile(
+    new URL("../supabase/schema/schema.sql", import.meta.url),
+    "utf8",
+  );
+  const table = canonical.match(
+    /CREATE TABLE tax_estimates \([\s\S]*?\n\);/,
+  )?.[0];
+  if (!table) throw new Error("Canonical tax-estimator dependency is missing.");
+  return (
+    table +
+    "\nCREATE UNIQUE INDEX idx_tax_estimates_year_unique_active ON public.tax_estimates(tax_year) WHERE deleted_at IS NULL;"
+  );
+}
 export async function accountingMigrations() {
   const directory = new URL("../supabase/migrations/", import.meta.url);
   const names = (await readdir(directory))
-    .filter((name) => /^\d{14}_accounting_.*\.sql$/.test(name))
+    // Deliberately non-recursive: historical migrations are never applied.
+    .filter((name) => /^\d{14}_(?:accounting_.*|business_profile)\.sql$/.test(name))
     .sort();
   const migrations = await Promise.all(
     names.map(async (name) => ({
