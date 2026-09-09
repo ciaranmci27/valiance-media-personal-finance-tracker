@@ -2,7 +2,7 @@
 import { useEffect, useState, useRef } from "react";
 import { ArrowRight, FileText, Paperclip, History, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -57,7 +57,7 @@ export function AccountingEvidence({
               {data.rules.map((r) => (
                 <details
                   key={r.id}
-                  className="rounded-lg border border-border p-3 text-xs"
+                  className="glass-card rounded-xl p-3 text-xs"
                 >
                   <summary className="cursor-pointer">
                     Draft filled by {r.rule_name} · version {r.rule_version}
@@ -129,7 +129,7 @@ export function AccountingEvidence({
             )}
           </div>
           {data.sources.map((s) => (
-            <details key={s.id} className="rounded-lg border border-border p-3">
+            <details key={s.id} className="glass-card rounded-xl p-3">
               <summary className="cursor-pointer text-sm">
                 <FileText
                   className="mr-2 inline"
@@ -193,11 +193,11 @@ export function AccountingEvidence({
           }
         }}
       >
-        <Input
+        <TextInput
           aria-label="Add an evidence note"
           placeholder="Add a note without changing the books"
           value={note}
-          onChange={(e) => setNote(e.target.value)}
+          onChange={(nextValue) => setNote(nextValue)}
           maxLength={3000}
           required
         />

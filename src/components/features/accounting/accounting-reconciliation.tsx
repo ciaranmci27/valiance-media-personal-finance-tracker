@@ -1,11 +1,13 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
+import { Radio } from "@/components/ui/inputs/RadioGroup";
 import { useEffect, useState, useDeferredValue } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Check, Plus, Search, FileCheck2 } from "lucide-react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Pagination } from "@/components/ui/pagination";
 import { SectionHeader } from "@/components/ui/section-header";
 import {
@@ -469,13 +471,13 @@ export function AccountingReconciliation({
               <div className="border-b border-border p-5">
                 <h3 className="font-semibold">Posted transactions</h3>
                 <div className="mt-3">
-                  <Input
+                  <TextInput
                     aria-label="Search posted transactions"
-                    icon={<Search size={15} aria-hidden="true" />}
+                    prefix={<Search size={15} aria-hidden="true" />}
                     placeholder="Search memo or date"
                     value={query}
-                    onChange={(e) => {
-                      setQuery(e.target.value);
+                    onChange={(nextValue) => {
+                      setQuery(nextValue);
                       setPage(0);
                     }}
                   />
@@ -569,10 +571,10 @@ export function AccountingReconciliation({
             </DialogDescription>
           </DialogHeader>
           {confirm && confirm.kind !== "complete" && (
-            <Input
+            <TextInput
               label="Reason"
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={(nextValue) => setReason(nextValue)}
               maxLength={1000}
             />
           )}
@@ -693,34 +695,32 @@ function StatementCreate({
             </p>
           )}
           <div className="grid grid-cols-2 gap-3">
-            <Input
+            <DateInput
               label="Statement starts"
-              type="date"
               required
               value={from}
-              onChange={(e) => setFrom(e.target.value)}
+              onChange={(nextValue) => setFrom(nextValue)}
             />
-            <Input
+            <DateInput
               label="Statement ends"
-              type="date"
-              min={from}
+              minDate={from}
               required
               value={to}
-              onChange={(e) => setTo(e.target.value)}
+              onChange={(nextValue) => setTo(nextValue)}
             />
-            <Input
+            <TextInput
               label={card ? "Opening amount owed" : "Opening balance"}
               required
               inputMode="decimal"
               value={opening}
-              onChange={(e) => setOpening(e.target.value)}
+              onChange={(nextValue) => setOpening(nextValue)}
             />
-            <Input
+            <TextInput
               label={card ? "Ending amount owed" : "Ending balance"}
               required
               inputMode="decimal"
               value={ending}
-              onChange={(e) => setEnding(e.target.value)}
+              onChange={(nextValue) => setEnding(nextValue)}
             />
           </div>
           <AccountingDocumentPicker
@@ -811,12 +811,12 @@ function SelectLine({
             it.
           </DialogDescription>
         </DialogHeader>
-        <Input
+        <TextInput
           aria-label="Find a posted transaction"
           placeholder="Search memo or exact date"
           value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
+          onChange={(nextValue) => {
+            setQuery(nextValue);
             setPage(0);
             setLine(null);
           }}
@@ -832,8 +832,7 @@ function SelectLine({
                   : "border-border",
               )}
             >
-              <input
-                type="radio"
+              <Radio
                 name="statement-line"
                 value={l.id}
                 checked={line?.id === l.id}
@@ -865,11 +864,11 @@ function SelectLine({
           }}
           className="px-0"
         />
-        <Input
+        <TextInput
           label="Amount on the statement (positive)"
           inputMode="decimal"
           value={amount}
-          onChange={(e) => setAmount(e.target.value)}
+          onChange={(nextValue) => setAmount(nextValue)}
         />
         <ErrorText value={cmd.error || readError} />
         <Button

@@ -1,4 +1,7 @@
 "use client";
+import { FileInput } from "@/components/ui/inputs/FileInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -12,7 +15,7 @@ import {
 } from "lucide-react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import {
   Dialog,
@@ -21,12 +24,12 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Pagination } from "@/components/ui/pagination";
-import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Select } from "@/components/ui/inputs/Select";
 import { SectionHeader } from "@/components/ui/section-header";
-import { CustomSelect } from "@/components/ui/select";
+
 import { Tooltip } from "@/components/ui/tooltip";
 import type {
   AccountingAccount,
@@ -621,7 +624,7 @@ export function AccountingImports({
               </div>
             )}
             {["cancelled", "failed"].includes(batch.status) && (
-              <div className="rounded-lg border border-border p-4 text-sm">
+              <div className="glass-card rounded-xl p-4 text-sm">
                 <p>
                   This batch retains its source groups and any applied entries.
                   Resume from the saved checkpoint to finish the remaining work.
@@ -675,11 +678,11 @@ export function AccountingImports({
                     does not reverse any transactions.
                   </DialogDescription>
                 </DialogHeader>
-                <Input
+                <TextInput
                   label="Cancellation reason"
                   maxLength={1000}
                   value={cancelReason}
-                  onChange={(e) => setCancelReason(e.target.value)}
+                  onChange={(nextValue) => setCancelReason(nextValue)}
                 />
                 {command.error && (
                   <p role="alert" className="text-sm text-error">
@@ -719,7 +722,7 @@ export function AccountingImports({
               </DialogContent>
             </Dialog>
             {["review", "applying"].includes(batch.status) && (
-              <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-4 glass-card rounded-xl p-4">
                 <p className="text-sm text-muted-foreground">
                   {progress ||
                     `${data.counts.duplicate ?? 0} linked duplicates · ${data.counts.excluded ?? 0} excluded with a reason`}
@@ -905,7 +908,7 @@ function ImportResolution({
           Inspect suggested entry
         </Button>
       )}
-      <CustomSelect
+      <Select
         id="import-resolution"
         label="Treatment"
         value={resolution}
@@ -926,10 +929,10 @@ function ImportResolution({
           disabled={command.busy}
         />
       )}
-      <Input
+      <TextInput
         label="Reason"
         value={reason}
-        onChange={(e) => setReason(e.target.value)}
+        onChange={(nextValue) => setReason(nextValue)}
         required
         maxLength={1000}
         placeholder="Explain how you verified this treatment"
@@ -1305,7 +1308,7 @@ function ImportWizard({
   }
   function column(key: string, label: string, optional = false) {
     return (
-      <CustomSelect
+      <Select
         key={key}
         id={`column-${key}`}
         label={label}
@@ -1462,7 +1465,7 @@ function ImportWizard({
   return (
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2">
-        <CustomSelect
+        <Select
           id="import-mode"
           label="Import type"
           disabled={!!inspection || source === "wave"}
@@ -1479,7 +1482,7 @@ function ImportWizard({
             },
           ]}
         />
-        <CustomSelect
+        <Select
           id="import-source"
           label="Source"
           disabled={!!inspection}
@@ -1495,10 +1498,10 @@ function ImportWizard({
           ]}
         />
         <div className="sm:col-span-2">
-          <Input
+          <TextInput
             label="Source scope"
             value={scope}
-            onChange={(e) => setScope(e.target.value)}
+            onChange={(nextValue) => setScope(nextValue)}
             placeholder="e.g. Wave company ledger, or Chase checking 1234"
             maxLength={250}
           />
@@ -1517,16 +1520,15 @@ function ImportWizard({
               aria-hidden="true"
             />
             <span className="text-sm">Choose a UTF-8 CSV, up to 20 MB</span>
-            <input
+            <FileInput
               aria-label="CSV file"
-              className="mt-4 block w-full text-sm file:mr-4 file:rounded-md file:border-0 file:bg-secondary file:px-4 file:py-2 file:text-foreground"
-              type="file"
+              className="mt-4 w-full"
               accept=".csv,text/csv"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             />
           </label>
           <div className="grid grid-cols-2 gap-4">
-            <CustomSelect
+            <Select
               id="csv-delimiter"
               label="Delimiter"
               value={options.delimiter}
@@ -1542,16 +1544,16 @@ function ImportWizard({
                 { value: "\t", label: "Tab" },
               ]}
             />
-            <Input
+            <NumberInput
+              step={1}
               label="Header row"
-              type="number"
               min={1}
               max={51}
               value={options.headerRow + 1}
-              onChange={(e) =>
+              onChange={(nextValue) =>
                 setOptions({
                   ...options,
-                  headerRow: Number(e.target.value) - 1,
+                  headerRow: Number(String(nextValue)) - 1,
                 })
               }
             />
@@ -1580,7 +1582,7 @@ function ImportWizard({
             </Button>
           </div>
           {inspection.adapter === "wave" ? (
-            <section className="rounded-lg border border-border p-4">
+            <section className="glass-card rounded-xl p-4">
               <SectionHeader
                 label="Map Wave accounts"
                 count={proposals.length}
@@ -1594,7 +1596,8 @@ function ImportWizard({
               <div className="grid gap-3 sm:grid-cols-2">
                 {proposals.map((p) => (
                   <div key={p.name} className="glass-card rounded-xl p-3">
-                    <SearchableSelect
+                    <Select
+                      searchable
                       label={`Book account for ${p.name}`}
                       visibleLabel={p.name}
                       value={waveMap[p.name] ?? ""}
@@ -1662,7 +1665,7 @@ function ImportWizard({
                 mobileCard={sampleCard}
               />
               <div className="grid gap-4 sm:grid-cols-3">
-                <CustomSelect
+                <Select
                   id="csv-date-format"
                   label="Date format"
                   value={options.dateFormat}
@@ -1678,7 +1681,7 @@ function ImportWizard({
                     { value: "dd/mm/yyyy", label: "DD/MM/YYYY" },
                   ]}
                 />
-                <CustomSelect
+                <Select
                   id="csv-decimal"
                   label="Decimal separator"
                   value={options.decimal}
@@ -1693,7 +1696,7 @@ function ImportWizard({
                     { value: ",", label: "Comma (123,45)" },
                   ]}
                 />
-                <CustomSelect
+                <Select
                   id="csv-thousands"
                   label="Thousands separator"
                   value={options.thousands}
@@ -1729,7 +1732,8 @@ function ImportWizard({
                 {mode === "journal" ? (
                   column("account", "Source account")
                 ) : (
-                  <SearchableSelect
+                  <Select
+                    searchable
                     label="Bank or card account"
                     visibleLabel="Bank or card account"
                     value={bankAccount}
@@ -1762,7 +1766,7 @@ function ImportWizard({
                   </>
                 )}
                 {mode === "bank" && signed && (
-                  <CustomSelect
+                  <Select
                     id="bank-sign"
                     label="Positive amounts mean"
                     value={sign}
@@ -1805,14 +1809,15 @@ function ImportWizard({
                     </p>
                   ) : (
                     sourceAccounts.length > 0 && (
-                      <section className="rounded-lg border border-border p-4">
+                      <section className="glass-card rounded-xl p-4">
                         <SectionHeader
                           label="Map accounts"
                           count={sourceAccounts.length}
                         />
                         <div className="grid gap-3 sm:grid-cols-2">
                           {sourceAccounts.map((label) => (
-                            <SearchableSelect
+                            <Select
+                              searchable
                               key={label}
                               label={`Account for ${label || "(blank)"}`}
                               visibleLabel={label || "(blank)"}
@@ -1835,7 +1840,7 @@ function ImportWizard({
               )}
             </>
           )}
-          <div className="rounded-lg border border-border p-4">
+          <div className="glass-card rounded-xl p-4">
             <Checkbox
               className="items-start text-left"
               checked={cashConfirmed}
@@ -2115,14 +2120,14 @@ function ImportComparisonPanel({
           compare();
         }}
       >
-        <CustomSelect
+        <Select
           id="comparison-later"
           label="Later file"
           value={draft.later}
           onChange={chooseLater}
           options={batches.map(batchOption)}
         />
-        <CustomSelect
+        <Select
           id="comparison-earlier"
           label="Earlier file"
           value={draft.earlier}
@@ -2131,25 +2136,23 @@ function ImportComparisonPanel({
           placeholder="No comparable file"
           disabled={!earlierOptions.length}
         />
-        <Input
+        <DateInput
           label="From"
-          type="date"
           required
-          min={bounds.from}
-          max={bounds.to}
+          minDate={bounds.from}
+          maxDate={bounds.to}
           value={draft.from}
-          onChange={(e) => setDraft({ ...draft, from: e.target.value })}
+          onChange={(nextValue) => setDraft({ ...draft, from: nextValue })}
         />
-        <Input
+        <DateInput
           label="Through"
-          type="date"
           required
-          min={bounds.from}
-          max={bounds.to}
+          minDate={bounds.from}
+          maxDate={bounds.to}
           value={draft.to}
-          onChange={(e) => setDraft({ ...draft, to: e.target.value })}
+          onChange={(nextValue) => setDraft({ ...draft, to: nextValue })}
         />
-        <CustomSelect
+        <Select
           id="comparison-change"
           label="Show"
           value={draft.change}

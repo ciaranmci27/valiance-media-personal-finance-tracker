@@ -1,7 +1,8 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useState } from "react";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Textarea } from "@/components/ui/inputs/Textarea";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
 import type { BooksMetadata } from "./types";
 import {
@@ -136,12 +137,12 @@ export function AccountingRegisterForm({
     >
       <form className="space-y-5" onSubmit={save}>
         <fieldset disabled={command.busy} className="space-y-5">
-          <Input
+          <TextInput
             label={kind === "asset" ? "Asset name" : "Loan name"}
             required
             maxLength={160}
             value={values.name}
-            onChange={(e) => set("name", e.target.value)}
+            onChange={(nextValue) => set("name", nextValue)}
           />
           {fixed && (
             <p className="text-xs text-muted-foreground">
@@ -151,16 +152,15 @@ export function AccountingRegisterForm({
           )}
           <fieldset disabled={fixed} className="space-y-4 disabled:opacity-70">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Input
+              <DateInput
                 label={
                   kind === "asset" ? "Acquisition date" : "Loan start date"
                 }
-                type="date"
                 required
                 value={values.started_on}
-                onChange={(e) => set("started_on", e.target.value)}
+                onChange={(nextValue) => set("started_on", nextValue)}
               />
-              <Input
+              <TextInput
                 label={
                   kind === "asset"
                     ? "Original cost"
@@ -169,15 +169,14 @@ export function AccountingRegisterForm({
                 inputMode="decimal"
                 required
                 value={values.amount}
-                onChange={(e) => set("amount", e.target.value)}
+                onChange={(nextValue) => set("amount", nextValue)}
               />
               {kind === "asset" && (
-                <Input
+                <DateInput
                   label="Placed in service"
-                  type="date"
                   required
                   value={values.in_service_on}
-                  onChange={(e) => set("in_service_on", e.target.value)}
+                  onChange={(nextValue) => set("in_service_on", nextValue)}
                 />
               )}
             </div>
@@ -234,30 +233,29 @@ export function AccountingRegisterForm({
             Manage accounts
           </a>
           {kind === "asset" ? (
-            <Input
+            <TextInput
               label="Depreciation method and source schedule"
               required
               maxLength={1000}
               placeholder="For example: annual amounts from the reviewed book schedule"
               value={values.method}
-              onChange={(e) => set("method", e.target.value)}
+              onChange={(nextValue) => set("method", nextValue)}
             />
           ) : (
-            <Input
+            <TextInput
               label="Lender"
               required
               maxLength={160}
               value={values.lender}
-              onChange={(e) => set("lender", e.target.value)}
+              onChange={(nextValue) => set("lender", nextValue)}
             />
           )}
           <Textarea
             label={termsLabel}
             aria-label={termsLabel}
-            className="min-h-24"
             maxLength={4000}
             value={values.terms}
-            onChange={(e) => set("terms", e.target.value)}
+            onChange={(nextValue) => set("terms", nextValue)}
             placeholder={
               kind === "asset"
                 ? "Location, identifying details or disposal considerations"
@@ -265,12 +263,12 @@ export function AccountingRegisterForm({
             }
           />
           <InvoiceEvidence value={doc} onChange={setDoc} />
-          <Input
+          <TextInput
             label="Reason and source notes"
             required
             maxLength={1000}
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(nextValue) => setReason(nextValue)}
           />
         </fieldset>
         <InvoiceActions

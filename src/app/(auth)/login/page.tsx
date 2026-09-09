@@ -6,22 +6,31 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { siteConfig } from "@/config/site";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Mail, Lock, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { PasswordInput } from "@/components/ui/inputs/PasswordInput";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Mail, AlertCircle } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
-  const [showPassword, setShowPassword] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [theme, setTheme] = React.useState<"light" | "dark" | null>(null);
 
   // Read theme from DOM on mount
   React.useEffect(() => {
-    const currentTheme = document.documentElement.getAttribute("data-theme") as "light" | "dark" | null;
+    const currentTheme = document.documentElement.getAttribute("data-theme") as
+      | "light"
+      | "dark"
+      | null;
     setTheme(currentTheme === "light" ? "light" : "dark");
   }, []);
 
@@ -60,7 +69,11 @@ export default function LoginPage() {
           {/* Logo - switches based on theme */}
           <div className="flex justify-center">
             <Image
-              src={displayTheme === "dark" ? siteConfig.logos.horizontalInverted : siteConfig.logos.horizontal}
+              src={
+                displayTheme === "dark"
+                  ? siteConfig.logos.horizontalInverted
+                  : siteConfig.logos.horizontal
+              }
               alt={siteConfig.companyName}
               width={180}
               height={40}
@@ -86,16 +99,19 @@ export default function LoginPage() {
             )}
 
             <div className="space-y-2">
-              <label htmlFor="email" className="text-sm font-medium text-foreground">
+              <label
+                htmlFor="email"
+                className="text-sm font-medium text-foreground"
+              >
                 Email
               </label>
-              <Input
+              <TextInput
                 id="email"
                 type="email"
                 placeholder="you@example.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                icon={<Mail className="h-4 w-4" />}
+                onChange={(nextValue) => setEmail(nextValue)}
+                prefix={<Mail className="h-4 w-4" />}
                 required
                 autoComplete="email"
                 autoFocus
@@ -103,24 +119,17 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium text-foreground">
+              <label
+                htmlFor="password"
+                className="text-sm font-medium text-foreground"
+              >
                 Password
               </label>
-              <Input
+              <PasswordInput
                 id="password"
-                type={showPassword ? "text" : "password"}
                 placeholder="Enter your password"
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                icon={<Lock className="h-4 w-4" />}
-                rightIcon={
-                  showPassword ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )
-                }
-                onRightIconClick={() => setShowPassword(!showPassword)}
+                onChange={(nextValue) => setPassword(nextValue)}
                 required
                 autoComplete="current-password"
               />

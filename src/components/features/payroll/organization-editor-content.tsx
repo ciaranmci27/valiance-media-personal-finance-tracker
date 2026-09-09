@@ -4,8 +4,8 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Building2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { CustomSelect } from "@/components/ui/select";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Select } from "@/components/ui/inputs/Select";
 import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
@@ -18,16 +18,20 @@ import type {
   StateDepositSchedule,
 } from "@/types/payroll";
 
-const FEDERAL_SCHEDULE_OPTIONS: { value: FederalDepositSchedule; label: string }[] = [
+const FEDERAL_SCHEDULE_OPTIONS: {
+  value: FederalDepositSchedule;
+  label: string;
+}[] = [
   { value: "monthly", label: "Monthly (default for small employers)" },
   { value: "semiweekly", label: "Semiweekly (>$50k lookback liability)" },
 ];
 
-const STATE_SCHEDULE_OPTIONS: { value: StateDepositSchedule; label: string }[] = [
-  { value: "quarterly", label: "Quarterly (<$500/quarter withholding)" },
-  { value: "monthly", label: "Monthly ($500-$1,500/quarter)" },
-  { value: "semiweekly", label: "Semiweekly (>$1,500/quarter)" },
-];
+const STATE_SCHEDULE_OPTIONS: { value: StateDepositSchedule; label: string }[] =
+  [
+    { value: "quarterly", label: "Quarterly (<$500/quarter withholding)" },
+    { value: "monthly", label: "Monthly ($500-$1,500/quarter)" },
+    { value: "semiweekly", label: "Semiweekly (>$1,500/quarter)" },
+  ];
 
 interface Props {
   initial: OrganizationConfig | null;
@@ -52,7 +56,9 @@ function isValidZip(zip: string): boolean {
 }
 
 function toAddress(value: unknown): PayrollAddress {
-  const a = (value && typeof value === "object" ? value : {}) as Partial<PayrollAddress>;
+  const a = (
+    value && typeof value === "object" ? value : {}
+  ) as Partial<PayrollAddress>;
   return {
     line1: a.line1 ?? "",
     line2: a.line2 ?? "",
@@ -70,20 +76,32 @@ export function OrganizationEditorContent({ initial }: Props) {
 
   const [legalName, setLegalName] = React.useState(initial?.legal_name ?? "");
   const [fein, setFein] = React.useState(initial?.fein ?? "");
-  const [stateTaxId, setStateTaxId] = React.useState(initial?.state_tax_id ?? "");
+  const [stateTaxId, setStateTaxId] = React.useState(
+    initial?.state_tax_id ?? "",
+  );
   const [stateUiId, setStateUiId] = React.useState(initial?.state_ui_id ?? "");
-  const [address, setAddress] = React.useState<PayrollAddress>(toAddress(initial?.address));
-  const [signerName, setSignerName] = React.useState(initial?.signer_name ?? "");
-  const [signerTitle, setSignerTitle] = React.useState(initial?.signer_title ?? "");
+  const [address, setAddress] = React.useState<PayrollAddress>(
+    toAddress(initial?.address),
+  );
+  const [signerName, setSignerName] = React.useState(
+    initial?.signer_name ?? "",
+  );
+  const [signerTitle, setSignerTitle] = React.useState(
+    initial?.signer_title ?? "",
+  );
   const [phone, setPhone] = React.useState(initial?.phone ?? "");
   const [email, setEmail] = React.useState(initial?.email ?? "");
-  const [accountantEmail, setAccountantEmail] = React.useState(initial?.accountant_email ?? "");
-  const [federalSchedule, setFederalSchedule] = React.useState<FederalDepositSchedule>(
-    initial?.federal_deposit_schedule ?? "monthly",
+  const [accountantEmail, setAccountantEmail] = React.useState(
+    initial?.accountant_email ?? "",
   );
-  const [stateSchedule, setStateSchedule] = React.useState<StateDepositSchedule>(
-    initial?.state_deposit_schedule ?? "monthly",
-  );
+  const [federalSchedule, setFederalSchedule] =
+    React.useState<FederalDepositSchedule>(
+      initial?.federal_deposit_schedule ?? "monthly",
+    );
+  const [stateSchedule, setStateSchedule] =
+    React.useState<StateDepositSchedule>(
+      initial?.state_deposit_schedule ?? "monthly",
+    );
 
   const [saving, setSaving] = React.useState(false);
 
@@ -92,13 +110,21 @@ export function OrganizationEditorContent({ initial }: Props) {
 
   const validate = (): string | null => {
     if (!legalName.trim()) return "Legal name is required";
-    if (!isValidFein(fein)) return "EIN must be 9 digits in the format XX-XXXXXXX";
+    if (!isValidFein(fein))
+      return "EIN must be 9 digits in the format XX-XXXXXXX";
     if (!signerName.trim()) return "Signer name is required";
-    if (!address.line1.trim() || !address.city.trim() || !address.state || !address.zip.trim()) {
+    if (
+      !address.line1.trim() ||
+      !address.city.trim() ||
+      !address.state ||
+      !address.zip.trim()
+    ) {
       return "Complete mailing address is required";
     }
-    if (!isValidZip(address.zip)) return "ZIP code must be 5 digits (or 9 with dash)";
-    if (email && !isValidEmail(email)) return "Contact email is not a valid email address";
+    if (!isValidZip(address.zip))
+      return "ZIP code must be 5 digits (or 9 with dash)";
+    if (email && !isValidEmail(email))
+      return "Contact email is not a valid email address";
     if (accountantEmail && !isValidEmail(accountantEmail)) {
       return "Accountant email is not a valid email address";
     }
@@ -166,7 +192,9 @@ export function OrganizationEditorContent({ initial }: Props) {
         configId: rowId,
         oldValues,
         newValues: payload as unknown as Record<string, unknown>,
-        summary: initial ? "Updated organization details" : "Created organization profile",
+        summary: initial
+          ? "Updated organization details"
+          : "Created organization profile",
       });
 
       toast("success", initial ? "Organization updated" : "Organization saved");
@@ -203,32 +231,32 @@ export function OrganizationEditorContent({ initial }: Props) {
           <div className="flex-1 h-px bg-border/50" />
         </div>
         <div className="glass-card rounded-xl p-6 space-y-4">
-          <Input
+          <TextInput
             label="Legal Name"
             value={legalName}
-            onChange={(e) => setLegalName(e.target.value)}
+            onChange={(nextValue) => setLegalName(nextValue)}
             placeholder="Your S Corp, Inc."
             required
           />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Input
+            <TextInput
               label="EIN"
               value={fein}
-              onChange={(e) => setFein(formatFein(e.target.value))}
+              onChange={(nextValue) => setFein(formatFein(nextValue))}
               placeholder="12-3456789"
               inputMode="numeric"
               required
             />
-            <Input
+            <TextInput
               label="State Tax ID"
               value={stateTaxId}
-              onChange={(e) => setStateTaxId(e.target.value)}
+              onChange={(nextValue) => setStateTaxId(nextValue)}
               placeholder="Optional"
             />
-            <Input
+            <TextInput
               label="State UI ID"
               value={stateUiId}
-              onChange={(e) => setStateUiId(e.target.value)}
+              onChange={(nextValue) => setStateUiId(nextValue)}
               placeholder="Optional"
             />
           </div>
@@ -243,28 +271,28 @@ export function OrganizationEditorContent({ initial }: Props) {
           <div className="flex-1 h-px bg-border/50" />
         </div>
         <div className="glass-card rounded-xl p-6 space-y-4">
-          <Input
+          <TextInput
             label="Address Line 1"
             value={address.line1}
-            onChange={(e) => updateAddress({ line1: e.target.value })}
+            onChange={(nextValue) => updateAddress({ line1: nextValue })}
             placeholder="123 Main St"
             required
           />
-          <Input
+          <TextInput
             label="Address Line 2"
             value={address.line2 ?? ""}
-            onChange={(e) => updateAddress({ line2: e.target.value })}
+            onChange={(nextValue) => updateAddress({ line2: nextValue })}
             placeholder="Suite 400 (optional)"
           />
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <Input
+            <TextInput
               label="City"
               value={address.city}
-              onChange={(e) => updateAddress({ city: e.target.value })}
+              onChange={(nextValue) => updateAddress({ city: nextValue })}
               placeholder="Phoenix"
               required
             />
-            <CustomSelect
+            <Select
               label="State"
               value={address.state}
               onChange={(val) => updateAddress({ state: val })}
@@ -272,10 +300,10 @@ export function OrganizationEditorContent({ initial }: Props) {
               placeholder="Select state"
               required
             />
-            <Input
+            <TextInput
               label="ZIP"
               value={address.zip}
-              onChange={(e) => updateAddress({ zip: e.target.value })}
+              onChange={(nextValue) => updateAddress({ zip: nextValue })}
               placeholder="85001"
               inputMode="numeric"
               required
@@ -293,40 +321,40 @@ export function OrganizationEditorContent({ initial }: Props) {
         </div>
         <div className="glass-card rounded-xl p-6 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input
+            <TextInput
               label="Signer Name"
               value={signerName}
-              onChange={(e) => setSignerName(e.target.value)}
+              onChange={(nextValue) => setSignerName(nextValue)}
               placeholder="Jane Doe"
               required
             />
-            <Input
+            <TextInput
               label="Title"
               value={signerTitle}
-              onChange={(e) => setSignerTitle(e.target.value)}
+              onChange={(nextValue) => setSignerTitle(nextValue)}
               placeholder="President"
             />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Input
+            <TextInput
               label="Phone"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(nextValue) => setPhone(nextValue)}
               placeholder="(555) 555-5555"
               type="tel"
             />
-            <Input
+            <TextInput
               label="Email"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(nextValue) => setEmail(nextValue)}
               placeholder="signer@example.com"
               type="email"
             />
           </div>
-          <Input
+          <TextInput
             label="Accountant Email (optional)"
             value={accountantEmail}
-            onChange={(e) => setAccountantEmail(e.target.value)}
+            onChange={(nextValue) => setAccountantEmail(nextValue)}
             placeholder="accountant@example.com"
             type="email"
           />
@@ -343,19 +371,21 @@ export function OrganizationEditorContent({ initial }: Props) {
         <div className="glass-card rounded-xl p-6 space-y-4">
           <p className="text-xs text-muted-foreground">
             Determines when Form 941 and state withholding deposits are due.
-            Federal schedule is set annually by the IRS based on your lookback-period
-            liability. State schedule (Arizona) is based on quarterly withholding
-            thresholds published with Form A1-WP. Confirm both with your accountant
-            before approving pay runs.
+            Federal schedule is set annually by the IRS based on your
+            lookback-period liability. State schedule (Arizona) is based on
+            quarterly withholding thresholds published with Form A1-WP. Confirm
+            both with your accountant before approving pay runs.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <CustomSelect
+            <Select
               label="Federal (IRS 941)"
               value={federalSchedule}
-              onChange={(val) => setFederalSchedule(val as FederalDepositSchedule)}
+              onChange={(val) =>
+                setFederalSchedule(val as FederalDepositSchedule)
+              }
               options={FEDERAL_SCHEDULE_OPTIONS}
             />
-            <CustomSelect
+            <Select
               label="State withholding"
               value={stateSchedule}
               onChange={(val) => setStateSchedule(val as StateDepositSchedule)}
@@ -367,7 +397,9 @@ export function OrganizationEditorContent({ initial }: Props) {
 
       <div className="flex justify-end pt-2">
         <Button onClick={handleSave} disabled={saving}>
-          {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" aria-hidden="true" />}
+          {saving && (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" aria-hidden="true" />
+          )}
           {isEditing ? "Save Changes" : "Save Organization"}
         </Button>
       </div>

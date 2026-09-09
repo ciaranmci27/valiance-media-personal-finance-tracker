@@ -1,6 +1,7 @@
 "use client";
+import { Radio } from "@/components/ui/inputs/RadioGroup";
 import { useEffect, useId, useState } from "react";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Pagination } from "@/components/ui/pagination";
 import type { JournalEntry } from "@/lib/accounting/contracts";
 import { dateLabel, enumLabel } from "./format";
@@ -59,13 +60,13 @@ export function AccountingEntryPicker({
   }, [query, offset, postedOnly]);
   return (
     <div className="space-y-3">
-      <Input
+      <TextInput
         label="Find a transaction"
         placeholder="Search description, payee or account"
         value={query}
         disabled={disabled}
-        onChange={(e) => {
-          setQuery(e.target.value);
+        onChange={(nextValue) => {
+          setQuery(nextValue);
           setOffset(0);
           onChange("");
         }}
@@ -76,7 +77,7 @@ export function AccountingEntryPicker({
         </p>
       )}
       <div
-        className="max-h-64 overflow-auto rounded-lg border border-border"
+        className="max-h-64 overflow-auto glass-card rounded-xl"
         aria-busy={loading}
       >
         {result?.entries.map((entry) => (
@@ -84,8 +85,7 @@ export function AccountingEntryPicker({
             key={entry.id}
             className="flex cursor-pointer items-start gap-3 border-b border-border px-3 py-3 last:border-0 hover:bg-secondary/40"
           >
-            <input
-              type="radio"
+            <Radio
               name={radioName}
               checked={entry.id === value}
               disabled={disabled || loading}

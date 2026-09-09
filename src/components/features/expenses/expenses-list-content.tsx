@@ -18,7 +18,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CustomSelect } from "@/components/ui/select";
+import { Select } from "@/components/ui/inputs/Select";
 import { Tooltip } from "@/components/ui/tooltip";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
@@ -37,7 +37,11 @@ import {
   cn,
 } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
-import type { Expense, ExpenseHistory, ExpenseCategory } from "@/types/database";
+import type {
+  Expense,
+  ExpenseHistory,
+  ExpenseCategory,
+} from "@/types/database";
 import { EXPENSE_CATEGORIES } from "@/types/database";
 import { siteConfig } from "@/config/site";
 
@@ -73,13 +77,13 @@ function ExpenseCard({
     formatCurrency(Number(expense.amount)),
     isHidden,
     isRevealed,
-    currencyMask
+    currencyMask,
   );
   const displayMonthly = getMaskedValue(
     formatCurrency(monthly),
     isHidden,
     isRevealed,
-    currencyMask
+    currencyMask,
   );
 
   const frequencyLabels: Record<string, string> = {
@@ -121,7 +125,7 @@ function ExpenseCard({
           "hover:border-primary/30 active:scale-[0.98]",
           "animate-fade-up",
           `stagger-${Math.min(index + 1, 6)}`,
-          isPaused && "opacity-60"
+          isPaused && "opacity-60",
         )}
         {...hoverProps}
       >
@@ -131,7 +135,7 @@ function ExpenseCard({
             <span
               className={cn(
                 "font-semibold block truncate",
-                isPaused ? "text-muted-foreground" : "text-foreground"
+                isPaused ? "text-muted-foreground" : "text-foreground",
               )}
             >
               {expense.name}
@@ -142,7 +146,7 @@ function ExpenseCard({
                   "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
                   expense.expense_type === "personal"
                     ? "bg-teal/20 text-teal-light"
-                    : "bg-copper/20 text-copper"
+                    : "bg-copper/20 text-copper",
                 )}
               >
                 {expense.expense_type === "personal" ? (
@@ -150,7 +154,9 @@ function ExpenseCard({
                 ) : (
                   <Briefcase className="h-3 w-3" />
                 )}
-                {expense.expense_type === "personal" ? "Personal" : siteConfig.companyName}
+                {expense.expense_type === "personal"
+                  ? "Personal"
+                  : siteConfig.companyName}
               </span>
               {expense.category && (
                 <span className="text-xs text-muted-foreground">
@@ -167,7 +173,7 @@ function ExpenseCard({
               expense.is_active
                 ? "bg-success/10 text-success hover:bg-success/20"
                 : "bg-copper/10 text-copper hover:bg-copper/20",
-              isToggling && "opacity-50 cursor-not-allowed"
+              isToggling && "opacity-50 cursor-not-allowed",
             )}
           >
             {isToggling ? (
@@ -184,23 +190,36 @@ function ExpenseCard({
         <div className="border-t border-white/[0.06] pt-3">
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <span className="text-xs text-muted-foreground block mb-0.5">Amount</span>
-              <span className={cn("tabular-nums text-sm", isPaused && "text-muted-foreground")}>
+              <span className="text-xs text-muted-foreground block mb-0.5">
+                Amount
+              </span>
+              <span
+                className={cn(
+                  "tabular-nums text-sm",
+                  isPaused && "text-muted-foreground",
+                )}
+              >
                 {displayAmount}
               </span>
             </div>
             <div>
-              <span className="text-xs text-muted-foreground block mb-0.5">Frequency</span>
+              <span className="text-xs text-muted-foreground block mb-0.5">
+                Frequency
+              </span>
               <span className="text-sm text-muted-foreground">
                 {frequencyLabels[expense.frequency]}
               </span>
             </div>
             <div className="text-right">
-              <span className="text-xs text-muted-foreground block mb-0.5">Monthly</span>
+              <span className="text-xs text-muted-foreground block mb-0.5">
+                Monthly
+              </span>
               <span
                 className={cn(
                   "tabular-nums font-semibold",
-                  isPaused ? "text-muted-foreground font-normal" : "text-foreground"
+                  isPaused
+                    ? "text-muted-foreground font-normal"
+                    : "text-foreground",
                 )}
               >
                 {displayMonthly}
@@ -236,13 +255,13 @@ function ExpenseRow({
     formatCurrency(Number(expense.amount)),
     isHidden,
     isRevealed,
-    currencyMask
+    currencyMask,
   );
   const displayMonthly = getMaskedValue(
     formatCurrency(monthly),
     isHidden,
     isRevealed,
-    currencyMask
+    currencyMask,
   );
 
   const frequencyLabels: Record<string, string> = {
@@ -271,9 +290,9 @@ function ExpenseRow({
         "transition-all duration-300 hover:bg-secondary cursor-pointer animate-fade-up",
         `stagger-${Math.min(index + 1, 6)}`,
         isPaused && "bg-[rgba(var(--ink),0.03)] text-muted-foreground",
-        isFirstPaused && "relative border-t-border/50"
+        isFirstPaused && "relative border-t-border/50",
       )}
-      style={isFirstPaused ? { borderTopStyle: 'dashed' } : undefined}
+      style={isFirstPaused ? { borderTopStyle: "dashed" } : undefined}
       {...hoverProps}
     >
       <td className="px-4 py-3 align-middle">
@@ -287,9 +306,7 @@ function ExpenseRow({
         <span
           className={cn(
             "font-medium transition-colors",
-            isPaused
-              ? "text-muted-foreground"
-              : "text-foreground"
+            isPaused ? "text-muted-foreground" : "text-foreground",
           )}
         >
           {expense.name}
@@ -301,7 +318,7 @@ function ExpenseRow({
             "inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium",
             expense.expense_type === "personal"
               ? "bg-teal/20 text-teal-light"
-              : "bg-copper/20 text-copper"
+              : "bg-copper/20 text-copper",
           )}
         >
           {expense.expense_type === "personal" ? (
@@ -309,29 +326,46 @@ function ExpenseRow({
           ) : (
             <Briefcase className="h-3 w-3" />
           )}
-          {expense.expense_type === "personal" ? "Personal" : siteConfig.companyName}
+          {expense.expense_type === "personal"
+            ? "Personal"
+            : siteConfig.companyName}
         </span>
       </td>
       <td className="px-4 py-3 align-middle text-sm text-muted-foreground">
-        {expense.category ? EXPENSE_CATEGORIES[expense.category] : "—"}
+        {expense.category ? EXPENSE_CATEGORIES[expense.category] : ","}
       </td>
-      <td className={cn("px-4 py-3 align-middle text-right tabular-nums text-sm min-w-[140px]", isPaused && "text-muted-foreground")}>{displayAmount}</td>
+      <td
+        className={cn(
+          "px-4 py-3 align-middle text-right tabular-nums text-sm min-w-[140px]",
+          isPaused && "text-muted-foreground",
+        )}
+      >
+        {displayAmount}
+      </td>
       <td className="px-4 py-3 align-middle text-sm text-muted-foreground">
         {frequencyLabels[expense.frequency]}
       </td>
-      <td className={cn("px-4 py-3 align-middle text-right tabular-nums text-sm font-medium min-w-[140px]", isPaused && "text-muted-foreground font-normal")}>
+      <td
+        className={cn(
+          "px-4 py-3 align-middle text-right tabular-nums text-sm font-medium min-w-[140px]",
+          isPaused && "text-muted-foreground font-normal",
+        )}
+      >
         {displayMonthly}
       </td>
       <td className="px-4 py-3 align-middle">
         <div className="flex items-center justify-center">
-          <Tooltip content={expense.is_active ? "Click to pause" : "Click to activate"} position="top">
+          <Tooltip
+            content={expense.is_active ? "Click to pause" : "Click to activate"}
+            position="top"
+          >
             <button
               onClick={handleToggle}
               disabled={isToggling}
               className={cn(
                 "p-1.5 rounded-md transition-colors",
                 "hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-primary/50",
-                isToggling && "opacity-50 cursor-not-allowed"
+                isToggling && "opacity-50 cursor-not-allowed",
               )}
             >
               {isToggling ? (
@@ -349,11 +383,15 @@ function ExpenseRow({
   );
 }
 
-export function ExpensesListContent({ expenses: initialExpenses, history }: ExpensesListContentProps) {
+export function ExpensesListContent({
+  expenses: initialExpenses,
+  history,
+}: ExpensesListContentProps) {
   const [expenses, setExpenses] = React.useState<Expense[]>(initialExpenses);
   const [activeTab, setActiveTab] = React.useState<TabValue>("all");
   const [sortColumn, setSortColumn] = React.useState<SortColumn>("monthly");
-  const [sortDirection, setSortDirection] = React.useState<SortDirection>("desc");
+  const [sortDirection, setSortDirection] =
+    React.useState<SortDirection>("desc");
   const [sortByName, setSortByName] = React.useState(false);
   const [togglingId, setTogglingId] = React.useState<string | null>(null);
 
@@ -363,7 +401,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
 
     // Optimistic update
     setExpenses((prev) =>
-      prev.map((e) => (e.id === id ? { ...e, is_active: newStatus } : e))
+      prev.map((e) => (e.id === id ? { ...e, is_active: newStatus } : e)),
     );
 
     const supabase = createClient();
@@ -377,14 +415,14 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
       if (error) {
         // Revert on error
         setExpenses((prev) =>
-          prev.map((e) => (e.id === id ? { ...e, is_active: !newStatus } : e))
+          prev.map((e) => (e.id === id ? { ...e, is_active: !newStatus } : e)),
         );
         console.error("Error toggling expense status:", error);
       }
     } catch (error) {
       // Revert on error
       setExpenses((prev) =>
-        prev.map((e) => (e.id === id ? { ...e, is_active: !newStatus } : e))
+        prev.map((e) => (e.id === id ? { ...e, is_active: !newStatus } : e)),
       );
       console.error("Error toggling expense status:", error);
     } finally {
@@ -415,9 +453,10 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
   // Filter and sort expenses by tab and selected column
   // Paused expenses always appear at the bottom
   const filteredExpenses = React.useMemo(() => {
-    const filtered = activeTab === "all"
-      ? expenses
-      : expenses.filter((e) => e.expense_type === activeTab);
+    const filtered =
+      activeTab === "all"
+        ? expenses
+        : expenses.filter((e) => e.expense_type === activeTab);
 
     return [...filtered].sort((a, b) => {
       // Paused expenses always go to the bottom
@@ -450,21 +489,21 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
     const activeExps = exps.filter((e) => e.is_active);
     const monthly = activeExps.reduce(
       (sum, e) => sum + toMonthlyAmount(Number(e.amount), e.frequency),
-      0
+      0,
     );
     const annual = activeExps.reduce(
       (sum, e) => sum + toAnnualAmount(Number(e.amount), e.frequency),
-      0
+      0,
     );
     return { monthly, annual };
   };
 
   const allTotals = calculateTotals(expenses);
   const personalTotals = calculateTotals(
-    expenses.filter((e) => e.expense_type === "personal")
+    expenses.filter((e) => e.expense_type === "personal"),
   );
   const businessTotals = calculateTotals(
-    expenses.filter((e) => e.expense_type === "business")
+    expenses.filter((e) => e.expense_type === "business"),
   );
   const currentTotals = calculateTotals(filteredExpenses);
 
@@ -485,7 +524,10 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
 
   // Chart visibility: 1 pie chart per 9 expenses (based on current filter)
   // Priority: 1. Category Breakdown (always), 2. History Trend (if data), 3. Type Breakdown
-  const totalChartsAllowed = Math.max(1, Math.floor(filteredExpenses.length / 9));
+  const totalChartsAllowed = Math.max(
+    1,
+    Math.floor(filteredExpenses.length / 9),
+  );
   // Category Breakdown always takes 1 slot, so additional slots are totalChartsAllowed - 1
   const additionalChartsAllowed = totalChartsAllowed - 1;
   const hasTrendData = history.length > 0;
@@ -564,7 +606,8 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
       <div className="flex items-center justify-between gap-2 min-[560px]:gap-4">
         {/* Mobile: Dropdown select for tabs */}
         <div className="min-[600px]:hidden w-40">
-          <CustomSelect
+          <Select
+            ariaLabel="Filter by type"
             value={activeTab}
             onChange={(value) => setActiveTab(value as TabValue)}
             options={tabs.map((tab) => ({
@@ -585,7 +628,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                 "flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
                 activeTab === tab.value
                   ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary",
               )}
             >
               {tab.icon}
@@ -595,7 +638,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                   "rounded-full px-1.5 py-0.5 text-xs",
                   activeTab === tab.value
                     ? "bg-primary-foreground/20 text-primary-foreground"
-                    : "bg-secondary text-muted-foreground"
+                    : "bg-secondary text-muted-foreground",
                 )}
               >
                 {tab.count}
@@ -625,7 +668,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 sortByName
                   ? "bg-primary/10 text-teal-light"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               Name
@@ -637,11 +680,12 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 !sortByName && sortColumn === "amount"
                   ? "bg-primary/10 text-teal-light"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               Amount
-              {!sortByName && sortColumn === "amount" &&
+              {!sortByName &&
+                sortColumn === "amount" &&
                 (sortDirection === "desc" ? (
                   <ArrowDown className="h-3 w-3" />
                 ) : (
@@ -654,11 +698,12 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 !sortByName && sortColumn === "monthly"
                   ? "bg-primary/10 text-teal-light"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               Monthly
-              {!sortByName && sortColumn === "monthly" &&
+              {!sortByName &&
+                sortColumn === "monthly" &&
                 (sortDirection === "desc" ? (
                   <ArrowDown className="h-3 w-3" />
                 ) : (
@@ -680,7 +725,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                     expense={expense}
                     monthly={toMonthlyAmount(
                       Number(expense.amount),
-                      expense.frequency
+                      expense.frequency,
                     )}
                     index={index}
                     onToggleStatus={handleToggleStatus}
@@ -693,7 +738,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                     expense={expense}
                     monthly={toMonthlyAmount(
                       Number(expense.amount),
-                      expense.frequency
+                      expense.frequency,
                     )}
                     index={activeExpenses.length + index}
                     onToggleStatus={handleToggleStatus}
@@ -742,7 +787,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                         onClick={toggleNameSort}
                         className={cn(
                           "inline-flex items-center gap-1 hover:text-foreground transition-colors",
-                          sortByName && "text-foreground"
+                          sortByName && "text-foreground",
                         )}
                       >
                         Expense
@@ -760,15 +805,19 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                         onClick={() => handleSort("amount")}
                         className={cn(
                           "inline-flex items-center gap-1 hover:text-foreground transition-colors",
-                          !sortByName && sortColumn === "amount" && "text-foreground"
+                          !sortByName &&
+                            sortColumn === "amount" &&
+                            "text-foreground",
                         )}
                       >
                         Amount
-                        {!sortByName && sortColumn === "amount" && (
-                          sortDirection === "desc"
-                            ? <ArrowDown className="h-3 w-3" />
-                            : <ArrowUp className="h-3 w-3" />
-                        )}
+                        {!sortByName &&
+                          sortColumn === "amount" &&
+                          (sortDirection === "desc" ? (
+                            <ArrowDown className="h-3 w-3" />
+                          ) : (
+                            <ArrowUp className="h-3 w-3" />
+                          ))}
                       </button>
                     </th>
                     <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">
@@ -779,15 +828,19 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                         onClick={() => handleSort("monthly")}
                         className={cn(
                           "inline-flex items-center gap-1 hover:text-foreground transition-colors",
-                          !sortByName && sortColumn === "monthly" && "text-foreground"
+                          !sortByName &&
+                            sortColumn === "monthly" &&
+                            "text-foreground",
                         )}
                       >
                         Monthly
-                        {!sortByName && sortColumn === "monthly" && (
-                          sortDirection === "desc"
-                            ? <ArrowDown className="h-3 w-3" />
-                            : <ArrowUp className="h-3 w-3" />
-                        )}
+                        {!sortByName &&
+                          sortColumn === "monthly" &&
+                          (sortDirection === "desc" ? (
+                            <ArrowDown className="h-3 w-3" />
+                          ) : (
+                            <ArrowUp className="h-3 w-3" />
+                          ))}
                       </button>
                     </th>
                     <th className="px-4 py-3 text-center text-sm font-medium text-muted-foreground">
@@ -797,8 +850,12 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                 </thead>
                 <tbody className="divide-y divide-border">
                   {(() => {
-                    const activeExpenses = filteredExpenses.filter((e) => e.is_active);
-                    const pausedExpenses = filteredExpenses.filter((e) => !e.is_active);
+                    const activeExpenses = filteredExpenses.filter(
+                      (e) => e.is_active,
+                    );
+                    const pausedExpenses = filteredExpenses.filter(
+                      (e) => !e.is_active,
+                    );
 
                     return (
                       <>
@@ -808,7 +865,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                             expense={expense}
                             monthly={toMonthlyAmount(
                               Number(expense.amount),
-                              expense.frequency
+                              expense.frequency,
                             )}
                             index={index}
                             onToggleStatus={handleToggleStatus}
@@ -821,7 +878,7 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                             expense={expense}
                             monthly={toMonthlyAmount(
                               Number(expense.amount),
-                              expense.frequency
+                              expense.frequency,
                             )}
                             index={activeExpenses.length + index}
                             onToggleStatus={handleToggleStatus}
@@ -847,7 +904,9 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
                             : `${siteConfig.companyName} Total`}
                       </td>
                       <td className="px-4 py-3 text-right font-bold tracking-tight currency text-foreground">
-                        <MaskedValue value={formatCurrency(currentTotals.monthly)} />
+                        <MaskedValue
+                          value={formatCurrency(currentTotals.monthly)}
+                        />
                       </td>
                       <td></td>
                     </tr>
@@ -869,7 +928,9 @@ export function ExpensesListContent({ expenses: initialExpenses, history }: Expe
           {/* Category Breakdown Chart */}
           <Card className="h-fit">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base font-semibold">Category Breakdown</CardTitle>
+              <CardTitle className="text-base font-semibold">
+                Category Breakdown
+              </CardTitle>
             </CardHeader>
             <CardContent>
               <CategoryBreakdownChart categoryTotals={categoryTotals} />

@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { Map as MapIcon, Loader2, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
-import { Input } from "@/components/ui/input";
-import { NumberInput } from "@/components/ui/number-input";
-import { CustomSelect } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { Select } from "@/components/ui/inputs/Select";
+import { Textarea } from "@/components/ui/inputs/Textarea";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -100,7 +100,7 @@ function asFlat(cfg: StateConfigPayload): StateConfigFlat {
 }
 
 function asFlatElected(
-  cfg: StateConfigPayload
+  cfg: StateConfigPayload,
 ): StateConfigFlatEmployeeElected {
   const c = cfg as Partial<StateConfigFlatEmployeeElected>;
   return {
@@ -162,7 +162,8 @@ export function StateYearEditorContent({
   const [newRate, setNewRate] = React.useState("");
 
   // Pending method change awaiting confirmation (only when existing config would be dropped).
-  const [pendingMethod, setPendingMethod] = React.useState<CalculationMethod | null>(null);
+  const [pendingMethod, setPendingMethod] =
+    React.useState<CalculationMethod | null>(null);
 
   const applyMethodChange = React.useCallback((next: CalculationMethod) => {
     setMethod(next);
@@ -317,15 +318,16 @@ export function StateYearEditorContent({
 
       {isPrefilled && prefillSource && (
         <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm flex items-start gap-2">
-          <span className="text-teal-light font-medium shrink-0">Prefilled.</span>
+          <span className="text-teal-light font-medium shrink-0">
+            Prefilled.
+          </span>
           <span className="text-muted-foreground">
-            Copied the calculation method, SDI / SUTA, and payment portals
-            from{" "}
+            Copied the calculation method, SDI / SUTA, and payment portals from{" "}
             <span className="text-foreground font-medium">
               {stateCode} {prefillSource.tax_year}
             </span>
-            . Review each section and adjust any values that changed this
-            year (SUTA rate and wage base are the most common).
+            . Review each section and adjust any values that changed this year
+            (SUTA rate and wage base are the most common).
           </span>
         </div>
       )}
@@ -338,14 +340,16 @@ export function StateYearEditorContent({
           <div className="flex-1 h-px bg-border/50" />
         </div>
         <div className="glass-card rounded-xl p-6 space-y-4">
-          <CustomSelect
+          <Select
             label="Method"
             value={method}
             onChange={handleMethodChange}
             options={METHOD_OPTIONS}
           />
 
-          {method === "flat" && <FlatEditor config={asFlat(config)} setConfig={setConfig} />}
+          {method === "flat" && (
+            <FlatEditor config={asFlat(config)} setConfig={setConfig} />
+          )}
           {method === "flat_employee_elected" && (
             <FlatElectedEditor
               config={asFlatElected(config)}
@@ -387,15 +391,16 @@ export function StateYearEditorContent({
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <NumberInput
+              step={0.01}
               label="Rate (%)"
               value={toPercentDisplay(sdi.rate)}
-              onChange={(e) =>
+              onChange={(nextValue) =>
                 setSdi({
                   ...sdi,
                   rate:
-                    e.target.value === ""
+                    String(nextValue) === ""
                       ? undefined
-                      : Number(e.target.value) / 100,
+                      : Number(String(nextValue)) / 100,
                 })
               }
               placeholder="0.00"
@@ -403,17 +408,20 @@ export function StateYearEditorContent({
             <NumberInput
               label="Wage Base ($)"
               value={sdi.wage_base ?? ""}
-              onChange={(e) =>
+              onChange={(nextValue) =>
                 setSdi({
                   ...sdi,
                   wage_base:
-                    e.target.value === "" ? undefined : Number(e.target.value),
+                    String(nextValue) === ""
+                      ? undefined
+                      : Number(String(nextValue)),
                 })
               }
-              integer
+              precision={0}
+              step={1}
               placeholder="0"
             />
-            <CustomSelect
+            <Select
               label="Side"
               value={sdi.side ?? ""}
               onChange={(val) =>
@@ -443,15 +451,16 @@ export function StateYearEditorContent({
         <div className="glass-card rounded-xl p-6 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <NumberInput
+              step={0.01}
               label="New Employer Rate (%)"
               value={toPercentDisplay(suta.newEmployerRate)}
-              onChange={(e) =>
+              onChange={(nextValue) =>
                 setSuta({
                   ...suta,
                   newEmployerRate:
-                    e.target.value === ""
+                    String(nextValue) === ""
                       ? undefined
-                      : Number(e.target.value) / 100,
+                      : Number(String(nextValue)) / 100,
                 })
               }
               placeholder="2.0"
@@ -459,52 +468,57 @@ export function StateYearEditorContent({
             <NumberInput
               label="Wage Base ($)"
               value={suta.wageBase ?? ""}
-              onChange={(e) =>
+              onChange={(nextValue) =>
                 setSuta({
                   ...suta,
                   wageBase:
-                    e.target.value === "" ? undefined : Number(e.target.value),
+                    String(nextValue) === ""
+                      ? undefined
+                      : Number(String(nextValue)),
                 })
               }
-              integer
+              precision={0}
+              step={1}
               placeholder="8000"
             />
             <NumberInput
+              step={0.01}
               label="Rate Range Min (%)"
               value={toPercentDisplay(suta.rangeMin)}
-              onChange={(e) =>
+              onChange={(nextValue) =>
                 setSuta({
                   ...suta,
                   rangeMin:
-                    e.target.value === ""
+                    String(nextValue) === ""
                       ? undefined
-                      : Number(e.target.value) / 100,
+                      : Number(String(nextValue)) / 100,
                 })
               }
               placeholder="0.04"
             />
             <NumberInput
+              step={0.01}
               label="Rate Range Max (%)"
               value={toPercentDisplay(suta.rangeMax)}
-              onChange={(e) =>
+              onChange={(nextValue) =>
                 setSuta({
                   ...suta,
                   rangeMax:
-                    e.target.value === ""
+                    String(nextValue) === ""
                       ? undefined
-                      : Number(e.target.value) / 100,
+                      : Number(String(nextValue)) / 100,
                 })
               }
               placeholder="11.05"
             />
           </div>
-          <Input
+          <TextInput
             label="Forms Due (comma-separated)"
             value={(suta.formsDue ?? []).join(", ")}
-            onChange={(e) =>
+            onChange={(nextValue) =>
               setSuta({
                 ...suta,
-                formsDue: e.target.value
+                formsDue: nextValue
                   .split(",")
                   .map((s) => s.trim())
                   .filter(Boolean),
@@ -534,9 +548,7 @@ export function StateYearEditorContent({
             title="State Withholding"
             description="Where to pay state income tax withheld from employees."
             portal={portals.state_withholding ?? null}
-            onChange={(p) =>
-              setPortals({ ...portals, state_withholding: p })
-            }
+            onChange={(p) => setPortals({ ...portals, state_withholding: p })}
           />
 
           <PortalEditor
@@ -566,8 +578,9 @@ export function StateYearEditorContent({
         </div>
         <div className="glass-card rounded-xl p-6">
           <Textarea
+            aria-label="Notes"
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            onChange={(nextValue) => setNotes(nextValue)}
             placeholder="e.g. AZ 2026 values unchanged from 2025."
             rows={3}
           />
@@ -576,7 +589,9 @@ export function StateYearEditorContent({
 
       <div className="flex justify-end pt-2">
         <Button onClick={handleSave} disabled={saving}>
-          {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" aria-hidden="true" />}
+          {saving && (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" aria-hidden="true" />
+          )}
           {initial ? "Save Changes" : `Create ${stateCode} ${year} Config`}
         </Button>
       </div>
@@ -674,38 +689,38 @@ function PortalEditor({
       {enabled && (
         <div className="space-y-3">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Input
+            <TextInput
               label="Portal name"
               value={value.portal}
-              onChange={(e) => updateField("portal", e.target.value)}
+              onChange={(nextValue) => updateField("portal", nextValue)}
               placeholder="AZTaxes"
             />
-            <Input
+            <TextInput
               label="Form code"
               value={value.form}
-              onChange={(e) => updateField("form", e.target.value)}
+              onChange={(nextValue) => updateField("form", nextValue)}
               placeholder="A1-WP"
             />
           </div>
-          <Input
+          <TextInput
             label="Agency"
             value={value.agency}
-            onChange={(e) => updateField("agency", e.target.value)}
+            onChange={(nextValue) => updateField("agency", nextValue)}
             placeholder="Arizona Department of Revenue"
           />
-          <Input
+          <TextInput
             label="URL"
             value={value.url}
-            onChange={(e) => updateField("url", e.target.value)}
+            onChange={(nextValue) => updateField("url", nextValue)}
             placeholder="https://www.aztaxes.gov/"
           />
           <Textarea
             label="Step-by-step instructions (one per line)"
             value={value.steps.join("\n")}
-            onChange={(e) =>
+            onChange={(nextValue) =>
               updateField(
                 "steps",
-                e.target.value
+                nextValue
                   .split("\n")
                   .map((s) => s.trim())
                   .filter(Boolean),
@@ -736,17 +751,18 @@ function FlatEditor({
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <NumberInput
+        step={0.01}
         label="Flat Rate (%)"
         value={toPercentDisplay(config.rate)}
-        onChange={(e) =>
-          setConfig({ ...config, rate: Number(e.target.value) / 100 })
+        onChange={(nextValue) =>
+          setConfig({ ...config, rate: Number(String(nextValue)) / 100 })
         }
         placeholder="0.00"
       />
-      <Input
+      <TextInput
         label="Form"
         value={config.form ?? ""}
-        onChange={(e) => setConfig({ ...config, form: e.target.value })}
+        onChange={(nextValue) => setConfig({ ...config, form: nextValue })}
         placeholder="e.g. W-4 equivalent"
       />
     </div>
@@ -782,20 +798,21 @@ function FlatElectedEditor({
     <div className="space-y-4">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <NumberInput
+          step={0.01}
           label="Actual Tax Rate (%)"
           value={toPercentDisplay(config.actualTaxRate)}
-          onChange={(e) =>
+          onChange={(nextValue) =>
             setConfig({
               ...config,
-              actualTaxRate: Number(e.target.value) / 100,
+              actualTaxRate: Number(String(nextValue)) / 100,
             })
           }
           placeholder="0.00"
         />
-        <Input
+        <TextInput
           label="Form"
           value={config.form ?? ""}
-          onChange={(e) => setConfig({ ...config, form: e.target.value })}
+          onChange={(nextValue) => setConfig({ ...config, form: nextValue })}
           placeholder="e.g. A-4"
         />
       </div>
@@ -810,7 +827,7 @@ function FlatElectedEditor({
               key={r}
               className={cn(
                 "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg",
-                "bg-primary/10 text-teal-light text-sm font-medium"
+                "bg-primary/10 text-teal-light text-sm font-medium",
               )}
             >
               {(r * 100).toFixed(2)}%
@@ -827,13 +844,15 @@ function FlatElectedEditor({
         </div>
         <div className="flex items-center gap-2 pt-2">
           <NumberInput
+            aria-label="Tax rate (percent)"
+            step={0.01}
             value={newRate}
-            onChange={(e) => setNewRate(e.target.value)}
+            onChange={(nextValue) => setNewRate(String(nextValue))}
             onKeyDown={(e) => {
               if (e.key === "Enter") onAddRate();
             }}
             placeholder="e.g. 2.5"
-            className="h-9 w-32 text-sm"
+            className="w-32"
           />
           <Button size="sm" variant="ghost" onClick={onAddRate}>
             <Plus className="h-3.5 w-3.5 mr-1" aria-hidden="true" />
@@ -842,7 +861,7 @@ function FlatElectedEditor({
         </div>
       </div>
 
-      <CustomSelect
+      <Select
         label="Default Rate"
         value={currentDefaultKey}
         onChange={(val) => {
@@ -923,39 +942,45 @@ function ProgressiveEditor({
               className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 items-center"
             >
               <NumberInput
+                aria-label="Bracket minimum"
+                step={0.01}
                 value={row.min}
-                onChange={(e) =>
-                  update(idx, { min: Number(e.target.value) })
+                onChange={(nextValue) =>
+                  update(idx, { min: Number(String(nextValue)) })
                 }
                 placeholder="0.00"
-                className="h-9 text-sm"
               />
               <NumberInput
+                aria-label="Bracket maximum"
+                step={0.01}
                 value={row.max ?? ""}
-                onChange={(e) =>
+                onChange={(nextValue) =>
                   update(idx, {
                     max:
-                      e.target.value === "" ? null : Number(e.target.value),
+                      String(nextValue) === ""
+                        ? null
+                        : Number(String(nextValue)),
                   })
                 }
                 placeholder="no cap"
-                className="h-9 text-sm"
               />
               <NumberInput
+                aria-label="Tax rate (percent)"
+                step={0.01}
                 value={toPercentDisplay(row.rate)}
-                onChange={(e) =>
-                  update(idx, { rate: Number(e.target.value) / 100 })
+                onChange={(nextValue) =>
+                  update(idx, { rate: Number(String(nextValue)) / 100 })
                 }
                 placeholder="0.00"
-                className="h-9 text-sm"
               />
               <NumberInput
+                aria-label="Base tax"
+                step={0.01}
                 value={row.base_tax}
-                onChange={(e) =>
-                  update(idx, { base_tax: Number(e.target.value) })
+                onChange={(nextValue) =>
+                  update(idx, { base_tax: Number(String(nextValue)) })
                 }
                 placeholder="0.00"
-                className="h-9 text-sm"
               />
               <button
                 type="button"
@@ -1009,10 +1034,11 @@ function CustomEditor({
         formula support is post-v1.
       </p>
       <Textarea
+        aria-label="Bracket data"
         value={text}
-        onChange={(e) => handleChange(e.target.value)}
+        onChange={(nextValue) => handleChange(nextValue)}
         rows={8}
-        className="font-mono text-xs"
+        className="font-mono"
       />
       {parseError && (
         <p className="text-xs text-error">JSON error: {parseError}</p>

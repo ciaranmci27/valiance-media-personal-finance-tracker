@@ -1,7 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
+import {
+  MobileMenuButton,
+  HeaderControls,
+} from "@/components/layout/page-header";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -29,12 +32,12 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
-import { DateInput } from "@/components/ui/date-input";
-import { Input } from "@/components/ui/input";
-import { NumberInput } from "@/components/ui/number-input";
-import { CustomSelect } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { EmailTagsInput } from "@/components/ui/email-tags-input";
+import { DateInput } from "@/components/ui/inputs/DateInput";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { Select } from "@/components/ui/inputs/Select";
+import { Textarea } from "@/components/ui/inputs/Textarea";
+import { TagsInput } from "@/components/ui/inputs/TagsInput";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
@@ -210,7 +213,7 @@ const timeOptions = generateTimeOptions();
 // Get current date/time components in a specific timezone
 function getDatePartsInTimezone(
   date: Date,
-  timezone: string
+  timezone: string,
 ): {
   year: number;
   month: number;
@@ -275,7 +278,7 @@ function localToUTC(
   day: number,
   hours: number,
   minutes: number,
-  timezone: string
+  timezone: string,
 ): string {
   // Create a rough UTC date to calculate the timezone offset
   const roughUTC = new Date(Date.UTC(year, month - 1, day, hours, minutes, 0));
@@ -291,14 +294,14 @@ function localToUTC(
       tzParts.day,
       tzParts.hour,
       tzParts.minute,
-      0
-    )
+      0,
+    ),
   );
   const offsetMs = roughUTC.getTime() - tzAsUTC.getTime();
 
   // The local time we want expressed as if it were UTC
   const targetLocalAsUTC = new Date(
-    Date.UTC(year, month - 1, day, hours, minutes, 0)
+    Date.UTC(year, month - 1, day, hours, minutes, 0),
   );
 
   // Apply offset to get actual UTC time
@@ -359,7 +362,7 @@ function calculateNextRun(config: ScheduleTriggerConfig): string {
         daysUntil += 7;
       }
       const targetDate = new Date(
-        now.getTime() + daysUntil * 24 * 60 * 60 * 1000
+        now.getTime() + daysUntil * 24 * 60 * 60 * 1000,
       );
       const targetParts = getDatePartsInTimezone(targetDate, timezone);
       nextYear = targetParts.year;
@@ -380,7 +383,10 @@ function calculateNextRun(config: ScheduleTriggerConfig): string {
           nextMonth = 1;
           nextYear++;
         }
-        nextDay = Math.min(targetDayOfMonth, getDaysInMonth(nextYear, nextMonth));
+        nextDay = Math.min(
+          targetDayOfMonth,
+          getDaysInMonth(nextYear, nextMonth),
+        );
       }
       break;
     }
@@ -400,7 +406,7 @@ function calculateNextRun(config: ScheduleTriggerConfig): string {
         } else if (qMonth === current.month) {
           const dayToCheck = Math.min(
             targetDayOfMonth,
-            getDaysInMonth(nextYear, qMonth)
+            getDaysInMonth(nextYear, qMonth),
           );
           if (
             current.day < dayToCheck ||
@@ -438,7 +444,7 @@ function calculateNextRun(config: ScheduleTriggerConfig): string {
         nextYear++;
         nextDay = Math.min(
           targetDayOfMonth,
-          getDaysInMonth(nextYear, nextMonth)
+          getDaysInMonth(nextYear, nextMonth),
         );
       }
       break;
@@ -452,7 +458,7 @@ function calculateNextRun(config: ScheduleTriggerConfig): string {
     nextDay,
     targetHours,
     targetMinutes,
-    timezone
+    timezone,
   );
 }
 
@@ -506,7 +512,7 @@ function WorkflowNode({
               "flex h-8 w-8 items-center justify-center rounded-full text-sm font-medium",
               isComplete
                 ? "bg-success/10 text-success"
-                : "bg-primary/10 text-teal-light"
+                : "bg-primary/10 text-teal-light",
             )}
           >
             {isComplete ? <Check className="h-4 w-4" /> : number}
@@ -531,7 +537,9 @@ export function AutomationFormContent() {
   const [description, setDescription] = React.useState("");
 
   // Trigger state
-  const [triggerType, setTriggerType] = React.useState<TriggerType | null>(null);
+  const [triggerType, setTriggerType] = React.useState<TriggerType | null>(
+    null,
+  );
 
   // Schedule state (for schedule trigger)
   const [frequency, setFrequency] =
@@ -627,7 +635,7 @@ export function AutomationFormContent() {
 
   const updateAction = (
     id: string,
-    config: EmailActionConfig | NotificationActionConfig
+    config: EmailActionConfig | NotificationActionConfig,
   ) => {
     setActions(actions.map((a) => (a.id === id ? { ...a, config } : a)));
   };
@@ -854,17 +862,17 @@ export function AutomationFormContent() {
           className="animate-fade-up stagger-1"
         >
           <div className="space-y-4">
-            <Input
+            <TextInput
               label="Name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(nextValue) => setName(nextValue)}
               placeholder="e.g., Monthly Report Reminder"
               required
             />
             <Textarea
               label="Description (optional)"
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              onChange={(nextValue) => setDescription(nextValue)}
               placeholder="What does this automation do?"
             />
           </div>
@@ -900,7 +908,7 @@ export function AutomationFormContent() {
                   "flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left",
                   triggerType === "manual"
                     ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/50 hover:bg-secondary"
+                    : "border-border hover:border-primary/50 hover:bg-secondary",
                 )}
               >
                 <div
@@ -908,7 +916,7 @@ export function AutomationFormContent() {
                     "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
                     triggerType === "manual"
                       ? "bg-primary/10 text-teal-light"
-                      : "bg-secondary text-muted-foreground"
+                      : "bg-secondary text-muted-foreground",
                   )}
                 >
                   <MousePointerClick className="h-5 w-5" />
@@ -928,7 +936,7 @@ export function AutomationFormContent() {
                   "flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left",
                   triggerType === "schedule"
                     ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/50 hover:bg-secondary"
+                    : "border-border hover:border-primary/50 hover:bg-secondary",
                 )}
               >
                 <div
@@ -936,7 +944,7 @@ export function AutomationFormContent() {
                     "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
                     triggerType === "schedule"
                       ? "bg-primary/10 text-teal-light"
-                      : "bg-secondary text-muted-foreground"
+                      : "bg-secondary text-muted-foreground",
                   )}
                 >
                   <Calendar className="h-5 w-5" />
@@ -957,7 +965,7 @@ export function AutomationFormContent() {
                     "flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left",
                     triggerType === "payroll_event"
                       ? "border-primary bg-primary/5"
-                      : "border-border hover:border-primary/50 hover:bg-secondary"
+                      : "border-border hover:border-primary/50 hover:bg-secondary",
                   )}
                 >
                   <div
@@ -965,7 +973,7 @@ export function AutomationFormContent() {
                       "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
                       triggerType === "payroll_event"
                         ? "bg-primary/10 text-teal-light"
-                        : "bg-secondary text-muted-foreground"
+                        : "bg-secondary text-muted-foreground",
                     )}
                   >
                     <CalendarClock className="h-5 w-5" />
@@ -999,7 +1007,7 @@ export function AutomationFormContent() {
                           "text-left px-3 py-2 rounded-lg border transition-colors",
                           payrollEvent === opt.value
                             ? "border-primary bg-primary/10"
-                            : "border-border hover:border-primary/50 hover:bg-secondary"
+                            : "border-border hover:border-primary/50 hover:bg-secondary",
                         )}
                       >
                         <div className="text-sm font-medium">{opt.label}</div>
@@ -1015,7 +1023,7 @@ export function AutomationFormContent() {
                 {(payrollEvent === "pay_date" ||
                   payrollEvent === "ach_send_date" ||
                   payrollEvent === "period_end") && (
-                  <CustomSelect
+                  <Select
                     label="Which employee(s)?"
                     value={payrollEmployeeId || "__all__"}
                     onChange={(v) =>
@@ -1032,7 +1040,7 @@ export function AutomationFormContent() {
                 )}
 
                 {payrollEvent === "deposit_due" && (
-                  <CustomSelect
+                  <Select
                     label="Which deposit type?"
                     value={payrollDepositType}
                     onChange={(v) =>
@@ -1046,7 +1054,7 @@ export function AutomationFormContent() {
                 )}
 
                 {payrollEvent === "form_due" && (
-                  <CustomSelect
+                  <Select
                     label="Which form?"
                     value={payrollFormType}
                     onChange={(v) => setPayrollFormType(v as PayrollFormType)}
@@ -1059,7 +1067,7 @@ export function AutomationFormContent() {
 
                 {/* Offset */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <CustomSelect
+                  <Select
                     label="When to fire"
                     value={String(payrollOffsetMinutes)}
                     onChange={(v) => setPayrollOffsetMinutes(parseInt(v, 10))}
@@ -1068,7 +1076,7 @@ export function AutomationFormContent() {
                       label: o.label,
                     }))}
                   />
-                  <CustomSelect
+                  <Select
                     label="Fire at this time"
                     value={time}
                     onChange={setTime}
@@ -1076,7 +1084,7 @@ export function AutomationFormContent() {
                   />
                 </div>
 
-                <CustomSelect
+                <Select
                   label="Timezone"
                   value={timezone}
                   onChange={setTimezone}
@@ -1089,7 +1097,7 @@ export function AutomationFormContent() {
                     "rounded-lg border p-4 space-y-1.5",
                     payrollPreview
                       ? "border-primary/20 bg-primary/5"
-                      : "border-border bg-muted"
+                      : "border-border bg-muted",
                   )}
                 >
                   <div className="text-xs font-semibold uppercase tracking-wider text-teal-light">
@@ -1115,10 +1123,7 @@ export function AutomationFormContent() {
                       <p className="text-xs text-muted-foreground">
                         Based on{" "}
                         <span className="text-foreground font-medium">
-                          {payrollPreview.context.event_type.replace(
-                            /_/g,
-                            " ",
-                          )}
+                          {payrollPreview.context.event_type.replace(/_/g, " ")}
                         </span>
                         {payrollPreview.context.employee_name &&
                           ` for ${payrollPreview.context.employee_name}`}{" "}
@@ -1138,15 +1143,15 @@ export function AutomationFormContent() {
                 </div>
 
                 {/* Template variables hint */}
-                <div className="rounded-lg border border-border bg-muted p-3 text-xs text-muted-foreground space-y-1">
+                <div className="glass-card rounded-xl bg-muted p-3 text-xs text-muted-foreground space-y-1">
                   <div className="font-semibold text-foreground">
                     Template variables you can use in email / notification
                     bodies:
                   </div>
                   <code className="block font-mono text-[11px] leading-5">
-                    {"{{event_type}}"} {"{{event_date}}"}{" "}
-                    {"{{employee_name}}"} {"{{amount}}"} {"{{link}}"}{" "}
-                    {"{{deposit_type}}"} {"{{form_type}}"}
+                    {"{{event_type}}"} {"{{event_date}}"} {"{{employee_name}}"}{" "}
+                    {"{{amount}}"} {"{{link}}"} {"{{deposit_type}}"}{" "}
+                    {"{{form_type}}"}
                   </code>
                 </div>
 
@@ -1166,7 +1171,7 @@ export function AutomationFormContent() {
                           "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
                           durationType === type
                             ? "border-primary bg-primary/10 text-teal-light"
-                            : "border-border hover:border-primary/50 hover:bg-secondary"
+                            : "border-border hover:border-primary/50 hover:bg-secondary",
                         )}
                       >
                         {type === "forever"
@@ -1180,13 +1185,14 @@ export function AutomationFormContent() {
 
                   {durationType === "count" && (
                     <NumberInput
-                      integer
+                      precision={0}
+                      step={1}
                       min={1}
                       max={999}
                       label="Number of times to run"
                       value={runCount.toString()}
-                      onChange={(e) =>
-                        setRunCount(parseInt(e.target.value) || 1)
+                      onChange={(nextValue) =>
+                        setRunCount(parseInt(String(nextValue)) || 1)
                       }
                     />
                   )}
@@ -1218,13 +1224,15 @@ export function AutomationFormContent() {
                         key={opt.value}
                         type="button"
                         onClick={() =>
-                          setFrequency(opt.value as ScheduleTriggerConfig["frequency"])
+                          setFrequency(
+                            opt.value as ScheduleTriggerConfig["frequency"],
+                          )
                         }
                         className={cn(
                           "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
                           frequency === opt.value
                             ? "border-primary bg-primary/10 text-teal-light"
-                            : "border-border hover:border-primary/50 hover:bg-secondary"
+                            : "border-border hover:border-primary/50 hover:bg-secondary",
                         )}
                       >
                         {opt.label}
@@ -1236,7 +1244,7 @@ export function AutomationFormContent() {
                 {/* Frequency-specific options */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {frequency === "weekly" && (
-                    <CustomSelect
+                    <Select
                       label="Day of Week"
                       value={dayOfWeek.toString()}
                       onChange={(v) => setDayOfWeek(parseInt(v))}
@@ -1248,7 +1256,7 @@ export function AutomationFormContent() {
                   )}
 
                   {["monthly", "quarterly", "yearly"].includes(frequency) && (
-                    <CustomSelect
+                    <Select
                       label="Day of Month"
                       value={dayOfMonth.toString()}
                       onChange={(v) => setDayOfMonth(parseInt(v))}
@@ -1260,7 +1268,7 @@ export function AutomationFormContent() {
                   )}
 
                   {frequency === "yearly" && (
-                    <CustomSelect
+                    <Select
                       label="Month"
                       value={month.toString()}
                       onChange={(v) => setMonth(parseInt(v))}
@@ -1271,14 +1279,14 @@ export function AutomationFormContent() {
                     />
                   )}
 
-                  <CustomSelect
+                  <Select
                     label="Time"
                     value={time}
                     onChange={setTime}
                     options={timeOptions}
                   />
 
-                  <CustomSelect
+                  <Select
                     label="Timezone"
                     value={timezone}
                     onChange={setTimezone}
@@ -1302,7 +1310,7 @@ export function AutomationFormContent() {
                           "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
                           durationType === type
                             ? "border-primary bg-primary/10 text-teal-light"
-                            : "border-border hover:border-primary/50 hover:bg-secondary"
+                            : "border-border hover:border-primary/50 hover:bg-secondary",
                         )}
                       >
                         {type === "forever"
@@ -1316,12 +1324,15 @@ export function AutomationFormContent() {
 
                   {durationType === "count" && (
                     <NumberInput
-                      integer
+                      precision={0}
+                      step={1}
                       min={1}
                       max={999}
                       label="Number of times to run"
                       value={runCount.toString()}
-                      onChange={(e) => setRunCount(parseInt(e.target.value) || 1)}
+                      onChange={(nextValue) =>
+                        setRunCount(parseInt(String(nextValue)) || 1)
+                      }
                     />
                   )}
 
@@ -1405,7 +1416,7 @@ export function AutomationFormContent() {
                               "flex h-8 w-8 items-center justify-center rounded-lg",
                               action.type === "email"
                                 ? "bg-blue-500/10 text-blue-500"
-                                : "bg-amber-500/10 text-amber-500"
+                                : "bg-amber-500/10 text-amber-500",
                             )}
                           >
                             {action.type === "email" ? (
@@ -1426,10 +1437,15 @@ export function AutomationFormContent() {
                               <div className="space-y-1.5">
                                 <div className="flex items-center gap-2">
                                   <AtSign className="h-3.5 w-3.5 text-muted-foreground" />
-                                  <label className="text-sm font-medium">Recipient Email</label>
+                                  <label className="text-sm font-medium">
+                                    Recipient Email
+                                  </label>
                                 </div>
-                                <EmailTagsInput
-                                  value={(action.config as EmailActionConfig).to}
+                                <TagsInput
+                                  type="email"
+                                  value={
+                                    (action.config as EmailActionConfig).to
+                                  }
                                   onChange={(value) =>
                                     updateAction(action.id, {
                                       ...(action.config as EmailActionConfig),
@@ -1446,30 +1462,41 @@ export function AutomationFormContent() {
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-2">
                                     <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                                    <label className="text-sm font-medium">Subject Line</label>
+                                    <label className="text-sm font-medium">
+                                      Subject Line
+                                    </label>
                                   </div>
-                                  <span className={cn(
-                                    "text-xs",
-                                    ((action.config as EmailActionConfig).subject?.length || 0) > 60
-                                      ? "text-amber-500"
-                                      : "text-muted-foreground"
-                                  )}>
-                                    {(action.config as EmailActionConfig).subject?.length || 0}/60
+                                  <span
+                                    className={cn(
+                                      "text-xs",
+                                      ((action.config as EmailActionConfig)
+                                        .subject?.length || 0) > 60
+                                        ? "text-amber-500"
+                                        : "text-muted-foreground",
+                                    )}
+                                  >
+                                    {(action.config as EmailActionConfig)
+                                      .subject?.length || 0}
+                                    /60
                                   </span>
                                 </div>
-                                <Input
-                                  value={(action.config as EmailActionConfig).subject}
-                                  onChange={(e) =>
+                                <TextInput
+                                  aria-label="Email subject"
+                                  value={
+                                    (action.config as EmailActionConfig).subject
+                                  }
+                                  onChange={(nextValue) =>
                                     updateAction(action.id, {
                                       ...(action.config as EmailActionConfig),
-                                      subject: e.target.value,
+                                      subject: nextValue,
                                     })
                                   }
                                   placeholder="Monthly Report Ready for Review"
                                   required
                                 />
                                 <p className="text-xs text-muted-foreground">
-                                  Keep under 60 characters for best display in email clients
+                                  Keep under 60 characters for best display in
+                                  email clients
                                 </p>
                               </div>
 
@@ -1478,7 +1505,9 @@ export function AutomationFormContent() {
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-2">
                                     <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                                    <label className="text-sm font-medium">Email Body</label>
+                                    <label className="text-sm font-medium">
+                                      Email Body
+                                    </label>
                                   </div>
                                   <div className="flex items-center gap-1 p-1 bg-secondary rounded-lg">
                                     <button
@@ -1491,9 +1520,10 @@ export function AutomationFormContent() {
                                       }
                                       className={cn(
                                         "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
-                                        ((action.config as EmailActionConfig).format || "text") === "text"
+                                        ((action.config as EmailActionConfig)
+                                          .format || "text") === "text"
                                           ? "bg-[rgba(var(--ink),0.09)] text-foreground shadow-[inset_0_1px_0_rgba(var(--ink),0.16)]"
-                                          : "text-muted-foreground hover:text-foreground"
+                                          : "text-muted-foreground hover:text-foreground",
                                       )}
                                     >
                                       <Type className="h-3 w-3" />
@@ -1509,9 +1539,10 @@ export function AutomationFormContent() {
                                       }
                                       className={cn(
                                         "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
-                                        (action.config as EmailActionConfig).format === "html"
+                                        (action.config as EmailActionConfig)
+                                          .format === "html"
                                           ? "bg-[rgba(var(--ink),0.09)] text-foreground shadow-[inset_0_1px_0_rgba(var(--ink),0.16)]"
-                                          : "text-muted-foreground hover:text-foreground"
+                                          : "text-muted-foreground hover:text-foreground",
                                       )}
                                     >
                                       <Code className="h-3 w-3" />
@@ -1520,15 +1551,19 @@ export function AutomationFormContent() {
                                   </div>
                                 </div>
                                 <Textarea
-                                  value={(action.config as EmailActionConfig).body}
-                                  onChange={(e) =>
+                                  aria-label="Email body"
+                                  value={
+                                    (action.config as EmailActionConfig).body
+                                  }
+                                  onChange={(nextValue) =>
                                     updateAction(action.id, {
                                       ...(action.config as EmailActionConfig),
-                                      body: e.target.value,
+                                      body: nextValue,
                                     })
                                   }
                                   placeholder={
-                                    (action.config as EmailActionConfig).format === "html"
+                                    (action.config as EmailActionConfig)
+                                      .format === "html"
                                       ? `<!DOCTYPE html>
 <html>
 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
@@ -1559,12 +1594,16 @@ Your Team`
                                   }
                                   className={cn(
                                     "min-h-[160px] text-sm",
-                                    (action.config as EmailActionConfig).format === "html" ? "font-mono" : ""
+                                    (action.config as EmailActionConfig)
+                                      .format === "html"
+                                      ? "font-mono"
+                                      : "",
                                   )}
                                   required
                                 />
                                 <p className="text-xs text-muted-foreground">
-                                  {(action.config as EmailActionConfig).format === "html"
+                                  {(action.config as EmailActionConfig)
+                                    .format === "html"
                                     ? "Write HTML markup for rich formatting. Inline styles recommended for email compatibility."
                                     : "Plain text email. Line breaks will be preserved."}
                                 </p>
@@ -1575,7 +1614,10 @@ Your Team`
                                 <summary className="flex items-center gap-2 cursor-pointer text-sm text-muted-foreground hover:text-foreground transition-colors list-none">
                                   <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
                                   <span>Additional Options</span>
-                                  {((action.config as EmailActionConfig).cc || (action.config as EmailActionConfig).bcc || (action.config as EmailActionConfig).replyTo) && (
+                                  {((action.config as EmailActionConfig).cc ||
+                                    (action.config as EmailActionConfig).bcc ||
+                                    (action.config as EmailActionConfig)
+                                      .replyTo) && (
                                     <span className="text-xs bg-primary/10 text-teal-light px-1.5 py-0.5 rounded">
                                       configured
                                     </span>
@@ -1583,8 +1625,12 @@ Your Team`
                                 </summary>
                                 <div className="mt-4 space-y-4">
                                   {/* CC */}
-                                  <EmailTagsInput
-                                    value={(action.config as EmailActionConfig).cc || ""}
+                                  <TagsInput
+                                    type="email"
+                                    value={
+                                      (action.config as EmailActionConfig).cc ||
+                                      ""
+                                    }
                                     onChange={(value) =>
                                       updateAction(action.id, {
                                         ...(action.config as EmailActionConfig),
@@ -1593,12 +1639,16 @@ Your Team`
                                     }
                                     label="CC (optional)"
                                     placeholder="Add CC recipient"
-                                    helperText="Carbon copy - visible to all recipients"
+                                    description="Carbon copy - visible to all recipients"
                                   />
 
                                   {/* BCC */}
-                                  <EmailTagsInput
-                                    value={(action.config as EmailActionConfig).bcc || ""}
+                                  <TagsInput
+                                    type="email"
+                                    value={
+                                      (action.config as EmailActionConfig)
+                                        .bcc || ""
+                                    }
                                     onChange={(value) =>
                                       updateAction(action.id, {
                                         ...(action.config as EmailActionConfig),
@@ -1607,28 +1657,35 @@ Your Team`
                                     }
                                     label="BCC (optional)"
                                     placeholder="Add BCC recipient"
-                                    helperText="Blind carbon copy - hidden from other recipients"
+                                    description="Blind carbon copy - hidden from other recipients"
                                   />
 
                                   {/* Reply-To */}
                                   <div className="space-y-1.5">
                                     <div className="flex items-center gap-2">
                                       <Reply className="h-3.5 w-3.5 text-muted-foreground" />
-                                      <label className="text-sm font-medium">Reply-To (optional)</label>
+                                      <label className="text-sm font-medium">
+                                        Reply-To (optional)
+                                      </label>
                                     </div>
-                                    <Input
+                                    <TextInput
+                                      aria-label="Reply-to email"
                                       type="email"
-                                      value={(action.config as EmailActionConfig).replyTo || ""}
-                                      onChange={(e) =>
+                                      value={
+                                        (action.config as EmailActionConfig)
+                                          .replyTo || ""
+                                      }
+                                      onChange={(nextValue) =>
                                         updateAction(action.id, {
                                           ...(action.config as EmailActionConfig),
-                                          replyTo: e.target.value || undefined,
+                                          replyTo: nextValue || undefined,
                                         })
                                       }
                                       placeholder="replies@company.com"
                                     />
                                     <p className="text-xs text-muted-foreground">
-                                      Replies will be sent to this address instead of the sender
+                                      Replies will be sent to this address
+                                      instead of the sender
                                     </p>
                                   </div>
                                 </div>
@@ -1640,14 +1697,20 @@ Your Team`
                               <div className="space-y-1.5">
                                 <div className="flex items-center gap-2">
                                   <Bell className="h-3.5 w-3.5 text-muted-foreground" />
-                                  <label className="text-sm font-medium">Notification Title</label>
+                                  <label className="text-sm font-medium">
+                                    Notification Title
+                                  </label>
                                 </div>
-                                <Input
-                                  value={(action.config as NotificationActionConfig).title}
-                                  onChange={(e) =>
+                                <TextInput
+                                  aria-label="Notification title"
+                                  value={
+                                    (action.config as NotificationActionConfig)
+                                      .title
+                                  }
+                                  onChange={(nextValue) =>
                                     updateAction(action.id, {
                                       ...(action.config as NotificationActionConfig),
-                                      title: e.target.value,
+                                      title: nextValue,
                                     })
                                   }
                                   placeholder="Report Ready"
@@ -1662,18 +1725,23 @@ Your Team`
                               <div className="space-y-1.5">
                                 <div className="flex items-center gap-2">
                                   <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                                  <label className="text-sm font-medium">Message</label>
+                                  <label className="text-sm font-medium">
+                                    Message
+                                  </label>
                                 </div>
                                 <Textarea
-                                  value={(action.config as NotificationActionConfig).message}
-                                  onChange={(e) =>
+                                  aria-label="Notification message"
+                                  value={
+                                    (action.config as NotificationActionConfig)
+                                      .message
+                                  }
+                                  onChange={(nextValue) =>
                                     updateAction(action.id, {
                                       ...(action.config as NotificationActionConfig),
-                                      message: e.target.value,
+                                      message: nextValue,
                                     })
                                   }
                                   placeholder="Your monthly report is ready for review."
-                                  className="min-h-[80px]"
                                   required
                                 />
                                 <p className="text-xs text-muted-foreground">
@@ -1685,14 +1753,20 @@ Your Team`
                               <div className="space-y-1.5">
                                 <div className="flex items-center gap-2">
                                   <LinkIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                                  <label className="text-sm font-medium">Link (optional)</label>
+                                  <label className="text-sm font-medium">
+                                    Link (optional)
+                                  </label>
                                 </div>
-                                <Input
-                                  value={(action.config as NotificationActionConfig).link || ""}
-                                  onChange={(e) =>
+                                <TextInput
+                                  aria-label="Notification link"
+                                  value={
+                                    (action.config as NotificationActionConfig)
+                                      .link || ""
+                                  }
+                                  onChange={(nextValue) =>
                                     updateAction(action.id, {
                                       ...(action.config as NotificationActionConfig),
-                                      link: e.target.value,
+                                      link: nextValue,
                                     })
                                   }
                                   placeholder="/income or /settings"
@@ -1706,15 +1780,15 @@ Your Team`
                         </div>
 
                         <Tooltip content="Remove action">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-error shrink-0"
-                          onClick={() => removeAction(action.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-error shrink-0"
+                            onClick={() => removeAction(action.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
                         </Tooltip>
                       </div>
                     </CardContent>

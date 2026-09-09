@@ -7,11 +7,7 @@ import { FileText } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { generateFormW3 } from "@/lib/payroll/forms-actions";
-import {
-  FormViewerShell,
-  LineRow,
-  SectionHeading,
-} from "./form-viewer-shell";
+import { FormViewerShell, LineRow, SectionHeading } from "./form-viewer-shell";
 import type { FormW3Data, PayrollForm } from "@/types/payroll";
 import { Term } from "./term";
 
@@ -87,16 +83,37 @@ function FormW3Layout({ data, year }: { data: FormW3Data; year: number }) {
 
       <section className="glass-card rounded-xl p-5 space-y-2">
         <SectionHeading>Federal totals</SectionHeading>
-        <LineRow number="1" label="Wages, tips, other compensation" value={data.box_1_wages} emphasis />
+        <LineRow
+          number="1"
+          label="Wages, tips, other compensation"
+          value={data.box_1_wages}
+          emphasis
+        />
         <LineRow
           number="2"
           label="Federal income tax withheld"
           value={data.box_2_federal_income_tax}
         />
-        <LineRow number="3" label="Social Security wages" value={data.box_3_ss_wages} />
-        <LineRow number="4" label="Social Security tax withheld" value={data.box_4_ss_tax} />
-        <LineRow number="5" label="Medicare wages and tips" value={data.box_5_medicare_wages} />
-        <LineRow number="6" label="Medicare tax withheld" value={data.box_6_medicare_tax} />
+        <LineRow
+          number="3"
+          label="Social Security wages"
+          value={data.box_3_ss_wages}
+        />
+        <LineRow
+          number="4"
+          label="Social Security tax withheld"
+          value={data.box_4_ss_tax}
+        />
+        <LineRow
+          number="5"
+          label="Medicare wages and tips"
+          value={data.box_5_medicare_wages}
+        />
+        <LineRow
+          number="6"
+          label="Medicare tax withheld"
+          value={data.box_6_medicare_tax}
+        />
       </section>
 
       {data.box_12_d_elective_deferrals > 0 && (
@@ -112,14 +129,22 @@ function FormW3Layout({ data, year }: { data: FormW3Data; year: number }) {
 
       <section className="glass-card rounded-xl p-5 space-y-2">
         <SectionHeading>State totals</SectionHeading>
-        <LineRow number="16" label="State wages" value={data.box_16_state_wages} />
-        <LineRow number="17" label="State income tax" value={data.box_17_state_income_tax} />
+        <LineRow
+          number="16"
+          label="State wages"
+          value={data.box_16_state_wages}
+        />
+        <LineRow
+          number="17"
+          label="State income tax"
+          value={data.box_17_state_income_tax}
+        />
         {data.states && data.states.length > 1 && (
           <div className="mt-2 pt-2 border-t border-border">
             <p className="text-xs uppercase tracking-wider text-muted-foreground mb-2">
               Per state
             </p>
-            <div className="rounded-lg border border-border overflow-hidden">
+            <div className="glass-card rounded-xl overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-secondary/40 text-xs uppercase tracking-wider text-muted-foreground">
                   <tr>

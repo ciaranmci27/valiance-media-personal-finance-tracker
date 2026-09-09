@@ -1,7 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
+import {
+  MobileMenuButton,
+  HeaderControls,
+} from "@/components/layout/page-header";
 import Link from "next/link";
 import Image from "next/image";
 import { ArrowLeft, Check, Palette } from "lucide-react";
@@ -14,13 +17,17 @@ export function AppearanceSettingsContent() {
   const [theme, setTheme] = React.useState<Theme | null>(null);
 
   React.useEffect(() => {
-    const currentTheme = document.documentElement.getAttribute("data-theme") as Theme | null;
+    const currentTheme = document.documentElement.getAttribute(
+      "data-theme",
+    ) as Theme | null;
     setTheme(currentTheme === "light" ? "light" : "dark");
 
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.attributeName === "data-theme") {
-          const newTheme = document.documentElement.getAttribute("data-theme") as Theme | null;
+          const newTheme = document.documentElement.getAttribute(
+            "data-theme",
+          ) as Theme | null;
           setTheme(newTheme === "light" ? "light" : "dark");
         }
       });
@@ -37,18 +44,23 @@ export function AppearanceSettingsContent() {
 
   const displayTheme = theme ?? "dark";
 
-  const themes: { value: Theme; label: string; description: string; image: string }[] = [
+  const themes: {
+    value: Theme;
+    label: string;
+    description: string;
+    image: string;
+  }[] = [
     {
       value: "light",
       label: "Light",
       description: "Clean and bright interface",
-      image: "/light.png"
+      image: "/light.png",
     },
     {
       value: "dark",
       label: "Dark",
       description: "Easy on the eyes",
-      image: "/dark.png"
+      image: "/dark.png",
     },
   ];
 
@@ -88,7 +100,12 @@ export function AppearanceSettingsContent() {
           <div className="flex-1 h-px bg-border/50" />
         </div>
 
-        <div className={cn("grid grid-cols-1 min-[440px]:grid-cols-2 gap-4", !theme && "opacity-0")}>
+        <div
+          className={cn(
+            "grid grid-cols-1 min-[440px]:grid-cols-2 gap-4",
+            !theme && "opacity-0",
+          )}
+        >
           {themes.map((t) => {
             const isSelected = displayTheme === t.value;
             return (
@@ -99,7 +116,7 @@ export function AppearanceSettingsContent() {
                   "group relative glass-card glass-card-interactive rounded-xl p-5 text-left",
                   isSelected
                     ? "border-primary/50 bg-primary/5"
-                    : "hover:border-primary/30 hover:scale-[1.01]"
+                    : "hover:border-primary/30 hover:scale-[1.01]",
                 )}
               >
                 {/* Selected indicator */}
@@ -120,10 +137,12 @@ export function AppearanceSettingsContent() {
                     className="h-auto w-12 shrink-0"
                   />
                   <div>
-                    <h3 className={cn(
-                      "font-semibold transition-colors",
-                      isSelected ? "text-teal-light" : "text-foreground"
-                    )}>
+                    <h3
+                      className={cn(
+                        "font-semibold transition-colors",
+                        isSelected ? "text-teal-light" : "text-foreground",
+                      )}
+                    >
                       {t.label}
                     </h3>
                     <p className="text-sm text-muted-foreground">
@@ -147,7 +166,7 @@ export function AppearanceSettingsContent() {
         </div>
 
         <div className="glass-card rounded-xl p-6">
-          <div className="rounded-lg border border-border bg-white/[0.03] p-4">
+          <div className="glass-card rounded-xl bg-white/[0.03] p-4">
             <div className="space-y-3">
               {/* Mock header */}
               <div className="flex items-center gap-3">
@@ -176,7 +195,7 @@ export function AppearanceSettingsContent() {
               {/* Mock buttons */}
               <div className="flex gap-2 pt-2">
                 <div className="h-8 w-20 rounded-lg bg-primary" />
-                <div className="h-8 w-20 rounded-lg border border-border" />
+                <div className="h-8 w-20 glass-card rounded-xl" />
               </div>
             </div>
           </div>

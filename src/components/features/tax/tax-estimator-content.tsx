@@ -1,4 +1,5 @@
 "use client";
+import { Textarea } from "@/components/ui/inputs/Textarea";
 
 import * as React from "react";
 import { PageHeader } from "@/components/layout/page-header";
@@ -23,10 +24,10 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { NumberInput } from "@/components/ui/number-input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { CustomSelect } from "@/components/ui/select";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
+import { Select } from "@/components/ui/inputs/Select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip } from "@/components/ui/tooltip";
 import { StatCard } from "@/components/ui/stat-card";
@@ -56,7 +57,10 @@ import { TaxSetupCard, TAX_CLASSIFICATION_LABELS } from "./tax-setup-card";
 import { IncomeTypePicker } from "./income-type-picker";
 import { AddIncomePopover } from "./add-income-popover";
 import { useAccountingTaxLink } from "./use-accounting-tax-link";
-import { applyTaxOverlay, validateTaxTargets } from "@/lib/accounting/tax-links";
+import {
+  applyTaxOverlay,
+  validateTaxTargets,
+} from "@/lib/accounting/tax-links";
 import { TaxAccountingStatus } from "./tax-accounting-status";
 
 // ============================================================================
@@ -66,7 +70,6 @@ import { TaxAccountingStatus } from "./tax-accounting-status";
 function generateId(): string {
   return crypto.randomUUID();
 }
-
 
 function emptyIncomeSource(): TaxIncomeSource {
   return {
@@ -82,7 +85,9 @@ function emptyCapitalGain(): TaxCapitalGainEntry {
   return { id: generateId(), description: "", amount: 0, term: "long" };
 }
 
-function emptyPayment(category: "withholding" | "payment" = "withholding"): TaxPaymentEntry {
+function emptyPayment(
+  category: "withholding" | "payment" = "withholding",
+): TaxPaymentEntry {
   return {
     id: generateId(),
     type: "federal",
@@ -112,7 +117,11 @@ interface TaxEstimatorContentProps {
   initialYear?: number;
 }
 
-export function TaxEstimatorContent({ estimates, accountingAvailable = false, initialYear }: TaxEstimatorContentProps) {
+export function TaxEstimatorContent({
+  estimates,
+  accountingAvailable = false,
+  initialYear,
+}: TaxEstimatorContentProps) {
   const router = useRouter();
 
   // `estimates` is a server-render snapshot that never refreshes: there is no
@@ -120,9 +129,9 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
   // directly when switching years would resurrect pre-edit values and then
   // persist them over good data, so all reads go through this local cache and
   // every successful save writes back into it.
-  const [estimateCache, setEstimateCache] = React.useState<Record<number, TaxEstimate>>(
-    () => Object.fromEntries(estimates.map((e) => [e.tax_year, e]))
-  );
+  const [estimateCache, setEstimateCache] = React.useState<
+    Record<number, TaxEstimate>
+  >(() => Object.fromEntries(estimates.map((e) => [e.tax_year, e])));
   const estimateCacheRef = React.useRef(estimateCache);
   React.useEffect(() => {
     estimateCacheRef.current = estimateCache;
@@ -159,7 +168,12 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
 
   // Current selected year
   const [selectedYear, setSelectedYear] = React.useState(() => {
-    if (initialYear && estimates.some(e => e.tax_year === initialYear) && getAvailableTaxYears().includes(initialYear)) return initialYear;
+    if (
+      initialYear &&
+      estimates.some((e) => e.tax_year === initialYear) &&
+      getAvailableTaxYears().includes(initialYear)
+    )
+      return initialYear;
     if (yearTabs.length > 0) return yearTabs[0];
     const currentYear = new Date().getFullYear();
     const supported = getAvailableTaxYears();
@@ -168,16 +182,24 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
   });
 
   // Form state
-  const [filingStatus, setFilingStatus] = React.useState<FilingStatus>("single");
-  const [incomeSources, setIncomeSources] = React.useState<TaxIncomeSource[]>([]);
-  const [capitalGains, setCapitalGains] = React.useState<TaxCapitalGainEntry[]>([]);
+  const [filingStatus, setFilingStatus] =
+    React.useState<FilingStatus>("single");
+  const [incomeSources, setIncomeSources] = React.useState<TaxIncomeSource[]>(
+    [],
+  );
+  const [capitalGains, setCapitalGains] = React.useState<TaxCapitalGainEntry[]>(
+    [],
+  );
   const [payments, setPayments] = React.useState<TaxPaymentEntry[]>([]);
   const [additionalDeductions, setAdditionalDeductions] = React.useState(0);
   const [notes, setNotes] = React.useState("");
   const [existingId, setExistingId] = React.useState<string | null>(null);
   const [state, setState] = React.useState<string | null>(null);
-  const [businessType, setBusinessType] = React.useState<BusinessType | null>(null);
-  const [taxClassification, setTaxClassification] = React.useState<TaxClassification | null>(null);
+  const [businessType, setBusinessType] = React.useState<BusinessType | null>(
+    null,
+  );
+  const [taxClassification, setTaxClassification] =
+    React.useState<TaxClassification | null>(null);
   const [dependents, setDependents] = React.useState(0);
   const [otherDependents, setOtherDependents] = React.useState(0);
   const [additionalCredits, setAdditionalCredits] = React.useState(0);
@@ -192,11 +214,15 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
   const [spouseBlind, setSpouseBlind] = React.useState(false);
 
   // UI state
-  const [saveStatus, setSaveStatus] = React.useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [saveStatus, setSaveStatus] = React.useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
   const [saveError, setSaveError] = React.useState<string | null>(null);
   const [dirty, setDirty] = React.useState(false);
   const [importOpen, setImportOpen] = React.useState(false);
-  const saveTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   const isLoadingRef = React.useRef(true); // prevents auto-save on initial load
 
   // Bumped on every edit. A save records the version it wrote so that edits made
@@ -218,7 +244,9 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
       setExistingId(existing.id);
       setState(existing.state ?? null);
       setBusinessType((existing.business_type as BusinessType) ?? null);
-      setTaxClassification((existing.tax_classification as TaxClassification) ?? null);
+      setTaxClassification(
+        (existing.tax_classification as TaxClassification) ?? null,
+      );
       setDependents(existing.dependents ?? 0);
       setOtherDependents(existing.other_dependents ?? 0);
       setAdditionalCredits(existing.additional_credits ?? 0);
@@ -270,24 +298,79 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
   }, [yearTabs, selectedYear]);
 
   // Tax config for selected year
-  const taxConfig = React.useMemo(() => getTaxYearConfig(selectedYear), [selectedYear]);
+  const taxConfig = React.useMemo(
+    () => getTaxYearConfig(selectedYear),
+    [selectedYear],
+  );
 
   // Live recalculation
   const [accountingRefresh, setAccountingRefresh] = React.useState(0);
-  const accounting = useAccountingTaxLink(selectedYear, accountingAvailable, String(accountingRefresh));
+  const accounting = useAccountingTaxLink(
+    selectedYear,
+    accountingAvailable,
+    String(accountingRefresh),
+  );
   const linkedCalculation = React.useMemo(() => {
-    const base = { income_sources: incomeSources, capital_gains: capitalGains, payments };
+    const base = {
+      income_sources: incomeSources,
+      capital_gains: capitalGains,
+      payments,
+    };
     const view = accounting.view;
-    if (!view?.link?.enabled || !view.current || !view.snapshot || view.estimate?.id !== existingId) return { copy: base, issue: "", incomeIds: new Set<string>(), gainIds: new Set<string>(), paymentIds: new Set<string>() };
+    if (
+      !view?.link?.enabled ||
+      !view.current ||
+      !view.snapshot ||
+      view.estimate?.id !== existingId
+    )
+      return {
+        copy: base,
+        issue: "",
+        incomeIds: new Set<string>(),
+        gainIds: new Set<string>(),
+        paymentIds: new Set<string>(),
+      };
     try {
-      validateTaxTargets({ ...base, tax_classification: taxClassification }, view.link.body);
-      if (view.link.body.payroll && state !== view.estimate.state) throw new Error("The personal state changed. Review the payroll link before applying its wage or withholding figures.");
+      validateTaxTargets(
+        { ...base, tax_classification: taxClassification },
+        view.link.body,
+      );
+      if (view.link.body.payroll && state !== view.estimate.state)
+        throw new Error(
+          "The personal state changed. Review the payroll link before applying its wage or withholding figures.",
+        );
       const overlay = view.snapshot.payload.calculation.overlay;
-      return { copy: applyTaxOverlay(base, overlay, view.link.id), issue: "", incomeIds: new Set(overlay.income.map(r => r.id)), gainIds: new Set(overlay.gains.map(r => r.id)), paymentIds: new Set(overlay.payments.map(r => r.id)) };
-    } catch (e) { return { copy: base, issue: e instanceof Error ? e.message : "Review the linked targets.", incomeIds: new Set<string>(), gainIds: new Set<string>(), paymentIds: new Set<string>() }; }
-  }, [incomeSources, capitalGains, payments, accounting.view, existingId, taxClassification, state]);
-  const effectiveIncome = new Map(linkedCalculation.copy.income_sources.map(row => [row.id, row]));
-  const effectiveGains = new Map(linkedCalculation.copy.capital_gains.map(row => [row.id, row]));
+      return {
+        copy: applyTaxOverlay(base, overlay, view.link.id),
+        issue: "",
+        incomeIds: new Set(overlay.income.map((r) => r.id)),
+        gainIds: new Set(overlay.gains.map((r) => r.id)),
+        paymentIds: new Set(overlay.payments.map((r) => r.id)),
+      };
+    } catch (e) {
+      return {
+        copy: base,
+        issue: e instanceof Error ? e.message : "Review the linked targets.",
+        incomeIds: new Set<string>(),
+        gainIds: new Set<string>(),
+        paymentIds: new Set<string>(),
+      };
+    }
+  }, [
+    incomeSources,
+    capitalGains,
+    payments,
+    accounting.view,
+    existingId,
+    taxClassification,
+    state,
+  ]);
+  const effectiveIncome = new Map(
+    linkedCalculation.copy.income_sources.map((row) => [row.id, row]),
+  );
+  const effectiveGains = new Map(
+    linkedCalculation.copy.capital_gains.map((row) => [row.id, row]),
+  );
   const breakdown: FullTaxBreakdown | null = React.useMemo(() => {
     if (!taxConfig) return null;
     return calculateFullTax(
@@ -310,9 +393,26 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
         taxpayerBlind,
         spouseAge65,
         spouseBlind,
-      }
+      },
     );
-  }, [linkedCalculation.copy, additionalDeductions, filingStatus, taxConfig, state, dependents, otherDependents, additionalCredits, taxClassification, isSstb, businessW2Wages, businessPropertyBasis, taxpayerAge65, taxpayerBlind, spouseAge65, spouseBlind]);
+  }, [
+    linkedCalculation.copy,
+    additionalDeductions,
+    filingStatus,
+    taxConfig,
+    state,
+    dependents,
+    otherDependents,
+    additionalCredits,
+    taxClassification,
+    isSstb,
+    businessW2Wages,
+    businessPropertyBasis,
+    taxpayerAge65,
+    taxpayerBlind,
+    spouseAge65,
+    spouseBlind,
+  ]);
 
   // The QBI wage/property limitation only bites once taxable income passes the
   // threshold, so those inputs stay hidden until they can change the answer.
@@ -321,10 +421,15 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
     if (breakdown.qbiDeduction <= 0 && !isSstb && businessW2Wages === 0) {
       // Still show it if they are over the threshold with business income,
       // since that is exactly when a zero deduction may be wrong.
-      const over = breakdown.taxableIncome + breakdown.qbiDeduction > taxConfig.qbi.phaseOut[filingStatus];
+      const over =
+        breakdown.taxableIncome + breakdown.qbiDeduction >
+        taxConfig.qbi.phaseOut[filingStatus];
       return over;
     }
-    return breakdown.taxableIncome + breakdown.qbiDeduction > taxConfig.qbi.phaseOut[filingStatus];
+    return (
+      breakdown.taxableIncome + breakdown.qbiDeduction >
+      taxConfig.qbi.phaseOut[filingStatus]
+    );
   }, [breakdown, taxConfig, filingStatus, isSstb, businessW2Wages]);
 
   // Mark dirty and schedule auto-save
@@ -364,11 +469,15 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
     return withholdings;
   };
 
-  const removeWithholdingsForSource = (sourceId: string, keepWithAmounts = false) => {
+  const removeWithholdingsForSource = (
+    sourceId: string,
+    keepWithAmounts = false,
+  ) => {
     setPayments((prev) =>
-      prev.filter((p) =>
-        p.linked_income_id !== sourceId || (keepWithAmounts && p.amount > 0)
-      )
+      prev.filter(
+        (p) =>
+          p.linked_income_id !== sourceId || (keepWithAmounts && p.amount > 0),
+      ),
     );
   };
 
@@ -381,16 +490,20 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
     markDirty();
   };
 
-  const updateIncome = (id: string, field: keyof TaxIncomeSource, value: string | number | boolean) => {
+  const updateIncome = (
+    id: string,
+    field: keyof TaxIncomeSource,
+    value: string | number | boolean,
+  ) => {
     setIncomeSources((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, [field]: value } : s))
+      prev.map((s) => (s.id === id ? { ...s, [field]: value } : s)),
     );
     // Sync withholding labels when source name changes
     if (field === "name" && typeof value === "string") {
       setPayments((prev) =>
         prev.map((p) =>
-          p.linked_income_id === id ? { ...p, label: value } : p
-        )
+          p.linked_income_id === id ? { ...p, label: value } : p,
+        ),
       );
     }
     markDirty();
@@ -404,7 +517,7 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
 
   const unlinkIncome = (id: string) => {
     setIncomeSources((prev) =>
-      prev.map((s) => (s.id === id ? { ...s, is_unlinked: true } : s))
+      prev.map((s) => (s.id === id ? { ...s, is_unlinked: true } : s)),
     );
     markDirty();
   };
@@ -414,8 +527,8 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
       prev.map((s) =>
         s.id === id
           ? { ...s, is_unlinked: false, amount: s.linked_amount ?? s.amount }
-          : s
-      )
+          : s,
+      ),
     );
     markDirty();
   };
@@ -429,9 +542,13 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
     markDirty();
   };
 
-  const updateCapitalGain = (id: string, field: keyof TaxCapitalGainEntry, value: string | number) => {
+  const updateCapitalGain = (
+    id: string,
+    field: keyof TaxCapitalGainEntry,
+    value: string | number,
+  ) => {
     setCapitalGains((prev) =>
-      prev.map((g) => (g.id === id ? { ...g, [field]: value } : g))
+      prev.map((g) => (g.id === id ? { ...g, [field]: value } : g)),
     );
     markDirty();
   };
@@ -455,9 +572,13 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
     markDirty();
   };
 
-  const updatePayment = (id: string, field: keyof TaxPaymentEntry, value: string | number) => {
+  const updatePayment = (
+    id: string,
+    field: keyof TaxPaymentEntry,
+    value: string | number,
+  ) => {
     setPayments((prev) =>
-      prev.map((p) => (p.id === id ? { ...p, [field]: value } : p))
+      prev.map((p) => (p.id === id ? { ...p, [field]: value } : p)),
     );
     markDirty();
   };
@@ -505,9 +626,11 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
     });
     // Create withholdings for newly added W-2 imports
     const newW2Sources = imported.filter(
-      (src) => src.income_type === "w2" && !incomeSources.some(
-        (s) => s.linked_source_id === src.linked_source_id && !s.is_unlinked
-      )
+      (src) =>
+        src.income_type === "w2" &&
+        !incomeSources.some(
+          (s) => s.linked_source_id === src.linked_source_id && !s.is_unlinked,
+        ),
     );
     const withholdings = newW2Sources.flatMap(createWithholdingsForSource);
     if (withholdings.length > 0) {
@@ -531,13 +654,14 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
       }
       return false;
     },
-    [taxClassification]
+    [taxClassification],
   );
 
   // When classification changes to one that can't have SE on K-1, clear any
   // stale SE flags from prior state to keep calculations and UI consistent.
   React.useEffect(() => {
-    if (taxClassification !== "s_corp" && taxClassification !== "c_corp") return;
+    if (taxClassification !== "s_corp" && taxClassification !== "c_corp")
+      return;
     setIncomeSources((prev) => {
       let changed = false;
       const next = prev.map((s) => {
@@ -554,8 +678,10 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
   const toggleMaterialParticipation = (sourceId: string) => {
     setIncomeSources((prev) =>
       prev.map((s) =>
-        s.id === sourceId ? { ...s, materially_participates: !s.materially_participates } : s
-      )
+        s.id === sourceId
+          ? { ...s, materially_participates: !s.materially_participates }
+          : s,
+      ),
     );
     markDirty();
   };
@@ -564,16 +690,21 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
     setIncomeSources((prev) =>
       prev.map((s) =>
         s.id === sourceId
-          ? { ...s, taxpayer: (s.taxpayer ?? "self") === "self" ? "spouse" : "self" }
-          : s
-      )
+          ? {
+              ...s,
+              taxpayer: (s.taxpayer ?? "self") === "self" ? "spouse" : "self",
+            }
+          : s,
+      ),
     );
     markDirty();
   };
 
   const toggleSe = (sourceId: string) => {
     setIncomeSources((prev) =>
-      prev.map((s) => s.id === sourceId ? { ...s, subject_to_se: !s.subject_to_se } : s)
+      prev.map((s) =>
+        s.id === sourceId ? { ...s, subject_to_se: !s.subject_to_se } : s,
+      ),
     );
     markDirty();
   };
@@ -593,12 +724,15 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
       prev.map((s) =>
         s.id === sourceId
           ? { ...s, income_type: newType, subject_to_se: newType === "1099" }
-          : s
-      )
+          : s,
+      ),
     );
 
     if (!wasW2 && isNowW2 && source) {
-      const withholdings = createWithholdingsForSource({ ...source, income_type: "w2" });
+      const withholdings = createWithholdingsForSource({
+        ...source,
+        income_type: "w2",
+      });
       if (withholdings.length > 0) {
         setPayments((prev) => [...prev, ...withholdings]);
       }
@@ -708,7 +842,7 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
         } as TaxEstimate,
       }));
       setSaveError(null);
-      setAccountingRefresh(n => n + 1);
+      setAccountingRefresh((n) => n + 1);
 
       // Only clear dirty if nothing changed while the request was in flight.
       // Otherwise leave it set so the debounce writes the newer edit too.
@@ -721,7 +855,9 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
       return true;
     } catch (err) {
       console.error("Failed to save tax estimate", err);
-      setSaveError(err instanceof Error ? err.message : "Could not save changes");
+      setSaveError(
+        err instanceof Error ? err.message : "Could not save changes",
+      );
       setSaveStatus("error");
       // Deliberately leave `dirty` true so the next edit or flush retries.
       return false;
@@ -740,7 +876,30 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dirty, filingStatus, incomeSources, capitalGains, payments, additionalDeductions, notes, selectedYear, existingId, state, businessType, taxClassification, dependents, otherDependents, additionalCredits, isSstb, businessW2Wages, businessPropertyBasis, taxpayerAge65, taxpayerBlind, spouseAge65, spouseBlind]);
+  }, [
+    dirty,
+    filingStatus,
+    incomeSources,
+    capitalGains,
+    payments,
+    additionalDeductions,
+    notes,
+    selectedYear,
+    existingId,
+    state,
+    businessType,
+    taxClassification,
+    dependents,
+    otherDependents,
+    additionalCredits,
+    isSstb,
+    businessW2Wages,
+    businessPropertyBasis,
+    taxpayerAge65,
+    taxpayerBlind,
+    spouseAge65,
+    spouseBlind,
+  ]);
 
   /** Flush any pending write, then switch year. */
   const changeYear = React.useCallback(
@@ -754,7 +913,7 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
       }
       setSelectedYear(year);
     },
-    [selectedYear, dirty, persist]
+    [selectedYear, dirty, persist],
   );
 
   // Unsaved edits survive at most 1.5s, so warn before the tab closes or a hard
@@ -787,7 +946,10 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
   if (isSetupMode) {
     return (
       <div className="animate-fade-up">
-        <TaxSetupCard onComplete={handleSetupComplete} selectedYear={selectedYear} />
+        <TaxSetupCard
+          onComplete={handleSetupComplete}
+          selectedYear={selectedYear}
+        />
       </div>
     );
   }
@@ -824,7 +986,13 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
         }
       />
       {/* Filters Row */}
-      {accountingAvailable && <TaxAccountingStatus year={selectedYear} state={accounting} issue={linkedCalculation.issue}/>}
+      {accountingAvailable && (
+        <TaxAccountingStatus
+          year={selectedYear}
+          state={accounting}
+          issue={linkedCalculation.issue}
+        />
+      )}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         {/* Profile summary + settings link */}
         <div className="flex items-center gap-2">
@@ -869,7 +1037,8 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
 
           {/* Year Tabs - dropdown on mobile, buttons on desktop */}
           <div className="sm:hidden w-28">
-            <CustomSelect
+            <Select
+              ariaLabel="Year"
               value={String(selectedYear)}
               onChange={(value) => void changeYear(Number(value))}
               options={yearTabs.map((year) => ({
@@ -888,7 +1057,7 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                   "px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200",
                   selectedYear === year
                     ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 {year}
@@ -943,7 +1112,9 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                   filingStatus={filingStatus}
                   onAddTemplates={(templates) => {
                     setIncomeSources((prev) => [...prev, ...templates]);
-                    const withholdings = templates.flatMap(createWithholdingsForSource);
+                    const withholdings = templates.flatMap(
+                      createWithholdingsForSource,
+                    );
                     if (withholdings.length > 0) {
                       setPayments((prev) => [...prev, ...withholdings]);
                     }
@@ -970,8 +1141,10 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                 </div>
               )}
               {incomeSources.map((source) => {
-                const isLinked = !!source.linked_source_id && !source.is_unlinked;
-                const isOverridden = !!source.linked_source_id && !!source.is_unlinked;
+                const isLinked =
+                  !!source.linked_source_id && !source.is_unlinked;
+                const isOverridden =
+                  !!source.linked_source_id && !!source.is_unlinked;
                 const isManual = !source.linked_source_id;
                 const booksLinked = linkedCalculation.incomeIds.has(source.id);
                 const fieldsDisabled = isLinked || booksLinked;
@@ -981,29 +1154,48 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                     key={source.id}
                     className={cn(
                       "group/row flex flex-col gap-1.5 sm:grid sm:grid-cols-[1fr_auto_140px] sm:gap-2 sm:items-center rounded-md py-1 px-2 transition-colors border-x-[3px] border-y",
-                      isLinked && "border-x-success/60 border-y-success/20 bg-success/[0.04]",
-                      isOverridden && "border-x-copper/50 border-y-copper/20 bg-copper/[0.04]",
-                      isManual && "border-x-copper/50 border-y-copper/20 bg-copper/[0.04]",
-                      source.amount === 0 && !source.linked_source_id && "ring-1 ring-primary/15"
+                      isLinked &&
+                        "border-x-success/60 border-y-success/20 bg-success/[0.04]",
+                      isOverridden &&
+                        "border-x-copper/50 border-y-copper/20 bg-copper/[0.04]",
+                      isManual &&
+                        "border-x-copper/50 border-y-copper/20 bg-copper/[0.04]",
+                      source.amount === 0 &&
+                        !source.linked_source_id &&
+                        "ring-1 ring-primary/15",
                     )}
                   >
                     {/* Row 1: Name + badges */}
                     <div className="flex items-center gap-1.5 min-w-0">
-                      <Input
+                      <TextInput
+                        aria-label="Name"
                         placeholder="Name"
                         value={source.name}
-                        onChange={(e) => updateIncome(source.id, "name", e.target.value)}
+                        onChange={(nextValue) =>
+                          updateIncome(source.id, "name", nextValue)
+                        }
                         disabled={fieldsDisabled}
                         className={cn(
                           "h-8 text-sm flex-1 min-w-0",
-                          fieldsDisabled && "opacity-60"
+                          fieldsDisabled && "opacity-60",
                         )}
                       />
-                      {booksLinked ? <a href={`/accounting?view=manage&section=tax&tax_year=${selectedYear}&tax_tab=estimator`} className="rounded bg-primary/10 px-2 py-1 text-xs text-primary">Books</a> : <IncomeTypePicker
-                        incomeType={source.income_type}
-                        taxClassification={taxClassification}
-                        onChange={(type) => handleIncomeTypeChange(source.id, type)}
-                      />}
+                      {booksLinked ? (
+                        <a
+                          href={`/accounting?view=manage&section=tax&tax_year=${selectedYear}&tax_tab=estimator`}
+                          className="rounded bg-primary/10 px-2 py-1 text-xs text-primary"
+                        >
+                          Books
+                        </a>
+                      ) : (
+                        <IncomeTypePicker
+                          incomeType={source.income_type}
+                          taxClassification={taxClassification}
+                          onChange={(type) =>
+                            handleIncomeTypeChange(source.id, type)
+                          }
+                        />
+                      )}
                       {!booksLinked && canHaveSeToggle(source.income_type) && (
                         <button
                           type="button"
@@ -1012,7 +1204,7 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                             "shrink-0 h-8 px-1.5 inline-flex items-center text-[10px] font-semibold uppercase tracking-wider rounded border cursor-pointer transition-colors",
                             source.subject_to_se
                               ? "bg-primary/15 text-teal-light border-primary/25"
-                              : "bg-secondary text-muted-foreground/40 border-border line-through"
+                              : "bg-secondary text-muted-foreground/40 border-border line-through",
                           )}
                         >
                           SE
@@ -1024,13 +1216,15 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                         <Tooltip content="You materially participate in this business, so its income is not subject to the 3.8% net investment income tax.">
                           <button
                             type="button"
-                            onClick={() => toggleMaterialParticipation(source.id)}
+                            onClick={() =>
+                              toggleMaterialParticipation(source.id)
+                            }
                             aria-pressed={!!source.materially_participates}
                             className={cn(
                               "shrink-0 h-8 px-1.5 inline-flex items-center text-[10px] font-semibold uppercase tracking-wider rounded border cursor-pointer transition-colors",
                               source.materially_participates
                                 ? "bg-primary/15 text-teal-light border-primary/25"
-                                : "bg-secondary text-muted-foreground/40 border-border line-through"
+                                : "bg-secondary text-muted-foreground/40 border-border line-through",
                             )}
                           >
                             Active
@@ -1046,7 +1240,9 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                             onClick={() => toggleTaxpayer(source.id)}
                             className="shrink-0 h-8 px-1.5 inline-flex items-center text-[10px] font-semibold uppercase tracking-wider rounded border cursor-pointer transition-colors bg-secondary text-muted-foreground border-border hover:text-foreground"
                           >
-                            {(source.taxpayer ?? "self") === "self" ? "You" : "Spouse"}
+                            {(source.taxpayer ?? "self") === "self"
+                              ? "You"
+                              : "Spouse"}
                           </button>
                         </Tooltip>
                       )}
@@ -1067,11 +1263,13 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                             {isLinked && (
                               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
                             )}
-                            <span className={cn(
-                              "relative inline-flex rounded-full h-2 w-2",
-                              isLinked && "bg-success",
-                              isOverridden && "bg-copper/60"
-                            )} />
+                            <span
+                              className={cn(
+                                "relative inline-flex rounded-full h-2 w-2",
+                                isLinked && "bg-success",
+                                isOverridden && "bg-copper/60",
+                              )}
+                            />
                           </span>
                         </Tooltip>
                       )}
@@ -1117,7 +1315,11 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                       {isManual && (
                         <button
                           disabled={booksLinked}
-                          aria-label={booksLinked ? "Unlink the books before removing this income" : "Remove income"}
+                          aria-label={
+                            booksLinked
+                              ? "Unlink the books before removing this income"
+                              : "Remove income"
+                          }
                           onClick={() => removeIncome(source.id)}
                           className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:text-error hover:bg-error/10 transition-colors order-1 sm:order-none"
                         >
@@ -1125,15 +1327,24 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                         </button>
                       )}
                       <NumberInput
+                        aria-label="Amount (USD)"
+                        step={0.01}
                         placeholder="0"
-                        value={effectiveIncome.get(source.id)?.amount ?? source.amount}
-                        onChange={(e) =>
-                          updateIncome(source.id, "amount", Number(e.target.value) || 0)
+                        value={
+                          effectiveIncome.get(source.id)?.amount ??
+                          source.amount
+                        }
+                        onChange={(nextValue) =>
+                          updateIncome(
+                            source.id,
+                            "amount",
+                            Number(String(nextValue)) || 0,
+                          )
                         }
                         disabled={fieldsDisabled}
                         className={cn(
                           "h-8 text-sm tabular-nums flex-1 sm:flex-initial",
-                          fieldsDisabled && "opacity-60"
+                          fieldsDisabled && "opacity-60",
                         )}
                       />
                     </div>
@@ -1181,13 +1392,15 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                   className="flex flex-col gap-1.5 sm:grid sm:grid-cols-[1fr_auto_140px] sm:gap-2 sm:items-center rounded-md py-1 px-2 border-x-[3px] border-x-copper/50 border-y border-y-copper/20 bg-copper/[0.04]"
                 >
                   <div className="flex items-center gap-1.5 min-w-0">
-                    <Input
+                    <TextInput
+                      aria-label="Description"
+                      size="sm"
                       placeholder="Description"
                       value={gain.description}
-                      onChange={(e) =>
-                        updateCapitalGain(gain.id, "description", e.target.value)
+                      onChange={(nextValue) =>
+                        updateCapitalGain(gain.id, "description", nextValue)
                       }
-                      className="h-8 text-sm flex-1 min-w-0"
+                      className="flex-1 min-w-0"
                     />
                     <button
                       type="button"
@@ -1196,14 +1409,14 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                         updateCapitalGain(
                           gain.id,
                           "term",
-                          gain.term === "short" ? "long" : "short"
+                          gain.term === "short" ? "long" : "short",
                         )
                       }
                       className={cn(
                         "shrink-0 h-8 px-2 inline-flex items-center rounded-md text-xs font-medium transition-colors",
                         gain.term === "long"
                           ? "bg-primary/10 text-teal-light"
-                          : "bg-warning/10 text-warning"
+                          : "bg-warning/10 text-warning",
                       )}
                     >
                       {gain.term === "long" ? "Long Term" : "Short Term"}
@@ -1219,14 +1432,25 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                       <X className="h-3.5 w-3.5" />
                     </button>
                     <NumberInput
+                      aria-label="Amount (USD)"
+                      size="sm"
+                      step={0.01}
                       placeholder="0"
                       disabled={linkedCalculation.gainIds.has(gain.id)}
-                      title={linkedCalculation.gainIds.has(gain.id) ? "Linked from accounting books" : undefined}
-                      value={effectiveGains.get(gain.id)?.amount ?? gain.amount}
-                      onChange={(e) =>
-                        updateCapitalGain(gain.id, "amount", Number(e.target.value) || 0)
+                      title={
+                        linkedCalculation.gainIds.has(gain.id)
+                          ? "Linked from accounting books"
+                          : undefined
                       }
-                      className="h-8 text-sm tabular-nums flex-1 sm:flex-initial"
+                      value={effectiveGains.get(gain.id)?.amount ?? gain.amount}
+                      onChange={(nextValue) =>
+                        updateCapitalGain(
+                          gain.id,
+                          "amount",
+                          Number(String(nextValue)) || 0,
+                        )
+                      }
+                      className="tabular-nums flex-1"
                     />
                   </div>
                 </div>
@@ -1244,9 +1468,13 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
             </CardHeader>
             <CardContent className="px-4 pb-3 pt-0 space-y-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Standard Deduction</span>
+                <span className="text-muted-foreground">
+                  Standard Deduction
+                </span>
                 <span className="tabular-nums font-medium text-foreground">
-                  {formatCurrency(taxConfig?.standardDeductions[filingStatus] ?? 0)}
+                  {formatCurrency(
+                    taxConfig?.standardDeductions[filingStatus] ?? 0,
+                  )}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
@@ -1256,7 +1484,9 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">QBI Deduction (20%)</span>
+                <span className="text-muted-foreground">
+                  QBI Deduction (20%)
+                </span>
                 <span className="tabular-nums font-medium text-foreground">
                   {formatCurrency(breakdown?.qbiDeduction ?? 0)}
                 </span>
@@ -1268,15 +1498,20 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                       Children (under 17)
                     </label>
                     <NumberInput
+                      aria-label="Qualifying dependents"
+                      size="sm"
                       placeholder="0"
-                      integer
+                      precision={0}
+                      step={1}
                       max={20}
                       value={dependents || ""}
-                      onChange={(e) => {
-                        setDependents(Math.max(0, Number(e.target.value) || 0));
+                      onChange={(nextValue) => {
+                        setDependents(
+                          Math.max(0, Number(String(nextValue)) || 0),
+                        );
                         markDirty();
                       }}
-                      className="h-8 text-sm tabular-nums w-24 text-right"
+                      className="tabular-nums w-24"
                     />
                   </div>
                   <div className="flex items-center justify-between gap-2 sm:basis-1/2 min-w-0">
@@ -1284,15 +1519,20 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                       Other Dependents
                     </label>
                     <NumberInput
+                      aria-label="Other dependents"
+                      size="sm"
                       placeholder="0"
-                      integer
+                      precision={0}
+                      step={1}
                       max={10}
                       value={otherDependents || ""}
-                      onChange={(e) => {
-                        setOtherDependents(Math.max(0, Number(e.target.value) || 0));
+                      onChange={(nextValue) => {
+                        setOtherDependents(
+                          Math.max(0, Number(String(nextValue)) || 0),
+                        );
                         markDirty();
                       }}
-                      className="h-8 text-sm tabular-nums w-24 text-right"
+                      className="tabular-nums w-24"
                     />
                   </div>
                 </div>
@@ -1302,13 +1542,16 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                       Additional Deductions
                     </label>
                     <NumberInput
+                      aria-label="Additional deductions"
+                      size="sm"
+                      step={0.01}
                       placeholder="0"
                       value={additionalDeductions || ""}
-                      onChange={(e) => {
-                        setAdditionalDeductions(Number(e.target.value) || 0);
+                      onChange={(nextValue) => {
+                        setAdditionalDeductions(Number(String(nextValue)) || 0);
                         markDirty();
                       }}
-                      className="h-8 text-sm tabular-nums w-24 text-right"
+                      className="tabular-nums w-24"
                     />
                   </div>
                   <div className="flex items-center justify-between gap-2 sm:basis-1/2 min-w-0">
@@ -1316,20 +1559,25 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                       Additional Tax Credits
                     </label>
                     <NumberInput
+                      aria-label="Additional credits"
+                      size="sm"
+                      step={0.01}
                       placeholder="0"
                       value={additionalCredits || ""}
-                      onChange={(e) => {
-                        setAdditionalCredits(Number(e.target.value) || 0);
+                      onChange={(nextValue) => {
+                        setAdditionalCredits(Number(String(nextValue)) || 0);
                         markDirty();
                       }}
-                      className="h-8 text-sm tabular-nums w-24 text-right"
+                      className="tabular-nums w-24"
                     />
                   </div>
                 </div>
 
                 {/* Age and blindness: IRC 63(f) additional standard deduction */}
                 <fieldset className="border-t border-border pt-2">
-                  <legend className="sr-only">Additional standard deduction</legend>
+                  <legend className="sr-only">
+                    Additional standard deduction
+                  </legend>
                   <p className="text-xs text-muted-foreground mb-2">
                     Extra standard deduction for age and blindness
                   </p>
@@ -1338,27 +1586,39 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                       size="sm"
                       label="I'm 65 or older"
                       checked={taxpayerAge65}
-                      onChange={(v) => { setTaxpayerAge65(v); markDirty(); }}
+                      onChange={(v) => {
+                        setTaxpayerAge65(v);
+                        markDirty();
+                      }}
                     />
                     <Checkbox
                       size="sm"
                       label="I'm blind"
                       checked={taxpayerBlind}
-                      onChange={(v) => { setTaxpayerBlind(v); markDirty(); }}
+                      onChange={(v) => {
+                        setTaxpayerBlind(v);
+                        markDirty();
+                      }}
                     />
                     {filingStatus === "mfj" && (
                       <>
                         <Checkbox
-                      size="sm"
+                          size="sm"
                           label="Spouse is 65 or older"
                           checked={spouseAge65}
-                          onChange={(v) => { setSpouseAge65(v); markDirty(); }}
+                          onChange={(v) => {
+                            setSpouseAge65(v);
+                            markDirty();
+                          }}
                         />
                         <Checkbox
-                      size="sm"
+                          size="sm"
                           label="Spouse is blind"
                           checked={spouseBlind}
-                          onChange={(v) => { setSpouseBlind(v); markDirty(); }}
+                          onChange={(v) => {
+                            setSpouseBlind(v);
+                            markDirty();
+                          }}
                         />
                       </>
                     )}
@@ -1369,17 +1629,23 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                     the threshold, so it stays collapsed until then. */}
                 {breakdown && taxConfig && showQbiLimitInputs && (
                   <fieldset className="border-t border-border pt-2">
-                    <legend className="sr-only">Business deduction limits</legend>
+                    <legend className="sr-only">
+                      Business deduction limits
+                    </legend>
                     <p className="text-xs text-muted-foreground mb-2">
-                      Your income is above the {formatCurrency(taxConfig.qbi.phaseOut[filingStatus])} QBI
+                      Your income is above the{" "}
+                      {formatCurrency(taxConfig.qbi.phaseOut[filingStatus])} QBI
                       threshold, so the deduction now depends on these.
                     </p>
                     <div className="space-y-2">
                       <Checkbox
-                      size="sm"
+                        size="sm"
                         label="Service business (consulting, health, law, accounting, finance)"
                         checked={isSstb}
-                        onChange={(v) => { setIsSstb(v); markDirty(); }}
+                        onChange={(v) => {
+                          setIsSstb(v);
+                          markDirty();
+                        }}
                       />
                       {!isSstb && (
                         <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
@@ -1388,13 +1654,18 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                               Business W-2 wages
                             </label>
                             <NumberInput
+                              aria-label="Business W-2 wages"
+                              size="sm"
+                              step={0.01}
                               placeholder="0"
                               value={businessW2Wages || ""}
-                              onChange={(e) => {
-                                setBusinessW2Wages(Math.max(0, Number(e.target.value) || 0));
+                              onChange={(nextValue) => {
+                                setBusinessW2Wages(
+                                  Math.max(0, Number(String(nextValue)) || 0),
+                                );
                                 markDirty();
                               }}
-                              className="h-8 text-sm tabular-nums w-24 text-right"
+                              className="tabular-nums w-24"
                             />
                           </div>
                           <div className="flex items-center justify-between gap-2 sm:basis-1/2 min-w-0">
@@ -1402,13 +1673,18 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                               Business property basis
                             </label>
                             <NumberInput
+                              aria-label="Business property basis"
+                              size="sm"
+                              step={0.01}
                               placeholder="0"
                               value={businessPropertyBasis || ""}
-                              onChange={(e) => {
-                                setBusinessPropertyBasis(Math.max(0, Number(e.target.value) || 0));
+                              onChange={(nextValue) => {
+                                setBusinessPropertyBasis(
+                                  Math.max(0, Number(String(nextValue)) || 0),
+                                );
                                 markDirty();
                               }}
-                              className="h-8 text-sm tabular-nums w-24 text-right"
+                              className="tabular-nums w-24"
                             />
                           </div>
                         </div>
@@ -1445,7 +1721,8 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                     Add
                   </Button>
                 </div>
-                {payments.filter((p) => p.category !== "payment").length === 0 ? (
+                {payments.filter((p) => p.category !== "payment").length ===
+                0 ? (
                   <p className="text-sm text-muted-foreground py-2 text-center">
                     No withholdings recorded.
                   </p>
@@ -1462,7 +1739,10 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                     <PaymentRow
                       key={payment.id}
                       payment={payment}
-                      readOnly={linkedCalculation.paymentIds.has(payment.id) || payment.id.startsWith("accounting-forecast:")}
+                      readOnly={
+                        linkedCalculation.paymentIds.has(payment.id) ||
+                        payment.id.startsWith("accounting-forecast:")
+                      }
                       onUpdate={updatePayment}
                       onRemove={removePayment}
                     />
@@ -1485,7 +1765,8 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
                     Add
                   </Button>
                 </div>
-                {payments.filter((p) => p.category === "payment").length === 0 ? (
+                {payments.filter((p) => p.category === "payment").length ===
+                0 ? (
                   <p className="text-sm text-muted-foreground py-2 text-center">
                     No estimated payments recorded.
                   </p>
@@ -1520,15 +1801,16 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
               </CardTitle>
             </CardHeader>
             <CardContent className="px-4 pb-3 pt-0">
-              <textarea
+              <Textarea
+                aria-label="Notes"
                 value={notes}
-                onChange={(e) => {
-                  setNotes(e.target.value);
+                onChange={(nextValue) => {
+                  setNotes(nextValue);
                   markDirty();
                 }}
                 placeholder="Add notes about this tax year..."
                 rows={3}
-                className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background focus:border-transparent resize-none"
+                className="w-full"
               />
             </CardContent>
           </Card>
@@ -1548,7 +1830,6 @@ export function TaxEstimatorContent({ estimates, accountingAvailable = false, in
         onImport={handleImport}
         taxClassification={taxClassification}
       />
-
     </div>
   );
 }
@@ -1611,31 +1892,22 @@ function GroupPanel({
 }) {
   const colors = ACCENT_CLASSES[accent];
   return (
-    <div
-      className={cn(
-        "rounded-xl glass-card overflow-hidden",
-        className
-      )}
-    >
+    <div className={cn("rounded-xl glass-card overflow-hidden", className)}>
       {/* Header */}
       <div className="flex items-center gap-2 px-4 pt-3 pb-1">
         <Icon className={cn("h-4 w-4", colors.header)} />
-        <span className="text-base font-semibold text-foreground">
-          {title}
-        </span>
+        <span className="text-base font-semibold text-foreground">{title}</span>
       </div>
 
       {/* Content */}
-      <div className="px-4 pb-3 space-y-1">
-        {children}
-      </div>
+      <div className="px-4 pb-3 space-y-1">{children}</div>
 
       {/* Subtotal footer */}
       {subtotalLabel && subtotalValue && (
         <div
           className={cn(
             "flex items-center justify-between px-4 py-2.5 border-t text-sm font-semibold",
-            colors.footer
+            colors.footer,
           )}
         >
           <span>{subtotalLabel}</span>
@@ -1692,17 +1964,19 @@ function CollapsibleBracketTable({
           <ChevronDown
             className={cn(
               "h-3 w-3 text-muted-foreground transition-transform duration-200",
-              open && "rotate-180"
+              open && "rotate-180",
             )}
           />
         </span>
-        <span className="tabular-nums font-semibold text-sm">{fmtMasked(total)}</span>
+        <span className="tabular-nums font-semibold text-sm">
+          {fmtMasked(total)}
+        </span>
       </button>
 
       <div
         className={cn(
           "grid transition-[grid-template-rows] duration-200 ease-out",
-          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
         )}
       >
         <div className="overflow-hidden">
@@ -1742,11 +2016,7 @@ function CollapsibleBracketTable({
   );
 }
 
-function CalculationResults({
-  breakdown,
-}: {
-  breakdown: FullTaxBreakdown;
-}) {
+function CalculationResults({ breakdown }: { breakdown: FullTaxBreakdown }) {
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
   const mask = "$•••••";
 
@@ -1766,7 +2036,8 @@ function CalculationResults({
     breakdown.stateTaxDetail.stateName != null || breakdown.stateTax > 0;
 
   const federalSubtotal = breakdown.federalTaxAfterCredits + breakdown.niit;
-  const payrollSubtotal = breakdown.selfEmploymentTax.total + breakdown.ficaTax.total;
+  const payrollSubtotal =
+    breakdown.selfEmploymentTax.total + breakdown.ficaTax.total;
 
   // Compare against a cent rather than exact zero: netRemaining is a chain of
   // bracket-walked sums, so an exact 0 is not something to rely on.
@@ -1780,352 +2051,472 @@ function CalculationResults({
 
   return (
     <div className="space-y-4 text-sm" {...hoverProps}>
+      {/* Group 1: Income Summary */}
+      <GroupPanel
+        title="Income Summary"
+        icon={DollarSign}
+        accent="primary"
+        subtotalLabel="Taxable Income"
+        subtotalValue={fmtMasked(breakdown.taxableIncome)}
+        className="animate-fade-up stagger-1"
+      >
+        <Row
+          label="Gross Income"
+          value={fmtMasked(breakdown.grossIncome)}
+          bold
+        />
+        {breakdown.w2Income > 0 && (
+          <Row label="W-2 Wages" value={fmtMasked(breakdown.w2Income)} sub />
+        )}
+        {breakdown.otherIncome > 0 && (
+          <Row
+            label="1099 / Other"
+            value={fmtMasked(breakdown.otherIncome)}
+            sub
+          />
+        )}
+        {breakdown.seIncome > 0 && (
+          <Row
+            label="Self-Employment"
+            value={fmtMasked(breakdown.seIncome)}
+            sub
+          />
+        )}
+        {breakdown.passiveIncome > 0 && (
+          <Row
+            label="K-1 Income"
+            value={fmtMasked(breakdown.passiveIncome)}
+            sub
+          />
+        )}
 
-        {/* Group 1: Income Summary */}
-        <GroupPanel
-          title="Income Summary"
-          icon={DollarSign}
-          accent="primary"
-          subtotalLabel="Taxable Income"
-          subtotalValue={fmtMasked(breakdown.taxableIncome)}
-          className="animate-fade-up stagger-1"
-        >
-          <Row label="Gross Income" value={fmtMasked(breakdown.grossIncome)} bold />
-          {breakdown.w2Income > 0 && (
-            <Row label="W-2 Wages" value={fmtMasked(breakdown.w2Income)} sub />
-          )}
-          {breakdown.otherIncome > 0 && (
-            <Row label="1099 / Other" value={fmtMasked(breakdown.otherIncome)} sub />
-          )}
-          {breakdown.seIncome > 0 && (
-            <Row label="Self-Employment" value={fmtMasked(breakdown.seIncome)} sub />
-          )}
-          {breakdown.passiveIncome > 0 && (
-            <Row label="K-1 Income" value={fmtMasked(breakdown.passiveIncome)} sub />
-          )}
-
-          {hasCapitalGains && (
-            <SubSection title="Capital Gains">
+        {hasCapitalGains && (
+          <SubSection title="Capital Gains">
+            <Row
+              label="Net Short-Term"
+              value={fmtMasked(breakdown.capitalGains.netShortTerm)}
+              color={
+                breakdown.capitalGains.netShortTerm < 0 ? "error" : undefined
+              }
+              sub
+            />
+            <Row
+              label="Net Long-Term"
+              value={fmtMasked(breakdown.capitalGains.netLongTerm)}
+              color={
+                breakdown.capitalGains.netLongTerm < 0 ? "error" : undefined
+              }
+              sub
+            />
+            {breakdown.capitalGains.lossDeduction > 0 && (
               <Row
-                label="Net Short-Term"
-                value={fmtMasked(breakdown.capitalGains.netShortTerm)}
-                color={breakdown.capitalGains.netShortTerm < 0 ? "error" : undefined}
+                label="Loss Deduction"
+                value={`(${fmtMasked(breakdown.capitalGains.lossDeduction)})`}
+                color="error"
                 sub
               />
-              <Row
-                label="Net Long-Term"
-                value={fmtMasked(breakdown.capitalGains.netLongTerm)}
-                color={breakdown.capitalGains.netLongTerm < 0 ? "error" : undefined}
-                sub
-              />
-              {breakdown.capitalGains.lossDeduction > 0 && (
-                <Row
-                  label="Loss Deduction"
-                  value={`(${fmtMasked(breakdown.capitalGains.lossDeduction)})`}
-                  color="error"
-                  sub
-                />
-              )}
-            </SubSection>
-          )}
-
-          {breakdown.seDeduction > 0 && (
-            <Row label="SE Deduction" value={fmtMasked(breakdown.seDeduction)} sub />
-          )}
-
-          <Row label="AGI" value={fmtMasked(breakdown.agi)} />
-
-          <SubSection title="Deductions">
-            <Row label="Standard" value={fmtMasked(breakdown.standardDeduction)} sub />
-            {breakdown.qbiDeduction > 0 && (
-              <Row label="QBI (20%)" value={fmtMasked(breakdown.qbiDeduction)} sub />
             )}
-            {breakdown.additionalDeductions > 0 && (
-              <Row label="Additional" value={fmtMasked(breakdown.additionalDeductions)} sub />
-            )}
-            <Row label="Total Deductions" value={fmtMasked(breakdown.totalDeductions)} bold />
           </SubSection>
+        )}
 
-          <Row label="Taxable Income" value={fmtMasked(breakdown.taxableIncome)} />
-        </GroupPanel>
+        {breakdown.seDeduction > 0 && (
+          <Row
+            label="SE Deduction"
+            value={fmtMasked(breakdown.seDeduction)}
+            sub
+          />
+        )}
 
-        {/* Group 2: Federal Taxes */}
-        <GroupPanel
-          title="Federal Taxes"
-          icon={Landmark}
-          accent="copper"
-          subtotalLabel="Federal Subtotal"
-          subtotalValue={fmtMasked(federalSubtotal)}
-          className="animate-fade-up stagger-2"
-        >
+        <Row label="AGI" value={fmtMasked(breakdown.agi)} />
+
+        <SubSection title="Deductions">
+          <Row
+            label="Standard"
+            value={fmtMasked(breakdown.standardDeduction)}
+            sub
+          />
+          {breakdown.qbiDeduction > 0 && (
+            <Row
+              label="QBI (20%)"
+              value={fmtMasked(breakdown.qbiDeduction)}
+              sub
+            />
+          )}
+          {breakdown.additionalDeductions > 0 && (
+            <Row
+              label="Additional"
+              value={fmtMasked(breakdown.additionalDeductions)}
+              sub
+            />
+          )}
+          <Row
+            label="Total Deductions"
+            value={fmtMasked(breakdown.totalDeductions)}
+            bold
+          />
+        </SubSection>
+
+        <Row
+          label="Taxable Income"
+          value={fmtMasked(breakdown.taxableIncome)}
+        />
+      </GroupPanel>
+
+      {/* Group 2: Federal Taxes */}
+      <GroupPanel
+        title="Federal Taxes"
+        icon={Landmark}
+        accent="copper"
+        subtotalLabel="Federal Subtotal"
+        subtotalValue={fmtMasked(federalSubtotal)}
+        className="animate-fade-up stagger-2"
+      >
+        <CollapsibleBracketTable
+          title="Federal Income Tax"
+          brackets={breakdown.federalTax.bracketBreakdown}
+          total={breakdown.federalTax.total}
+          fmtMasked={fmtMasked}
+          fmt={fmt}
+          pct={pct}
+        />
+
+        {breakdown.ltcgTax.bracketBreakdown.length > 0 && (
           <CollapsibleBracketTable
-            title="Federal Income Tax"
-            brackets={breakdown.federalTax.bracketBreakdown}
-            total={breakdown.federalTax.total}
+            title="LTCG Tax"
+            brackets={breakdown.ltcgTax.bracketBreakdown}
+            total={breakdown.ltcgTax.total}
             fmtMasked={fmtMasked}
             fmt={fmt}
             pct={pct}
           />
+        )}
 
-          {breakdown.ltcgTax.bracketBreakdown.length > 0 && (
-            <CollapsibleBracketTable
-              title="LTCG Tax"
-              brackets={breakdown.ltcgTax.bracketBreakdown}
-              total={breakdown.ltcgTax.total}
-              fmtMasked={fmtMasked}
-              fmt={fmt}
-              pct={pct}
+        {breakdown.totalCredits > 0 && (
+          <>
+            {breakdown.childTaxCredit > 0 && (
+              <Row
+                label="Child Tax Credit"
+                value={`-${fmtMasked(breakdown.childTaxCredit)}`}
+                color="success"
+                sub
+              />
+            )}
+            {breakdown.otherDependentCredit > 0 && (
+              <Row
+                label="Other Dependent Credit"
+                value={`-${fmtMasked(breakdown.otherDependentCredit)}`}
+                color="success"
+                sub
+              />
+            )}
+            {breakdown.additionalCredits > 0 && (
+              <Row
+                label="Additional Credits"
+                value={`-${fmtMasked(breakdown.additionalCredits)}`}
+                color="success"
+                sub
+              />
+            )}
+            <Row
+              label="After Credits"
+              value={fmtMasked(breakdown.federalTaxAfterCredits)}
+              bold
             />
-          )}
+          </>
+        )}
 
-          {breakdown.totalCredits > 0 && (
-            <>
-              {breakdown.childTaxCredit > 0 && (
+        {breakdown.niit > 0 && (
+          <Row label="NIIT (3.8%)" value={fmtMasked(breakdown.niit)} />
+        )}
+      </GroupPanel>
+
+      {/* Group 3: Payroll Taxes */}
+      {showPayroll && (
+        <GroupPanel
+          title="Payroll Taxes"
+          icon={CreditCard}
+          accent="blue"
+          subtotalLabel="Payroll Subtotal"
+          subtotalValue={fmtMasked(payrollSubtotal)}
+          className="animate-fade-up stagger-3"
+        >
+          {breakdown.selfEmploymentTax.total > 0 && (
+            <SubSection title="Self-Employment Tax">
+              <Row
+                label="SS (12.4%)"
+                value={fmtMasked(breakdown.selfEmploymentTax.ssTax)}
+                sub
+              />
+              <Row
+                label="Medicare (2.9%)"
+                value={fmtMasked(breakdown.selfEmploymentTax.medicareTax)}
+                sub
+              />
+              {breakdown.selfEmploymentTax.additionalMedicare > 0 && (
                 <Row
-                  label="Child Tax Credit"
-                  value={`-${fmtMasked(breakdown.childTaxCredit)}`}
-                  color="success"
-                  sub
-                />
-              )}
-              {breakdown.otherDependentCredit > 0 && (
-                <Row
-                  label="Other Dependent Credit"
-                  value={`-${fmtMasked(breakdown.otherDependentCredit)}`}
-                  color="success"
-                  sub
-                />
-              )}
-              {breakdown.additionalCredits > 0 && (
-                <Row
-                  label="Additional Credits"
-                  value={`-${fmtMasked(breakdown.additionalCredits)}`}
-                  color="success"
+                  label="Addl Medicare (0.9%)"
+                  value={fmtMasked(
+                    breakdown.selfEmploymentTax.additionalMedicare,
+                  )}
                   sub
                 />
               )}
               <Row
-                label="After Credits"
-                value={fmtMasked(breakdown.federalTaxAfterCredits)}
+                label="Total SE"
+                value={fmtMasked(breakdown.selfEmploymentTax.total)}
                 bold
               />
-            </>
+            </SubSection>
           )}
 
-          {breakdown.niit > 0 && (
-            <Row label="NIIT (3.8%)" value={fmtMasked(breakdown.niit)} />
+          {breakdown.ficaTax.total > 0 && (
+            <SubSection title="W-2 FICA">
+              <Row
+                label="SS (6.2%)"
+                value={fmtMasked(breakdown.ficaTax.ssTax)}
+                sub
+              />
+              <Row
+                label="Medicare (1.45%)"
+                value={fmtMasked(breakdown.ficaTax.medicareTax)}
+                sub
+              />
+              {breakdown.ficaTax.additionalMedicare > 0 && (
+                <Row
+                  label="Addl Medicare (0.9%)"
+                  value={fmtMasked(breakdown.ficaTax.additionalMedicare)}
+                  sub
+                />
+              )}
+              <Row
+                label="Total FICA"
+                value={fmtMasked(breakdown.ficaTax.total)}
+                bold
+              />
+            </SubSection>
           )}
         </GroupPanel>
+      )}
 
-        {/* Group 3: Payroll Taxes */}
-        {showPayroll && (
-          <GroupPanel
-            title="Payroll Taxes"
-            icon={CreditCard}
-            accent="blue"
-            subtotalLabel="Payroll Subtotal"
-            subtotalValue={fmtMasked(payrollSubtotal)}
-            className="animate-fade-up stagger-3"
-          >
-            {breakdown.selfEmploymentTax.total > 0 && (
-              <SubSection title="Self-Employment Tax">
-                <Row label="SS (12.4%)" value={fmtMasked(breakdown.selfEmploymentTax.ssTax)} sub />
-                <Row label="Medicare (2.9%)" value={fmtMasked(breakdown.selfEmploymentTax.medicareTax)} sub />
-                {breakdown.selfEmploymentTax.additionalMedicare > 0 && (
-                  <Row label="Addl Medicare (0.9%)" value={fmtMasked(breakdown.selfEmploymentTax.additionalMedicare)} sub />
-                )}
-                <Row label="Total SE" value={fmtMasked(breakdown.selfEmploymentTax.total)} bold />
-              </SubSection>
-            )}
-
-            {breakdown.ficaTax.total > 0 && (
-              <SubSection title="W-2 FICA">
-                <Row label="SS (6.2%)" value={fmtMasked(breakdown.ficaTax.ssTax)} sub />
-                <Row label="Medicare (1.45%)" value={fmtMasked(breakdown.ficaTax.medicareTax)} sub />
-                {breakdown.ficaTax.additionalMedicare > 0 && (
-                  <Row label="Addl Medicare (0.9%)" value={fmtMasked(breakdown.ficaTax.additionalMedicare)} sub />
-                )}
-                <Row label="Total FICA" value={fmtMasked(breakdown.ficaTax.total)} bold />
-              </SubSection>
-            )}
-          </GroupPanel>
-        )}
-
-        {/* Group 4: State Taxes */}
-        {showState && (
-          <GroupPanel
-            title="State Taxes"
-            icon={MapPin}
-            accent="amber"
-            subtotalLabel="State Subtotal"
-            subtotalValue={fmtMasked(breakdown.stateTax)}
-            className="animate-fade-up stagger-4"
-          >
-            {breakdown.stateTaxDetail.stateName ? (
-              <>
-                {breakdown.stateTaxDetail.stateStandardDeduction > 0 && (
-                  <Row label="State Deduction" value={fmtMasked(breakdown.stateTaxDetail.stateStandardDeduction)} sub />
-                )}
-                {(breakdown.stateTaxDetail.rate === null || breakdown.stateTaxDetail.rate > 0) && (
-                  <Row label="State Taxable Income" value={fmtMasked(breakdown.stateTaxDetail.stateTaxableIncome)} sub />
-                )}
-                <Row
-                  label={
-                    breakdown.stateTaxDetail.rate != null
-                      ? `${breakdown.stateTaxDetail.stateName} (${(breakdown.stateTaxDetail.rate * 100).toFixed(1)}%)`
-                      : `${breakdown.stateTaxDetail.stateName} (progressive)`
-                  }
-                  value={fmtMasked(breakdown.stateTax)}
-                />
-              </>
-            ) : (
-              <Row label="No state selected" value="$0.00" color="muted" />
-            )}
-          </GroupPanel>
-        )}
-
-        {/* Group 5: Payments & Remaining */}
-        <div
-          className={cn(
-            "rounded-xl glass-card overflow-hidden",
-            "animate-fade-up stagger-5"
-          )}
+      {/* Group 4: State Taxes */}
+      {showState && (
+        <GroupPanel
+          title="State Taxes"
+          icon={MapPin}
+          accent="amber"
+          subtotalLabel="State Subtotal"
+          subtotalValue={fmtMasked(breakdown.stateTax)}
+          className="animate-fade-up stagger-4"
         >
-          {/* Header */}
-          <div className="flex items-center gap-2 px-4 pt-3 pb-1">
-            <DollarSign className="h-4 w-4 text-teal-light" />
-            <span className="text-base font-semibold text-foreground">
-              Payments & Remaining
-            </span>
-          </div>
+          {breakdown.stateTaxDetail.stateName ? (
+            <>
+              {breakdown.stateTaxDetail.stateStandardDeduction > 0 && (
+                <Row
+                  label="State Deduction"
+                  value={fmtMasked(
+                    breakdown.stateTaxDetail.stateStandardDeduction,
+                  )}
+                  sub
+                />
+              )}
+              {(breakdown.stateTaxDetail.rate === null ||
+                breakdown.stateTaxDetail.rate > 0) && (
+                <Row
+                  label="State Taxable Income"
+                  value={fmtMasked(breakdown.stateTaxDetail.stateTaxableIncome)}
+                  sub
+                />
+              )}
+              <Row
+                label={
+                  breakdown.stateTaxDetail.rate != null
+                    ? `${breakdown.stateTaxDetail.stateName} (${(breakdown.stateTaxDetail.rate * 100).toFixed(1)}%)`
+                    : `${breakdown.stateTaxDetail.stateName} (progressive)`
+                }
+                value={fmtMasked(breakdown.stateTax)}
+              />
+            </>
+          ) : (
+            <Row label="No state selected" value="$0.00" color="muted" />
+          )}
+        </GroupPanel>
+      )}
 
-          <div className="px-4 pb-3 space-y-3">
-            {/* Federal */}
-            <div className="space-y-1">
-              <Row label="Federal Liability" value={fmtMasked(breakdown.federalLiability)} />
-              <Row label="Federal Credits & Payments" value={fmtMasked(breakdown.totalFederalPaid)} sub />
-              {breakdown.ficaAutoCredited > 0 && (
-                <div className="flex items-center justify-between pl-6 text-xs text-muted-foreground">
-                  <Tooltip content="This annual projection assumes the employer withholds the calculated employee Social Security and Medicare. It is a calculation credit, not proof of amounts already paid.">
-                    <span className="flex items-center gap-1 cursor-help">
-                      Assumed annual FICA credit
-                      <span className="text-[9px] uppercase tracking-wider rounded bg-primary/10 text-teal-light px-1 py-px">
-                        Auto
-                      </span>
+      {/* Group 5: Payments & Remaining */}
+      <div
+        className={cn(
+          "rounded-xl glass-card overflow-hidden",
+          "animate-fade-up stagger-5",
+        )}
+      >
+        {/* Header */}
+        <div className="flex items-center gap-2 px-4 pt-3 pb-1">
+          <DollarSign className="h-4 w-4 text-teal-light" />
+          <span className="text-base font-semibold text-foreground">
+            Payments & Remaining
+          </span>
+        </div>
+
+        <div className="px-4 pb-3 space-y-3">
+          {/* Federal */}
+          <div className="space-y-1">
+            <Row
+              label="Federal Liability"
+              value={fmtMasked(breakdown.federalLiability)}
+            />
+            <Row
+              label="Federal Credits & Payments"
+              value={fmtMasked(breakdown.totalFederalPaid)}
+              sub
+            />
+            {breakdown.ficaAutoCredited > 0 && (
+              <div className="flex items-center justify-between pl-6 text-xs text-muted-foreground">
+                <Tooltip content="This annual projection assumes the employer withholds the calculated employee Social Security and Medicare. It is a calculation credit, not proof of amounts already paid.">
+                  <span className="flex items-center gap-1 cursor-help">
+                    Assumed annual FICA credit
+                    <span className="text-[9px] uppercase tracking-wider rounded bg-primary/10 text-teal-light px-1 py-px">
+                      Auto
                     </span>
-                  </Tooltip>
-                  <span className="tabular-nums">{fmtMasked(breakdown.ficaAutoCredited)}</span>
-                </div>
-              )}
-              {breakdown.excessSocialSecurityWithheld > 0 && (
-                <div className="flex items-center justify-between pl-6 text-xs text-muted-foreground">
-                  <Tooltip content="Each employer withholds Social Security up to the wage base on its own payroll. With more than one job that over-withholds, and the excess comes back as a refundable credit on Schedule 3.">
-                    <span className="cursor-help">Excess Social Security</span>
-                  </Tooltip>
-                  <span className="tabular-nums">{fmtMasked(breakdown.excessSocialSecurityWithheld)}</span>
-                </div>
-              )}
-              {breakdown.additionalChildTaxCredit > 0 && (
-                <div className="flex items-center justify-between pl-6 text-xs text-muted-foreground">
-                  <Tooltip content="The child credit you could not use against income tax comes back as a refund, up to $1,700 per child and limited to 15% of earnings over $2,500.">
-                    <span className="cursor-help">Refundable Child Credit</span>
-                  </Tooltip>
-                  <span className="tabular-nums">{fmtMasked(breakdown.additionalChildTaxCredit)}</span>
-                </div>
-              )}
-              <div className="flex items-center justify-between pl-3 pt-0.5">
-                <span className={cn(
+                  </span>
+                </Tooltip>
+                <span className="tabular-nums">
+                  {fmtMasked(breakdown.ficaAutoCredited)}
+                </span>
+              </div>
+            )}
+            {breakdown.excessSocialSecurityWithheld > 0 && (
+              <div className="flex items-center justify-between pl-6 text-xs text-muted-foreground">
+                <Tooltip content="Each employer withholds Social Security up to the wage base on its own payroll. With more than one job that over-withholds, and the excess comes back as a refundable credit on Schedule 3.">
+                  <span className="cursor-help">Excess Social Security</span>
+                </Tooltip>
+                <span className="tabular-nums">
+                  {fmtMasked(breakdown.excessSocialSecurityWithheld)}
+                </span>
+              </div>
+            )}
+            {breakdown.additionalChildTaxCredit > 0 && (
+              <div className="flex items-center justify-between pl-6 text-xs text-muted-foreground">
+                <Tooltip content="The child credit you could not use against income tax comes back as a refund, up to $1,700 per child and limited to 15% of earnings over $2,500.">
+                  <span className="cursor-help">Refundable Child Credit</span>
+                </Tooltip>
+                <span className="tabular-nums">
+                  {fmtMasked(breakdown.additionalChildTaxCredit)}
+                </span>
+              </div>
+            )}
+            <div className="flex items-center justify-between pl-3 pt-0.5">
+              <span
+                className={cn(
                   "font-medium text-sm",
                   breakdown.federalRemaining < 0 && "text-success",
                   breakdown.federalRemaining === 0 && "text-success",
-                  breakdown.federalRemaining > 0 && "text-error"
-                )}>
-                  {breakdown.federalRemaining === 0 ? "Paid in Full" : "Federal Remaining"}
+                  breakdown.federalRemaining > 0 && "text-error",
+                )}
+              >
+                {breakdown.federalRemaining === 0
+                  ? "Paid in Full"
+                  : "Federal Remaining"}
+              </span>
+              <CopyableValue
+                value={fmtMasked(breakdown.federalRemaining)}
+                rawValue={breakdown.federalRemaining}
+                className={cn(
+                  "font-semibold",
+                  breakdown.federalRemaining < 0 && "text-success",
+                  breakdown.federalRemaining === 0 && "text-success",
+                  breakdown.federalRemaining > 0 && "text-error",
+                )}
+              />
+            </div>
+          </div>
+
+          {/* State */}
+          {(breakdown.stateLiability > 0 || breakdown.totalStatePaid > 0) && (
+            <div className="space-y-1 border-t border-border/40 pt-2">
+              <Row
+                label="State Liability"
+                value={fmtMasked(breakdown.stateLiability)}
+              />
+              <Row
+                label="State Payments & Withholding"
+                value={fmtMasked(breakdown.totalStatePaid)}
+                sub
+              />
+              <div className="flex items-center justify-between pl-3 pt-0.5">
+                <span
+                  className={cn(
+                    "font-medium text-sm",
+                    breakdown.stateRemaining < 0 && "text-success",
+                    breakdown.stateRemaining === 0 && "text-success",
+                    breakdown.stateRemaining > 0 && "text-error",
+                  )}
+                >
+                  {breakdown.stateRemaining === 0
+                    ? "Paid in Full"
+                    : "State Remaining"}
                 </span>
                 <CopyableValue
-                  value={fmtMasked(breakdown.federalRemaining)}
-                  rawValue={breakdown.federalRemaining}
+                  value={fmtMasked(breakdown.stateRemaining)}
+                  rawValue={breakdown.stateRemaining}
                   className={cn(
                     "font-semibold",
-                    breakdown.federalRemaining < 0 && "text-success",
-                    breakdown.federalRemaining === 0 && "text-success",
-                    breakdown.federalRemaining > 0 && "text-error"
+                    breakdown.stateRemaining < 0 && "text-success",
+                    breakdown.stateRemaining === 0 && "text-success",
+                    breakdown.stateRemaining > 0 && "text-error",
                   )}
                 />
               </div>
             </div>
-
-            {/* State */}
-            {(breakdown.stateLiability > 0 || breakdown.totalStatePaid > 0) && (
-              <div className="space-y-1 border-t border-border/40 pt-2">
-                <Row label="State Liability" value={fmtMasked(breakdown.stateLiability)} />
-                <Row label="State Payments & Withholding" value={fmtMasked(breakdown.totalStatePaid)} sub />
-                <div className="flex items-center justify-between pl-3 pt-0.5">
-                  <span className={cn(
-                    "font-medium text-sm",
-                    breakdown.stateRemaining < 0 && "text-success",
-                    breakdown.stateRemaining === 0 && "text-success",
-                    breakdown.stateRemaining > 0 && "text-error"
-                  )}>
-                    {breakdown.stateRemaining === 0 ? "Paid in Full" : "State Remaining"}
-                  </span>
-                  <CopyableValue
-                    value={fmtMasked(breakdown.stateRemaining)}
-                    rawValue={breakdown.stateRemaining}
-                    className={cn(
-                      "font-semibold",
-                      breakdown.stateRemaining < 0 && "text-success",
-                      breakdown.stateRemaining === 0 && "text-success",
-                      breakdown.stateRemaining > 0 && "text-error"
-                    )}
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Net Remaining footer */}
-          <div
-            className={cn(
-              "flex items-center justify-between px-4 py-3 border-t",
-              "border-t-border/60",
-              (isOverpaid || isPaidInFull) ? "bg-success/[0.03]" : "bg-error/[0.03]"
-            )}
-          >
-            <div>
-              <span className="font-semibold text-sm">
-                {isPaidInFull ? "Projected Balance Zero" : isOverpaid ? "Projected Refund" : "Projected Shortfall"}
-              </span>
-              {isOverpaid && (
-                <p className="text-[11px] text-success mt-0.5">
-                  {fmt(Math.abs(breakdown.netRemaining))} back
-                  {refundDrivenByCredit
-                    ? ` (includes ${fmt(breakdown.additionalChildTaxCredit)} refundable child credit)`
-                    : ""}
-                </p>
-              )}
-              {isPaidInFull && (
-                <p className="text-[11px] text-success mt-0.5">
-                  Annual credits cover the projected liability
-                </p>
-              )}
-              {!isOverpaid && !isPaidInFull && (
-                <p className="text-[11px] text-error mt-0.5">
-                  {fmt(breakdown.netRemaining)} projected due
-                </p>
-              )}
-            </div>
-            <CopyableValue
-              value={fmtMasked(breakdown.netRemaining)}
-              rawValue={breakdown.netRemaining}
-              className={cn(
-                "font-bold text-lg",
-                (isOverpaid || isPaidInFull) ? "text-success" : "text-error"
-              )}
-            />
-          </div>
+          )}
         </div>
 
+        {/* Net Remaining footer */}
+        <div
+          className={cn(
+            "flex items-center justify-between px-4 py-3 border-t",
+            "border-t-border/60",
+            isOverpaid || isPaidInFull
+              ? "bg-success/[0.03]"
+              : "bg-error/[0.03]",
+          )}
+        >
+          <div>
+            <span className="font-semibold text-sm">
+              {isPaidInFull
+                ? "Projected Balance Zero"
+                : isOverpaid
+                  ? "Projected Refund"
+                  : "Projected Shortfall"}
+            </span>
+            {isOverpaid && (
+              <p className="text-[11px] text-success mt-0.5">
+                {fmt(Math.abs(breakdown.netRemaining))} back
+                {refundDrivenByCredit
+                  ? ` (includes ${fmt(breakdown.additionalChildTaxCredit)} refundable child credit)`
+                  : ""}
+              </p>
+            )}
+            {isPaidInFull && (
+              <p className="text-[11px] text-success mt-0.5">
+                Annual credits cover the projected liability
+              </p>
+            )}
+            {!isOverpaid && !isPaidInFull && (
+              <p className="text-[11px] text-error mt-0.5">
+                {fmt(breakdown.netRemaining)} projected due
+              </p>
+            )}
+          </div>
+          <CopyableValue
+            value={fmtMasked(breakdown.netRemaining)}
+            rawValue={breakdown.netRemaining}
+            className={cn(
+              "font-bold text-lg",
+              isOverpaid || isPaidInFull ? "text-success" : "text-error",
+            )}
+          />
+        </div>
+      </div>
     </div>
   );
 }
@@ -2152,31 +2543,69 @@ function PaymentRow({
   readOnly = false,
 }: {
   payment: TaxPaymentEntry;
-  onUpdate: (id: string, field: keyof TaxPaymentEntry, value: string | number) => void;
+  onUpdate: (
+    id: string,
+    field: keyof TaxPaymentEntry,
+    value: string | number,
+  ) => void;
   onRemove: (id: string) => void;
   showQuarter?: boolean;
   readOnly?: boolean;
 }) {
-  if (readOnly) return <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-3"><div><p className="text-sm">{payment.label}</p><p className="mt-1 text-xs text-muted-foreground">{payment.timing === "forecast" ? "Projected future withholding" : `Verified actual withholding through ${payment.verified_through}`}{payment.document_id && payment.timing !== "forecast" && <> · <a href={`/api/accounting/documents?id=${payment.document_id}`} className="text-primary">Provider report</a></>}</p></div><MaskedValue value={formatCurrency(payment.amount)} className="font-mono text-sm"/></div>;
+  if (readOnly)
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-3">
+        <div>
+          <p className="text-sm">{payment.label}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {payment.timing === "forecast"
+              ? "Projected future withholding"
+              : `Verified actual withholding through ${payment.verified_through}`}
+            {payment.document_id && payment.timing !== "forecast" && (
+              <>
+                {" "}
+                ·{" "}
+                <a
+                  href={`/api/accounting/documents?id=${payment.document_id}`}
+                  className="text-primary"
+                >
+                  Provider report
+                </a>
+              </>
+            )}
+          </p>
+        </div>
+        <MaskedValue
+          value={formatCurrency(payment.amount)}
+          className="font-mono text-sm"
+        />
+      </div>
+    );
   return (
     <div className="flex flex-col gap-1.5 sm:grid sm:grid-cols-[1fr_auto_140px] sm:gap-2 sm:items-center rounded-md py-1 px-2 border-x-[3px] border-x-copper/50 border-y border-y-copper/20 bg-copper/[0.04]">
       <div className="flex items-center gap-1.5 min-w-0">
-        <Input
+        <TextInput
+          aria-label="Payment label"
+          size="sm"
           placeholder="Label"
           value={payment.label}
-          onChange={(e) => onUpdate(payment.id, "label", e.target.value)}
-          className="h-8 text-sm flex-1 min-w-0"
+          onChange={(nextValue) => onUpdate(payment.id, "label", nextValue)}
+          className="flex-1 min-w-0"
         />
         <button
           type="button"
           onClick={() =>
-            onUpdate(payment.id, "type", payment.type === "federal" ? "state" : "federal")
+            onUpdate(
+              payment.id,
+              "type",
+              payment.type === "federal" ? "state" : "federal",
+            )
           }
           className={cn(
             "shrink-0 h-8 px-2 inline-flex items-center rounded-md text-xs font-medium transition-colors",
             payment.type === "federal"
               ? "bg-primary/10 text-teal-light"
-              : "bg-secondary text-foreground"
+              : "bg-secondary text-foreground",
           )}
         >
           {payment.type === "federal" ? "Fed" : "State"}
@@ -2186,7 +2615,9 @@ function PaymentRow({
             type="button"
             onClick={() => {
               const current = payment.quarter || "Q1";
-              const idx = QUARTER_CYCLE.indexOf(current as typeof QUARTER_CYCLE[number]);
+              const idx = QUARTER_CYCLE.indexOf(
+                current as (typeof QUARTER_CYCLE)[number],
+              );
               const next = QUARTER_CYCLE[(idx + 1) % QUARTER_CYCLE.length];
               onUpdate(payment.id, "quarter", next);
             }}
@@ -2204,10 +2635,15 @@ function PaymentRow({
           <X className="h-3.5 w-3.5" />
         </button>
         <NumberInput
+          aria-label="Amount (USD)"
+          size="sm"
+          step={0.01}
           placeholder="0"
           value={payment.amount || ""}
-          onChange={(e) => onUpdate(payment.id, "amount", Number(e.target.value) || 0)}
-          className="h-8 text-sm tabular-nums flex-1 sm:flex-initial"
+          onChange={(nextValue) =>
+            onUpdate(payment.id, "amount", Number(String(nextValue)) || 0)
+          }
+          className="tabular-nums flex-1"
         />
       </div>
     </div>
@@ -2228,7 +2664,9 @@ function CopyableValue({
   const handleCopy = () => {
     // Preserve the sign: a refund copied as a positive number reads as an
     // amount owed. Round to cents so the clipboard does not carry float noise.
-    navigator.clipboard.writeText((Math.round(rawValue * 100) / 100).toFixed(2));
+    navigator.clipboard.writeText(
+      (Math.round(rawValue * 100) / 100).toFixed(2),
+    );
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -2239,7 +2677,7 @@ function CopyableValue({
       onClick={handleCopy}
       className={cn(
         "tabular-nums cursor-pointer rounded px-1 -mx-1 transition-colors hover:bg-secondary active:scale-95",
-        className
+        className,
       )}
       title="Click to copy"
     >
@@ -2266,7 +2704,7 @@ function Row({
       className={cn(
         "flex items-center justify-between",
         sub && "pl-3",
-        bold && "font-medium pt-0.5"
+        bold && "font-medium pt-0.5",
       )}
     >
       <span
@@ -2274,7 +2712,7 @@ function Row({
           sub ? "text-muted-foreground" : "text-foreground",
           color === "error" && "text-error",
           color === "success" && "text-success",
-          color === "muted" && "text-muted-foreground"
+          color === "muted" && "text-muted-foreground",
         )}
       >
         {label}
@@ -2285,7 +2723,7 @@ function Row({
           bold && "font-semibold",
           color === "error" && "text-error",
           color === "success" && "text-success",
-          color === "muted" && "text-muted-foreground"
+          color === "muted" && "text-muted-foreground",
         )}
       >
         {value}

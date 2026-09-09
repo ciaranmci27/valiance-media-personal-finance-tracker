@@ -24,15 +24,17 @@
      (app brand-500 / brand-300 / brand-400 / brand-600 / copper).
      --teal-light is remapped darker in the light theme (like the app's
      brand-300 text shade), so it lives in the theme blocks below too. */
-  --teal: #5B8A8A;
-  --teal-light: #8DB3B3;
-  --teal-mid: #749E9E;
-  --teal-dark: #4A7171;
-  --copper: #C5A68F;
+  --teal: #5b8a8a;
+  --teal-light: #8db3b3;
+  --teal-mid: #749e9e;
+  --teal-dark: #4a7171;
+  --copper: #c5a68f;
 
   /* Typography (families come from next/font variables set on <html>) */
-  --font-sans: var(--font-dm-sans), 'DM Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: var(--font-dm-mono), 'DM Mono', 'SF Mono', 'Fira Code', monospace;
+  --font-sans:
+    var(--font-dm-sans), "DM Sans", system-ui, -apple-system, sans-serif;
+  --font-mono:
+    var(--font-dm-mono), "DM Mono", "SF Mono", "Fira Code", monospace;
 
   /* Animation */
   --transition-fast: 150ms cubic-bezier(0.4, 0, 0.2, 1);
@@ -57,78 +59,100 @@
   /* RGB triplet behind white/black-alpha effects (hover borders, scrollbars);
      flips per theme so alpha tints invert automatically */
   --ink: 255, 255, 255;
-  --color-white: #FFFFFF;
+  --color-white: #ffffff;
 
   /* Brand text shade re-assert (light mode darkens it; this lets a nested
      dark subtree such as the sidebar keep the true shade) */
-  --teal-light: #8DB3B3;
-  --teal-mid: #749E9E;
+  --teal-light: #8db3b3;
+  --teal-mid: #749e9e;
 
   /* Semantic colors - the app's palette (emerald/amber/red/blue), remapped
      per theme exactly like the app's ramps. --destructive is the deeper
      red-600 the app uses for solid destructive fills. */
-  --success: #34D399;
-  --warning: #F59E0B;
-  --error: #F87171;
-  --info: #3B82F6;
+  --success: #34d399;
+  --warning: #f59e0b;
+  --error: #f87171;
+  --info: #3b82f6;
 
   /* Neutral + semantic utility ramps re-asserted so the light-mode remaps
      below can never leak into a nested dark subtree (app verbatim) */
-  --color-zinc-100: #F4F4F5;
-  --color-zinc-200: #E4E4E7;
-  --color-zinc-300: #D4D4D8;
-  --color-zinc-400: #A1A1AA;
-  --color-zinc-600: #52525B;
+  --color-zinc-100: #f4f4f5;
+  --color-zinc-200: #e4e4e7;
+  --color-zinc-300: #d4d4d8;
+  --color-zinc-400: #a1a1aa;
+  --color-zinc-600: #52525b;
 
-  --color-emerald-300: #6EE7B7; --color-emerald-400: #34D399; --color-emerald-500: #10B981;
-  --color-green-300: #86EFAC;   --color-green-400: #4ADE80;   --color-green-500: #22C55E;
-  --color-amber-300: #FCD34D;   --color-amber-400: #FBBF24;   --color-amber-500: #F59E0B;
-  --color-red-300: #FCA5A5;     --color-red-400: #F87171;     --color-red-500: #EF4444;
-  --color-rose-300: #FDA4AF;    --color-rose-400: #FB7185;    --color-rose-500: #F43F5E;
-  --color-orange-300: #FDBA74;  --color-orange-400: #FB923C;  --color-orange-500: #F97316;
-  --color-blue-300: #93C5FD;    --color-blue-400: #60A5FA;    --color-blue-500: #3B82F6;
-  --color-sky-300: #7DD3FC;     --color-sky-400: #38BDF8;     --color-sky-500: #0EA5E9;
-  --color-violet-300: #C4B5FD;  --color-violet-400: #A78BFA;  --color-violet-500: #8B5CF6;
-  --color-purple-300: #D8B4FE;  --color-purple-400: #C084FC;  --color-purple-500: #A855F7;
-  --color-teal-300: #5EEAD4;    --color-teal-400: #2DD4BF;    --color-teal-500: #14B8A6;
+  --color-emerald-300: #6ee7b7;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
+  --color-green-300: #86efac;
+  --color-green-400: #4ade80;
+  --color-green-500: #22c55e;
+  --color-amber-300: #fcd34d;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-red-300: #fca5a5;
+  --color-red-400: #f87171;
+  --color-red-500: #ef4444;
+  --color-rose-300: #fda4af;
+  --color-rose-400: #fb7185;
+  --color-rose-500: #f43f5e;
+  --color-orange-300: #fdba74;
+  --color-orange-400: #fb923c;
+  --color-orange-500: #f97316;
+  --color-blue-300: #93c5fd;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
+  --color-sky-300: #7dd3fc;
+  --color-sky-400: #38bdf8;
+  --color-sky-500: #0ea5e9;
+  --color-violet-300: #c4b5fd;
+  --color-violet-400: #a78bfa;
+  --color-violet-500: #8b5cf6;
+  --color-purple-300: #d8b4fe;
+  --color-purple-400: #c084fc;
+  --color-purple-500: #a855f7;
+  --color-teal-300: #5eead4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #14b8a6;
 
   /* Base is deliberately deeper than the glass panels so cards sit lighter
      than the canvas and the glass reads as glass (app --color-surface) */
-  --background: #08090C;
-  --background-subtle: #14151A;   /* app surface-raised */
-  --foreground: #F4F4F5;          /* app text-primary */
-  --foreground-muted: #A1A1AA;
+  --background: #08090c;
+  --background-subtle: #14151a; /* app surface-raised */
+  --foreground: #f4f4f5; /* app text-primary */
+  --foreground-muted: #a1a1aa;
 
   /* Admin's bg-card styles overlays (dialogs, dropdowns, tooltips) - maps
      to the app's surface-overlay */
-  --card: #16171D;
-  --card-foreground: #F4F4F5;
+  --card: #16171d;
+  --card-foreground: #f4f4f5;
   --card-border: rgba(255, 255, 255, 0.08);
 
-  --popover: #16171D;
-  --popover-foreground: #F4F4F5;
+  --popover: #16171d;
+  --popover-foreground: #f4f4f5;
 
   --primary: var(--teal);
-  --primary-foreground: #FFFFFF;
+  --primary-foreground: #ffffff;
 
   /* Wells, chips, and hover fills - the app's white-alpha idiom */
   --secondary: rgba(255, 255, 255, 0.06);
-  --secondary-foreground: #F4F4F5;
+  --secondary-foreground: #f4f4f5;
 
   --muted: rgba(255, 255, 255, 0.04);
-  --muted-foreground: #A1A1AA;    /* app text-secondary */
+  --muted-foreground: #a1a1aa; /* app text-secondary */
 
   /* Neutral hover surface (stock shadcn semantics; NOT the brand color -
      dialog close buttons etc. use data-[state=open]:bg-accent) */
   --accent: rgba(255, 255, 255, 0.06);
-  --accent-foreground: #F4F4F5;
+  --accent-foreground: #f4f4f5;
 
   /* Solid destructive fill = app's red-600; --error stays the text shade */
-  --destructive: #DC2626;
-  --destructive-foreground: #FFFFFF;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
 
-  --border: rgba(255, 255, 255, 0.08);  /* app surface-border, true alpha */
-  --input: rgba(255, 255, 255, 0.03);   /* app input-bg */
+  --border: rgba(255, 255, 255, 0.08); /* app surface-border, true alpha */
+  --input: rgba(255, 255, 255, 0.03); /* app input-bg */
   /* Soft focus ring for ring-* utilities (app input-ring: brand @ 30%);
      the :focus-visible outline uses the solid brand-400 shade separately */
   --ring: color-mix(in srgb, var(--teal) 30%, transparent);
@@ -142,9 +166,21 @@
   /* Ambient back-light: brand-derived radials (teal top-left, copper
      top-right, teal bottom), app strengths verbatim */
   --gradient-bg:
-    radial-gradient(58% 48% at 12% -6%, color-mix(in srgb, var(--teal) 11%, transparent), transparent 60%),
-    radial-gradient(46% 42% at 96% 4%, color-mix(in srgb, var(--copper) 6%, transparent), transparent 55%),
-    radial-gradient(70% 55% at 50% 116%, color-mix(in srgb, var(--teal) 7%, transparent), transparent 62%);
+    radial-gradient(
+      58% 48% at 12% -6%,
+      color-mix(in srgb, var(--teal) 11%, transparent),
+      transparent 60%
+    ),
+    radial-gradient(
+      46% 42% at 96% 4%,
+      color-mix(in srgb, var(--copper) 6%, transparent),
+      transparent 55%
+    ),
+    radial-gradient(
+      70% 55% at 50% 116%,
+      color-mix(in srgb, var(--teal) 7%, transparent),
+      transparent 62%
+    );
 
   /* Shadows (app values verbatim) */
   --shadow-card: 0 4px 24px -6px rgba(0, 0, 0, 0.55);
@@ -157,108 +193,158 @@
   color-scheme: light;
 
   --ink: 24, 24, 27;
-  --color-white: #18181B;
+  --color-white: #18181b;
 
   /* Brand text shade darkened for legibility on white (app brand-300 -> 700) */
-  --teal-light: #3A5959;
-  --teal-mid: #4A7171;
+  --teal-light: #3a5959;
+  --teal-mid: #4a7171;
 
   /* Semantic colors, light (app's -700-tier remaps) */
   --success: #047857;
-  --warning: #B45309;
-  --error: #B91C1C;
-  --info: #1D4ED8;
+  --warning: #b45309;
+  --error: #b91c1c;
+  --info: #1d4ed8;
 
   /* Neutral + semantic utility ramps (app light remaps verbatim) */
-  --color-zinc-100: #18181B;
-  --color-zinc-200: #27272A;
-  --color-zinc-300: #3F3F46;
-  --color-zinc-400: #52525B;
-  --color-zinc-600: #A1A1AA;
+  --color-zinc-100: #18181b;
+  --color-zinc-200: #27272a;
+  --color-zinc-300: #3f3f46;
+  --color-zinc-400: #52525b;
+  --color-zinc-600: #a1a1aa;
 
-  --color-emerald-300: #047857; --color-emerald-400: #047857; --color-emerald-500: #047857;
-  --color-green-300: #15803D;   --color-green-400: #15803D;   --color-green-500: #15803D;
-  --color-amber-300: #B45309;   --color-amber-400: #B45309;   --color-amber-500: #B45309;
-  --color-red-300: #B91C1C;     --color-red-400: #B91C1C;     --color-red-500: #B91C1C;
-  --color-rose-300: #BE123C;    --color-rose-400: #BE123C;    --color-rose-500: #BE123C;
-  --color-orange-300: #C2410C;  --color-orange-400: #C2410C;  --color-orange-500: #C2410C;
-  --color-blue-300: #1D4ED8;    --color-blue-400: #1D4ED8;    --color-blue-500: #1D4ED8;
-  --color-sky-300: #0369A1;     --color-sky-400: #0369A1;     --color-sky-500: #0369A1;
-  --color-violet-300: #6D28D9;  --color-violet-400: #6D28D9;  --color-violet-500: #6D28D9;
-  --color-purple-300: #7E22CE;  --color-purple-400: #7E22CE;  --color-purple-500: #7E22CE;
-  --color-teal-300: #0F766E;    --color-teal-400: #0F766E;    --color-teal-500: #0F766E;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #047857;
+  --color-emerald-500: #047857;
+  --color-green-300: #15803d;
+  --color-green-400: #15803d;
+  --color-green-500: #15803d;
+  --color-amber-300: #b45309;
+  --color-amber-400: #b45309;
+  --color-amber-500: #b45309;
+  --color-red-300: #b91c1c;
+  --color-red-400: #b91c1c;
+  --color-red-500: #b91c1c;
+  --color-rose-300: #be123c;
+  --color-rose-400: #be123c;
+  --color-rose-500: #be123c;
+  --color-orange-300: #c2410c;
+  --color-orange-400: #c2410c;
+  --color-orange-500: #c2410c;
+  --color-blue-300: #1d4ed8;
+  --color-blue-400: #1d4ed8;
+  --color-blue-500: #1d4ed8;
+  --color-sky-300: #0369a1;
+  --color-sky-400: #0369a1;
+  --color-sky-500: #0369a1;
+  --color-violet-300: #6d28d9;
+  --color-violet-400: #6d28d9;
+  --color-violet-500: #6d28d9;
+  --color-purple-300: #7e22ce;
+  --color-purple-400: #7e22ce;
+  --color-purple-500: #7e22ce;
+  --color-teal-300: #0f766e;
+  --color-teal-400: #0f766e;
+  --color-teal-500: #0f766e;
 
-  --background: #F4F5F7;          /* app light surface */
-  --background-subtle: #FFFFFF;   /* app light surface-raised */
-  --foreground: #18181B;          /* app light text-primary */
-  --foreground-muted: #52525B;
+  --background: #f4f5f7; /* app light surface */
+  --background-subtle: #ffffff; /* app light surface-raised */
+  --foreground: #18181b; /* app light text-primary */
+  --foreground-muted: #52525b;
 
-  --card: #FFFFFF;                /* app light surface-overlay */
-  --card-foreground: #18181B;
-  --card-border: rgba(0, 0, 0, 0.10);
+  --card: #ffffff; /* app light surface-overlay */
+  --card-foreground: #18181b;
+  --card-border: rgba(0, 0, 0, 0.1);
 
-  --popover: #FFFFFF;
-  --popover-foreground: #18181B;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
 
   --primary: var(--teal);
-  --primary-foreground: #FFFFFF;
+  --primary-foreground: #ffffff;
 
   --secondary: rgba(0, 0, 0, 0.05);
-  --secondary-foreground: #18181B;
+  --secondary-foreground: #18181b;
 
   --muted: rgba(0, 0, 0, 0.04);
-  --muted-foreground: #52525B;    /* app light text-secondary */
+  --muted-foreground: #52525b; /* app light text-secondary */
 
   --accent: rgba(0, 0, 0, 0.05);
-  --accent-foreground: #18181B;
+  --accent-foreground: #18181b;
 
-  --destructive: #B91C1C;
-  --destructive-foreground: #FFFFFF;
+  --destructive: #b91c1c;
+  --destructive-foreground: #ffffff;
 
-  --border: rgba(0, 0, 0, 0.10);  /* app light surface-border */
-  --input: rgba(0, 0, 0, 0.02);   /* app light input-bg */
+  --border: rgba(0, 0, 0, 0.1); /* app light surface-border */
+  --input: rgba(0, 0, 0, 0.02); /* app light input-bg */
   --ring: color-mix(in srgb, var(--teal) 30%, transparent);
 
   /* Glass specific (app light values verbatim) */
   --glass-bg: rgba(255, 255, 255, 0.72);
   --glass-bg-strong: rgba(255, 255, 255, 0.82);
-  --glass-border: rgba(0, 0, 0, 0.10);
-  --glass-highlight: rgba(255, 255, 255, 0.70);
+  --glass-border: rgba(0, 0, 0, 0.1);
+  --glass-highlight: rgba(255, 255, 255, 0.7);
 
   /* Ambient back-light: same radials as dark (the app does not soften them
      in light mode - --gradient-bg is inherited from the base block) */
 
   /* Shadows (app light values verbatim) */
-  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 20px -8px rgba(16, 24, 40, 0.12);
+  --shadow-card:
+    0 1px 2px rgba(16, 24, 40, 0.04), 0 6px 20px -8px rgba(16, 24, 40, 0.12);
   --shadow-card-hover: 0 10px 32px -10px rgba(16, 24, 40, 0.18);
-  --shadow-overlay: 0 16px 48px -12px rgba(16, 24, 40, 0.20);
+  --shadow-overlay: 0 16px 48px -12px rgba(16, 24, 40, 0.2);
 }
 
 /* Keep white ink on saturated fills in light mode (app ink-guard, extended
    with the admin's token-named fills). Word-match (~=) so hover:/alpha
    variants are unaffected. */
-[class~="bg-primary"], [class~="bg-destructive"],
-[class~="bg-teal"], [class~="bg-teal-dark"],
-[class~="bg-brand-500"], [class~="bg-brand-600"], [class~="bg-brand-700"],
-[class~="bg-red-500"], [class~="bg-red-600"], [class~="bg-red-600/90"],
-[class~="bg-emerald-500"], [class~="bg-emerald-600"], [class~="bg-amber-500"],
+[class~="bg-primary"],
+[class~="bg-destructive"],
+[class~="bg-teal"],
+[class~="bg-teal-dark"],
+[class~="bg-brand-500"],
+[class~="bg-brand-600"],
+[class~="bg-brand-700"],
+[class~="bg-red-500"],
+[class~="bg-red-600"],
+[class~="bg-red-600/90"],
+[class~="bg-emerald-500"],
+[class~="bg-emerald-600"],
+[class~="bg-amber-500"],
 [class~="bg-blue-600"],
-[class~="bg-zinc-900"], [class~="bg-zinc-800"] {
-  --color-white: #FFFFFF;
+[class~="bg-zinc-900"],
+[class~="bg-zinc-800"] {
+  --color-white: #ffffff;
   --ink: 255, 255, 255;
 }
 
 /* Data-viz keeps its vivid shades in both themes (app verbatim) */
 .chart-vivid {
-  --color-emerald-300: #6EE7B7; --color-emerald-400: #34D399; --color-emerald-500: #10B981;
-  --color-green-300: #86EFAC;   --color-green-400: #4ADE80;   --color-green-500: #22C55E;
-  --color-sky-300: #7DD3FC;     --color-sky-400: #38BDF8;     --color-sky-500: #0EA5E9;
-  --color-amber-300: #FCD34D;   --color-amber-400: #FBBF24;   --color-amber-500: #F59E0B;
-  --color-violet-300: #C4B5FD;  --color-violet-400: #A78BFA;  --color-violet-500: #8B5CF6;
-  --color-teal-300: #5EEAD4;    --color-teal-400: #2DD4BF;    --color-teal-500: #14B8A6;
-  --color-rose-300: #FDA4AF;    --color-rose-400: #FB7185;    --color-rose-500: #F43F5E;
-  --color-red-300: #FCA5A5;     --color-red-400: #F87171;     --color-red-500: #EF4444;
-  --color-blue-300: #93C5FD;    --color-blue-400: #60A5FA;    --color-blue-500: #3B82F6;
+  --color-emerald-300: #6ee7b7;
+  --color-emerald-400: #34d399;
+  --color-emerald-500: #10b981;
+  --color-green-300: #86efac;
+  --color-green-400: #4ade80;
+  --color-green-500: #22c55e;
+  --color-sky-300: #7dd3fc;
+  --color-sky-400: #38bdf8;
+  --color-sky-500: #0ea5e9;
+  --color-amber-300: #fcd34d;
+  --color-amber-400: #fbbf24;
+  --color-amber-500: #f59e0b;
+  --color-violet-300: #c4b5fd;
+  --color-violet-400: #a78bfa;
+  --color-violet-500: #8b5cf6;
+  --color-teal-300: #5eead4;
+  --color-teal-400: #2dd4bf;
+  --color-teal-500: #14b8a6;
+  --color-rose-300: #fda4af;
+  --color-rose-400: #fb7185;
+  --color-rose-500: #f43f5e;
+  --color-red-300: #fca5a5;
+  --color-red-400: #f87171;
+  --color-red-500: #ef4444;
+  --color-blue-300: #93c5fd;
+  --color-blue-400: #60a5fa;
+  --color-blue-500: #3b82f6;
 }
 
 /* ============================================================================
@@ -283,7 +369,12 @@ aside,
 header,
 main,
 label,
-h1, h2, h3, h4, h5, h6,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
 p,
 span,
 [role="button"],
@@ -343,7 +434,7 @@ body {
    these layers (see the glass NOTE below), the artifact's mechanism is gone
    and the promotion is dead weight the app never had. */
 body::before {
-  content: '';
+  content: "";
   position: fixed;
   inset: 0;
   background: var(--gradient-bg);
@@ -357,7 +448,7 @@ body::before {
    canvas into a visible tint, while overlay noise contributes ~nothing on a
    near-black canvas. */
 body::after {
-  content: '';
+  content: "";
   position: fixed;
   inset: 0;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
@@ -431,7 +522,8 @@ input[type="number"] {
 .glass {
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur))
+    saturate(var(--glass-saturate));
   border: 1px solid var(--glass-border);
 }
 
@@ -454,14 +546,17 @@ input[type="number"] {
 .glass-card {
   background: var(--glass-bg);
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  -webkit-backdrop-filter: blur(var(--glass-blur))
+    saturate(var(--glass-saturate));
   border: 1px solid var(--glass-border);
   box-shadow: var(--shadow-card);
 }
 
 /* Opt-in interactive card (app verbatim) */
 .glass-card-interactive {
-  transition: border-color 0.2s ease, box-shadow 0.2s ease,
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
     transform 0.2s cubic-bezier(0.2, 1, 0.3, 1);
 }
 
@@ -473,12 +568,15 @@ input[type="number"] {
 
 /* Card hover with brand glow (app verbatim) */
 .card-lift {
-  transition: box-shadow 0.18s ease, transform 0.18s ease,
+  transition:
+    box-shadow 0.18s ease,
+    transform 0.18s ease,
     border-color 0.18s ease;
 }
 
 .card-lift:hover {
-  box-shadow: var(--shadow-card-hover),
+  box-shadow:
+    var(--shadow-card-hover),
     0 0 24px -10px color-mix(in srgb, var(--teal) 45%, transparent);
   transform: translateY(-1px);
 }
@@ -525,11 +623,14 @@ input[type="number"] {
 
 /* Unify every inline solid-teal button with the component's primary look
    (app verbatim, extended with the admin's bg-teal fill class). */
-button.bg-brand-600, a.bg-brand-600,
-button.bg-brand-500, a.bg-brand-500,
-button.bg-teal, a.bg-teal {
+button.bg-brand-600,
+a.bg-brand-600,
+button.bg-brand-500,
+a.bg-brand-500,
+button.bg-teal,
+a.bg-teal {
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.30),
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
     inset 0 -1px 1px rgba(0, 0, 0, 0.22),
     0 1px 2px rgba(0, 0, 0, 0.3);
 }
@@ -547,14 +648,18 @@ button.bg-teal, a.bg-teal {
 :is(button, a)[class*=" bg-white/5"] {
   backdrop-filter: blur(14px) saturate(140%);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
-  box-shadow: inset 0 1px 0 rgba(var(--ink), 0.10), inset 0 0 0 1px rgba(var(--ink), 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--ink), 0.1),
+    inset 0 0 0 1px rgba(var(--ink), 0.06);
 }
 :is(button, a)[class*=" bg-[#14151A]"],
 :is(button, a)[class^="bg-[#14151A]"] {
   background-color: rgba(var(--ink), 0.05);
   backdrop-filter: blur(14px) saturate(140%);
   -webkit-backdrop-filter: blur(14px) saturate(140%);
-  box-shadow: inset 0 1px 0 rgba(var(--ink), 0.10), inset 0 0 0 1px rgba(var(--ink), 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--ink), 0.1),
+    inset 0 0 0 1px rgba(var(--ink), 0.06);
 }
 
 /* Segmented control (app verbatim; heights match the Button sizes) */
@@ -569,8 +674,14 @@ button.bg-teal, a.bg-teal {
   box-shadow: inset 0 0 0 1px rgba(var(--ink), 0.06);
 }
 
-.seg-track.seg-sm { height: 32px; border-radius: 10px; }
-.seg-track.seg-lg { height: 44px; border-radius: 13px; }
+.seg-track.seg-sm {
+  height: 32px;
+  border-radius: 10px;
+}
+.seg-track.seg-lg {
+  height: 44px;
+  border-radius: 13px;
+}
 
 .seg-item {
   height: 100%;
@@ -587,15 +698,22 @@ button.bg-teal, a.bg-teal {
   border-radius: 8px;
   background: transparent;
   white-space: nowrap;
-  transition: color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
 }
 
-.seg-item:hover { color: var(--foreground); }
+.seg-item:hover {
+  color: var(--foreground);
+}
 
 .seg-item.is-active {
   color: var(--foreground);
   background: rgba(var(--ink), 0.09);
-  box-shadow: inset 0 1px 0 rgba(var(--ink), 0.16), 0 1px 2px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    inset 0 1px 0 rgba(var(--ink), 0.16),
+    0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
 /* Divider color for stacked children (app verbatim) */
@@ -696,7 +814,8 @@ button.bg-teal, a.bg-teal {
 }
 
 @keyframes pulse-subtle {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {
@@ -725,7 +844,8 @@ button.bg-teal, a.bg-teal {
 }
 
 @keyframes ping {
-  75%, 100% {
+  75%,
+  100% {
     transform: scale(2);
     opacity: 0;
   }
@@ -736,12 +856,24 @@ button.bg-teal, a.bg-teal {
 }
 
 /* Staggered animation delays */
-.stagger-1 { animation-delay: 50ms; }
-.stagger-2 { animation-delay: 100ms; }
-.stagger-3 { animation-delay: 150ms; }
-.stagger-4 { animation-delay: 200ms; }
-.stagger-5 { animation-delay: 250ms; }
-.stagger-6 { animation-delay: 300ms; }
+.stagger-1 {
+  animation-delay: 50ms;
+}
+.stagger-2 {
+  animation-delay: 100ms;
+}
+.stagger-3 {
+  animation-delay: 150ms;
+}
+.stagger-4 {
+  animation-delay: 200ms;
+}
+.stagger-5 {
+  animation-delay: 250ms;
+}
+.stagger-6 {
+  animation-delay: 300ms;
+}
 
 /* Honor the OS-level reduced-motion preference. Decorative entrance
    animations (fade-up, fade-in, scale-in, slide-*) and their stagger
@@ -759,15 +891,21 @@ button.bg-teal, a.bg-teal {
     opacity: 1 !important;
     transform: none !important;
   }
-  .stagger-1, .stagger-2, .stagger-3,
-  .stagger-4, .stagger-5, .stagger-6 {
+  .stagger-1,
+  .stagger-2,
+  .stagger-3,
+  .stagger-4,
+  .stagger-5,
+  .stagger-6 {
     animation-delay: 0ms !important;
   }
   .glass-card-interactive:hover,
   .card-lift:hover {
     transform: none;
   }
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
@@ -834,7 +972,7 @@ button.bg-teal, a.bg-teal {
 
 .recharts-text {
   /* The app's dimmest text tier (zinc-500), solid - not an alpha mix */
-  fill: #71717A;
+  fill: #71717a;
   font-size: 11px;
   font-weight: 500;
 }
@@ -854,7 +992,7 @@ button.bg-teal, a.bg-teal {
   background: linear-gradient(
     90deg,
     rgba(var(--ink), 0.06) 0%,
-    rgba(var(--ink), 0.10) 50%,
+    rgba(var(--ink), 0.1) 50%,
     rgba(var(--ink), 0.06) 100%
   );
   background-size: 200% 100%;
@@ -895,14 +1033,14 @@ button.bg-teal, a.bg-teal {
   --color-copper: var(--copper);
 
   /* Full app brand scale, for 1:1 markup portability */
-  --color-brand-50: #F0F5F5;
-  --color-brand-100: #D9E6E6;
-  --color-brand-200: #B3CCCC;
+  --color-brand-50: #f0f5f5;
+  --color-brand-100: #d9e6e6;
+  --color-brand-200: #b3cccc;
   --color-brand-300: var(--teal-light);
   --color-brand-400: var(--teal-mid);
   --color-brand-500: var(--teal);
   --color-brand-600: var(--teal-dark);
-  --color-brand-700: #3A5959;
+  --color-brand-700: #3a5959;
 
   /* Semantic */
   --color-success: var(--success);
@@ -912,4 +1050,85 @@ button.bg-teal, a.bg-teal {
 
   /* No custom radius scale: the app uses stock Tailwind radii, so overriding
      rounded-lg/md/sm here made every admin corner chunkier than the app's. */
+}
+
+/* Shared input bank, matching app input tokens. */
+:root,
+[data-theme="dark"] {
+  --input-bg: rgba(255, 255, 255, 0.03);
+  --input-bg-hover: rgba(255, 255, 255, 0.05);
+  --input-bg-active: rgba(255, 255, 255, 0.06);
+  --input-bg-disabled: rgba(255, 255, 255, 0.02);
+  --input-bg-inset: rgba(0, 0, 0, 0.25);
+  --input-border: rgba(255, 255, 255, 0.1);
+  --input-border-hover: rgba(255, 255, 255, 0.18);
+  --input-border-focus: var(--teal);
+  --input-border-error: #f87171;
+  --input-border-divider: rgba(255, 255, 255, 0.06);
+  --input-text: #f4f4f5;
+  --input-text-label: #d4d4d8;
+  --input-text-placeholder: #71717a;
+  --input-text-subtle: #a1a1aa;
+  --input-text-disabled: #52525b;
+  --input-accent: var(--teal);
+  --input-accent-fg: #ffffff;
+  --input-accent-subtle: color-mix(in srgb, var(--teal) 14%, transparent);
+  --input-accent-subtle-fg: var(--teal-light);
+  --input-ring: color-mix(in srgb, var(--teal) 30%, transparent);
+  --input-ring-error: rgba(248, 113, 113, 0.25);
+  --input-error: #f87171;
+  --input-warning: #fbbf24;
+}
+[data-theme="light"] {
+  --input-bg: rgba(0, 0, 0, 0.02);
+  --input-bg-hover: rgba(0, 0, 0, 0.035);
+  --input-bg-active: rgba(0, 0, 0, 0.05);
+  --input-bg-disabled: rgba(0, 0, 0, 0.04);
+  --input-bg-inset: rgba(0, 0, 0, 0.04);
+  --input-border: rgba(0, 0, 0, 0.14);
+  --input-border-hover: rgba(0, 0, 0, 0.26);
+  --input-border-focus: var(--teal);
+  --input-border-error: #f87171;
+  --input-border-divider: rgba(0, 0, 0, 0.08);
+  --input-text: #18181b;
+  --input-text-label: #3f3f46;
+  --input-text-placeholder: #71717a;
+  --input-text-subtle: #52525b;
+  --input-text-disabled: #a1a1aa;
+  --input-accent: var(--teal);
+  --input-accent-fg: #ffffff;
+  --input-accent-subtle: color-mix(in srgb, var(--teal) 14%, transparent);
+  --input-accent-subtle-fg: var(--teal-light);
+  --input-ring: color-mix(in srgb, var(--teal) 30%, transparent);
+  --input-ring-error: rgba(248, 113, 113, 0.25);
+  --input-error: #f87171;
+  --input-warning: #fbbf24;
+}
+@theme inline {
+  --color-input-bg: var(--input-bg);
+  --color-input-bg-hover: var(--input-bg-hover);
+  --color-input-bg-active: var(--input-bg-active);
+  --color-input-bg-disabled: var(--input-bg-disabled);
+  --color-input-bg-inset: var(--input-bg-inset);
+  --color-input-border: var(--input-border);
+  --color-input-border-hover: var(--input-border-hover);
+  --color-input-border-focus: var(--input-border-focus);
+  --color-input-border-error: var(--input-border-error);
+  --color-input-border-divider: var(--input-border-divider);
+  --color-input-text: var(--input-text);
+  --color-input-text-label: var(--input-text-label);
+  --color-input-text-placeholder: var(--input-text-placeholder);
+  --color-input-text-subtle: var(--input-text-subtle);
+  --color-input-text-disabled: var(--input-text-disabled);
+  --color-input-accent: var(--input-accent);
+  --color-input-accent-fg: var(--input-accent-fg);
+  --color-input-accent-subtle: var(--input-accent-subtle);
+  --color-input-accent-subtle-fg: var(--input-accent-subtle-fg);
+  --color-input-ring: var(--input-ring);
+  --color-input-ring-error: var(--input-ring-error);
+  --color-input-error: var(--input-error);
+  --color-input-warning: var(--input-warning);
+  --color-surface-overlay: var(--popover);
+  --radius-input: 0.5rem;
+  --radius-input-sm: 0.375rem;
 }

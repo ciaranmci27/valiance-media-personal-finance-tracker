@@ -1,7 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
+import {
+  MobileMenuButton,
+  HeaderControls,
+} from "@/components/layout/page-header";
 import { useRouter } from "next/navigation";
 import {
   Calendar,
@@ -22,10 +25,10 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
-import { CustomSelect } from "@/components/ui/select";
-import { DateInput } from "@/components/ui/date-input";
-import { NumberInput } from "@/components/ui/number-input";
-import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/inputs/Select";
+import { DateInput } from "@/components/ui/inputs/DateInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { Textarea } from "@/components/ui/inputs/Textarea";
 import { IncomeBreakdownChart } from "@/components/charts/income-breakdown-chart";
 import { useMaskedHover, getMaskedValue } from "@/components/ui/masked-value";
 import { formatCurrency, formatDate, formatMonth, cn } from "@/lib/utils";
@@ -37,10 +40,7 @@ import {
   defaultDateForMonth,
   ensureIncomeEntryForDate,
 } from "@/lib/income-ledger";
-import type {
-  IncomeLineItemWithSource,
-  IncomeSource,
-} from "@/types/database";
+import type { IncomeLineItemWithSource, IncomeSource } from "@/types/database";
 
 interface IncomeAmount {
   id: string;
@@ -97,7 +97,9 @@ function buildSourceRows(
   );
 
   for (const item of activeItems) {
-    const fallbackSource = sources.find((source) => source.id === item.source_id);
+    const fallbackSource = sources.find(
+      (source) => source.id === item.source_id,
+    );
     const source = item.income_sources || fallbackSource;
     if (!source) continue;
 
@@ -121,7 +123,9 @@ function buildSourceRows(
     for (const amount of entry.income_amounts || []) {
       const total = Number(amount.amount) || 0;
       if (total === 0) continue;
-      const fallbackSource = sources.find((source) => source.id === amount.source_id);
+      const fallbackSource = sources.find(
+        (source) => source.id === amount.source_id,
+      );
       const source = amount.income_sources || fallbackSource;
       if (!source) continue;
 
@@ -205,7 +209,9 @@ export function IncomeDetailContent({
   }, [sources, sourceRows]);
 
   const defaultSourceId = activeSourceOptions[0]?.value ?? "";
-  const [addDate, setAddDate] = React.useState(() => defaultDateForMonth(entry.month));
+  const [addDate, setAddDate] = React.useState(() =>
+    defaultDateForMonth(entry.month),
+  );
   const [addSourceId, setAddSourceId] = React.useState(defaultSourceId);
   const [addAmount, setAddAmount] = React.useState("");
   const [addNotes, setAddNotes] = React.useState("");
@@ -217,7 +223,9 @@ export function IncomeDetailContent({
   const [editAmount, setEditAmount] = React.useState("");
   const [editNotes, setEditNotes] = React.useState("");
   const [savingItemId, setSavingItemId] = React.useState<string | null>(null);
-  const [deletingItemId, setDeletingItemId] = React.useState<string | null>(null);
+  const [deletingItemId, setDeletingItemId] = React.useState<string | null>(
+    null,
+  );
 
   React.useEffect(() => {
     setAddDate(defaultDateForMonth(entry.month));
@@ -445,7 +453,8 @@ export function IncomeDetailContent({
   const handleDeleteMonth = async () => {
     const confirmed = await confirm({
       title: "Delete this month?",
-      description: "This income month will be moved to trash. You can restore it later.",
+      description:
+        "This income month will be moved to trash. You can restore it later.",
       confirmLabel: "Delete",
       variant: "danger",
     });
@@ -478,7 +487,9 @@ export function IncomeDetailContent({
     }
   };
 
-  const canAdd = Boolean(addDate && addSourceId && (parseFloat(addAmount) || 0) !== 0);
+  const canAdd = Boolean(
+    addDate && addSourceId && (parseFloat(addAmount) || 0) !== 0,
+  );
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
@@ -547,10 +558,16 @@ export function IncomeDetailContent({
             <DollarSign className="h-4 w-4" />
             <span className="text-sm font-medium">Total</span>
           </div>
-          <p className={cn(
-            "text-xl sm:text-2xl font-bold tabular-nums",
-            monthTotal > 0 ? "text-teal-light" : monthTotal < 0 ? "text-error" : "text-muted-foreground",
-          )}>
+          <p
+            className={cn(
+              "text-xl sm:text-2xl font-bold tabular-nums",
+              monthTotal > 0
+                ? "text-teal-light"
+                : monthTotal < 0
+                  ? "text-error"
+                  : "text-muted-foreground",
+            )}
+          >
             {displayTotal}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
@@ -566,9 +583,7 @@ export function IncomeDetailContent({
           <p className="text-xl sm:text-2xl font-bold tabular-nums">
             {activeLineItemCount}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            dated entries
-          </p>
+          <p className="text-xs text-muted-foreground mt-1">dated entries</p>
         </div>
       </div>
 
@@ -588,7 +603,7 @@ export function IncomeDetailContent({
               onChange={(value) => value && setAddDate(value)}
               size="sm"
             />
-            <CustomSelect
+            <Select
               label="Source"
               value={addSourceId}
               onChange={setAddSourceId}
@@ -597,19 +612,20 @@ export function IncomeDetailContent({
               size="sm"
             />
             <NumberInput
+              step={0.01}
               label="Amount"
               value={addAmount}
-              onChange={(event) => setAddAmount(event.target.value)}
+              onChange={(nextValue) => setAddAmount(String(nextValue))}
               placeholder="0.00"
-              className="h-[34px] min-h-[34px] px-2.5 py-1.5 tabular-nums"
+              className="tabular-nums"
             />
           </div>
           <div className="space-y-3">
             <Textarea
+              aria-label="Notes"
               value={addNotes}
-              onChange={(event) => setAddNotes(event.target.value)}
+              onChange={(nextValue) => setAddNotes(nextValue)}
               placeholder="Notes for this item..."
-              className="min-h-[72px]"
             />
             <div className="flex justify-end">
               <Button
@@ -679,19 +695,26 @@ export function IncomeDetailContent({
                         />
                         <span
                           className="h-3 w-3 rounded-full shrink-0"
-                          style={{ backgroundColor: row.source.color || "#5B8A8A" }}
+                          style={{
+                            backgroundColor: row.source.color || "#5B8A8A",
+                          }}
                         />
                         <div className="min-w-0">
-                          <p className="font-medium truncate">{row.source.name}</p>
+                          <p className="font-medium truncate">
+                            {row.source.name}
+                          </p>
                           <p className="text-xs text-muted-foreground">
-                            {row.items.length} item{row.items.length === 1 ? "" : "s"}
+                            {row.items.length} item
+                            {row.items.length === 1 ? "" : "s"}
                           </p>
                         </div>
                       </div>
-                      <p className={cn(
-                        "tabular-nums font-semibold",
-                        row.total < 0 ? "text-error" : "text-teal-light",
-                      )}>
+                      <p
+                        className={cn(
+                          "tabular-nums font-semibold",
+                          row.total < 0 ? "text-error" : "text-teal-light",
+                        )}
+                      >
                         {displaySourceTotal}
                       </p>
                     </button>
@@ -716,15 +739,20 @@ export function IncomeDetailContent({
 
                               if (isEditing) {
                                 return (
-                                  <div key={item.id} className="p-4 bg-secondary space-y-3">
+                                  <div
+                                    key={item.id}
+                                    className="p-4 bg-secondary space-y-3"
+                                  >
                                     <div className="grid gap-3 md:grid-cols-[150px_minmax(0,1fr)_130px]">
                                       <DateInput
                                         label="Date"
                                         value={editDate}
-                                        onChange={(value) => value && setEditDate(value)}
+                                        onChange={(value) =>
+                                          value && setEditDate(value)
+                                        }
                                         size="sm"
                                       />
-                                      <CustomSelect
+                                      <Select
                                         label="Source"
                                         value={editSourceId}
                                         onChange={setEditSourceId}
@@ -732,17 +760,22 @@ export function IncomeDetailContent({
                                         size="sm"
                                       />
                                       <NumberInput
+                                        step={0.01}
                                         label="Amount"
                                         value={editAmount}
-                                        onChange={(event) => setEditAmount(event.target.value)}
-                                        className="h-[34px] min-h-[34px] px-2.5 py-1.5 tabular-nums"
+                                        onChange={(nextValue) =>
+                                          setEditAmount(String(nextValue))
+                                        }
+                                        className="tabular-nums"
                                       />
                                     </div>
                                     <Textarea
+                                      aria-label="Notes"
                                       value={editNotes}
-                                      onChange={(event) => setEditNotes(event.target.value)}
+                                      onChange={(nextValue) =>
+                                        setEditNotes(nextValue)
+                                      }
                                       placeholder="Notes for this item..."
-                                      className="min-h-[72px]"
                                     />
                                     <div className="flex items-center justify-end gap-2">
                                       <Button
@@ -757,7 +790,10 @@ export function IncomeDetailContent({
                                       <Button
                                         size="sm"
                                         onClick={() => handleSaveItem(item.id)}
-                                        disabled={isSaving || (parseFloat(editAmount) || 0) === 0}
+                                        disabled={
+                                          isSaving ||
+                                          (parseFloat(editAmount) || 0) === 0
+                                        }
                                       >
                                         {isSaving ? (
                                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -786,10 +822,14 @@ export function IncomeDetailContent({
                                       </p>
                                     )}
                                   </div>
-                                  <p className={cn(
-                                    "tabular-nums text-sm font-medium",
-                                    Number(item.amount) < 0 ? "text-error" : "text-foreground",
-                                  )}>
+                                  <p
+                                    className={cn(
+                                      "tabular-nums text-sm font-medium",
+                                      Number(item.amount) < 0
+                                        ? "text-error"
+                                        : "text-foreground",
+                                    )}
+                                  >
                                     {displayItemAmount}
                                   </p>
                                   <div className="flex items-center gap-1">
@@ -799,7 +839,9 @@ export function IncomeDetailContent({
                                         variant="ghost"
                                         aria-label="Edit income item"
                                         onClick={() => startEditItem(item)}
-                                        disabled={Boolean(editingItemId) || isDeleting}
+                                        disabled={
+                                          Boolean(editingItemId) || isDeleting
+                                        }
                                       >
                                         <Pencil className="h-4 w-4" />
                                       </Button>
@@ -840,7 +882,9 @@ export function IncomeDetailContent({
             <div className="flex flex-col">
               <div className="flex items-center gap-2 text-muted-foreground mb-3">
                 <PieChart className="h-4 w-4" />
-                <span className="text-sm font-medium uppercase tracking-wider">Breakdown</span>
+                <span className="text-sm font-medium uppercase tracking-wider">
+                  Breakdown
+                </span>
               </div>
               <div className="rounded-xl glass-card p-4 flex-1" {...hoverProps}>
                 <IncomeBreakdownChart
@@ -856,7 +900,9 @@ export function IncomeDetailContent({
             <div className="flex items-center justify-between gap-2 text-muted-foreground mb-3">
               <div className="flex items-center gap-2">
                 <FileText className="h-4 w-4" />
-                <span className="text-sm font-medium uppercase tracking-wider">Month Notes</span>
+                <span className="text-sm font-medium uppercase tracking-wider">
+                  Month Notes
+                </span>
               </div>
               {!isEditingNotes && (
                 <Button
@@ -872,10 +918,10 @@ export function IncomeDetailContent({
             {isEditingNotes ? (
               <div className="space-y-3">
                 <Textarea
+                  aria-label="Notes"
                   value={monthNotes}
-                  onChange={(event) => setMonthNotes(event.target.value)}
+                  onChange={(nextValue) => setMonthNotes(nextValue)}
                   placeholder="Any notes about this month..."
-                  className="min-h-[160px] resize-none glass-card px-4 py-4"
                 />
                 <div className="flex items-center justify-end gap-2">
                   <Button
@@ -909,10 +955,12 @@ export function IncomeDetailContent({
                 className="rounded-xl glass-card flex min-h-[160px] w-full items-start justify-start px-4 py-4 text-left cursor-pointer hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 onClick={() => setIsEditingNotes(true)}
               >
-                <p className={cn(
-                  "text-sm whitespace-pre-wrap",
-                  !entry.notes && "text-muted-foreground italic",
-                )}>
+                <p
+                  className={cn(
+                    "text-sm whitespace-pre-wrap",
+                    !entry.notes && "text-muted-foreground italic",
+                  )}
+                >
                   {entry.notes || "Click to add notes..."}
                 </p>
               </button>

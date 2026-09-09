@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { ArrowUpRight, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Pagination } from "@/components/ui/pagination";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -497,14 +497,14 @@ function CashAllocationEditor({
                       )
                     }
                   />
-                  <Input
+                  <TextInput
                     label="Signed amount"
                     required
                     value={r.amount}
-                    onChange={(e) =>
+                    onChange={(nextValue) =>
                       setRows(
                         rows.map((x, j) =>
-                          i === j ? { ...x, amount: e.target.value } : x,
+                          i === j ? { ...x, amount: nextValue } : x,
                         ),
                       )
                     }
@@ -522,15 +522,15 @@ function CashAllocationEditor({
                     </Button>
                   </Tooltip>
                 </div>
-                <Input
+                <TextInput
                   label="What this portion represents"
                   required
                   maxLength={500}
                   value={r.note}
-                  onChange={(e) =>
+                  onChange={(nextValue) =>
                     setRows(
                       rows.map((x, j) =>
-                        i === j ? { ...x, note: e.target.value } : x,
+                        i === j ? { ...x, note: nextValue } : x,
                       ),
                     )
                   }
@@ -567,12 +567,12 @@ function CashAllocationEditor({
                 )}
               </span>
             </div>
-            <Input
+            <TextInput
               label="Reason for this classification"
               required
               maxLength={1000}
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={(nextValue) => setReason(nextValue)}
             />
             {cmd.error && (
               <p role="alert" className="text-sm text-error">

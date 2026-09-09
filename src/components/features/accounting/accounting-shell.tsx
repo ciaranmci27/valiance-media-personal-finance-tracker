@@ -583,7 +583,7 @@ export function AccountingBooks({
       </div>
 
       {(testing || demo) && (
-        <p className="rounded-lg border border-border bg-[rgba(var(--ink),0.03)] px-3 py-2 text-xs text-muted-foreground">
+        <p className="glass-card rounded-xl bg-[rgba(var(--ink),0.03)] px-3 py-2 text-xs text-muted-foreground">
           {testing
             ? "Isolated test books. All entries on this server are synthetic."
             : "Demo transactions are synthetic. Real books show your own accounts here."}

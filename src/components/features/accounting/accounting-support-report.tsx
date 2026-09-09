@@ -1,10 +1,10 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
@@ -312,25 +312,25 @@ export function AccountingSupportReport({
         }}
       >
         {id === "payroll-register" && (
-          <Input
+          <DateInput
             label="From"
-            type="date"
             required
             value={draft.from}
-            onChange={(e) => setDraft((d) => ({ ...d, from: e.target.value }))}
+            onChange={(nextValue) =>
+              setDraft((d) => ({ ...d, from: nextValue }))
+            }
           />
         )}
-        <Input
+        <DateInput
           label={asOfReport ? "As of" : "Through"}
-          type="date"
           required
           value={draft.to}
-          onChange={(e) =>
+          onChange={(nextValue) =>
             setDraft((d) => ({
               ...d,
-              to: e.target.value,
+              to: nextValue,
               ...(id !== "payroll-register"
-                ? { from: e.target.value.slice(0, 4) + "-01-01" }
+                ? { from: nextValue.slice(0, 4) + "-01-01" }
                 : {}),
             }))
           }

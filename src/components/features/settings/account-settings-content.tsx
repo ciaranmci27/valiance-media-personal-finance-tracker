@@ -1,11 +1,24 @@
 "use client";
+import { PasswordInput } from "@/components/ui/inputs/PasswordInput";
 
 import * as React from "react";
-import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
+import {
+  MobileMenuButton,
+  HeaderControls,
+} from "@/components/layout/page-header";
 import Link from "next/link";
-import { ArrowLeft, Save, Loader2, Mail, Lock, AlertCircle, CheckCircle2, User as UserIcon } from "lucide-react";
+import {
+  ArrowLeft,
+  Save,
+  Loader2,
+  Mail,
+  Lock,
+  AlertCircle,
+  CheckCircle2,
+  User as UserIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import type { User } from "@supabase/supabase-js";
@@ -92,7 +105,8 @@ export function AccountSettingsContent({ user }: AccountSettingsContentProps) {
     } catch (error: unknown) {
       setMessage({
         type: "error",
-        text: error instanceof Error ? error.message : "Failed to update password",
+        text:
+          error instanceof Error ? error.message : "Failed to update password",
       });
     } finally {
       setIsSaving(false);
@@ -133,7 +147,7 @@ export function AccountSettingsContent({ user }: AccountSettingsContentProps) {
             "flex items-center gap-3 rounded-xl px-4 py-3 text-sm",
             message.type === "success"
               ? "bg-success/10 text-success border border-success/20"
-              : "bg-error/10 text-error border border-error/20"
+              : "bg-error/10 text-error border border-error/20",
           )}
         >
           {message.type === "success" ? (
@@ -165,10 +179,11 @@ export function AccountSettingsContent({ user }: AccountSettingsContentProps) {
                   <p className="text-sm text-muted-foreground mb-3">
                     Your email address is used for signing in and notifications.
                   </p>
-                  <Input
+                  <TextInput
+                    aria-label="Email address"
                     type="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(nextValue) => setEmail(nextValue)}
                     placeholder="your@email.com"
                     className="max-w-md"
                     required
@@ -213,17 +228,17 @@ export function AccountSettingsContent({ user }: AccountSettingsContentProps) {
                   Choose a strong password with at least 8 characters.
                 </p>
                 <div className="grid gap-3 max-w-md">
-                  <Input
-                    type="password"
+                  <PasswordInput
+                    aria-label="New password"
                     value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
+                    onChange={(nextValue) => setNewPassword(nextValue)}
                     placeholder="New password"
                     required
                   />
-                  <Input
-                    type="password"
+                  <PasswordInput
+                    aria-label="Confirm new password"
                     value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    onChange={(nextValue) => setConfirmPassword(nextValue)}
                     placeholder="Confirm new password"
                     required
                   />

@@ -1,12 +1,13 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Check, Copy, Plus, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Badge } from "@/components/ui/badge";
 import { MaskedValue } from "@/components/ui/masked-value";
-import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Select } from "@/components/ui/inputs/Select";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import {
   Dialog,
@@ -152,7 +153,7 @@ export function EntryDetailDialog({
         </DialogHeader>
         {entry && (
           <>
-            <div className="divide-y divide-border rounded-lg border border-border">
+            <div className="divide-y divide-border glass-card rounded-xl">
               {entry.lines.map((l) => (
                 <div
                   key={l.id}
@@ -402,40 +403,42 @@ export function JournalEditorDialog({
             className="space-y-4"
           >
             <div className="grid gap-4 sm:grid-cols-[160px_1fr]">
-              <Input
+              <DateInput
                 label="Date"
-                type="date"
                 required
                 value={editor.date}
-                onChange={(e) => setEditor({ ...editor, date: e.target.value })}
+                onChange={(nextValue) =>
+                  setEditor({ ...editor, date: nextValue })
+                }
               />
-              <Input
+              <TextInput
                 label="Memo"
                 required
                 maxLength={1000}
                 placeholder="What does this entry record?"
                 value={editor.memo}
-                onChange={(e) => setEditor({ ...editor, memo: e.target.value })}
+                onChange={(nextValue) =>
+                  setEditor({ ...editor, memo: nextValue })
+                }
               />
             </div>
             {editor.corrects && (
               <div className="grid gap-4 sm:grid-cols-[160px_1fr]">
-                <Input
+                <DateInput
                   label="Reverse original on"
-                  type="date"
                   required
                   value={editor.reversalDate ?? editor.corrects.entry_date}
-                  onChange={(e) =>
-                    setEditor({ ...editor, reversalDate: e.target.value })
+                  onChange={(nextValue) =>
+                    setEditor({ ...editor, reversalDate: nextValue })
                   }
                 />
-                <Input
+                <TextInput
                   label="Correction reason"
                   required
                   maxLength={1000}
                   value={editor.correctionReason ?? ""}
-                  onChange={(e) =>
-                    setEditor({ ...editor, correctionReason: e.target.value })
+                  onChange={(nextValue) =>
+                    setEditor({ ...editor, correctionReason: nextValue })
                   }
                 />
                 <p className="text-xs text-muted-foreground sm:col-span-2">
@@ -458,7 +461,8 @@ export function JournalEditorDialog({
                   className="grid grid-cols-[1fr_1fr_auto] gap-2 border-b border-border pb-3 sm:grid-cols-[2fr_1fr_1fr_auto]"
                 >
                   <div className="col-span-3 sm:col-span-1">
-                    <SearchableSelect
+                    <Select
+                      searchable
                       label={`Account ${index + 1}`}
                       visibleLabel={`Account ${index + 1}`}
                       value={l.account}
@@ -467,22 +471,24 @@ export function JournalEditorDialog({
                       onChange={(v) => updateLine(l.key, "account", v)}
                     />
                   </div>
-                  <Input
+                  <TextInput
                     label="Debit"
                     inputMode="decimal"
                     placeholder="0.00"
                     className="tabular-nums"
                     value={l.debit}
-                    onChange={(e) => updateLine(l.key, "debit", e.target.value)}
+                    onChange={(nextValue) =>
+                      updateLine(l.key, "debit", nextValue)
+                    }
                   />
-                  <Input
+                  <TextInput
                     label="Credit"
                     inputMode="decimal"
                     placeholder="0.00"
                     className="tabular-nums"
                     value={l.credit}
-                    onChange={(e) =>
-                      updateLine(l.key, "credit", e.target.value)
+                    onChange={(nextValue) =>
+                      updateLine(l.key, "credit", nextValue)
                     }
                   />
                   <Button
@@ -500,13 +506,15 @@ export function JournalEditorDialog({
                   >
                     <X size={15} aria-hidden="true" />
                   </Button>
-                  <Input
+                  <TextInput
                     aria-label={`Line ${index + 1} memo`}
                     placeholder="Line memo (optional)"
                     maxLength={500}
                     className="col-span-3 sm:col-span-4"
                     value={l.memo}
-                    onChange={(e) => updateLine(l.key, "memo", e.target.value)}
+                    onChange={(nextValue) =>
+                      updateLine(l.key, "memo", nextValue)
+                    }
                   />
                 </div>
               ))}
@@ -683,7 +691,7 @@ function ApprovalForm({
         if (await onSubmit(command)) onClose();
       }}
     >
-      <div className="divide-y divide-border rounded-lg border border-border">
+      <div className="divide-y divide-border glass-card rounded-xl">
         {approval.entry.lines.map((l) => (
           <div
             key={l.id}
@@ -701,21 +709,20 @@ function ApprovalForm({
         ))}
       </div>
       {kind === "entry.reverse" && (
-        <Input
+        <DateInput
           label="Reversal date"
-          type="date"
           required
           value={date}
-          onChange={(e) => setDate(e.target.value)}
+          onChange={(nextValue) => setDate(nextValue)}
         />
       )}
       {kind !== "entry.post" && (
-        <Input
+        <TextInput
           label="Reason"
           required
           maxLength={1000}
           value={reason}
-          onChange={(e) => setReason(e.target.value)}
+          onChange={(nextValue) => setReason(nextValue)}
         />
       )}
       {error && (
@@ -780,7 +787,7 @@ export function ReplacementReviewDialog({
               </p>
               <p className="mt-1 text-muted-foreground">{review.reason}</p>
             </div>
-            <div className="divide-y divide-border rounded-lg border border-border">
+            <div className="divide-y divide-border glass-card rounded-xl">
               {review.lines.map((l, i) => (
                 <div key={i} className="flex justify-between px-3 py-2 text-sm">
                   <span>{accounts.get(l.account_id)?.name}</span>

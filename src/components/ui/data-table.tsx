@@ -3,7 +3,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
 
 export interface DataTableColumn<T> {
   /** Stable key, also the sort key. */
@@ -200,10 +200,10 @@ export function DataTable<T>({
                     <Checkbox
                       size="sm"
                       checked={allSelected}
-                      aria-label={
+                      ariaLabel={
                         allSelected ? "Clear selection" : "Select all rows"
                       }
-                      aria-checked={someSelected ? "mixed" : allSelected}
+                      indeterminate={someSelected}
                       disabled={selectableKeys.length === 0}
                       onChange={() => selection.onToggleAll(selectableKeys)}
                     />
@@ -304,7 +304,7 @@ export function DataTable<T>({
                             size="sm"
                             checked={isSelected}
                             disabled={!selectable}
-                            aria-label={
+                            ariaLabel={
                               isSelected ? "Deselect row" : "Select row"
                             }
                             onChange={() => selection.onToggle(key)}

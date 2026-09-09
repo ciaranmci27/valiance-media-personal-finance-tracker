@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { ArrowUpRight, History, Link2, RefreshCw, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Pagination } from "@/components/ui/pagination";
 import { SectionHeader } from "@/components/ui/section-header";
@@ -256,10 +256,10 @@ function UnlinkDialog({
         }}
         className="space-y-4"
       >
-        <Input
+        <TextInput
           label="Reason for unlinking"
           value={reason}
-          onChange={(e) => setReason(e.target.value)}
+          onChange={(nextValue) => setReason(nextValue)}
           required
           maxLength={1000}
         />

@@ -1,4 +1,6 @@
 "use client";
+import { RadioGroup } from "@/components/ui/inputs/RadioGroup";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useRef, useState } from "react";
 import {
   ArrowDownLeft,
@@ -9,8 +11,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import {
   Dialog,
@@ -42,8 +44,6 @@ import {
   type CommandContext,
 } from "./use-accounting-command";
 import { dateLabel, money } from "./format";
-
-const ARROW_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
 
 export function AccountingTransactionEditor({
   entry,
@@ -274,20 +274,19 @@ export function AccountingTransactionEditor({
             className="space-y-5"
           >
             <div className="grid gap-4 sm:grid-cols-[160px_1fr]">
-              <Input
+              <DateInput
                 label="Date"
-                type="date"
                 value={entryDate}
                 required
-                onChange={(e) => change(() => setDate(e.target.value))}
+                onChange={(nextValue) => change(() => setDate(nextValue))}
               />
-              <Input
+              <TextInput
                 label="Description"
                 placeholder="What was this transaction for?"
                 value={memo}
                 required
                 maxLength={1000}
-                onChange={(e) => change(() => setMemo(e.target.value))}
+                onChange={(nextValue) => change(() => setMemo(nextValue))}
               />
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
@@ -312,60 +311,46 @@ export function AccountingTransactionEditor({
                 <p className="mb-1.5 text-sm font-medium text-foreground">
                   Type
                 </p>
-                <div
-                  role="radiogroup"
-                  aria-label="Direction"
-                  className="flex h-10 items-center gap-1 rounded-lg bg-[rgba(var(--ink),0.05)] p-1 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]"
-                  onKeyDown={(e) => {
-                    if (!ARROW_KEYS.has(e.key)) return;
-                    e.preventDefault();
-                    // Two options, so every arrow selects the other one and moves focus with it.
-                    const next = direction === "out" ? "in" : "out";
-                    change(() => setDirection(next));
-                    e.currentTarget
-                      .querySelector<HTMLButtonElement>(`[value="${next}"]`)
-                      ?.focus();
-                  }}
-                >
-                  {(["out", "in"] as const).map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      role="radio"
-                      value={d}
-                      aria-checked={d === direction}
-                      tabIndex={d === direction ? 0 : -1}
-                      className={cn(
-                        "flex h-full flex-1 items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        d === direction
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                      )}
-                      onClick={() => change(() => setDirection(d))}
-                    >
-                      {d === "in" ? (
-                        <ArrowDownLeft size={14} aria-hidden="true" />
-                      ) : (
-                        <ArrowUpRight size={14} aria-hidden="true" />
-                      )}
-                      Money {d}
-                    </button>
-                  ))}
-                </div>
+                <RadioGroup
+                  ariaLabel="Direction"
+                  orientation="horizontal"
+                  value={direction}
+                  onChange={(next) => change(() => setDirection(next))}
+                  options={[
+                    {
+                      value: "out",
+                      label: (
+                        <span className="flex items-center gap-2">
+                          <ArrowUpRight size={14} aria-hidden="true" />
+                          Money out
+                        </span>
+                      ),
+                    },
+                    {
+                      value: "in",
+                      label: (
+                        <span className="flex items-center gap-2">
+                          <ArrowDownLeft size={14} aria-hidden="true" />
+                          Money in
+                        </span>
+                      ),
+                    },
+                  ]}
+                />
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Input
+              <TextInput
                 label="Amount (USD)"
                 inputMode="decimal"
                 value={amount}
                 placeholder="0.00"
                 required
-                onChange={(e) =>
+                onChange={(nextValue) =>
                   change(() => {
-                    setAmount(e.target.value);
+                    setAmount(nextValue);
                     if (splits.length === 1)
-                      setSplits([{ ...splits[0], amount: e.target.value }]);
+                      setSplits([{ ...splits[0], amount: nextValue }]);
                   })
                 }
               />
@@ -385,7 +370,7 @@ export function AccountingTransactionEditor({
                   <p className="mb-1.5 text-sm font-medium text-foreground">
                     Categories
                   </p>
-                  <div className="flex h-10 items-center rounded-lg border border-border px-3 text-sm text-muted-foreground">
+                  <div className="flex h-10 items-center glass-card rounded-xl px-3 text-sm text-muted-foreground">
                     {splits.length} split categories
                   </div>
                 </div>
@@ -431,17 +416,15 @@ export function AccountingTransactionEditor({
                         )
                       }
                     />
-                    <Input
+                    <TextInput
                       aria-label={`Split ${i + 1} amount`}
                       inputMode="decimal"
                       value={s.amount}
-                      onChange={(e) =>
+                      onChange={(nextValue) =>
                         change(() =>
                           setSplits(
                             splits.map((x) =>
-                              x.key === s.key
-                                ? { ...x, amount: e.target.value }
-                                : x,
+                              x.key === s.key ? { ...x, amount: nextValue } : x,
                             ),
                           ),
                         )
@@ -460,18 +443,16 @@ export function AccountingTransactionEditor({
                     >
                       <Trash2 size={14} aria-hidden="true" />
                     </Button>
-                    <Input
+                    <TextInput
                       aria-label={`Split ${i + 1} note`}
                       className="col-span-3"
                       placeholder="Split note (optional)"
                       value={s.memo}
-                      onChange={(e) =>
+                      onChange={(nextValue) =>
                         change(() =>
                           setSplits(
                             splits.map((x) =>
-                              x.key === s.key
-                                ? { ...x, memo: e.target.value }
-                                : x,
+                              x.key === s.key ? { ...x, memo: nextValue } : x,
                             ),
                           ),
                         )
@@ -530,12 +511,12 @@ export function AccountingTransactionEditor({
               />
             )}
             {posted && (
-              <Input
+              <TextInput
                 label="Correction reason"
                 value={reason}
                 required
                 placeholder="Explain what changed"
-                onChange={(e) => change(() => setReason(e.target.value))}
+                onChange={(nextValue) => change(() => setReason(nextValue))}
               />
             )}
           </form>

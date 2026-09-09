@@ -7,11 +7,7 @@ import { FileCheck2, Landmark } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { generateFormA1Qrt } from "@/lib/payroll/forms-actions";
-import {
-  FormViewerShell,
-  LineRow,
-  SectionHeading,
-} from "./form-viewer-shell";
+import { FormViewerShell, LineRow, SectionHeading } from "./form-viewer-shell";
 import type {
   FormA1QrtData,
   OrganizationConfig,
@@ -151,8 +147,8 @@ function FormA1QrtLayout({ data }: { data: FormA1QrtData }) {
       <section className="glass-card rounded-xl p-5 space-y-2">
         <SectionHeading>Deposit reconciliation</SectionHeading>
         <p className="text-sm text-muted-foreground">
-          Line B reflects A1-WP state withholding deposits for this quarter
-          that are marked as paid in the{" "}
+          Line B reflects A1-WP state withholding deposits for this quarter that
+          are marked as paid in the{" "}
           <Link
             href="/payroll/deposits"
             className="text-teal-light hover:underline inline-flex items-center gap-1"
@@ -184,7 +180,7 @@ function MonthlyTable({
     Math.round((monthly.month1 + monthly.month2 + monthly.month3) * 100) / 100;
   const matches = Math.abs(sum - lineA) < 0.005;
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
+    <div className="glass-card rounded-xl overflow-hidden">
       <table className="w-full text-sm">
         <tbody>
           <tr className="border-b border-border">
@@ -206,7 +202,9 @@ function MonthlyTable({
             </td>
           </tr>
           <tr className="bg-secondary/40">
-            <td className="px-3 py-2 font-semibold">Total (must equal Line A)</td>
+            <td className="px-3 py-2 font-semibold">
+              Total (must equal Line A)
+            </td>
             <td
               className={cn(
                 "px-3 py-2 text-right font-mono tabular-nums font-semibold",
@@ -235,12 +233,14 @@ function ScheduleATable({
     );
   }
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
+    <div className="glass-card rounded-xl overflow-hidden">
       <table className="w-full text-sm">
         <thead className="bg-secondary/40 text-xs uppercase tracking-wider text-muted-foreground">
           <tr>
             <th className="text-left px-3 py-2 font-medium">Date</th>
-            <th className="text-right px-3 py-2 font-medium">Daily liability</th>
+            <th className="text-right px-3 py-2 font-medium">
+              Daily liability
+            </th>
           </tr>
         </thead>
         <tbody>

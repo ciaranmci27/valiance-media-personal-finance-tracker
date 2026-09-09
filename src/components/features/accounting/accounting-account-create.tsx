@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
-import { Input } from "@/components/ui/input";
-import { CustomSelect } from "@/components/ui/select";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Select } from "@/components/ui/inputs/Select";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
 import type { AccountProfile } from "@/lib/accounting/workflows";
 import { defaultChart } from "@/lib/accounting/chart";
@@ -70,18 +70,22 @@ export function AccountingAccountCreate({
         }}
       >
         <div className="grid gap-4 sm:grid-cols-2">
-          <Input
+          <TextInput
             label="Account name"
             name="name"
             required
             maxLength={120}
             placeholder="For example: Website hosting"
           />
-          <Input label="Account code (optional)" name="code" maxLength={20} />
+          <TextInput
+            label="Account code (optional)"
+            name="code"
+            maxLength={20}
+          />
           {/* data-form-change keeps the dialog's discard guard aware of picks
               made through the portal-rendered select. */}
           <div data-form-change>
-            <CustomSelect
+            <Select
               label="Type"
               value={type}
               options={accountTypes.map((t) => ({
@@ -101,7 +105,7 @@ export function AccountingAccountCreate({
             />
           </div>
           <div data-form-change>
-            <CustomSelect
+            <Select
               label="Account use"
               value={cash}
               options={[
@@ -153,7 +157,7 @@ export function AccountingAccountCreate({
             Report grouping and advanced options
           </summary>
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
-            <Input
+            <TextInput
               label="Report group"
               name="subtype"
               maxLength={100}
@@ -178,7 +182,7 @@ export function AccountingAccountCreate({
               onChange={setParent}
             />
             <div data-form-change>
-              <CustomSelect
+              <Select
                 label="Normal balance"
                 value={side}
                 disabled={cash !== "none"}

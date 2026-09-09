@@ -1,4 +1,6 @@
 "use client";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -10,13 +12,13 @@ import {
   Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { DataTable } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Pagination } from "@/components/ui/pagination";
-import { CustomSelect } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/inputs/Select";
+import { Textarea } from "@/components/ui/inputs/Textarea";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { centsToDecimal, parseUsd } from "@/lib/accounting/money";
@@ -176,15 +178,15 @@ export function AccountingTaxWorkpapers({
           setTick((n) => n + 1);
         }}
       >
-        <Input
+        <NumberInput
+          step={1}
           id="workpaper-year"
           label="Tax year"
-          type="number"
           min={1900}
           max={Number(today.slice(0, 4))}
           value={draft.year}
-          onChange={(e) => {
-            const year = Number(e.target.value);
+          onChange={(nextValue) => {
+            const year = Number(String(nextValue));
             setDraft({
               year,
               through:
@@ -193,18 +195,17 @@ export function AccountingTaxWorkpapers({
           }}
           className="w-28"
         />
-        <Input
+        <DateInput
           id="workpaper-through"
           label="Through"
-          type="date"
           value={draft.through}
-          min={`${draft.year}-01-01`}
-          max={
+          minDate={`${draft.year}-01-01`}
+          maxDate={
             draft.year === Number(today.slice(0, 4))
               ? today
               : `${draft.year}-12-31`
           }
-          onChange={(e) => setDraft({ ...draft, through: e.target.value })}
+          onChange={(nextValue) => setDraft({ ...draft, through: nextValue })}
         />
         <Button type="submit" variant="outline" disabled={loading || demo}>
           {loading ? "Loading..." : "Update workpapers"}
@@ -290,12 +291,12 @@ export function AccountingTaxWorkpapers({
           {tab === "accounts" && (
             <>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <Input
+                <TextInput
                   aria-label="Search tax account treatment"
                   placeholder="Find an account or treatment"
-                  icon={<Search size={16} aria-hidden="true" />}
+                  prefix={<Search size={16} aria-hidden="true" />}
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={(nextValue) => setQuery(nextValue)}
                 />
                 <Checkbox
                   checked={onlyMissing}
@@ -808,7 +809,7 @@ function TaxWorkpaperEditor({
         {editor.kind === "mapping" && (
           <>
             <div data-form-change>
-              <CustomSelect
+              <Select
                 label="Tax treatment"
                 required
                 placeholder="Choose reviewed treatment"
@@ -843,13 +844,13 @@ function TaxWorkpaperEditor({
               />
             </div>
             {deductible && (
-              <Input
+              <TextInput
                 label="Deductible percentage"
                 inputMode="decimal"
                 placeholder="Enter reviewed percentage, e.g. 100"
                 required
                 value={percentage}
-                onChange={(e) => setPercentage(e.target.value)}
+                onChange={(nextValue) => setPercentage(nextValue)}
               />
             )}
             <p className="text-xs text-muted-foreground">
@@ -862,25 +863,24 @@ function TaxWorkpaperEditor({
         {editor.kind === "adjustment" && (
           <>
             <div className="grid gap-4 sm:grid-cols-2">
-              <Input
+              <DateInput
                 label="Effective date"
-                type="date"
-                min={`${source.year}-01-01`}
-                max={source.through}
+                minDate={`${source.year}-01-01`}
+                maxDate={source.through}
                 required
                 value={effectiveDate}
-                onChange={(e) => setEffectiveDate(e.target.value)}
+                onChange={(nextValue) => setEffectiveDate(nextValue)}
               />
-              <Input
+              <TextInput
                 label="Signed adjustment (USD)"
                 inputMode="decimal"
                 required
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(nextValue) => setAmount(nextValue)}
               />
             </div>
             <div data-form-change>
-              <CustomSelect
+              <Select
                 label="Tax concept"
                 value={concept}
                 onChange={setConcept}
@@ -929,14 +929,14 @@ function TaxWorkpaperEditor({
             </p>
             <div className="grid gap-4 sm:grid-cols-2">
               {basisFields.map(([key, label]) => (
-                <Input
+                <TextInput
                   key={key}
                   label={`${label} (USD)`}
                   inputMode="decimal"
                   placeholder="Not supplied"
                   value={basis[key]}
-                  onChange={(e) =>
-                    setBasis({ ...basis, [key]: e.target.value })
+                  onChange={(nextValue) =>
+                    setBasis({ ...basis, [key]: nextValue })
                   }
                 />
               ))}
@@ -950,11 +950,10 @@ function TaxWorkpaperEditor({
             />
             <Textarea
               label="Unresolved limitations"
-              className="h-24"
               maxLength={2000}
               value={limitations}
               placeholder="Missing opening support, at-risk or passive-loss restrictions, or other unresolved items"
-              onChange={(e) => setLimitations(e.target.value)}
+              onChange={(nextValue) => setLimitations(nextValue)}
             />
           </>
         )}
@@ -967,9 +966,8 @@ function TaxWorkpaperEditor({
           label="Review notes"
           required
           maxLength={1000}
-          className="h-24"
           value={reason}
-          onChange={(e) => setReason(e.target.value)}
+          onChange={(nextValue) => setReason(nextValue)}
           placeholder="Describe the supported treatment and any changes from the prior version."
         />
         <Checkbox

@@ -2,18 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import {
-  Landmark,
-  Loader2,
-  Plus,
-  Trash2,
-  Copy,
-} from "lucide-react";
+import { Landmark, Loader2, Plus, Trash2, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { NumberInput } from "@/components/ui/number-input";
-import { CustomSelect } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { Select } from "@/components/ui/inputs/Select";
+import { Textarea } from "@/components/ui/inputs/Textarea";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -136,7 +130,10 @@ interface CreditReductionEditorProps {
   onChange: (next: Record<string, number>) => void;
 }
 
-function CreditReductionEditor({ value, onChange }: CreditReductionEditorProps) {
+function CreditReductionEditor({
+  value,
+  onChange,
+}: CreditReductionEditorProps) {
   const entries = Object.entries(value);
 
   const availableOptions = React.useMemo(
@@ -201,18 +198,20 @@ function CreditReductionEditor({ value, onChange }: CreditReductionEditorProps) 
                 key={code}
                 className="grid grid-cols-[1fr_1fr_auto] gap-2 items-center"
               >
-                <CustomSelect
+                <Select
+                  ariaLabel="State"
                   value={code}
                   onChange={(next) => updateState(code, next)}
                   options={optionsForThisRow}
                 />
                 <NumberInput
+                  aria-label="Tax rate (percent)"
+                  step={0.01}
                   value={toPercentDisplay(rate)}
-                  onChange={(e) =>
-                    updateRate(code, Number(e.target.value) / 100)
+                  onChange={(nextValue) =>
+                    updateRate(code, Number(String(nextValue)) / 100)
                   }
                   placeholder="0.3"
-                  className="h-9 text-sm"
                 />
                 <button
                   type="button"
@@ -255,16 +254,17 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
   });
 
   const [fica, setFica] = React.useState<FicaConfig>(
-    initial?.fica ?? defaultFica(year)
+    initial?.fica ?? defaultFica(year),
   );
   const [futa, setFuta] = React.useState<FutaConfig>(
-    initial?.futa ?? defaultFuta(year)
+    initial?.futa ?? defaultFuta(year),
   );
   const [stdDeductions, setStdDeductions] = React.useState<StdDeductions>(
-    initial?.std_deductions ?? defaultStdDeductions(year)
+    initial?.std_deductions ?? defaultStdDeductions(year),
   );
   const [notes, setNotes] = React.useState(initial?.notes ?? "");
-  const [activeStatus, setActiveStatus] = React.useState<FilingStatus>("single");
+  const [activeStatus, setActiveStatus] =
+    React.useState<FilingStatus>("single");
   const [saving, setSaving] = React.useState(false);
 
   const statusBrackets = brackets.w4_step2_unchecked[activeStatus];
@@ -306,7 +306,7 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
   const removeBracket = (idx: number) => {
     setBrackets((prev) => {
       const next = prev.w4_step2_unchecked[activeStatus].filter(
-        (_, i) => i !== idx
+        (_, i) => i !== idx,
       );
       return {
         ...prev,
@@ -327,7 +327,7 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
     setNotes(
       priorYear.notes
         ? `${priorYear.notes}\n\nCopied from ${priorYear.tax_year}.`
-        : `Copied from ${priorYear.tax_year}.`
+        : `Copied from ${priorYear.tax_year}.`,
     );
     toast("success", `Copied config from ${priorYear.tax_year}`);
   };
@@ -354,7 +354,12 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
 
     setSaving(true);
     try {
-      const fingerprint = { brackets, fica, futa, std_deductions: stdDeductions };
+      const fingerprint = {
+        brackets,
+        fica,
+        futa,
+        std_deductions: stdDeductions,
+      };
       const version_hash = await computeVersionHash(fingerprint);
 
       const payload = {
@@ -438,37 +443,44 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
         <div className="glass-card rounded-xl p-6 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <NumberInput
+              step={0.01}
               label="Social Security Rate (%)"
               value={toPercentDisplay(fica.ss_rate)}
-              onChange={(e) =>
-                setFica({ ...fica, ss_rate: Number(e.target.value) / 100 })
+              onChange={(nextValue) =>
+                setFica({ ...fica, ss_rate: Number(String(nextValue)) / 100 })
               }
               placeholder="6.2"
             />
             <NumberInput
               label="SS Wage Base ($)"
               value={fica.ss_wage_base}
-              onChange={(e) =>
-                setFica({ ...fica, ss_wage_base: Number(e.target.value) })
+              onChange={(nextValue) =>
+                setFica({ ...fica, ss_wage_base: Number(String(nextValue)) })
               }
-              integer
+              precision={0}
+              step={1}
               placeholder="184500"
             />
             <NumberInput
+              step={0.01}
               label="Medicare Rate (%)"
               value={toPercentDisplay(fica.medicare_rate)}
-              onChange={(e) =>
-                setFica({ ...fica, medicare_rate: Number(e.target.value) / 100 })
+              onChange={(nextValue) =>
+                setFica({
+                  ...fica,
+                  medicare_rate: Number(String(nextValue)) / 100,
+                })
               }
               placeholder="1.45"
             />
             <NumberInput
+              step={0.01}
               label="Additional Medicare Rate (%)"
               value={toPercentDisplay(fica.additional_medicare_rate)}
-              onChange={(e) =>
+              onChange={(nextValue) =>
                 setFica({
                   ...fica,
-                  additional_medicare_rate: Number(e.target.value) / 100,
+                  additional_medicare_rate: Number(String(nextValue)) / 100,
                 })
               }
               placeholder="0.9"
@@ -476,13 +488,14 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
             <NumberInput
               label="Additional Medicare Threshold ($)"
               value={fica.additional_medicare_threshold}
-              onChange={(e) =>
+              onChange={(nextValue) =>
                 setFica({
                   ...fica,
-                  additional_medicare_threshold: Number(e.target.value),
+                  additional_medicare_threshold: Number(String(nextValue)),
                 })
               }
-              integer
+              precision={0}
+              step={1}
               placeholder="200000"
             />
           </div>
@@ -499,20 +512,22 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
         <div className="glass-card rounded-xl p-6 space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <NumberInput
+              step={0.01}
               label="FUTA Rate (%)"
               value={toPercentDisplay(futa.rate)}
-              onChange={(e) =>
-                setFuta({ ...futa, rate: Number(e.target.value) / 100 })
+              onChange={(nextValue) =>
+                setFuta({ ...futa, rate: Number(String(nextValue)) / 100 })
               }
               placeholder="6.0"
             />
             <NumberInput
               label="FUTA Wage Base ($)"
               value={futa.wage_base}
-              onChange={(e) =>
-                setFuta({ ...futa, wage_base: Number(e.target.value) })
+              onChange={(nextValue) =>
+                setFuta({ ...futa, wage_base: Number(String(nextValue)) })
               }
-              integer
+              precision={0}
+              step={1}
               placeholder="7000"
             />
           </div>
@@ -544,13 +559,14 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
                 key={status}
                 label={FILING_STATUS_LABELS[status]}
                 value={stdDeductions[status]}
-                onChange={(e) =>
+                onChange={(nextValue) =>
                   setStdDeductions({
                     ...stdDeductions,
-                    [status]: Number(e.target.value),
+                    [status]: Number(String(nextValue)),
                   })
                 }
-                integer
+                precision={0}
+                step={1}
                 placeholder="0"
               />
             ))}
@@ -585,7 +601,7 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                   activeStatus === status
                     ? "bg-primary text-primary-foreground"
-                    : "bg-secondary text-muted-foreground hover:text-foreground"
+                    : "bg-secondary text-muted-foreground hover:text-foreground",
                 )}
               >
                 {FILING_STATUS_LABELS[status]}
@@ -593,7 +609,7 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
             ))}
           </div>
 
-          <CustomSelect
+          <Select
             label="Period"
             value={brackets.period}
             onChange={(value) =>
@@ -605,10 +621,12 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
             options={PERIOD_OPTIONS}
           />
 
-          <Input
+          <TextInput
             label="Source"
             value={brackets.source}
-            onChange={(e) => setBrackets({ ...brackets, source: e.target.value })}
+            onChange={(nextValue) =>
+              setBrackets({ ...brackets, source: nextValue })
+            }
             placeholder="Pub 15-T 2026 percentage method"
           />
 
@@ -631,45 +649,49 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
                   className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] gap-2 items-center"
                 >
                   <NumberInput
+                    aria-label="Bracket minimum"
+                    step={0.01}
                     value={row.min}
-                    onChange={(e) =>
-                      updateBracket(idx, { min: Number(e.target.value) })
+                    onChange={(nextValue) =>
+                      updateBracket(idx, { min: Number(String(nextValue)) })
                     }
                     placeholder="0.00"
-                    className="h-9 text-sm"
                   />
                   <NumberInput
+                    aria-label="Bracket maximum"
+                    step={0.01}
                     value={row.max ?? ""}
-                    onChange={(e) =>
+                    onChange={(nextValue) =>
                       updateBracket(idx, {
                         max:
-                          e.target.value === ""
+                          String(nextValue) === ""
                             ? null
-                            : Number(e.target.value),
+                            : Number(String(nextValue)),
                       })
                     }
                     placeholder="no cap"
-                    className="h-9 text-sm"
                   />
                   <NumberInput
+                    aria-label="Tax rate (percent)"
+                    step={0.01}
                     value={toPercentDisplay(row.rate)}
-                    onChange={(e) =>
+                    onChange={(nextValue) =>
                       updateBracket(idx, {
-                        rate: Number(e.target.value) / 100,
+                        rate: Number(String(nextValue)) / 100,
                       })
                     }
                     placeholder="0.00"
-                    className="h-9 text-sm"
                   />
                   <NumberInput
+                    aria-label="Base tax"
+                    step={0.01}
                     value={row.base_tax}
-                    onChange={(e) =>
+                    onChange={(nextValue) =>
                       updateBracket(idx, {
-                        base_tax: Number(e.target.value),
+                        base_tax: Number(String(nextValue)),
                       })
                     }
                     placeholder="0.00"
-                    className="h-9 text-sm"
                   />
                   <button
                     type="button"
@@ -704,8 +726,9 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
         </div>
         <div className="glass-card rounded-xl p-6">
           <Textarea
+            aria-label="Notes"
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            onChange={(nextValue) => setNotes(nextValue)}
             placeholder="e.g. 2025 brackets carried forward pending Pub 15-T 2026 release."
             rows={3}
           />
@@ -714,7 +737,9 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
 
       <div className="flex justify-end pt-2">
         <Button onClick={handleSave} disabled={saving}>
-          {saving && <Loader2 className="h-4 w-4 animate-spin mr-2" aria-hidden="true" />}
+          {saving && (
+            <Loader2 className="h-4 w-4 animate-spin mr-2" aria-hidden="true" />
+          )}
           {initial ? "Save Changes" : `Create ${year} Config`}
         </Button>
       </div>

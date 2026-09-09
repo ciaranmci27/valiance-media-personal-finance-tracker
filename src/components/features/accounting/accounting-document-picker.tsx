@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Select } from "@/components/ui/inputs/Select";
 import type {
   AccountingDocument,
   DocumentList,
@@ -50,7 +50,8 @@ export function AccountingDocumentPicker({
   }, [offset, tick]);
   return (
     <div className="space-y-3">
-      <SearchableSelect
+      <Select
+        searchable
         label={label}
         visibleLabel={label}
         required={required}
@@ -71,7 +72,7 @@ export function AccountingDocumentPicker({
           Load more documents
         </Button>
       )}
-      <details className="rounded-lg border border-border p-3 text-sm">
+      <details className="glass-card rounded-xl p-3 text-sm">
         <summary className="cursor-pointer text-muted-foreground">
           Upload a new document
         </summary>

@@ -10,7 +10,7 @@ import {
   RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Badge } from "@/components/ui/badge";
 import { SectionHeader } from "@/components/ui/section-header";
 import {
@@ -189,19 +189,19 @@ export function AccountingClose({
             Locking posts nothing and creates no balancing entries.
           </p>
         </div>
-        <Input
+        <TextInput
           label="Month"
           type="month"
           min="1900-01"
           max="2100-12"
           value={month}
           className="w-44"
-          onChange={(e) => {
-            if (e.target.value) {
-              setMonth(e.target.value);
+          onChange={(nextValue) => {
+            if (nextValue) {
+              setMonth(nextValue);
               setData(null);
               const url = new URL(window.location.href);
-              url.searchParams.set("month", e.target.value);
+              url.searchParams.set("month", nextValue);
               window.history.replaceState(null, "", url);
             }
           }}
@@ -634,12 +634,12 @@ function CloseAction({
                     .join(", ") || "No locked months"}
                 </p>
               </div>
-              <Input
+              <TextInput
                 label="Reason"
                 required
                 maxLength={1000}
                 value={reason}
-                onChange={(e) => setReason(e.target.value)}
+                onChange={(nextValue) => setReason(nextValue)}
               />
             </>
           )}

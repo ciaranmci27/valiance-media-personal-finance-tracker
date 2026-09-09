@@ -1,12 +1,13 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
-import { CustomSelect } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { Select } from "@/components/ui/inputs/Select";
+import { Toggle } from "@/components/ui/inputs/Toggle";
 import {
   taxLinkCommandSchema,
   validateTaxTargets,
@@ -51,7 +52,7 @@ function TargetSelect({
   const [value, setValue] = useState(current ?? "");
   return (
     <div data-form-change>
-      <CustomSelect
+      <Select
         label={label}
         value={value}
         onChange={setValue}
@@ -255,7 +256,7 @@ export function AccountingTaxLinkEditor({
         <fieldset disabled={command.busy} className="space-y-7">
           <section className="grid gap-4 sm:grid-cols-2">
             <div data-form-change>
-              <CustomSelect
+              <Select
                 label="Actuals cutoff"
                 value={mode}
                 onChange={(value) => setMode(value as typeof mode)}
@@ -265,14 +266,13 @@ export function AccountingTaxLinkEditor({
                 ]}
               />
             </div>
-            <Input
+            <DateInput
               label={mode === "today" ? "Forecast reviewed through" : "Through"}
-              type="date"
               value={effectiveThrough}
-              min={`${estimate.tax_year}-01-01`}
-              max={maxDate}
+              minDate={`${estimate.tax_year}-01-01`}
+              maxDate={maxDate}
               readOnly={mode === "today"}
-              onChange={(e) => setThrough(e.target.value)}
+              onChange={(nextValue) => setThrough(nextValue)}
               required
             />
             {mode === "today" && (
@@ -296,7 +296,7 @@ export function AccountingTaxLinkEditor({
               </p>
             </div>
             <div data-form-change>
-              <CustomSelect
+              <Select
                 label="Personal K-1 row"
                 value={business}
                 onChange={setBusiness}
@@ -312,7 +312,7 @@ export function AccountingTaxLinkEditor({
             {business && (
               <>
                 <div data-form-change>
-                  <CustomSelect
+                  <Select
                     label="Remaining-year forecast"
                     value={method}
                     onChange={(value) => setMethod(value as typeof method)}
@@ -333,7 +333,7 @@ export function AccountingTaxLinkEditor({
                   />
                 </div>
                 {method === "manual" ? (
-                  <Input
+                  <TextInput
                     name="business_remaining"
                     label="Income expected after the cutoff"
                     inputMode="decimal"
@@ -347,7 +347,7 @@ export function AccountingTaxLinkEditor({
                   />
                 ) : (
                   <>
-                    <Input
+                    <TextInput
                       name="partial_remaining"
                       label="Remaining income in the current partial month"
                       inputMode="decimal"
@@ -377,7 +377,7 @@ export function AccountingTaxLinkEditor({
                                       : old.filter((v) => v !== m.month),
                                   )
                                 }
-                                className="w-full justify-start rounded-lg border border-border p-3 text-left"
+                                className="w-full justify-start glass-card rounded-xl p-3 text-left"
                                 label={
                                   <span>
                                     {monthLabel(m.month)}
@@ -406,7 +406,7 @@ export function AccountingTaxLinkEditor({
                         month must be closed and its tax treatment reviewed.
                       </p>
                     )}
-                    <details className="rounded-lg border border-border p-4">
+                    <details className="glass-card rounded-xl p-4">
                       <summary className="cursor-pointer text-sm">
                         Exclude one-off transactions from the forecast base
                       </summary>
@@ -418,7 +418,7 @@ export function AccountingTaxLinkEditor({
                         {exclusions.map((exclusion, index) => (
                           <div
                             key={index}
-                            className="space-y-2 rounded-lg border border-border p-3"
+                            className="space-y-2 glass-card rounded-xl p-3"
                           >
                             <AccountingEntryPicker
                               value={exclusion.entry_id}
@@ -430,14 +430,14 @@ export function AccountingTaxLinkEditor({
                                 )
                               }
                             />
-                            <Input
+                            <TextInput
                               label="Reason for exclusion"
                               value={exclusion.reason}
-                              onChange={(e) =>
+                              onChange={(nextValue) =>
                                 setExclusions((old) =>
                                   old.map((row, i) =>
                                     i === index
-                                      ? { ...row, reason: e.target.value }
+                                      ? { ...row, reason: nextValue }
                                       : row,
                                   ),
                                 )
@@ -525,7 +525,7 @@ export function AccountingTaxLinkEditor({
               return (
                 <div
                   key={key}
-                  className="grid gap-3 rounded-lg border border-border p-4 sm:grid-cols-2"
+                  className="grid gap-3 glass-card rounded-xl p-4 sm:grid-cols-2"
                 >
                   <div>
                     <TargetSelect
@@ -542,7 +542,7 @@ export function AccountingTaxLinkEditor({
                       />
                     </p>
                   </div>
-                  <Input
+                  <TextInput
                     id={`tax-link-remaining-${key}`}
                     name={`remaining_${key}`}
                     label="Remaining after cutoff"
@@ -561,7 +561,7 @@ export function AccountingTaxLinkEditor({
               label="Record external treatment of charitable contributions or tax-exempt income"
             />
             {manualReview && (
-              <div className="space-y-3 rounded-lg border border-border p-4">
+              <div className="space-y-3 glass-card rounded-xl p-4">
                 <p className="text-xs text-muted-foreground">
                   Charitable contribution:{" "}
                   <MaskedValue
@@ -580,7 +580,7 @@ export function AccountingTaxLinkEditor({
                   onChange={setDocument}
                   required
                 />
-                <Input
+                <TextInput
                   name="separate_reason"
                   label="How the personal return and basis were reviewed"
                   defaultValue={initial?.manual_separate_review?.reason}
@@ -591,7 +591,7 @@ export function AccountingTaxLinkEditor({
             )}
           </details>
           <section className="space-y-4 border-t border-border pt-5">
-            <Switch
+            <Toggle
               data-form-change
               checked={payrollEnabled}
               onChange={setPayrollEnabled}
@@ -612,7 +612,7 @@ export function AccountingTaxLinkEditor({
                   </p>
                 )}
                 <div data-form-change>
-                  <CustomSelect
+                  <Select
                     label="Employee in the verified provider report"
                     required
                     placeholder="Choose employee"
@@ -636,7 +636,7 @@ export function AccountingTaxLinkEditor({
                     }))}
                     current={initial?.payroll?.income_target_id}
                   />
-                  <Input
+                  <TextInput
                     name="payroll_state"
                     label="State for provider wage figures"
                     maxLength={2}
@@ -673,7 +673,7 @@ export function AccountingTaxLinkEditor({
                     current={initial?.payroll?.state_payment_id}
                   />
                 </div>
-                <div className="rounded-lg border border-border">
+                <div className="glass-card rounded-xl">
                   <div className="grid grid-cols-2 gap-3 border-b border-border bg-secondary/20 px-4 py-3 text-xs font-medium">
                     <span>Verified year to date</span>
                     <span>Expected after cutoff</span>
@@ -697,7 +697,7 @@ export function AccountingTaxLinkEditor({
                           />
                         )}
                       </div>
-                      <Input
+                      <TextInput
                         name={key}
                         aria-label={`Remaining ${label.toLowerCase()}`}
                         inputMode="decimal"
@@ -718,7 +718,7 @@ export function AccountingTaxLinkEditor({
               </>
             )}
           </section>
-          <Input
+          <TextInput
             name="reason"
             label="Review notes"
             placeholder="Basis for these targets and remaining-year assumptions"

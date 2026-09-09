@@ -20,8 +20,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { CustomSelect } from "@/components/ui/select";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Select } from "@/components/ui/inputs/Select";
 import { cn } from "@/lib/utils";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { toast } from "@/components/ui/toast";
@@ -544,7 +544,7 @@ export function TaxSettingsContent() {
                   {isExpanded && (
                     <div className="border-t border-white/[0.06] p-4 space-y-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <CustomSelect
+                        <Select
                           label="Filing Status"
                           value={profile.filingStatus}
                           onChange={(val) =>
@@ -555,7 +555,7 @@ export function TaxSettingsContent() {
                           options={FILING_STATUS_OPTIONS}
                           size="sm"
                         />
-                        <CustomSelect
+                        <Select
                           label="State"
                           value={profile.state}
                           onChange={(val) =>
@@ -569,7 +569,7 @@ export function TaxSettingsContent() {
                           size="sm"
                         />
                         {businessProfile ? (
-                          <div className="sm:col-span-2 rounded-lg border border-border bg-[rgba(var(--ink),0.03)] px-3 py-2.5 text-sm">
+                          <div className="sm:col-span-2 glass-card rounded-xl bg-[rgba(var(--ink),0.03)] px-3 py-2.5 text-sm">
                             <p className="text-xs font-medium text-muted-foreground">
                               Business structure
                             </p>
@@ -585,7 +585,7 @@ export function TaxSettingsContent() {
                           </div>
                         ) : (
                           <>
-                            <CustomSelect
+                            <Select
                               label="Business Structure"
                               value={profile.businessType}
                               onChange={(val) => {
@@ -600,7 +600,7 @@ export function TaxSettingsContent() {
                               size="sm"
                             />
                             {showClassification && (
-                              <CustomSelect
+                              <Select
                                 label="Tax Classification"
                                 value={profile.taxClassification ?? ""}
                                 onChange={(val) =>
@@ -657,20 +657,20 @@ export function TaxSettingsContent() {
           {showAddYear ? (
             <div className="flex flex-col gap-1">
               <div className="flex items-center gap-2">
-                <Input
+                <TextInput
+                  aria-label="Year"
+                  size="sm"
                   inputMode="numeric"
                   maxLength={4}
                   placeholder={`e.g. ${supportedYears[0] ?? 2026}`}
                   value={addYearValue}
-                  onChange={(e) => {
-                    const digitsOnly = e.target.value
-                      .replace(/\D/g, "")
-                      .slice(0, 4);
+                  onChange={(nextValue) => {
+                    const digitsOnly = nextValue.replace(/\D/g, "").slice(0, 4);
                     setAddYearValue(digitsOnly);
                     if (addYearError) setAddYearError(null);
                   }}
                   onKeyDown={(e) => e.key === "Enter" && addYear()}
-                  className="h-8 w-28 text-sm"
+                  className="w-28"
                   autoFocus
                 />
                 <Button

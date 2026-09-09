@@ -1,11 +1,13 @@
 "use client";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowUpRight, RefreshCw } from "lucide-react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Pagination } from "@/components/ui/pagination";
 import type { BooksMetadata } from "./types";
@@ -237,14 +239,14 @@ export function AccountingContractors({
           apply({ ...draft, offset: 0 });
         }}
       >
-        <Input
+        <NumberInput
+          step={1}
           label="Tax year"
-          type="number"
           min={1900}
           max={currentYear}
           value={draft.year}
-          onChange={(e) => {
-            const year = Number(e.target.value);
+          onChange={(nextValue) => {
+            const year = Number(String(nextValue));
             setDraft((d) => ({
               ...d,
               year,
@@ -252,19 +254,22 @@ export function AccountingContractors({
             }));
           }}
         />
-        <Input
+        <DateInput
           id="contractor-through"
           label="Through"
-          type="date"
-          min={`${draft.year}-01-01`}
-          max={today}
+          minDate={`${draft.year}-01-01`}
+          maxDate={today}
           value={draft.through}
-          onChange={(e) => setDraft((d) => ({ ...d, through: e.target.value }))}
+          onChange={(nextValue) =>
+            setDraft((d) => ({ ...d, through: nextValue }))
+          }
         />
-        <Input
+        <TextInput
           label="Search contractors"
           value={draft.query}
-          onChange={(e) => setDraft((d) => ({ ...d, query: e.target.value }))}
+          onChange={(nextValue) =>
+            setDraft((d) => ({ ...d, query: nextValue }))
+          }
         />
         <AccountingPicker
           label="Contractor"

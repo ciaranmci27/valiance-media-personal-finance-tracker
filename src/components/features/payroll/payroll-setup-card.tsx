@@ -2,15 +2,10 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import {
-  Building2,
-  Check,
-  ChevronRight,
-  Loader2,
-} from "lucide-react";
+import { Building2, Check, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { CustomSelect } from "@/components/ui/select";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Select } from "@/components/ui/inputs/Select";
 import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
@@ -162,14 +157,18 @@ export function PayrollSetupCard({ onComplete }: PayrollSetupCardProps) {
         <div className="text-center space-y-2">
           <div className="flex justify-center">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-              <Building2 className="h-6 w-6 text-teal-light" aria-hidden="true" />
+              <Building2
+                className="h-6 w-6 text-teal-light"
+                aria-hidden="true"
+              />
             </div>
           </div>
           <h2 className="text-xl font-semibold text-foreground">
             Set Up Payroll
           </h2>
           <p className="text-sm text-muted-foreground">
-            Tell us about your business. This appears on pay stubs, 941s, and W-2s.
+            Tell us about your business. This appears on pay stubs, 941s, and
+            W-2s.
           </p>
         </div>
 
@@ -195,17 +194,17 @@ export function PayrollSetupCard({ onComplete }: PayrollSetupCardProps) {
             <div className="flex-1 h-px bg-border/50" />
           </div>
           <div className="glass-card rounded-xl p-5 space-y-4">
-            <Input
+            <TextInput
               label="Legal Name"
               value={legalName}
-              onChange={(e) => setLegalName(e.target.value)}
+              onChange={(nextValue) => setLegalName(nextValue)}
               placeholder="Your S Corp, Inc."
               required
             />
-            <Input
+            <TextInput
               label="EIN"
               value={fein}
-              onChange={(e) => setFein(formatFein(e.target.value))}
+              onChange={(nextValue) => setFein(formatFein(nextValue))}
               placeholder="12-3456789"
               inputMode="numeric"
               required
@@ -222,28 +221,28 @@ export function PayrollSetupCard({ onComplete }: PayrollSetupCardProps) {
             <div className="flex-1 h-px bg-border/50" />
           </div>
           <div className="glass-card rounded-xl p-5 space-y-4">
-            <Input
+            <TextInput
               label="Address Line 1"
               value={address.line1}
-              onChange={(e) => updateAddress({ line1: e.target.value })}
+              onChange={(nextValue) => updateAddress({ line1: nextValue })}
               placeholder="123 Main St"
               required
             />
-            <Input
+            <TextInput
               label="Address Line 2"
               value={address.line2 ?? ""}
-              onChange={(e) => updateAddress({ line2: e.target.value })}
+              onChange={(nextValue) => updateAddress({ line2: nextValue })}
               placeholder="Suite 400 (optional)"
             />
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Input
+              <TextInput
                 label="City"
                 value={address.city}
-                onChange={(e) => updateAddress({ city: e.target.value })}
+                onChange={(nextValue) => updateAddress({ city: nextValue })}
                 placeholder="Phoenix"
                 required
               />
-              <CustomSelect
+              <Select
                 label="State"
                 value={address.state}
                 onChange={(val) => updateAddress({ state: val })}
@@ -251,10 +250,10 @@ export function PayrollSetupCard({ onComplete }: PayrollSetupCardProps) {
                 placeholder="Select state"
                 required
               />
-              <Input
+              <TextInput
                 label="ZIP"
                 value={address.zip}
-                onChange={(e) => updateAddress({ zip: e.target.value })}
+                onChange={(nextValue) => updateAddress({ zip: nextValue })}
                 placeholder="85001"
                 inputMode="numeric"
                 required
@@ -273,32 +272,32 @@ export function PayrollSetupCard({ onComplete }: PayrollSetupCardProps) {
           </div>
           <div className="glass-card rounded-xl p-5 space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input
+              <TextInput
                 label="Signer Name"
                 value={signerName}
-                onChange={(e) => setSignerName(e.target.value)}
+                onChange={(nextValue) => setSignerName(nextValue)}
                 placeholder="Jane Doe"
                 required
               />
-              <Input
+              <TextInput
                 label="Title (optional)"
                 value={signerTitle}
-                onChange={(e) => setSignerTitle(e.target.value)}
+                onChange={(nextValue) => setSignerTitle(nextValue)}
                 placeholder="President"
               />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input
+              <TextInput
                 label="Phone (optional)"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(nextValue) => setPhone(nextValue)}
                 placeholder="(555) 555-5555"
                 type="tel"
               />
-              <Input
+              <TextInput
                 label="Email (optional)"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(nextValue) => setEmail(nextValue)}
                 placeholder="signer@example.com"
                 type="email"
               />
@@ -309,7 +308,10 @@ export function PayrollSetupCard({ onComplete }: PayrollSetupCardProps) {
         <div className="flex justify-end">
           <Button onClick={handleFinish} disabled={saving}>
             {saving ? (
-              <Loader2 className="h-4 w-4 animate-spin mr-2" aria-hidden="true" />
+              <Loader2
+                className="h-4 w-4 animate-spin mr-2"
+                aria-hidden="true"
+              />
             ) : null}
             Finish Setup
             {!saving && (

@@ -7,11 +7,7 @@ import { FileCheck2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { generateFormA1Apr } from "@/lib/payroll/forms-actions";
-import {
-  FormViewerShell,
-  LineRow,
-  SectionHeading,
-} from "./form-viewer-shell";
+import { FormViewerShell, LineRow, SectionHeading } from "./form-viewer-shell";
 import type { FormA1AprData, PayrollForm } from "@/types/payroll";
 import { Term } from "./term";
 
@@ -91,7 +87,13 @@ export function FormA1AprContent({
   );
 }
 
-function FormA1AprLayout({ data, year }: { data: FormA1AprData; year: number }) {
+function FormA1AprLayout({
+  data,
+  year,
+}: {
+  data: FormA1AprData;
+  year: number;
+}) {
   return (
     <div className="space-y-6">
       <section className="glass-card rounded-xl p-5 space-y-2">
@@ -137,7 +139,7 @@ function FormA1AprLayout({ data, year }: { data: FormA1AprData; year: number }) 
 
       <section className="glass-card rounded-xl p-5 space-y-3">
         <SectionHeading>Quarterly breakdown</SectionHeading>
-        <div className="rounded-lg border border-border overflow-hidden">
+        <div className="glass-card rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-secondary/40 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>

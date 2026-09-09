@@ -14,7 +14,7 @@ import {
   Target,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CustomSelect } from "@/components/ui/select";
+import { Select } from "@/components/ui/inputs/Select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { NetWorthChart } from "@/components/charts/net-worth-chart";
@@ -67,18 +67,18 @@ function NetWorthCard({
     formatCurrency(Number(entry.amount)),
     isHidden,
     isRevealed,
-    currencyMask
+    currencyMask,
   );
   const displayChange = getMaskedValue(
     formatCurrency(Math.abs(change)),
     isHidden,
     isRevealed,
-    currencyMask
+    currencyMask,
   );
   const displayPercent = getMaskedValue(
     formatPercentage(changePercent),
     isHidden,
-    isRevealed
+    isRevealed,
   );
 
   return (
@@ -91,7 +91,7 @@ function NetWorthCard({
         "glass-card glass-card-interactive rounded-xl p-4 cursor-pointer transition-all duration-300",
         "hover:border-primary/30 active:scale-[0.98]",
         "animate-fade-up",
-        `stagger-${Math.min(index + 1, 6)}`
+        `stagger-${Math.min(index + 1, 6)}`,
       )}
     >
       {/* Header: Month and Amount */}
@@ -108,7 +108,7 @@ function NetWorthCard({
           <span
             className={cn(
               "tabular-nums font-semibold text-lg",
-              Number(entry.amount) < 0 ? "text-error" : "text-teal-light"
+              Number(entry.amount) < 0 ? "text-error" : "text-teal-light",
             )}
           >
             {displayAmount}
@@ -128,14 +128,16 @@ function NetWorthCard({
                   isHidden && !isRevealed
                     ? "text-muted-foreground"
                     : change > 0
-                    ? "text-success"
-                    : change < 0
-                    ? "text-error"
-                    : "text-muted-foreground"
+                      ? "text-success"
+                      : change < 0
+                        ? "text-error"
+                        : "text-muted-foreground",
                 )}
               >
                 {displayChange}
-                <span className="text-xs opacity-75 ml-1">({displayPercent})</span>
+                <span className="text-xs opacity-75 ml-1">
+                  ({displayPercent})
+                </span>
               </span>
             </div>
           )}
@@ -175,18 +177,18 @@ function NetWorthRow({
     formatCurrency(Number(entry.amount)),
     isHidden,
     isRevealed,
-    currencyMask
+    currencyMask,
   );
   const displayChange = getMaskedValue(
     formatCurrency(Math.abs(change)),
     isHidden,
     isRevealed,
-    currencyMask
+    currencyMask,
   );
   const displayPercent = getMaskedValue(
     formatPercentage(changePercent),
     isHidden,
-    isRevealed
+    isRevealed,
   );
 
   const handleRowClick = () => {
@@ -198,7 +200,7 @@ function NetWorthRow({
       onClick={handleRowClick}
       className={cn(
         "transition-all duration-300 hover:bg-secondary cursor-pointer animate-fade-up",
-        `stagger-${Math.min(index + 1, 6)}`
+        `stagger-${Math.min(index + 1, 6)}`,
       )}
       {...hoverProps}
     >
@@ -210,7 +212,7 @@ function NetWorthRow({
       <td
         className={cn(
           "px-4 py-3 align-middle text-right tabular-nums font-medium min-w-[140px]",
-          Number(entry.amount) < 0 ? "text-error" : "text-teal-light"
+          Number(entry.amount) < 0 ? "text-error" : "text-teal-light",
         )}
       >
         {displayAmount}
@@ -224,20 +226,20 @@ function NetWorthRow({
               isHidden && !isRevealed
                 ? "text-muted-foreground"
                 : change > 0
-                ? "text-success"
-                : change < 0
-                ? "text-error"
-                : "text-muted-foreground"
+                  ? "text-success"
+                  : change < 0
+                    ? "text-error"
+                    : "text-muted-foreground",
             )}
           >
             {displayChange}
             <span className="text-xs opacity-75">({displayPercent})</span>
           </span>
         )}
-        {!prevEntry && <span className="text-muted-foreground">—</span>}
+        {!prevEntry && <span className="text-muted-foreground">,</span>}
       </td>
       <td className="px-4 py-3 align-middle text-sm text-muted-foreground truncate max-w-[200px]">
-        {entry.notes || "—"}
+        {entry.notes || ","}
       </td>
     </tr>
   );
@@ -247,15 +249,17 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = React.useState<string>("all");
   const [sortColumn, setSortColumn] = React.useState<SortColumn>("date");
-  const [sortDirection, setSortDirection] = React.useState<SortDirection>("desc");
+  const [sortDirection, setSortDirection] =
+    React.useState<SortDirection>("desc");
 
   // Hover-to-reveal for the trend chart
-  const { isRevealed: trendChartRevealed, hoverProps: trendChartHoverProps } = useMaskedHover();
+  const { isRevealed: trendChartRevealed, hoverProps: trendChartHoverProps } =
+    useMaskedHover();
 
   // Get unique years from entries
   const years = React.useMemo(() => {
     const uniqueYears = new Set(
-      entries.map((e) => parseLocalDate(e.date).getFullYear())
+      entries.map((e) => parseLocalDate(e.date).getFullYear()),
     );
     return Array.from(uniqueYears).sort((a, b) => b - a);
   }, [entries]);
@@ -274,7 +278,8 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
   const entryToPrevMap = React.useMemo(() => {
     const map = new Map<string, NetWorth | undefined>();
     const sorted = [...entries].sort(
-      (a, b) => parseLocalDate(b.date).getTime() - parseLocalDate(a.date).getTime()
+      (a, b) =>
+        parseLocalDate(b.date).getTime() - parseLocalDate(a.date).getTime(),
     );
     sorted.forEach((entry, index) => {
       map.set(entry.id, sorted[index + 1]);
@@ -288,7 +293,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
       const prev = entryToPrevMap.get(entry.id);
       return prev ? Number(entry.amount) - Number(prev.amount) : 0;
     },
-    [entryToPrevMap]
+    [entryToPrevMap],
   );
 
   // Filter and sort entries
@@ -308,7 +313,8 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
       let comparison = 0;
 
       if (sortColumn === "date") {
-        comparison = parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime();
+        comparison =
+          parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime();
       } else if (sortColumn === "amount") {
         comparison = Number(a.amount) - Number(b.amount);
       } else if (sortColumn === "change") {
@@ -337,11 +343,13 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
 
     // Calculate total change for the period
     const sortedByDate = [...targetEntries].sort(
-      (a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime()
+      (a, b) =>
+        parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime(),
     );
     const first = sortedByDate[0];
     const last = sortedByDate[sortedByDate.length - 1];
-    const totalChange = first && last ? Number(last.amount) - Number(first.amount) : 0;
+    const totalChange =
+      first && last ? Number(last.amount) - Number(first.amount) : 0;
 
     return { high, low, average, totalChange };
   }, [entries, filteredEntries, selectedYear]);
@@ -349,7 +357,10 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
   // Chart data (filtered entries, chronological order)
   const chartData = React.useMemo(() => {
     return [...filteredEntries]
-      .sort((a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime())
+      .sort(
+        (a, b) =>
+          parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime(),
+      )
       .map((entry) => ({
         date: entry.date,
         amount: Number(entry.amount),
@@ -360,19 +371,21 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
   // Uses full entries list to find prior month (e.g., Dec of prior year for Jan)
   const changeData = React.useMemo(() => {
     const sorted = [...filteredEntries].sort(
-      (a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime()
+      (a, b) =>
+        parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime(),
     );
 
     // Build a lookup from the full (unfiltered) entries sorted chronologically
     const allSorted = [...entries].sort(
-      (a, b) => parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime()
+      (a, b) =>
+        parseLocalDate(a.date).getTime() - parseLocalDate(b.date).getTime(),
     );
 
     return sorted
       .map((entry) => {
         // Find this entry's index in the full list, then grab the one before it
         const idxInAll = allSorted.findIndex((e) => e.id === entry.id);
-        if (idxInAll <= 0) return null; // No prior entry exists at all — skip
+        if (idxInAll <= 0) return null; // No prior entry exists at all , skip
         const prev = allSorted[idxInAll - 1];
         return {
           date: entry.date,
@@ -392,7 +405,9 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
     ...years.map((year) => ({
       value: year.toString(),
       label: year.toString(),
-      count: entries.filter((e) => parseLocalDate(e.date).getFullYear() === year).length,
+      count: entries.filter(
+        (e) => parseLocalDate(e.date).getFullYear() === year,
+      ).length,
     })),
   ];
 
@@ -415,14 +430,18 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
           className="stagger-1"
         />
         <StatCard
-          title={selectedYear === "all" ? "All-Time High" : `${selectedYear} High`}
+          title={
+            selectedYear === "all" ? "All-Time High" : `${selectedYear} High`
+          }
           value={stats.high}
           icon={<Trophy className="h-5 w-5" />}
           trend="up"
           className="stagger-2"
         />
         <StatCard
-          title={selectedYear === "all" ? "All-Time Low" : `${selectedYear} Low`}
+          title={
+            selectedYear === "all" ? "All-Time Low" : `${selectedYear} Low`
+          }
           value={stats.low}
           icon={<Target className="h-5 w-5" />}
           trend="down"
@@ -440,7 +459,8 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
       <div className="flex items-center justify-between gap-2 min-[560px]:gap-4">
         {/* Mobile: Dropdown select for tabs */}
         <div className="min-[700px]:hidden w-32">
-          <CustomSelect
+          <Select
+            ariaLabel="Year"
             value={selectedYear}
             onChange={(value) => setSelectedYear(value)}
             options={yearTabs.map((tab) => ({
@@ -461,15 +481,20 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                 "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
                 selectedYear === tab.value
                   ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary",
               )}
             >
               {tab.label}
             </button>
           ))}
           {yearTabs.length > 6 && (
-            <CustomSelect
-              value={yearTabs.slice(6).some((t) => t.value === selectedYear) ? selectedYear : ""}
+            <Select
+              ariaLabel="Year"
+              value={
+                yearTabs.slice(6).some((t) => t.value === selectedYear)
+                  ? selectedYear
+                  : ""
+              }
               onChange={(value) => setSelectedYear(value)}
               options={yearTabs.slice(6).map((tab) => ({
                 value: tab.value,
@@ -502,7 +527,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 sortColumn === "date"
                   ? "bg-primary/10 text-teal-light"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               Date
@@ -519,7 +544,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 sortColumn === "amount"
                   ? "bg-primary/10 text-teal-light"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               Amount
@@ -536,7 +561,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 sortColumn === "change"
                   ? "bg-primary/10 text-teal-light"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               Change
@@ -564,7 +589,9 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
             <div className="glass-card rounded-xl p-4 mt-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-muted-foreground">
-                  {selectedYear === "all" ? "Period Change" : `${selectedYear} Change`}
+                  {selectedYear === "all"
+                    ? "Period Change"
+                    : `${selectedYear} Change`}
                 </span>
                 <span
                   className={cn(
@@ -572,8 +599,8 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                     stats.totalChange > 0
                       ? "text-success"
                       : stats.totalChange < 0
-                      ? "text-error"
-                      : "text-foreground"
+                        ? "text-error"
+                        : "text-foreground",
                   )}
                 >
                   <MaskedValue
@@ -603,7 +630,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                         onClick={() => handleSort("date")}
                         className={cn(
                           "inline-flex items-center gap-1 hover:text-foreground transition-colors",
-                          sortColumn === "date" && "text-foreground"
+                          sortColumn === "date" && "text-foreground",
                         )}
                       >
                         Date
@@ -620,7 +647,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                         onClick={() => handleSort("amount")}
                         className={cn(
                           "inline-flex items-center gap-1 hover:text-foreground transition-colors",
-                          sortColumn === "amount" && "text-foreground"
+                          sortColumn === "amount" && "text-foreground",
                         )}
                       >
                         Amount
@@ -637,7 +664,7 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                         onClick={() => handleSort("change")}
                         className={cn(
                           "inline-flex items-center gap-1 hover:text-foreground transition-colors",
-                          sortColumn === "change" && "text-foreground"
+                          sortColumn === "change" && "text-foreground",
                         )}
                       >
                         Change
@@ -668,7 +695,9 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                   <tfoot>
                     <tr className="border-t-2 border-border bg-secondary">
                       <td className="px-4 py-3 text-sm font-medium text-muted-foreground">
-                        {selectedYear === "all" ? "Period Change" : `${selectedYear} Change`}
+                        {selectedYear === "all"
+                          ? "Period Change"
+                          : `${selectedYear} Change`}
                       </td>
                       <td></td>
                       <td className="px-4 py-3 text-right">
@@ -678,8 +707,8 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                             stats.totalChange > 0
                               ? "text-success"
                               : stats.totalChange < 0
-                              ? "text-error"
-                              : "text-foreground"
+                                ? "text-error"
+                                : "text-foreground",
                           )}
                         >
                           <MaskedValue
@@ -714,7 +743,10 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <NetWorthChart data={chartData} isRevealed={trendChartRevealed} />
+                  <NetWorthChart
+                    data={chartData}
+                    isRevealed={trendChartRevealed}
+                  />
                 </CardContent>
               </Card>
             )}

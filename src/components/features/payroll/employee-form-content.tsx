@@ -14,12 +14,12 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DateInput } from "@/components/ui/date-input";
-import { Input } from "@/components/ui/input";
-import { NumberInput } from "@/components/ui/number-input";
-import { CustomSelect } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
+import { DateInput } from "@/components/ui/inputs/DateInput";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { Select } from "@/components/ui/inputs/Select";
+import { Toggle } from "@/components/ui/inputs/Toggle";
+import { Textarea } from "@/components/ui/inputs/Textarea";
 import { toast } from "@/components/ui/toast";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { STATE_OPTIONS } from "@/lib/tax/state-taxes";
@@ -151,7 +151,9 @@ const EMPTY_ADDRESS: PayrollAddress = {
 };
 
 function toAddress(value: unknown): PayrollAddress {
-  const a = (value && typeof value === "object" ? value : {}) as Partial<PayrollAddress>;
+  const a = (
+    value && typeof value === "object" ? value : {}
+  ) as Partial<PayrollAddress>;
   return {
     line1: a.line1 ?? "",
     line2: a.line2 ?? "",
@@ -315,7 +317,9 @@ function nextWeekdayOnOrAfter(startYmd: string, weekday: Weekday): string {
  * shorter than the requested day (Feb 31 -> Feb 28/29, Apr 31 -> Apr 30).
  */
 function anchorForDayOfMonth(referenceYmd: string, day: number): string {
-  const base = /^\d{4}-\d{2}-\d{2}$/.test(referenceYmd) ? referenceYmd : today();
+  const base = /^\d{4}-\d{2}-\d{2}$/.test(referenceYmd)
+    ? referenceYmd
+    : today();
   const [y, m] = base.split("-").map(Number);
   const safeDay = Math.max(1, Math.min(31, day || 15));
   const capped = Math.min(safeDay, daysInUtcMonth(y, m));
@@ -346,14 +350,14 @@ function reconcileAnchor(form: FormState): string {
       if (weekdayFromYmd(form.pay_anchor_date) === form.pay_weekday) {
         return form.pay_anchor_date;
       }
-      return nextWeekdayOnOrAfter(
-        form.hire_date || today(),
-        form.pay_weekday,
-      );
+      return nextWeekdayOnOrAfter(form.hire_date || today(), form.pay_weekday);
     }
 
     case "monthly": {
-      const requested = Math.max(1, Math.min(31, Number(form.monthly_day) || 15));
+      const requested = Math.max(
+        1,
+        Math.min(31, Number(form.monthly_day) || 15),
+      );
       if (anchorDayMatches(form.pay_anchor_date, requested)) {
         return form.pay_anchor_date;
       }
@@ -361,8 +365,14 @@ function reconcileAnchor(form: FormState): string {
     }
 
     case "semimonthly": {
-      const sd1 = Math.max(1, Math.min(31, Number(form.semimonthly_day_1) || 15));
-      const sd2 = Math.max(1, Math.min(31, Number(form.semimonthly_day_2) || 31));
+      const sd1 = Math.max(
+        1,
+        Math.min(31, Number(form.semimonthly_day_1) || 15),
+      );
+      const sd2 = Math.max(
+        1,
+        Math.min(31, Number(form.semimonthly_day_2) || 31),
+      );
       // Anchor is valid if it falls on EITHER pay day (the engine treats the
       // two days symmetrically; any occurrence of either day is a valid
       // starting reference).
@@ -374,10 +384,7 @@ function reconcileAnchor(form: FormState): string {
       }
       // Current anchor doesn't match either day; re-derive from the earlier
       // of the two in the hire-month.
-      return anchorForDayOfMonth(
-        form.hire_date || today(),
-        Math.min(sd1, sd2),
-      );
+      return anchorForDayOfMonth(form.hire_date || today(), Math.min(sd1, sd2));
     }
   }
 }
@@ -422,9 +429,7 @@ function findStateConfig(
   if (!stateCode) return null;
   const matches = stateConfigs.filter((c) => c.state_code === stateCode);
   if (matches.length === 0) return null;
-  return matches.reduce((best, c) =>
-    c.tax_year > best.tax_year ? c : best,
-  );
+  return matches.reduce((best, c) => (c.tax_year > best.tax_year ? c : best));
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -596,10 +601,7 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
       form.pay_frequency === "semimonthly" &&
       Number(form.semimonthly_day_1) === Number(form.semimonthly_day_2)
     ) {
-      toast(
-        "error",
-        "Semimonthly requires two different pay days each month.",
-      );
+      toast("error", "Semimonthly requires two different pay days each month.");
       return;
     }
 
@@ -655,7 +657,10 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <UserCircle className="h-5 w-5 text-teal-light" aria-hidden="true" />
+              <UserCircle
+                className="h-5 w-5 text-teal-light"
+                aria-hidden="true"
+              />
             </div>
             <div>
               <h1 className="text-2xl font-bold">
@@ -690,7 +695,10 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
           )}
           <Button onClick={handleSave} disabled={saving}>
             {saving ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden="true" />
+              <Loader2
+                className="h-4 w-4 mr-1 animate-spin"
+                aria-hidden="true"
+              />
             ) : (
               <Save className="h-4 w-4 mr-1" aria-hidden="true" />
             )}
@@ -702,32 +710,32 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
       {/* Personal */}
       <Section title="Personal">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Input
+          <TextInput
             label="First Name"
             value={form.first_name}
-            onChange={(e) => update("first_name", e.target.value)}
+            onChange={(nextValue) => update("first_name", nextValue)}
             placeholder="Jane"
           />
-          <Input
+          <TextInput
             label="Last Name"
             value={form.last_name}
-            onChange={(e) => update("last_name", e.target.value)}
+            onChange={(nextValue) => update("last_name", nextValue)}
             placeholder="Doe"
           />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Input
+          <TextInput
             label="Email (optional)"
             type="email"
             value={form.email}
-            onChange={(e) => update("email", e.target.value)}
+            onChange={(nextValue) => update("email", nextValue)}
             placeholder="jane@example.com"
           />
-          <Input
+          <TextInput
             label="Phone (optional)"
             type="tel"
             value={form.phone}
-            onChange={(e) => update("phone", e.target.value)}
+            onChange={(nextValue) => update("phone", nextValue)}
             placeholder="(555) 555-5555"
           />
         </div>
@@ -739,9 +747,15 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
           </label>
           {isEdit && !editingSsn ? (
             <div className="flex items-center gap-2">
-              <div className="flex-1 font-mono text-sm text-muted-foreground bg-input rounded-lg px-3 py-2 border border-border">
-                {revealedSsn ?? (hasExistingSsn ? "•••-••-••••" : "No SSN on file")}
-              </div>
+              <TextInput
+                aria-label="Social security number"
+                className="flex-1"
+                readOnly
+                value={
+                  revealedSsn ??
+                  (hasExistingSsn ? "•••-••-••••" : "No SSN on file")
+                }
+              />
               {hasExistingSsn && (
                 <Button
                   variant="ghost"
@@ -750,7 +764,10 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
                   disabled={revealing}
                 >
                   {revealing ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    <Loader2
+                      className="h-4 w-4 animate-spin"
+                      aria-hidden="true"
+                    />
                   ) : revealedSsn ? (
                     <EyeOff className="h-4 w-4 mr-1" aria-hidden="true" />
                   ) : (
@@ -773,26 +790,31 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
             </div>
           ) : (
             <div className="flex items-center gap-2">
-              <Input
+              <TextInput
+                aria-label="Social security number"
                 value={ssnInput}
-                onChange={(e) =>
-                  setSsnInput(e.target.value.replace(/\D/g, "").slice(0, 9))
+                onChange={(nextValue) =>
+                  setSsnInput(nextValue.replace(/\D/g, "").slice(0, 9))
                 }
                 placeholder="9 digits, no dashes"
                 inputMode="numeric"
                 type={showSsnInput ? "text" : "password"}
                 autoComplete="off"
                 className="flex-1"
-                rightIcon={
-                  showSsnInput ? (
-                    <EyeOff className="h-4 w-4" aria-hidden="true" />
-                  ) : (
-                    <Eye className="h-4 w-4" aria-hidden="true" />
-                  )
-                }
-                onRightIconClick={() => setShowSsnInput((v) => !v)}
-                rightIconLabel={
-                  showSsnInput ? "Hide social security number" : "Show social security number"
+                suffix={
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={() => setShowSsnInput((v) => !v)}
+                    aria-label={
+                      showSsnInput
+                        ? "Hide social security number"
+                        : "Show social security number"
+                    }
+                  >
+                    {showSsnInput ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </Button>
                 }
               />
               {isEdit && (
@@ -819,36 +841,36 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
 
       {/* Address */}
       <Section title="Mailing Address">
-        <Input
+        <TextInput
           label="Address Line 1 (optional)"
           value={form.address.line1}
-          onChange={(e) => updateAddress({ line1: e.target.value })}
+          onChange={(nextValue) => updateAddress({ line1: nextValue })}
           placeholder="123 Main St"
         />
-        <Input
+        <TextInput
           label="Address Line 2 (optional)"
           value={form.address.line2 ?? ""}
-          onChange={(e) => updateAddress({ line2: e.target.value })}
+          onChange={(nextValue) => updateAddress({ line2: nextValue })}
           placeholder="Apt 4B"
         />
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Input
+          <TextInput
             label="City"
             value={form.address.city}
-            onChange={(e) => updateAddress({ city: e.target.value })}
+            onChange={(nextValue) => updateAddress({ city: nextValue })}
             placeholder="Phoenix"
           />
-          <CustomSelect
+          <Select
             label="State"
             value={form.address.state}
             onChange={(val) => updateAddress({ state: val })}
             options={STATE_OPTIONS}
             placeholder="Select"
           />
-          <Input
+          <TextInput
             label="ZIP"
             value={form.address.zip}
-            onChange={(e) => updateAddress({ zip: e.target.value })}
+            onChange={(nextValue) => updateAddress({ zip: nextValue })}
             inputMode="numeric"
             placeholder="85001"
           />
@@ -858,13 +880,13 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
       {/* Employment */}
       <Section title="Employment">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <CustomSelect
+          <Select
             label="Type"
             value={form.employment_type}
             onChange={(v) => update("employment_type", v as EmploymentType)}
             options={EMPLOYMENT_TYPE_OPTIONS}
           />
-          <CustomSelect
+          <Select
             label="Status"
             value={form.status}
             onChange={(v) => update("status", v as EmployeeStatus)}
@@ -890,12 +912,13 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
       <Section title="Pay Configuration">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <NumberInput
+            step={0.01}
             label="Pay Amount (per period)"
             value={form.pay_amount}
-            onChange={(e) => update("pay_amount", e.target.value)}
+            onChange={(nextValue) => update("pay_amount", String(nextValue))}
             placeholder="0.00"
           />
-          <CustomSelect
+          <Select
             label="How often are they paid?"
             value={form.pay_frequency}
             onChange={(v) => update("pay_frequency", v as PayFrequency)}
@@ -904,7 +927,7 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
         </div>
 
         {form.pay_frequency === "weekly" && (
-          <CustomSelect
+          <Select
             label="Pay day (every week)"
             value={form.pay_weekday}
             onChange={(v) => update("pay_weekday", v as Weekday)}
@@ -922,13 +945,13 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
 
         {form.pay_frequency === "semimonthly" && (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <CustomSelect
+            <Select
               label="First pay day of month"
               value={form.semimonthly_day_1}
               onChange={(v) => update("semimonthly_day_1", v)}
               options={DAY_OF_MONTH_OPTIONS}
             />
-            <CustomSelect
+            <Select
               label="Second pay day of month"
               value={form.semimonthly_day_2}
               onChange={(v) => update("semimonthly_day_2", v)}
@@ -938,7 +961,7 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
         )}
 
         {form.pay_frequency === "monthly" && (
-          <CustomSelect
+          <Select
             label="Pay day of month"
             value={form.monthly_day}
             onChange={(v) => update("monthly_day", v)}
@@ -955,9 +978,12 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
         )}
 
         <NumberInput
+          step={0.01}
           label="Target Annual Comp (optional, S Corp benchmark)"
           value={form.target_annual_comp}
-          onChange={(e) => update("target_annual_comp", e.target.value)}
+          onChange={(nextValue) =>
+            update("target_annual_comp", String(nextValue))
+          }
           placeholder="e.g. 80000"
         />
 
@@ -980,14 +1006,14 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
       {/* W-4 */}
       <Section title="Federal W-4">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <CustomSelect
+          <Select
             label="Filing Status"
             value={form.w4_filing_status}
             onChange={(v) => update("w4_filing_status", v as FilingStatus)}
             options={FILING_STATUS_OPTIONS}
           />
           <div className="flex items-end pb-1">
-            <Switch
+            <Toggle
               checked={form.w4_multiple_jobs}
               onChange={(v) => update("w4_multiple_jobs", v)}
               label="Step 2(c): Multiple jobs / spouse works"
@@ -995,8 +1021,8 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
           </div>
         </div>
 
-        <div className="rounded-lg border border-border bg-secondary/30 p-3 space-y-2">
-          <Switch
+        <div className="glass-card rounded-xl bg-secondary/30 p-3 space-y-2">
+          <Toggle
             checked={form.w4_exempt}
             onChange={(v) => update("w4_exempt", v)}
             label='Exempt: employee wrote "Exempt" below Step 4(c)'
@@ -1004,24 +1030,30 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
           {form.w4_exempt && (
             <p className="text-xs text-muted-foreground leading-relaxed">
               Federal income tax withholding will be zero. FICA and FUTA still
-              apply. IRS requires a fresh W-4 by February 15 each year to
-              keep an exempt claim active.
+              apply. IRS requires a fresh W-4 by February 15 each year to keep
+              an exempt claim active.
             </p>
           )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <NumberInput
+            step={0.01}
             label="Step 3: Dependents Amount"
             value={form.w4_dependents_amount}
-            onChange={(e) => update("w4_dependents_amount", e.target.value)}
+            onChange={(nextValue) =>
+              update("w4_dependents_amount", String(nextValue))
+            }
             placeholder="0.00"
             disabled={form.w4_exempt}
           />
           <NumberInput
+            step={0.01}
             label="Step 4(a): Other Income (annual)"
             value={form.w4_other_income}
-            onChange={(e) => update("w4_other_income", e.target.value)}
+            onChange={(nextValue) =>
+              update("w4_other_income", String(nextValue))
+            }
             placeholder="0.00"
             disabled={form.w4_exempt}
           />
@@ -1029,16 +1061,20 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <NumberInput
+            step={0.01}
             label="Step 4(b): Deductions (annual)"
             value={form.w4_deductions}
-            onChange={(e) => update("w4_deductions", e.target.value)}
+            onChange={(nextValue) => update("w4_deductions", String(nextValue))}
             placeholder="0.00"
             disabled={form.w4_exempt}
           />
           <NumberInput
+            step={0.01}
             label="Step 4(c): Extra Withholding (per period)"
             value={form.w4_extra_withholding}
-            onChange={(e) => update("w4_extra_withholding", e.target.value)}
+            onChange={(nextValue) =>
+              update("w4_extra_withholding", String(nextValue))
+            }
             placeholder="0.00"
             disabled={form.w4_exempt}
           />
@@ -1047,7 +1083,7 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
 
       {/* State Election */}
       <Section title="State Withholding">
-        <CustomSelect
+        <Select
           label="Work State"
           value={form.state_code}
           onChange={handleStateChange}
@@ -1069,10 +1105,10 @@ export function EmployeeFormContent({ initial, stateConfigs }: Props) {
       {/* Notes */}
       <Section title="Notes">
         <Textarea
+          aria-label="Notes"
           value={form.notes}
-          onChange={(e) => update("notes", e.target.value)}
+          onChange={(nextValue) => update("notes", nextValue)}
           placeholder="Internal notes (not visible to the employee)"
-          className="min-h-[100px]"
         />
       </Section>
 
@@ -1186,7 +1222,8 @@ function cadenceDescription(
     case "weekly":
     case "biweekly": {
       const [y, m, d] = anchorYmd.split("-").map(Number);
-      const weekday = WEEKDAY_NAMES[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+      const weekday =
+        WEEKDAY_NAMES[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
       return frequency === "weekly"
         ? `every ${weekday}`
         : `every other ${weekday}`;
@@ -1231,9 +1268,18 @@ function SchedulePreview(props: SchedulePreviewProps) {
       return null;
     }
 
-    const sd1 = Math.max(1, Math.min(31, Number(props.semimonthly_day_1) || 15));
-    const sd2 = Math.max(1, Math.min(31, Number(props.semimonthly_day_2) || 31));
-    const monthlyDay = Math.max(1, Math.min(31, Number(props.monthly_day) || 15));
+    const sd1 = Math.max(
+      1,
+      Math.min(31, Number(props.semimonthly_day_1) || 15),
+    );
+    const sd2 = Math.max(
+      1,
+      Math.min(31, Number(props.semimonthly_day_2) || 31),
+    );
+    const monthlyDay = Math.max(
+      1,
+      Math.min(31, Number(props.monthly_day) || 15),
+    );
     const lag = Math.max(0, Number(props.pay_lag_days) || 0);
 
     const scheduleInput: PayScheduleInput = {
@@ -1258,8 +1304,7 @@ function SchedulePreview(props: SchedulePreviewProps) {
     if (periods.length === 0) return null;
 
     const amount = Number(props.pay_amount) || 0;
-    const annualized =
-      amount * PERIODS_PER_YEAR_LOOKUP[props.pay_frequency];
+    const annualized = amount * PERIODS_PER_YEAR_LOOKUP[props.pay_frequency];
 
     return {
       amount,
@@ -1287,7 +1332,7 @@ function SchedulePreview(props: SchedulePreviewProps) {
   if (sameDayError) {
     return (
       <div className="rounded-lg border border-error/30 bg-error/5 p-4 text-sm text-error">
-        Semimonthly needs two different pay days each month — pick distinct
+        Semimonthly needs two different pay days each month , pick distinct
         values for the first and second pay day.
       </div>
     );
@@ -1358,19 +1403,19 @@ function SchedulePreview(props: SchedulePreviewProps) {
                     {formatLongDate(p.pay_date)}
                   </span>
                   <span className="text-muted-foreground">
-                    — covers {formatShortDate(p.period_start)} to{" "}
+                    , covers {formatShortDate(p.period_start)} to{" "}
                     {formatShortDate(p.period_end)}
                   </span>
                 </div>
                 {!payDateIsPast && !approveIsPast && (
                   <div className="text-xs text-muted-foreground">
-                    Approve this cycle by {formatLongDate(approveBy)} so the
-                    ACH settles on time.
+                    Approve this cycle by {formatLongDate(approveBy)} so the ACH
+                    settles on time.
                   </div>
                 )}
                 {!payDateIsPast && approveIsPast && (
                   <div className="text-xs text-warning">
-                    Approve ASAP — the 2-business-day ACH window has already
+                    Approve ASAP , the 2-business-day ACH window has already
                     started.
                   </div>
                 )}
@@ -1408,9 +1453,10 @@ function AdvancedPaySettings({
         <div className="mt-3 space-y-2">
           <NumberInput
             label="Pay lag (days after period end)"
-            integer
+            precision={0}
+            step={1}
             value={pay_lag_days}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={(nextValue) => onChange(String(nextValue))}
             placeholder="0"
           />
           <p className="text-xs text-muted-foreground leading-relaxed">
@@ -1449,7 +1495,10 @@ function StateElectionFields({
             "flex items-start gap-3 rounded-xl border border-warning/30 bg-warning/5 p-3 text-sm",
           )}
         >
-          <User className="h-4 w-4 shrink-0 text-warning mt-0.5" aria-hidden="true" />
+          <User
+            className="h-4 w-4 shrink-0 text-warning mt-0.5"
+            aria-hidden="true"
+          />
           <p className="text-muted-foreground">
             No {stateCode} tax config loaded for {taxYear}. Add one in{" "}
             <Link
@@ -1462,10 +1511,11 @@ function StateElectionFields({
           </p>
         </div>
         <NumberInput
+          step={0.01}
           label="Extra State Withholding (per period)"
           value={String(v.extra_withholding ?? "")}
-          onChange={(e) =>
-            onChange({ extra_withholding: Number(e.target.value) || 0 })
+          onChange={(nextValue) =>
+            onChange({ extra_withholding: Number(String(nextValue)) || 0 })
           }
           placeholder="0.00"
         />
@@ -1486,21 +1536,23 @@ function StateElectionFields({
       return (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <NumberInput
+            step={0.01}
             label="Rate Override (optional)"
             value={v.rate != null ? String(v.rate * 100) : ""}
-            onChange={(e) => {
-              const pct = Number(e.target.value);
+            onChange={(nextValue) => {
+              const pct = Number(String(nextValue));
               onChange({
-                rate: e.target.value === "" ? undefined : pct / 100,
+                rate: String(nextValue) === "" ? undefined : pct / 100,
               });
             }}
             placeholder="Default rate used if blank"
           />
           <NumberInput
+            step={0.01}
             label="Extra Withholding (per period)"
             value={String(v.extra_withholding ?? "")}
-            onChange={(e) =>
-              onChange({ extra_withholding: Number(e.target.value) || 0 })
+            onChange={(nextValue) =>
+              onChange({ extra_withholding: Number(String(nextValue)) || 0 })
             }
             placeholder="0.00"
           />
@@ -1521,23 +1573,27 @@ function StateElectionFields({
       }));
       return (
         <div className="space-y-4">
-          <CustomSelect
+          <Select
             label={`Elected Rate${cfg.form ? ` (${cfg.form})` : ""}`}
             value={v.rate != null ? String(v.rate) : ""}
             onChange={(val) =>
               onChange({ rate: val === "" ? undefined : Number(val) })
             }
             options={[
-              { value: "", label: `Default (${(cfg.defaultRate * 100).toFixed(1)}%)` },
+              {
+                value: "",
+                label: `Default (${(cfg.defaultRate * 100).toFixed(1)}%)`,
+              },
               ...rateOptions,
             ]}
             placeholder={`Default (${(cfg.defaultRate * 100).toFixed(1)}%)`}
           />
           <NumberInput
+            step={0.01}
             label="Extra Withholding (per period)"
             value={String(v.extra_withholding ?? "")}
-            onChange={(e) =>
-              onChange({ extra_withholding: Number(e.target.value) || 0 })
+            onChange={(nextValue) =>
+              onChange({ extra_withholding: Number(String(nextValue)) || 0 })
             }
             placeholder="0.00"
           />
@@ -1553,7 +1609,7 @@ function StateElectionFields({
       };
       return (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <CustomSelect
+          <Select
             label="State Filing Status (optional)"
             value={v.filing_status ?? ""}
             onChange={(val) =>
@@ -1568,22 +1624,26 @@ function StateElectionFields({
           />
           <NumberInput
             label="Allowances (optional)"
-            integer
+            precision={0}
+            step={1}
             value={String(v.allowances ?? "")}
-            onChange={(e) =>
+            onChange={(nextValue) =>
               onChange({
                 allowances:
-                  e.target.value === "" ? undefined : Number(e.target.value),
+                  String(nextValue) === ""
+                    ? undefined
+                    : Number(String(nextValue)),
               })
             }
             placeholder="0"
           />
           <div className="sm:col-span-2">
             <NumberInput
+              step={0.01}
               label="Extra Withholding (per period)"
               value={String(v.extra_withholding ?? "")}
-              onChange={(e) =>
-                onChange({ extra_withholding: Number(e.target.value) || 0 })
+              onChange={(nextValue) =>
+                onChange({ extra_withholding: Number(String(nextValue)) || 0 })
               }
               placeholder="0.00"
             />

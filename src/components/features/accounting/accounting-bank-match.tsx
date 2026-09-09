@@ -2,10 +2,10 @@
 import { useEffect, useState } from "react";
 import { Link2, Check, Search, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Pagination } from "@/components/ui/pagination";
 import { SectionHeader } from "@/components/ui/section-header";
 import {
@@ -383,11 +383,11 @@ export function AccountingBankMatch({
                     {release.match.memo}. The posted transaction stays in the
                     books; this source returns to review.
                   </p>
-                  <Input
+                  <TextInput
                     label="Release reason"
                     className="mt-3"
                     value={releaseReason}
-                    onChange={(e) => setReleaseReason(e.target.value)}
+                    onChange={(nextValue) => setReleaseReason(nextValue)}
                     maxLength={1000}
                   />
                   <div className="mt-3 flex justify-end gap-2">
@@ -425,12 +425,12 @@ export function AccountingBankMatch({
                       Find a posted bank line
                     </h3>
                   </div>
-                  <Input
+                  <TextInput
                     aria-label="Search matching entries"
                     placeholder="Search a description or exact YYYY-MM-DD date"
                     value={query}
-                    onChange={(e) => {
-                      setQuery(e.target.value);
+                    onChange={(nextValue) => {
+                      setQuery(nextValue);
                       setOffset(0);
                       setSelected(null);
                       setApproved(false);
@@ -440,7 +440,7 @@ export function AccountingBankMatch({
                     Closest dates appear first. Available amounts exclude
                     allocations already made by this source.
                   </p>
-                  <div className="max-h-64 overflow-y-auto rounded-lg border border-border">
+                  <div className="max-h-64 overflow-y-auto glass-card rounded-xl">
                     <DataTable
                       columns={candidateColumns}
                       data={data.candidates}
@@ -507,12 +507,12 @@ export function AccountingBankMatch({
                           Inspect
                         </Button>
                       </div>
-                      <Input
+                      <TextInput
                         label="Amount to match (USD)"
                         inputMode="decimal"
                         value={amount}
-                        onChange={(e) => {
-                          setAmount(e.target.value);
+                        onChange={(nextValue) => {
+                          setAmount(nextValue);
                           setApproved(false);
                         }}
                       />
@@ -575,11 +575,11 @@ export function AccountingBankMatch({
               )}
               {(!full || data.group.status !== "duplicate") && (
                 <>
-                  <Input
+                  <TextInput
                     label="Matching reason"
                     placeholder="Explain how the source and posting agree"
                     value={reason}
-                    onChange={(e) => setReason(e.target.value)}
+                    onChange={(nextValue) => setReason(nextValue)}
                     maxLength={1000}
                   />
                   <div className="flex justify-end">

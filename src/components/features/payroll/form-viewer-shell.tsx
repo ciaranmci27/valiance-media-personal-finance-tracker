@@ -23,7 +23,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { toast } from "@/components/ui/toast";
 import { cn, formatCurrency } from "@/lib/utils";
 import { markFormFiled } from "@/lib/payroll/forms-actions";
@@ -150,10 +150,7 @@ export function FormViewerShell({
         </Button>
 
         {hasData && !isFiled && !hideMarkFiled && (
-          <Button
-            onClick={() => setFileDialog(true)}
-            disabled={anyPending}
-          >
+          <Button onClick={() => setFileDialog(true)} disabled={anyPending}>
             <FileCheck2 className="h-4 w-4 mr-1" aria-hidden="true" />
             Mark filed
           </Button>
@@ -179,7 +176,10 @@ export function FormViewerShell({
           />
           <div className="flex-1 text-sm">
             <div className="font-medium text-success">
-              Filed {form.filed_at ? new Date(form.filed_at).toLocaleDateString() : ""}
+              Filed{" "}
+              {form.filed_at
+                ? new Date(form.filed_at).toLocaleDateString()
+                : ""}
             </div>
             {form.confirmation_number && (
               <div className="text-muted-foreground mt-0.5">
@@ -210,7 +210,9 @@ export function FormViewerShell({
       {!hasData ? (
         <div className="glass-card rounded-xl p-10 text-center text-sm text-muted-foreground space-y-2">
           <p>{emptyStateHint}</p>
-          <p>Click Generate to aggregate the relevant runs and produce a draft.</p>
+          <p>
+            Click Generate to aggregate the relevant runs and produce a draft.
+          </p>
         </div>
       ) : (
         children
@@ -373,10 +375,10 @@ function FileDialog({
           Record that you have filed this return. Once marked filed, the form
           becomes read-only and regeneration is disabled.
         </DialogDescription>
-        <Input
+        <TextInput
           label="Confirmation / submission ID (optional)"
           value={confirmationNumber}
-          onChange={(e) => onConfirmationNumberChange(e.target.value)}
+          onChange={(nextValue) => onConfirmationNumberChange(nextValue)}
           placeholder="e.g., e-file submission ID"
         />
         <div className="flex items-center justify-end gap-2 pt-2">
@@ -385,7 +387,10 @@ function FileDialog({
           </Button>
           <Button onClick={onConfirm} disabled={submitting}>
             {submitting && (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden="true" />
+              <Loader2
+                className="h-4 w-4 mr-1 animate-spin"
+                aria-hidden="true"
+              />
             )}
             Mark filed
           </Button>

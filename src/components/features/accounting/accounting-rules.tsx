@@ -1,15 +1,17 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
 import { useEffect, useState } from "react";
 import { Plus, ArrowRight, SlidersHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Pagination } from "@/components/ui/pagination";
-import { CustomSelect } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { Select } from "@/components/ui/inputs/Select";
+import { Toggle } from "@/components/ui/inputs/Toggle";
 import {
   Dialog,
   DialogContent,
@@ -335,24 +337,22 @@ export function AccountingRules({
           </p>
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
-          <Input
+          <DateInput
             label="Preview from"
             disabled={loading || cmd.busy}
-            type="date"
             value={from}
-            onChange={(e) => {
-              setFrom(e.target.value);
+            onChange={(nextValue) => {
+              setFrom(nextValue);
               invalidate();
             }}
           />
-          <Input
+          <DateInput
             label="Preview through"
             disabled={loading || cmd.busy}
-            type="date"
             value={to}
-            min={from}
-            onChange={(e) => {
-              setTo(e.target.value);
+            minDate={from}
+            onChange={(nextValue) => {
+              setTo(nextValue);
               invalidate();
             }}
           />
@@ -403,7 +403,7 @@ export function AccountingRules({
                     <Checkbox
                       size="sm"
                       className="mt-1 shrink-0"
-                      aria-label={`Select ${row.memo}`}
+                      ariaLabel={`Select ${row.memo}`}
                       checked={selected.has(row.id)}
                       disabled={
                         !row.eligible || !row.winner?.enabled || cmd.busy
@@ -505,15 +505,15 @@ export function AccountingRules({
               onChange={(offset) => void inspect(ruleId, offset / PREVIEW_PAGE)}
             />
             {currentRule && !currentRule.enabled && (
-              <div className="space-y-3 rounded-lg border border-border p-4">
+              <div className="space-y-3 glass-card rounded-xl p-4">
                 <p className="text-sm">
                   Enable “{currentRule.name}” for draft suggestions after
                   reviewing its conditions and matches.
                 </p>
-                <Input
+                <TextInput
                   label="Rule approval note"
                   value={reason}
-                  onChange={(e) => setReason(e.target.value)}
+                  onChange={(nextValue) => setReason(nextValue)}
                   maxLength={1000}
                 />
                 <Checkbox
@@ -790,22 +790,24 @@ function RuleEditor({
             }
           }}
         >
-          <Input
+          <TextInput
             label="Rule name"
             required
             maxLength={120}
             value={value.name}
-            onChange={(e) => set("name", e.target.value)}
+            onChange={(nextValue) => set("name", nextValue)}
           />
           <div className="grid gap-3 sm:grid-cols-2">
-            <Input
+            <NumberInput
+              step={1}
               label="Priority (lower wins)"
-              type="number"
               min={1}
               max={10000}
               required
               value={value.priority}
-              onChange={(e) => set("priority", Number(e.target.value))}
+              onChange={(nextValue) =>
+                set("priority", Number(String(nextValue)))
+              }
             />
             <AccountingPicker
               label="Bank or card account"
@@ -816,7 +818,7 @@ function RuleEditor({
               options={banks.map((a) => ({ value: a.id, label: a.name }))}
               onChange={(v) => set("bank_account_id", v)}
             />
-            <CustomSelect
+            <Select
               label="Description comparison"
               value={value.description_mode}
               options={[
@@ -826,14 +828,14 @@ function RuleEditor({
               ]}
               onChange={(v) => set("description_mode", v)}
             />
-            <Input
+            <TextInput
               label="Description text"
               required
               maxLength={250}
               value={value.description}
-              onChange={(e) => set("description", e.target.value)}
+              onChange={(nextValue) => set("description", nextValue)}
             />
-            <CustomSelect
+            <Select
               label="Movement direction"
               value={value.direction}
               options={[
@@ -849,19 +851,19 @@ function RuleEditor({
               options={[{ value: "", label: "Any payee" }, ...payees]}
               onChange={(v) => set("match_payee_id", v || null)}
             />
-            <Input
+            <TextInput
               label="Minimum absolute amount"
               required
               inputMode="decimal"
               value={min}
-              onChange={(e) => setMin(e.target.value)}
+              onChange={(nextValue) => setMin(nextValue)}
             />
-            <Input
+            <TextInput
               label="Maximum absolute amount"
               required
               inputMode="decimal"
               value={max}
-              onChange={(e) => setMax(e.target.value)}
+              onChange={(nextValue) => setMax(nextValue)}
             />
             <AccountingPicker
               label="Category to assign"
@@ -888,12 +890,12 @@ function RuleEditor({
             both endpoints. Transfers, split entries, and already reviewed
             categories require their own review.
           </p>
-          <Input
+          <TextInput
             label="Reason for this rule or change"
             required
             maxLength={1000}
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(nextValue) => setReason(nextValue)}
           />
           {cmd.error && (
             <p role="alert" className="text-sm text-error">
@@ -969,7 +971,7 @@ function AliasEditor({
               .map((p) => ({ value: p.id, label: p.name }))}
             onChange={(party_id) => setValue((v) => ({ ...v, party_id }))}
           />
-          <CustomSelect
+          <Select
             label="Match"
             value={value.match_mode}
             options={[
@@ -983,16 +985,16 @@ function AliasEditor({
               }))
             }
           />
-          <Input
+          <TextInput
             label="Bank description"
             required
             maxLength={250}
             value={value.description}
-            onChange={(e) =>
-              setValue((v) => ({ ...v, description: e.target.value }))
+            onChange={(nextValue) =>
+              setValue((v) => ({ ...v, description: nextValue }))
             }
           />
-          <Switch
+          <Toggle
             checked={value.enabled}
             onChange={(enabled) => setValue((v) => ({ ...v, enabled }))}
             label="Enable this alias"

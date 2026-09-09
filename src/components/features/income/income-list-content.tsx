@@ -15,7 +15,7 @@ import {
   ArrowDownAZ,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CustomSelect } from "@/components/ui/select";
+import { Select } from "@/components/ui/inputs/Select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StatCard } from "@/components/ui/stat-card";
 import { IncomeBreakdownChart } from "@/components/charts/income-breakdown-chart";
@@ -94,7 +94,7 @@ function IncomeCard({
         "glass-card glass-card-interactive rounded-xl p-4 cursor-pointer transition-all duration-300",
         "hover:border-primary/30 active:scale-[0.98]",
         "animate-fade-up",
-        `stagger-${Math.min(index + 1, 6)}`
+        `stagger-${Math.min(index + 1, 6)}`,
       )}
     >
       {/* Header: Month and Total */}
@@ -113,14 +113,21 @@ function IncomeCard({
           </div>
         </div>
         <div className="text-right">
-          <span className="text-xs text-muted-foreground block mb-0.5">Total</span>
+          <span className="text-xs text-muted-foreground block mb-0.5">
+            Total
+          </span>
           <span
             className={cn(
               "tabular-nums font-semibold text-lg",
-              total < 0 ? "text-error" : "text-teal-light"
+              total < 0 ? "text-error" : "text-teal-light",
             )}
           >
-            {getMaskedValue(formatCurrency(total), isHidden, isRevealed, currencyMask)}
+            {getMaskedValue(
+              formatCurrency(total),
+              isHidden,
+              isRevealed,
+              currencyMask,
+            )}
           </span>
         </div>
       </div>
@@ -142,10 +149,15 @@ function IncomeCard({
               <span
                 className={cn(
                   "tabular-nums text-sm",
-                  amount < 0 ? "text-error" : "text-foreground"
+                  amount < 0 ? "text-error" : "text-foreground",
                 )}
               >
-                {getMaskedValue(formatCurrency(amount), isHidden, isRevealed, currencyMask)}
+                {getMaskedValue(
+                  formatCurrency(amount),
+                  isHidden,
+                  isRevealed,
+                  currencyMask,
+                )}
               </span>
             </div>
           ))}
@@ -194,7 +206,7 @@ function IncomeRow({
       }}
       className={cn(
         "transition-all duration-300 hover:bg-secondary cursor-pointer animate-fade-up",
-        `stagger-${Math.min(index + 1, 6)}`
+        `stagger-${Math.min(index + 1, 6)}`,
       )}
     >
       <td className="px-4 py-3 align-middle">
@@ -207,7 +219,12 @@ function IncomeRow({
         const displayValue =
           amount === 0
             ? "-"
-            : getMaskedValue(formatCurrency(amount), isHidden, isRevealed, currencyMask);
+            : getMaskedValue(
+                formatCurrency(amount),
+                isHidden,
+                isRevealed,
+                currencyMask,
+              );
         return (
           <td
             key={source.id}
@@ -216,8 +233,8 @@ function IncomeRow({
               amount === 0
                 ? "text-muted-foreground"
                 : amount < 0
-                ? "text-error"
-                : "text-foreground"
+                  ? "text-error"
+                  : "text-foreground",
             )}
           >
             {displayValue}
@@ -227,10 +244,15 @@ function IncomeRow({
       <td
         className={cn(
           "px-4 py-3 align-middle text-right tabular-nums font-medium min-w-[140px]",
-          total < 0 ? "text-error" : "text-teal-light"
+          total < 0 ? "text-error" : "text-teal-light",
         )}
       >
-        {getMaskedValue(formatCurrency(total), isHidden, isRevealed, currencyMask)}
+        {getMaskedValue(
+          formatCurrency(total),
+          isHidden,
+          isRevealed,
+          currencyMask,
+        )}
       </td>
     </tr>
   );
@@ -244,7 +266,7 @@ export function IncomeListContent({
   // Get unique years from entries (only years with data)
   const years = React.useMemo(() => {
     const uniqueYears = new Set(
-      entries.map((e) => parseLocalDate(e.month).getFullYear())
+      entries.map((e) => parseLocalDate(e.month).getFullYear()),
     );
     return Array.from(uniqueYears).sort((a, b) => b - a);
   }, [entries]);
@@ -253,11 +275,15 @@ export function IncomeListContent({
   const defaultYear = years.length > 0 ? years[0].toString() : "all";
   const [selectedYear, setSelectedYear] = React.useState<string>(defaultYear);
   const [sortColumn, setSortColumn] = React.useState<SortColumn>("month");
-  const [sortDirection, setSortDirection] = React.useState<SortDirection>("desc");
-  const [hoveredEntryId, setHoveredEntryId] = React.useState<string | null>(null);
+  const [sortDirection, setSortDirection] =
+    React.useState<SortDirection>("desc");
+  const [hoveredEntryId, setHoveredEntryId] = React.useState<string | null>(
+    null,
+  );
 
   // Hover-to-reveal for the breakdown chart
-  const { isRevealed: chartRevealed, hoverProps: chartHoverProps } = useMaskedHover();
+  const { isRevealed: chartRevealed, hoverProps: chartHoverProps } =
+    useMaskedHover();
 
   // Calculate total for an entry
   const getEntryTotal = React.useCallback(
@@ -266,18 +292,18 @@ export function IncomeListContent({
         .filter((a) => a.entry_id === entryId)
         .reduce((sum, a) => sum + Number(a.amount), 0);
     },
-    [amounts]
+    [amounts],
   );
 
   // Get amount for a specific source in an entry
   const getSourceAmount = React.useCallback(
     (entryId: string, sourceId: string) => {
       const amount = amounts.find(
-        (a) => a.entry_id === entryId && a.source_id === sourceId
+        (a) => a.entry_id === entryId && a.source_id === sourceId,
       );
       return Number(amount?.amount ?? 0);
     },
-    [amounts]
+    [amounts],
   );
 
   // Toggle sort when clicking a column header
@@ -322,7 +348,7 @@ export function IncomeListContent({
       if (!source.is_active) return false;
       return filteredEntries.some((entry) => {
         const amount = amounts.find(
-          (a) => a.entry_id === entry.id && a.source_id === source.id
+          (a) => a.entry_id === entry.id && a.source_id === source.id,
         );
         return Number(amount?.amount ?? 0) !== 0;
       });
@@ -332,8 +358,12 @@ export function IncomeListContent({
   // Calculate totals for stat cards
   const totals = React.useMemo(() => {
     const yearEntries = selectedYear === "all" ? entries : filteredEntries;
-    const yearTotal = yearEntries.reduce((sum, entry) => sum + getEntryTotal(entry.id), 0);
-    const monthlyAvg = yearEntries.length > 0 ? yearTotal / yearEntries.length : 0;
+    const yearTotal = yearEntries.reduce(
+      (sum, entry) => sum + getEntryTotal(entry.id),
+      0,
+    );
+    const monthlyAvg =
+      yearEntries.length > 0 ? yearTotal / yearEntries.length : 0;
 
     // Best month
     let bestMonth = { month: "", total: 0 };
@@ -386,7 +416,7 @@ export function IncomeListContent({
   // Current filtered total
   const currentTotal = filteredEntries.reduce(
     (sum, entry) => sum + getEntryTotal(entry.id),
-    0
+    0,
   );
 
   // Chart visibility based on data
@@ -415,7 +445,9 @@ export function IncomeListContent({
       {/* Stat Cards */}
       <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 lg:gap-4 lg:grid-cols-4">
         <StatCard
-          title={selectedYear === "all" ? "Total Income" : `${selectedYear} Income`}
+          title={
+            selectedYear === "all" ? "Total Income" : `${selectedYear} Income`
+          }
           value={totals.yearTotal}
           icon={<Wallet className="h-5 w-5" />}
           className="stagger-1"
@@ -445,7 +477,8 @@ export function IncomeListContent({
       <div className="flex items-center justify-between gap-2 min-[560px]:gap-4">
         {/* Mobile: Dropdown select for tabs */}
         <div className="min-[700px]:hidden w-40">
-          <CustomSelect
+          <Select
+            ariaLabel="Year"
             value={selectedYear}
             onChange={(value) => setSelectedYear(value)}
             options={yearTabs.map((tab) => ({
@@ -466,15 +499,20 @@ export function IncomeListContent({
                 "px-3 py-1.5 text-sm font-medium rounded-md transition-colors",
                 selectedYear === tab.value
                   ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                  : "text-muted-foreground hover:text-foreground hover:bg-secondary",
               )}
             >
               {tab.label}
             </button>
           ))}
           {yearTabs.length > 5 && (
-            <CustomSelect
-              value={yearTabs.slice(5).some((t) => t.value === selectedYear) ? selectedYear : ""}
+            <Select
+              ariaLabel="Year"
+              value={
+                yearTabs.slice(5).some((t) => t.value === selectedYear)
+                  ? selectedYear
+                  : ""
+              }
               onChange={(value) => setSelectedYear(value)}
               options={yearTabs.slice(5).map((tab) => ({
                 value: tab.value,
@@ -507,7 +545,7 @@ export function IncomeListContent({
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 sortColumn === "month"
                   ? "bg-primary/10 text-teal-light"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               Month
@@ -524,7 +562,7 @@ export function IncomeListContent({
                 "inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md transition-colors",
                 sortColumn === "total"
                   ? "bg-primary/10 text-teal-light"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
               )}
             >
               Total
@@ -556,7 +594,9 @@ export function IncomeListContent({
             <div className="glass-card rounded-xl p-4 mt-4">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium text-muted-foreground">
-                  {selectedYear === "all" ? "Total Income" : `${selectedYear} Total`}
+                  {selectedYear === "all"
+                    ? "Total Income"
+                    : `${selectedYear} Total`}
                 </span>
                 <span className="tabular-nums font-bold text-lg text-teal-light">
                   <MaskedValue value={formatCurrency(currentTotal)} />
@@ -584,7 +624,7 @@ export function IncomeListContent({
                         onClick={() => handleSort("month")}
                         className={cn(
                           "inline-flex items-center gap-1 hover:text-foreground transition-colors",
-                          sortColumn === "month" && "text-foreground"
+                          sortColumn === "month" && "text-foreground",
                         )}
                       >
                         Month
@@ -615,7 +655,7 @@ export function IncomeListContent({
                         onClick={() => handleSort("total")}
                         className={cn(
                           "inline-flex items-center gap-1 hover:text-foreground transition-colors",
-                          sortColumn === "total" && "text-foreground"
+                          sortColumn === "total" && "text-foreground",
                         )}
                       >
                         Total
@@ -683,7 +723,11 @@ export function IncomeListContent({
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <IncomeBreakdownChart data={sourceBreakdownData} size="compact" isRevealed={chartRevealed || hoveredEntryId !== null} />
+                  <IncomeBreakdownChart
+                    data={sourceBreakdownData}
+                    size="compact"
+                    isRevealed={chartRevealed || hoveredEntryId !== null}
+                  />
                 </CardContent>
               </Card>
             )}
@@ -697,7 +741,10 @@ export function IncomeListContent({
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <IncomeTrendChart entries={filteredEntries} amounts={amounts} />
+                  <IncomeTrendChart
+                    entries={filteredEntries}
+                    amounts={amounts}
+                  />
                 </CardContent>
               </Card>
             )}

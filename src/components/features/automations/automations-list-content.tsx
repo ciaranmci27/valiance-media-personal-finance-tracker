@@ -59,7 +59,7 @@ function SummaryCard({
           <div
             className={cn(
               "flex h-10 w-10 items-center justify-center rounded-lg",
-              primary ? "bg-primary/10" : "bg-secondary"
+              primary ? "bg-primary/10" : "bg-secondary",
             )}
           >
             {icon}
@@ -67,10 +67,7 @@ function SummaryCard({
           <div>
             <p className="text-sm text-muted-foreground">{label}</p>
             <p
-              className={cn(
-                "text-xl font-bold",
-                primary && "text-teal-light"
-              )}
+              className={cn("text-xl font-bold", primary && "text-teal-light")}
             >
               {value}
             </p>
@@ -195,7 +192,8 @@ function AutomationCard({
     };
     if (showMenu) {
       document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
     }
   }, [showMenu]);
 
@@ -204,10 +202,10 @@ function AutomationCard({
   const triggerConfig = automation.trigger_config as ScheduleTriggerConfig;
   const payrollConfig = automation.trigger_config as PayrollEventTriggerConfig;
   const emailActions = automation.automation_actions.filter(
-    (a) => a.action_type === "email"
+    (a) => a.action_type === "email",
   ).length;
   const notificationActions = automation.automation_actions.filter(
-    (a) => a.action_type === "notification"
+    (a) => a.action_type === "notification",
   ).length;
 
   const handleCardClick = () => {
@@ -241,7 +239,7 @@ function AutomationCard({
         "glass-card glass-card-interactive rounded-xl p-4 cursor-pointer transition-all duration-300",
         "hover:border-primary/30 active:scale-[0.98]",
         "animate-fade-up relative",
-        `stagger-${Math.min(index + 1, 6)}`
+        `stagger-${Math.min(index + 1, 6)}`,
       )}
     >
       {/* Header: Name and Menu */}
@@ -250,13 +248,15 @@ function AutomationCard({
           <div
             className={cn(
               "flex h-9 w-9 items-center justify-center rounded-lg shrink-0",
-              automation.is_active ? "bg-primary/10" : "bg-secondary"
+              automation.is_active ? "bg-primary/10" : "bg-secondary",
             )}
           >
             <Zap
               className={cn(
                 "h-4 w-4",
-                automation.is_active ? "text-teal-light" : "text-muted-foreground"
+                automation.is_active
+                  ? "text-teal-light"
+                  : "text-muted-foreground",
               )}
             />
           </div>
@@ -275,16 +275,16 @@ function AutomationCard({
         {/* Menu Button */}
         <div className="relative" ref={menuRef}>
           <Tooltip content="Actions">
-          <button
-            onClick={handleMenuToggle}
-            className="p-2 rounded-lg hover:bg-secondary transition-colors"
-          >
-            <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
-          </button>
+            <button
+              onClick={handleMenuToggle}
+              className="p-2 rounded-lg hover:bg-secondary transition-colors"
+            >
+              <MoreHorizontal className="h-4 w-4 text-muted-foreground" />
+            </button>
           </Tooltip>
 
           {showMenu && (
-            <div className="absolute right-0 top-full mt-1 z-50 w-36 rounded-lg border border-border bg-card shadow-lg overflow-hidden">
+            <div className="absolute right-0 top-full mt-1 z-50 w-36 glass-card rounded-xl bg-card shadow-lg overflow-hidden">
               <Link
                 href={`/automations/${automation.id}`}
                 className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-secondary transition-colors"
@@ -299,7 +299,7 @@ function AutomationCard({
                   "flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors",
                   automation.is_active
                     ? "text-copper hover:bg-copper/10"
-                    : "text-success hover:bg-success/10"
+                    : "text-success hover:bg-success/10",
                 )}
               >
                 {automation.is_active ? (
@@ -389,7 +389,8 @@ function AutomationCard({
             )}
             <span className="inline-flex items-center gap-1 text-muted-foreground">
               <History className="h-3.5 w-3.5" />
-              {automation.automation_runs?.length ?? 0} {(automation.automation_runs?.length ?? 0) === 1 ? "run" : "runs"}
+              {automation.automation_runs?.length ?? 0}{" "}
+              {(automation.automation_runs?.length ?? 0) === 1 ? "run" : "runs"}
             </span>
           </div>
 
@@ -399,7 +400,7 @@ function AutomationCard({
               "inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium transition-colors",
               automation.is_active
                 ? "bg-success/10 text-success"
-                : "bg-copper/10 text-copper"
+                : "bg-copper/10 text-copper",
             )}
           >
             {automation.is_active ? (
@@ -470,17 +471,17 @@ function AutomationRow({
   const triggerConfig = automation.trigger_config as ScheduleTriggerConfig;
   const payrollConfig = automation.trigger_config as PayrollEventTriggerConfig;
   const emailActions = automation.automation_actions.filter(
-    (a) => a.action_type === "email"
+    (a) => a.action_type === "email",
   ).length;
   const notificationActions = automation.automation_actions.filter(
-    (a) => a.action_type === "notification"
+    (a) => a.action_type === "notification",
   ).length;
 
   return (
     <tr
       className={cn(
         "transition-colors hover:bg-secondary cursor-pointer animate-fade-up",
-        `stagger-${Math.min(index + 1, 6)}`
+        `stagger-${Math.min(index + 1, 6)}`,
       )}
     >
       <td className="px-4 py-3">
@@ -491,13 +492,15 @@ function AutomationRow({
           <div
             className={cn(
               "flex h-8 w-8 items-center justify-center rounded-lg shrink-0",
-              automation.is_active ? "bg-primary/10" : "bg-secondary"
+              automation.is_active ? "bg-primary/10" : "bg-secondary",
             )}
           >
             <Zap
               className={cn(
                 "h-4 w-4",
-                automation.is_active ? "text-teal-light" : "text-muted-foreground"
+                automation.is_active
+                  ? "text-teal-light"
+                  : "text-muted-foreground",
               )}
             />
           </div>
@@ -556,7 +559,7 @@ function AutomationRow({
             <span>{formatPayrollTriggerSummary(payrollConfig)}</span>
           </div>
         ) : (
-          <span className="text-sm text-muted-foreground">—</span>
+          <span className="text-sm text-muted-foreground">;</span>
         )}
       </td>
       <td className="px-4 py-3">
@@ -574,7 +577,7 @@ function AutomationRow({
             </span>
           )}
           {emailActions === 0 && notificationActions === 0 && (
-            <span className="text-muted-foreground">—</span>
+            <span className="text-muted-foreground">;</span>
           )}
         </div>
       </td>
@@ -594,7 +597,7 @@ function AutomationRow({
             "inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium transition-colors",
             automation.is_active
               ? "bg-success/10 text-success hover:bg-success/20"
-              : "bg-copper/10 text-copper hover:bg-copper/20"
+              : "bg-copper/10 text-copper hover:bg-copper/20",
           )}
         >
           {automation.is_active ? (
@@ -612,15 +615,15 @@ function AutomationRow({
       </td>
       <td className="px-4 py-3 text-right">
         <Tooltip content="Actions">
-        <Button
-          ref={buttonRef}
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={handleToggleMenu}
-        >
-          <MoreHorizontal className="h-4 w-4" />
-        </Button>
+          <Button
+            ref={buttonRef}
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleToggleMenu}
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
         </Tooltip>
 
         {showMenu &&
@@ -628,7 +631,7 @@ function AutomationRow({
           ReactDOM.createPortal(
             <div
               ref={menuRef}
-              className="fixed z-50 w-40 rounded-lg border border-border bg-card shadow-lg"
+              className="fixed z-50 w-40 glass-card rounded-xl bg-card shadow-lg"
               style={{
                 top: menuPosition.top,
                 left: menuPosition.left,
@@ -651,7 +654,7 @@ function AutomationRow({
                   "flex w-full items-center gap-2 px-3 py-2 text-sm transition-colors",
                   automation.is_active
                     ? "text-copper hover:bg-copper/10"
-                    : "text-success hover:bg-success/10"
+                    : "text-success hover:bg-success/10",
                 )}
               >
                 {automation.is_active ? (
@@ -677,7 +680,7 @@ function AutomationRow({
                 Delete
               </button>
             </div>,
-            document.body
+            document.body,
           )}
       </td>
     </tr>
@@ -707,7 +710,8 @@ export function AutomationsListContent({
   const handleDelete = async (id: string) => {
     const confirmed = await confirm({
       title: "Delete this automation?",
-      description: "This automation will be moved to trash. You can restore it later.",
+      description:
+        "This automation will be moved to trash. You can restore it later.",
       confirmLabel: "Delete",
       variant: "danger",
     });
@@ -730,7 +734,7 @@ export function AutomationsListContent({
   const inactiveCount = automations.length - activeCount;
   const totalRuns = automations.reduce(
     (sum, a) => sum + (a.automation_runs?.length ?? 0),
-    0
+    0,
   );
 
   return (

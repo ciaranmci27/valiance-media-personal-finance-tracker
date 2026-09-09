@@ -19,7 +19,7 @@ export function AccountingSetup({ ownerId }: { ownerId: string }) {
         one owner; if an owner is already configured the insert fails without
         replacing them.
       </p>
-      <pre className="overflow-x-auto rounded-lg border border-border bg-secondary/30 p-4 text-xs">
+      <pre className="overflow-x-auto glass-card rounded-xl bg-secondary/30 p-4 text-xs">
         {sql}
       </pre>
       <div className="flex flex-wrap gap-3">

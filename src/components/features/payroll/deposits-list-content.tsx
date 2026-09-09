@@ -22,8 +22,8 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { CustomSelect } from "@/components/ui/select";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Select } from "@/components/ui/inputs/Select";
 import { StatCard } from "@/components/ui/stat-card";
 import { toast } from "@/components/ui/toast";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -43,10 +43,7 @@ import {
   type StatePaymentPortals,
   type StateTaxConfig,
 } from "@/types/payroll";
-import {
-  DEPOSIT_STATUS_HUMAN,
-  depositStatusLabel,
-} from "@/lib/payroll/labels";
+import { DEPOSIT_STATUS_HUMAN, depositStatusLabel } from "@/lib/payroll/labels";
 import { Term } from "./term";
 
 type StatusFilter = "upcoming" | "all" | DepositStatus;
@@ -126,7 +123,8 @@ function resolveStatePortal(
   depositType: DepositType,
   stateConfigs: StateTaxConfig[],
 ): StatePaymentPortal | null {
-  if (depositType === "federal_941" || depositType === "federal_940") return null;
+  if (depositType === "federal_941" || depositType === "federal_940")
+    return null;
   const mostRecent = stateConfigs
     .slice()
     .sort((a, b) => b.tax_year - a.tax_year)[0];
@@ -155,15 +153,17 @@ export function DepositsListContent({
   stateConfigs: StateTaxConfig[];
 }) {
   const router = useRouter();
-  const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("upcoming");
-  const [typeFilter, setTypeFilter] = React.useState<DepositType | "all">("all");
+  const [statusFilter, setStatusFilter] =
+    React.useState<StatusFilter>("upcoming");
+  const [typeFilter, setTypeFilter] = React.useState<DepositType | "all">(
+    "all",
+  );
   const [year, setYear] = React.useState<number | "all">(() =>
     deposits.length > 0 ? yearOf(deposits[0].period_end) : "all",
   );
 
-  const [payingDeposit, setPayingDeposit] = React.useState<PayrollTaxDeposit | null>(
-    null,
-  );
+  const [payingDeposit, setPayingDeposit] =
+    React.useState<PayrollTaxDeposit | null>(null);
   const [paymentReference, setPaymentReference] = React.useState("");
   const [submitting, setSubmitting] = React.useState(false);
   const [expandedId, setExpandedId] = React.useState<string | null>(null);
@@ -240,9 +240,7 @@ export function DepositsListContent({
         // Under-threshold FUTA isn't actually due on its quarterly date, so
         // don't colour it as overdue/due-soon.
         isOverdue:
-          !futaRollsForward &&
-          d.status === "scheduled" &&
-          d.due_date < today,
+          !futaRollsForward && d.status === "scheduled" && d.due_date < today,
         isSoon:
           !futaRollsForward &&
           d.status === "scheduled" &&
@@ -261,7 +259,9 @@ export function DepositsListContent({
         // Under-threshold FUTA buckets carry to Form 940 rather than their
         // quarterly date, so keep them visible as upcoming regardless of the
         // stamped due_date.
-        return d.status !== "paid" && (d.futaRollsForward || d.due_date >= today);
+        return (
+          d.status !== "paid" && (d.futaRollsForward || d.due_date >= today)
+        );
       }
       return d.status === statusFilter;
     });
@@ -276,7 +276,8 @@ export function DepositsListContent({
       if (d.status === "paid") paidYtd += Number(d.amount || 0);
       if (d.status === "scheduled" && !d.futaRollsForward) {
         if (d.due_date < today) overdue += Number(d.amount || 0);
-        else if (withinDays(d.due_date, today, 7)) dueSoon += Number(d.amount || 0);
+        else if (withinDays(d.due_date, today, 7))
+          dueSoon += Number(d.amount || 0);
       }
     }
     return { dueSoon, overdue, paidYtd };
@@ -330,10 +331,9 @@ export function DepositsListContent({
           <div>
             <h1 className="text-2xl font-bold">Tax Deposits</h1>
             <p className="text-sm text-muted-foreground">
-              Federal <Term slug="941">941</Term>,{" "}
-              <Term slug="futa">FUTA</Term>, and state withholding payments,
-              scheduled automatically when a pay run is{" "}
-              <Term slug="finalized">approved</Term>.
+              Federal <Term slug="941">941</Term>, <Term slug="futa">FUTA</Term>
+              , and state withholding payments, scheduled automatically when a
+              pay run is <Term slug="finalized">approved</Term>.
             </p>
           </div>
         </div>
@@ -380,7 +380,8 @@ export function DepositsListContent({
         </div>
 
         <div className="w-48">
-          <CustomSelect
+          <Select
+            ariaLabel="Filter by type"
             size="sm"
             value={typeFilter}
             onChange={(v) => setTypeFilter(v as DepositType | "all")}
@@ -395,7 +396,8 @@ export function DepositsListContent({
           <div className="flex items-center gap-2 ml-auto">
             <label className="text-xs text-muted-foreground">Year</label>
             <div className="w-28">
-              <CustomSelect
+              <Select
+                ariaLabel="Year"
                 size="sm"
                 value={year === "all" ? "all" : String(year)}
                 onChange={(v) => setYear(v === "all" ? "all" : Number(v))}
@@ -411,9 +413,8 @@ export function DepositsListContent({
 
       {filtered.length === 0 ? (
         <div className="glass-card rounded-xl p-10 text-center text-sm text-muted-foreground">
-          No deposits match these filters.{" "}
-          <Term slug="finalized">Approve</Term> pay runs to generate scheduled
-          deposits automatically.
+          No deposits match these filters. <Term slug="finalized">Approve</Term>{" "}
+          pay runs to generate scheduled deposits automatically.
         </div>
       ) : (
         <>
@@ -455,10 +456,7 @@ export function DepositsListContent({
               <DepositCard
                 key={dep.id}
                 deposit={dep}
-                destination={resolveDestination(
-                  dep.deposit_type,
-                  stateConfigs,
-                )}
+                destination={resolveDestination(dep.deposit_type, stateConfigs)}
                 onPay={() => openPayDialog(dep)}
                 isExpanded={expandedId === dep.id}
                 onToggleHistory={() => toggleHistory(dep.id)}
@@ -631,7 +629,9 @@ function DepositCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-1">
           <div className="font-medium flex items-center gap-2 flex-wrap">
-            <span className="truncate">{DEPOSIT_TYPE_LABELS[deposit.deposit_type]}</span>
+            <span className="truncate">
+              {DEPOSIT_TYPE_LABELS[deposit.deposit_type]}
+            </span>
             {deposit.notes?.includes("$100k next-day") && (
               <span className="inline-flex items-center rounded-md bg-error/10 text-error px-1.5 py-0.5 text-xs font-medium">
                 $100k rule
@@ -647,7 +647,10 @@ function DepositCard({
             {deposit.period_start} → {deposit.period_end}
           </div>
         </div>
-        <StatusBadge status={deposit.status} overdue={deposit.isOverdue === true} />
+        <StatusBadge
+          status={deposit.status}
+          overdue={deposit.isOverdue === true}
+        />
       </div>
 
       <div className="flex items-end justify-between gap-3">
@@ -659,11 +662,15 @@ function DepositCard({
             className={cn(
               "text-sm",
               deposit.isOverdue && "text-error font-medium",
-              deposit.isSoon && !deposit.isOverdue && "text-warning font-medium",
+              deposit.isSoon &&
+                !deposit.isOverdue &&
+                "text-warning font-medium",
               deposit.futaRollsForward && "text-muted-foreground",
             )}
           >
-            {deposit.futaRollsForward ? "Carries to Form 940" : deposit.due_date}
+            {deposit.futaRollsForward
+              ? "Carries to Form 940"
+              : deposit.due_date}
           </div>
         </div>
         <div className="text-right space-y-0.5">
@@ -705,10 +712,7 @@ function DepositCard({
       {isExpanded && (
         <div id={panelId} className="pt-2 border-t border-border space-y-3">
           {deposit.status !== "paid" && (
-            <PaymentInstructions
-              deposit={deposit}
-              destination={destination}
-            />
+            <PaymentInstructions deposit={deposit} destination={destination} />
           )}
           <SourceRunsList runIds={deposit.included_run_ids ?? []} />
           <DepositHistoryPanel entry={history} />
@@ -720,7 +724,11 @@ function DepositCard({
 
 // ─── Pay-at-portal affordances ────────────────────────────────────────────────
 
-function PayAtPortalButton({ destination }: { destination: PaymentDestination }) {
+function PayAtPortalButton({
+  destination,
+}: {
+  destination: PaymentDestination;
+}) {
   return (
     <a
       href={destination.url}
@@ -747,7 +755,7 @@ function PaymentInstructions({
   if (!destination) {
     const isState = deposit.deposit_type.startsWith("state_");
     return (
-      <div className="rounded-lg border border-border bg-secondary p-3 text-xs text-muted-foreground space-y-1">
+      <div className="glass-card rounded-xl bg-secondary p-3 text-xs text-muted-foreground space-y-1">
         <div className="text-foreground font-medium">
           No payment portal configured
         </div>
@@ -772,10 +780,10 @@ function PaymentInstructions({
     <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
       {deposit.futaRollsForward && (
         <div className="rounded-md border border-border bg-background/60 px-3 py-2 text-xs text-muted-foreground">
-          <span className="text-foreground font-medium">Optional now.</span>{" "}
-          YTD FUTA is under the $500 quarterly threshold, so this amount rolls
+          <span className="text-foreground font-medium">Optional now.</span> YTD
+          FUTA is under the $500 quarterly threshold, so this amount rolls
           forward and gets paid with Form 940 by January 31. You can pay it
-          early through EFTPS at any time if you prefer — or wait.
+          early through EFTPS at any time if you prefer , or wait.
         </div>
       )}
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -908,17 +916,21 @@ function PayDialog({
               {DEPOSIT_TYPE_LABELS[deposit.deposit_type]} of{" "}
               {formatCurrency(Number(deposit.amount || 0))} for{" "}
               {deposit.period_start} through {deposit.period_end}. Record the
-              confirmation or EFTPS reference so you can tie the deposit back
-              to your bank records.
+              confirmation or EFTPS reference so you can tie the deposit back to
+              your bank records.
             </DialogDescription>
-            <Input
+            <TextInput
               label="Payment reference (optional)"
               value={reference}
-              onChange={(e) => onReferenceChange(e.target.value)}
+              onChange={(nextValue) => onReferenceChange(nextValue)}
               placeholder="EFTPS confirmation number, check #, etc."
             />
             <div className="flex items-center justify-end gap-2 pt-2">
-              <Button variant="outline" onClick={onCancel} disabled={submitting}>
+              <Button
+                variant="outline"
+                onClick={onCancel}
+                disabled={submitting}
+              >
                 Cancel
               </Button>
               <Button onClick={onConfirm} disabled={submitting}>
@@ -940,7 +952,11 @@ function PayDialog({
 
 // ─── History panel ────────────────────────────────────────────────────────────
 
-function DepositHistoryPanel({ entry }: { entry: HistoryCacheEntry | undefined }) {
+function DepositHistoryPanel({
+  entry,
+}: {
+  entry: HistoryCacheEntry | undefined;
+}) {
   if (!entry || entry.status === "loading") {
     return (
       <div
@@ -994,7 +1010,9 @@ function DepositHistoryPanel({ entry }: { entry: HistoryCacheEntry | undefined }
               </span>
             </div>
           </div>
-          <span className="text-muted-foreground">{formatTime(h.changed_at)}</span>
+          <span className="text-muted-foreground">
+            {formatTime(h.changed_at)}
+          </span>
         </li>
       ))}
     </ol>
@@ -1003,16 +1021,50 @@ function DepositHistoryPanel({ entry }: { entry: HistoryCacheEntry | undefined }
 
 function DepositHistoryIcon({ type }: { type: PayrollDepositEventType }) {
   const map: Record<PayrollDepositEventType, React.ReactNode> = {
-    created: <Circle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />,
-    amount_changed: <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />,
-    runs_changed: <RefreshCw className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />,
-    paid: <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />,
+    created: (
+      <Circle
+        className="h-3.5 w-3.5 text-muted-foreground"
+        aria-hidden="true"
+      />
+    ),
+    amount_changed: (
+      <RefreshCw
+        className="h-3.5 w-3.5 text-muted-foreground"
+        aria-hidden="true"
+      />
+    ),
+    runs_changed: (
+      <RefreshCw
+        className="h-3.5 w-3.5 text-muted-foreground"
+        aria-hidden="true"
+      />
+    ),
+    paid: (
+      <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />
+    ),
     unpaid: <Circle className="h-3.5 w-3.5 text-warning" aria-hidden="true" />,
-    marked_late: <AlertTriangle className="h-3.5 w-3.5 text-error" aria-hidden="true" />,
-    note_updated: <Circle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />,
+    marked_late: (
+      <AlertTriangle className="h-3.5 w-3.5 text-error" aria-hidden="true" />
+    ),
+    note_updated: (
+      <Circle
+        className="h-3.5 w-3.5 text-muted-foreground"
+        aria-hidden="true"
+      />
+    ),
     deleted: <Trash2 className="h-3.5 w-3.5 text-error" aria-hidden="true" />,
-    restored: <Circle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />,
-    updated: <Circle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />,
+    restored: (
+      <Circle
+        className="h-3.5 w-3.5 text-muted-foreground"
+        aria-hidden="true"
+      />
+    ),
+    updated: (
+      <Circle
+        className="h-3.5 w-3.5 text-muted-foreground"
+        aria-hidden="true"
+      />
+    ),
   };
   return <>{map[type]}</>;
 }

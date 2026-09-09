@@ -4,8 +4,8 @@ import * as React from "react";
 import { useRouter } from "next/navigation";
 import { Map as MapIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { NumberInput } from "@/components/ui/number-input";
-import { CustomSelect } from "@/components/ui/select";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { Select } from "@/components/ui/inputs/Select";
 import { toast } from "@/components/ui/toast";
 import { STATE_OPTIONS } from "@/lib/tax/state-taxes";
 
@@ -48,7 +48,7 @@ export function StateNewPickerContent({ defaultYear }: Props) {
       </div>
 
       <div className="glass-card rounded-xl p-6 space-y-4">
-        <CustomSelect
+        <Select
           label="State"
           value={stateCode}
           onChange={setStateCode}
@@ -58,9 +58,9 @@ export function StateNewPickerContent({ defaultYear }: Props) {
         <NumberInput
           label="Tax Year"
           value={yearStr}
-          onChange={(e) => setYearStr(e.target.value)}
-          integer
-          noCommas
+          onChange={(nextValue) => setYearStr(String(nextValue))}
+          precision={0}
+          step={1}
           placeholder="2026"
         />
       </div>

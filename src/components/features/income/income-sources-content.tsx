@@ -1,20 +1,16 @@
 "use client";
+import { ColorInput } from "@/components/ui/inputs/ColorInput";
 
 import * as React from "react";
-import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
-import { useRouter } from "next/navigation";
 import {
-  Plus,
-  Pencil,
-  Trash2,
-  Save,
-  X,
-  Loader2,
-  Layers,
-} from "lucide-react";
+  MobileMenuButton,
+  HeaderControls,
+} from "@/components/layout/page-header";
+import { useRouter } from "next/navigation";
+import { Plus, Pencil, Trash2, Save, X, Loader2, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import {
   Dialog,
   DialogContent,
@@ -152,7 +148,8 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
   const handleDelete = async (id: string) => {
     const confirmed = await confirm({
       title: "Delete this source?",
-      description: "This income source will be moved to trash. You can restore it later.",
+      description:
+        "This income source will be moved to trash. You can restore it later.",
       confirmLabel: "Delete",
       variant: "danger",
     });
@@ -202,10 +199,13 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
             {sources.length} Source{sources.length !== 1 && "s"}
           </h2>
           <div className="flex-1 h-px bg-border/50" />
-          <Dialog open={isAddOpen} onOpenChange={(open) => {
-            setIsAddOpen(open);
-            if (!open) setAddError(null);
-          }}>
+          <Dialog
+            open={isAddOpen}
+            onOpenChange={(open) => {
+              setIsAddOpen(open);
+              if (!open) setAddError(null);
+            }}
+          >
             <DialogTrigger asChild>
               <Button size="sm" className="gap-1 h-7 text-xs">
                 <Plus className="h-3 w-3" />
@@ -220,11 +220,11 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
-                <Input
+                <TextInput
                   label="Name"
                   value={newName}
-                  onChange={(e) => {
-                    setNewName(e.target.value);
+                  onChange={(nextValue) => {
+                    setNewName(nextValue);
                     if (addError) setAddError(null);
                   }}
                   placeholder="e.g., Freelance, Investments"
@@ -239,18 +239,19 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
                         onClick={() => setNewColor(color)}
                         className={cn(
                           "h-8 w-8 rounded-full transition-all",
-                          newColor === color && "ring-2 ring-primary"
+                          newColor === color && "ring-2 ring-primary",
                         )}
                         style={{ backgroundColor: color }}
                       />
                     ))}
                     {/* Custom color picker */}
                     <div className="relative h-8 w-8">
-                      <input
-                        type="color"
+                      <ColorInput
+                        size="sm"
+                        ariaLabel="New source custom color"
                         value={newColor}
-                        onChange={(e) => setNewColor(e.target.value)}
-                        className="absolute inset-0 h-8 w-8 cursor-pointer opacity-0"
+                        onChange={(nextValue) => setNewColor(nextValue)}
+                        className="w-8"
                       />
                       {!DEFAULT_COLORS.includes(newColor) ? (
                         <div
@@ -265,23 +266,23 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
                     </div>
                     {/* Hex input for custom color */}
                     {!DEFAULT_COLORS.includes(newColor) && (
-                      <Input
+                      <TextInput
+                        aria-label="Color hex code"
+                        size="sm"
                         value={newColor}
-                        onChange={(e) => {
-                          const val = e.target.value;
+                        onChange={(nextValue) => {
+                          const val = nextValue;
                           if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
                             setNewColor(val);
                           }
                         }}
-                        className="w-24 font-mono text-sm uppercase h-8"
+                        className="w-24 font-mono"
                         maxLength={7}
                       />
                     )}
                   </div>
                 </div>
-                {addError && (
-                  <p className="text-sm text-error">{addError}</p>
-                )}
+                {addError && <p className="text-sm text-error">{addError}</p>}
               </div>
               <DialogFooter>
                 <Button
@@ -307,7 +308,9 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
                 key={source.id}
                 className={cn(
                   "px-4 py-3 transition-colors hover:bg-secondary",
-                  editingId === source.id ? "flex flex-col gap-3" : "flex items-center gap-4"
+                  editingId === source.id
+                    ? "flex flex-col gap-3"
+                    : "flex items-center gap-4",
                 )}
               >
                 {editingId === source.id ? (
@@ -319,9 +322,10 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
                         style={{ backgroundColor: editColor || "#5B8A8A" }}
                       />
                       <span className="flex-1 min-w-0">
-                        <Input
+                        <TextInput
+                          aria-label="Name"
                           value={editName}
-                          onChange={(e) => setEditName(e.target.value)}
+                          onChange={(nextValue) => setEditName(nextValue)}
                           className="w-full"
                         />
                       </span>
@@ -349,18 +353,19 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
                           onClick={() => setEditColor(color)}
                           className={cn(
                             "h-7 w-7 rounded-full transition-all",
-                            editColor === color && "ring-2 ring-primary"
+                            editColor === color && "ring-2 ring-primary",
                           )}
                           style={{ backgroundColor: color }}
                         />
                       ))}
                       {/* Custom color picker */}
                       <div className="relative h-7 w-7">
-                        <input
-                          type="color"
+                        <ColorInput
+                          size="sm"
+                          ariaLabel="Edit source custom color"
                           value={editColor}
-                          onChange={(e) => setEditColor(e.target.value)}
-                          className="absolute inset-0 h-7 w-7 cursor-pointer opacity-0"
+                          onChange={(nextValue) => setEditColor(nextValue)}
+                          className="w-7"
                         />
                         {!DEFAULT_COLORS.includes(editColor) ? (
                           <div
@@ -375,15 +380,17 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
                       </div>
                       {/* Hex input for custom color */}
                       {!DEFAULT_COLORS.includes(editColor) && (
-                        <Input
+                        <TextInput
+                          aria-label="Color hex code"
+                          size="sm"
                           value={editColor}
-                          onChange={(e) => {
-                            const val = e.target.value;
+                          onChange={(nextValue) => {
+                            const val = nextValue;
                             if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
                               setEditColor(val);
                             }
                           }}
-                          className="w-24 font-mono text-sm uppercase h-7"
+                          className="w-24 font-mono"
                           maxLength={7}
                         />
                       )}
@@ -397,23 +404,23 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
                     />
                     <span className="flex-1 font-medium">{source.name}</span>
                     <Tooltip content="Edit source">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => handleEdit(source)}
-                    >
-                      <Pencil className="h-4 w-4" />
-                    </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => handleEdit(source)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
                     </Tooltip>
                     <Tooltip content="Delete source">
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="text-error hover:text-error"
-                      onClick={() => handleDelete(source.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="text-error hover:text-error"
+                        onClick={() => handleDelete(source.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </Tooltip>
                   </>
                 )}

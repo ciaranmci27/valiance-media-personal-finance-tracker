@@ -28,10 +28,10 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { CustomSelect } from "@/components/ui/select";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Select } from "@/components/ui/inputs/Select";
 import { MaskedValue } from "@/components/ui/masked-value";
-import { Textarea } from "@/components/ui/textarea";
+import { Textarea } from "@/components/ui/inputs/Textarea";
 import { toast } from "@/components/ui/toast";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
@@ -103,7 +103,9 @@ export function RunDetailContent({
   const [paymentMethod, setPaymentMethod] = React.useState("ACH");
   const [paymentReference, setPaymentReference] = React.useState("");
   const [voidReason, setVoidReason] = React.useState("");
-  const [voidDownstreamCount, setVoidDownstreamCount] = React.useState<number | null>(null);
+  const [voidDownstreamCount, setVoidDownstreamCount] = React.useState<
+    number | null
+  >(null);
 
   const closeDialog = () => {
     if (submitting) return;
@@ -309,7 +311,10 @@ export function RunDetailContent({
               title="Refresh taxes using the latest tax configs and employee W-4"
             >
               {submitting ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden="true" />
+                <Loader2
+                  className="h-4 w-4 mr-1 animate-spin"
+                  aria-hidden="true"
+                />
               ) : (
                 <RefreshCw className="h-4 w-4 mr-1" aria-hidden="true" />
               )}
@@ -354,7 +359,10 @@ export function RunDetailContent({
               }
             >
               {submitting ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden="true" />
+                <Loader2
+                  className="h-4 w-4 mr-1 animate-spin"
+                  aria-hidden="true"
+                />
               ) : (
                 <Mail className="h-4 w-4 mr-1" aria-hidden="true" />
               )}
@@ -372,7 +380,9 @@ export function RunDetailContent({
         )}
         <span className="ml-auto text-xs text-muted-foreground">
           Created {formatTime(run.created_at)}
-          {run.finalized_at ? ` - approved ${formatTime(run.finalized_at)}` : ""}
+          {run.finalized_at
+            ? ` - approved ${formatTime(run.finalized_at)}`
+            : ""}
           {run.paid_at ? ` - paid ${formatTime(run.paid_at)}` : ""}
           {run.status === "paid" && !run.stub_sent_at
             ? " - stub not yet delivered"
@@ -408,7 +418,9 @@ export function RunDetailContent({
               aria-hidden="true"
             />
             <span>
-              <span className="font-medium">YTD values on this run are stale.</span>
+              <span className="font-medium">
+                YTD values on this run are stale.
+              </span>
               {run.ytd_stale_reason && (
                 <span className="block mt-1 text-xs text-muted-foreground">
                   {run.ytd_stale_reason}
@@ -495,10 +507,7 @@ export function RunDetailContent({
           label="Total"
           amount={
             employeeTaxTotal +
-            otherWithholdings.reduce(
-              (sum, i) => sum + Number(i.amount || 0),
-              0,
-            )
+            otherWithholdings.reduce((sum, i) => sum + Number(i.amount || 0), 0)
           }
           bold
         />
@@ -522,8 +531,14 @@ export function RunDetailContent({
           }
           amount={Number(run.medicare_employer || 0)}
         />
-        <LineRow label={<Term slug="futa">FUTA</Term>} amount={Number(run.futa || 0)} />
-        <LineRow label={<Term slug="suta">SUTA</Term>} amount={Number(run.suta || 0)} />
+        <LineRow
+          label={<Term slug="futa">FUTA</Term>}
+          amount={Number(run.futa || 0)}
+        />
+        <LineRow
+          label={<Term slug="suta">SUTA</Term>}
+          amount={Number(run.suta || 0)}
+        />
         {Number(run.state_disability_employer || 0) > 0 && (
           <LineRow
             label={
@@ -576,7 +591,9 @@ export function RunDetailContent({
       </Section>
 
       {/* Snapshots */}
-      {(run.status === "finalized" || run.status === "paid" || run.status === "voided") && (
+      {(run.status === "finalized" ||
+        run.status === "paid" ||
+        run.status === "voided") && (
         <Section title="Snapshot">
           <p className="text-xs text-muted-foreground">
             This run captures frozen copies of the employee record and tax
@@ -590,14 +607,11 @@ export function RunDetailContent({
             </p>
           )}
           {run.void_reason && (
-            <p className="text-xs text-error">
-              Voided: {run.void_reason}
-            </p>
+            <p className="text-xs text-error">Voided: {run.void_reason}</p>
           )}
           {run.payment_method || run.payment_reference ? (
             <p className="text-xs text-muted-foreground">
-              Payment:{" "}
-              {run.payment_method ?? "-"}
+              Payment: {run.payment_method ?? "-"}
               {run.payment_reference ? ` (ref ${run.payment_reference})` : ""}
             </p>
           ) : null}
@@ -667,7 +681,8 @@ export function RunDetailContent({
             <label className="text-xs uppercase tracking-wider text-muted-foreground">
               Payment method
             </label>
-            <CustomSelect
+            <Select
+              ariaLabel="Payment method"
               value={paymentMethod}
               onChange={setPaymentMethod}
               options={[
@@ -683,9 +698,10 @@ export function RunDetailContent({
             <label className="text-xs uppercase tracking-wider text-muted-foreground">
               Reference (optional)
             </label>
-            <Input
+            <TextInput
+              aria-label="Payment reference"
               value={paymentReference}
-              onChange={(e) => setPaymentReference(e.target.value)}
+              onChange={(nextValue) => setPaymentReference(nextValue)}
               placeholder="Check # or transaction id"
             />
           </div>
@@ -703,10 +719,10 @@ export function RunDetailContent({
         submitting={submitting}
       >
         <Textarea
+          aria-label="Reason for voiding"
           value={voidReason}
-          onChange={(e) => setVoidReason(e.target.value)}
+          onChange={(nextValue) => setVoidReason(nextValue)}
           placeholder="Reason (e.g. paid by mistake, corrected by replacement run)"
-          className="min-h-[90px]"
         />
       </SimpleModal>
 
@@ -730,7 +746,9 @@ export function RunDetailContent({
       >
         <div className="rounded-md border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
           Reason:{" "}
-          <span className="text-foreground">{voidReason.trim() || "(none provided)"}</span>
+          <span className="text-foreground">
+            {voidReason.trim() || "(none provided)"}
+          </span>
         </div>
       </SimpleModal>
     </div>
@@ -768,7 +786,12 @@ function LineRow({
   bold?: boolean;
 }) {
   return (
-    <div className={cn("flex items-center justify-between text-sm", bold && "font-semibold")}>
+    <div
+      className={cn(
+        "flex items-center justify-between text-sm",
+        bold && "font-semibold",
+      )}
+    >
       <span className="text-muted-foreground">{label}</span>
       <span className="font-mono text-foreground">
         <MaskedValue value={formatCurrency(amount)} />
@@ -919,7 +942,10 @@ function SimpleModal({
             disabled={submitting}
           >
             {submitting && (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden="true" />
+              <Loader2
+                className="h-4 w-4 mr-1 animate-spin"
+                aria-hidden="true"
+              />
             )}
             {confirmLabel}
           </Button>
@@ -931,13 +957,32 @@ function SimpleModal({
 
 function HistoryIcon({ type }: { type: PayrollRunEventType }) {
   const map: Record<PayrollRunEventType, React.ReactNode> = {
-    created: <Circle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />,
-    updated: <Circle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />,
-    finalized: <FileCheck2 className="h-3.5 w-3.5 text-teal-light" aria-hidden="true" />,
-    paid: <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />,
+    created: (
+      <Circle
+        className="h-3.5 w-3.5 text-muted-foreground"
+        aria-hidden="true"
+      />
+    ),
+    updated: (
+      <Circle
+        className="h-3.5 w-3.5 text-muted-foreground"
+        aria-hidden="true"
+      />
+    ),
+    finalized: (
+      <FileCheck2 className="h-3.5 w-3.5 text-teal-light" aria-hidden="true" />
+    ),
+    paid: (
+      <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />
+    ),
     voided: <XCircle className="h-3.5 w-3.5 text-error" aria-hidden="true" />,
     deleted: <Trash2 className="h-3.5 w-3.5 text-error" aria-hidden="true" />,
-    restored: <Circle className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />,
+    restored: (
+      <Circle
+        className="h-3.5 w-3.5 text-muted-foreground"
+        aria-hidden="true"
+      />
+    ),
   };
   return <>{map[type]}</>;
 }
@@ -1074,9 +1119,7 @@ function WhatsNextPanel({
       ? cycleRuns.filter((r) => r.status !== "voided")
       : [run];
   const cycleSize = activeCycleRuns.length;
-  const paidInCycle = activeCycleRuns.filter(
-    (r) => r.status === "paid",
-  ).length;
+  const paidInCycle = activeCycleRuns.filter((r) => r.status === "paid").length;
   const stubsInCycle = activeCycleRuns.filter(
     (r) => r.status === "paid" && !!r.stub_sent_at,
   ).length;
@@ -1084,16 +1127,13 @@ function WhatsNextPanel({
 
   const paidDeposits = deposits.filter((d) => d.status === "paid");
   const scheduledDeposits = deposits.filter((d) => d.status !== "paid");
-  const depositsDone =
-    deposits.length > 0 && scheduledDeposits.length === 0;
+  const depositsDone = deposits.length > 0 && scheduledDeposits.length === 0;
   const depositsPending = scheduledDeposits.length > 0;
 
   // Cycle-aware completion. For solo cycles this collapses to this run's
   // state. For multi-employee cycles Step 1/2 track the whole cycle so a
   // single finished run doesn't feel prematurely done while coworkers wait.
-  const step1Done = isMultiEmployee
-    ? paidInCycle === cycleSize
-    : isPaid;
+  const step1Done = isMultiEmployee ? paidInCycle === cycleSize : isPaid;
   const step1Partial = isMultiEmployee && paidInCycle > 0 && !step1Done;
   const step2Done = isMultiEmployee
     ? stubsInCycle === cycleSize
@@ -1165,8 +1205,8 @@ function WhatsNextPanel({
                 isMultiEmployee ? (
                   <>
                     Send each employee&apos;s net pay through your bank (ACH,
-                    check, or wire). Use the cycle view to record them all
-                    with one payment method.
+                    check, or wire). Use the cycle view to record them all with
+                    one payment method.
                     {isPaid && run.payment_method && (
                       <>
                         {" "}
@@ -1174,7 +1214,8 @@ function WhatsNextPanel({
                           This run recorded as {run.payment_method}
                           {run.payment_reference
                             ? ` (ref ${run.payment_reference})`
-                            : ""}.
+                            : ""}
+                          .
                         </span>
                       </>
                     )}
@@ -1195,7 +1236,8 @@ function WhatsNextPanel({
                           Recorded as {run.payment_method}
                           {run.payment_reference
                             ? ` (ref ${run.payment_reference})`
-                            : ""}.
+                            : ""}
+                          .
                         </span>
                       </>
                     )}
@@ -1264,8 +1306,8 @@ function WhatsNextPanel({
                   )
                 ) : (
                   <>
-                    Records the payment in the audit log and emails the pay
-                    stub to the employee.
+                    Records the payment in the audit log and emails the pay stub
+                    to the employee.
                   </>
                 )
               }
@@ -1308,9 +1350,9 @@ function WhatsNextPanel({
               detail={
                 deposits.length === 0 ? (
                   <>
-                    Deposits will appear here once approval completes. If
-                    this message stays, the run had no taxable liability
-                    (e.g., all zero).
+                    Deposits will appear here once approval completes. If this
+                    message stays, the run had no taxable liability (e.g., all
+                    zero).
                   </>
                 ) : (
                   <DepositList
@@ -1321,7 +1363,6 @@ function WhatsNextPanel({
               }
               action={null}
             />
-
           </ol>
         </>
       )}

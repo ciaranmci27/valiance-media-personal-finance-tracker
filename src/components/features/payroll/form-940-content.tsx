@@ -7,11 +7,7 @@ import { FileCheck2, Landmark } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { generateForm940 } from "@/lib/payroll/forms-actions";
-import {
-  FormViewerShell,
-  LineRow,
-  SectionHeading,
-} from "./form-viewer-shell";
+import { FormViewerShell, LineRow, SectionHeading } from "./form-viewer-shell";
 import type {
   Form940Data,
   OrganizationConfig,
@@ -89,7 +85,11 @@ function Form940Layout({ data }: { data: Form940Data }) {
         />
         <LineRow
           number="4"
-          label={<>Payments exempt from <Term slug="futa">FUTA</Term></>}
+          label={
+            <>
+              Payments exempt from <Term slug="futa">FUTA</Term>
+            </>
+          }
           value={data.line_4_payments_exempt}
         />
         <LineRow
@@ -99,7 +99,11 @@ function Form940Layout({ data }: { data: Form940Data }) {
         />
         <LineRow
           number="7"
-          label={<>Total taxable <Term slug="futa">FUTA</Term> wages</>}
+          label={
+            <>
+              Total taxable <Term slug="futa">FUTA</Term> wages
+            </>
+          }
           value={data.line_7_total_taxable}
           emphasis
         />
@@ -197,7 +201,7 @@ function QuarterlyTable({
     ) / 100;
   const matches = Math.abs(sum - total) < 0.01;
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
+    <div className="glass-card rounded-xl overflow-hidden">
       <table className="w-full text-sm">
         <tbody>
           {(["q1", "q2", "q3", "q4"] as const).map((k, i) => (

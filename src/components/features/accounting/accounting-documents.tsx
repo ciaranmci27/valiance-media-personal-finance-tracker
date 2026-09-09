@@ -1,4 +1,5 @@
 "use client";
+import { FileInput } from "@/components/ui/inputs/FileInput";
 import { useEffect, useRef, useState } from "react";
 import { Paperclip, Download, Link2, Camera, Upload, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -114,9 +115,8 @@ export function EvidenceUpload({
           choose(e.dataTransfer.files[0]);
         }}
       >
-        <input
+        <FileInput
           ref={input}
-          type="file"
           className="sr-only"
           tabIndex={-1}
           aria-label="Choose evidence file"
@@ -124,9 +124,8 @@ export function EvidenceUpload({
           disabled={busy}
           onChange={(e) => choose(e.target.files?.[0] ?? null)}
         />
-        <input
+        <FileInput
           ref={camera}
-          type="file"
           className="sr-only"
           tabIndex={-1}
           aria-label="Take a receipt photo"

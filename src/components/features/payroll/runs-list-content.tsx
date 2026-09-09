@@ -3,16 +3,10 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  ChevronRight,
-  FileText,
-  ListChecks,
-  Plus,
-  Wallet,
-} from "lucide-react";
+import { ChevronRight, FileText, ListChecks, Plus, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { MaskedValue } from "@/components/ui/masked-value";
-import { CustomSelect } from "@/components/ui/select";
+import { Select } from "@/components/ui/inputs/Select";
 import { StatCard } from "@/components/ui/stat-card";
 import { formatCurrency, cn } from "@/lib/utils";
 import { RUN_TYPE_LABELS } from "@/types/payroll";
@@ -79,7 +73,10 @@ export function RunsListContent({ runs }: { runs: PayrollRunListItem[] }) {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-              <ListChecks className="h-5 w-5 text-teal-light" aria-hidden="true" />
+              <ListChecks
+                className="h-5 w-5 text-teal-light"
+                aria-hidden="true"
+              />
             </div>
             <div>
               <h1 className="text-2xl font-bold">Pay Runs</h1>
@@ -143,7 +140,8 @@ export function RunsListContent({ runs }: { runs: PayrollRunListItem[] }) {
           <div className="flex items-center gap-2 ml-auto">
             <label className="text-xs text-muted-foreground">Year</label>
             <div className="w-28">
-              <CustomSelect
+              <Select
+                ariaLabel="Year"
                 size="sm"
                 value={year === "all" ? "all" : String(year)}
                 onChange={(v) => setYear(v === "all" ? "all" : Number(v))}
@@ -204,14 +202,16 @@ export function RunsListContent({ runs }: { runs: PayrollRunListItem[] }) {
                       : "(removed)"}
                   </div>
                   <div className="text-xs text-muted-foreground">
-                    {RUN_TYPE_LABELS[run.run_type]} - period{" "}
-                    {run.period_start} to {run.period_end}
+                    {RUN_TYPE_LABELS[run.run_type]} - period {run.period_start}{" "}
+                    to {run.period_end}
                   </div>
                 </div>
                 <div className="min-w-[100px]">
                   <div className="text-xs text-muted-foreground">Gross</div>
                   <div className="font-mono text-sm text-foreground">
-                    <MaskedValue value={formatCurrency(Number(run.gross_pay))} />
+                    <MaskedValue
+                      value={formatCurrency(Number(run.gross_pay))}
+                    />
                   </div>
                 </div>
                 <div className="min-w-[100px]">

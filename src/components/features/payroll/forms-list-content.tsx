@@ -2,12 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import {
-  CheckCircle2,
-  ChevronRight,
-  Clock,
-  FileCheck2,
-} from "lucide-react";
+import { CheckCircle2, ChevronRight, Clock, FileCheck2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   form940DueDate,
@@ -85,7 +80,10 @@ export function FormsListContent({ forms, currentYear }: Props) {
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <FileCheck2 className="h-5 w-5 text-teal-light" aria-hidden="true" />
+            <FileCheck2
+              className="h-5 w-5 text-teal-light"
+              aria-hidden="true"
+            />
           </div>
           <div>
             <h1 className="text-2xl font-bold">Tax Forms</h1>
@@ -246,7 +244,7 @@ function FormSlotCard({ slot }: { slot: Slot }) {
     <Link
       href={slot.href}
       className={cn(
-        "rounded-lg border border-border p-3 flex items-center gap-3 transition-colors hover:border-primary/30 hover:bg-secondary",
+        "glass-card rounded-xl p-3 flex items-center gap-3 transition-colors hover:border-primary/30 hover:bg-secondary",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
     >

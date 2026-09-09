@@ -19,13 +19,10 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { toast } from "@/components/ui/toast";
 import { cn, formatCurrency } from "@/lib/utils";
-import {
-  generateForm941,
-  markFormFiled,
-} from "@/lib/payroll/forms-actions";
+import { generateForm941, markFormFiled } from "@/lib/payroll/forms-actions";
 import type {
   Form941Data,
   OrganizationConfig,
@@ -120,10 +117,15 @@ export function Form941Content({
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-            <FileCheck2 className="h-5 w-5 text-teal-light" aria-hidden="true" />
+            <FileCheck2
+              className="h-5 w-5 text-teal-light"
+              aria-hidden="true"
+            />
           </div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-2xl font-bold">Form 941 - Q{quarter} {year}</h1>
+            <h1 className="text-2xl font-bold">
+              Form 941 - Q{quarter} {year}
+            </h1>
             <p className="text-sm text-muted-foreground">
               Employer's Quarterly Federal Tax Return
             </p>
@@ -148,10 +150,7 @@ export function Form941Content({
         </Button>
 
         {hasData && !isFiled && (
-          <Button
-            onClick={() => setFileDialog(true)}
-            disabled={submitting}
-          >
+          <Button onClick={() => setFileDialog(true)} disabled={submitting}>
             <FileCheck2 className="h-4 w-4 mr-1" aria-hidden="true" />
             Mark filed
           </Button>
@@ -176,7 +175,10 @@ export function Form941Content({
           />
           <div className="flex-1 text-sm">
             <div className="font-medium text-success">
-              Filed {form.filed_at ? new Date(form.filed_at).toLocaleDateString() : ""}
+              Filed{" "}
+              {form.filed_at
+                ? new Date(form.filed_at).toLocaleDateString()
+                : ""}
             </div>
             {form.confirmation_number && (
               <div className="text-muted-foreground mt-0.5">
@@ -387,8 +389,8 @@ function Form941Layout({
             <Landmark className="h-3 w-3" aria-hidden="true" />
             deposits ledger
           </Link>
-          . Scheduled-but-unpaid deposits do not count here, so if Line 14
-          shows a balance due, confirm any recent EFTPS payments are logged.
+          . Scheduled-but-unpaid deposits do not count here, so if Line 14 shows
+          a balance due, confirm any recent EFTPS payments are logged.
         </p>
       </section>
     </div>
@@ -489,7 +491,7 @@ function MonthlyLiabilityTable({
     Math.round((monthly.month1 + monthly.month2 + monthly.month3) * 100) / 100;
   const matches = Math.abs(sum - line12) < 0.005;
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
+    <div className="glass-card rounded-xl overflow-hidden">
       <table className="w-full text-sm">
         <tbody>
           <tr className="border-b border-border">
@@ -511,7 +513,9 @@ function MonthlyLiabilityTable({
             </td>
           </tr>
           <tr className="bg-secondary/40">
-            <td className="px-3 py-2 font-semibold">Total (must equal Line 12)</td>
+            <td className="px-3 py-2 font-semibold">
+              Total (must equal Line 12)
+            </td>
             <td
               className={cn(
                 "px-3 py-2 text-right font-mono tabular-nums font-semibold",
@@ -540,12 +544,14 @@ function ScheduleBTable({
     );
   }
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
+    <div className="glass-card rounded-xl overflow-hidden">
       <table className="w-full text-sm">
         <thead className="bg-secondary/40 text-xs uppercase tracking-wider text-muted-foreground">
           <tr>
             <th className="text-left px-3 py-2 font-medium">Date</th>
-            <th className="text-right px-3 py-2 font-medium">Daily liability</th>
+            <th className="text-right px-3 py-2 font-medium">
+              Daily liability
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -644,10 +650,10 @@ function FileDialog({
           Record that you have filed this return with the IRS. Once marked
           filed, the form becomes read-only and regeneration is disabled.
         </DialogDescription>
-        <Input
+        <TextInput
           label="IRS confirmation / submission ID (optional)"
           value={confirmationNumber}
-          onChange={(e) => onConfirmationNumberChange(e.target.value)}
+          onChange={(nextValue) => onConfirmationNumberChange(nextValue)}
           placeholder="e.g., EFTPS confirmation or e-file submission ID"
         />
         <div className="flex items-center justify-end gap-2 pt-2">
@@ -656,7 +662,10 @@ function FileDialog({
           </Button>
           <Button onClick={onConfirm} disabled={submitting}>
             {submitting && (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden="true" />
+              <Loader2
+                className="h-4 w-4 mr-1 animate-spin"
+                aria-hidden="true"
+              />
             )}
             Mark filed
           </Button>

@@ -14,9 +14,9 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { NumberInput } from "@/components/ui/number-input";
-import { CustomSelect } from "@/components/ui/select";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { Select } from "@/components/ui/inputs/Select";
 import { Tooltip } from "@/components/ui/tooltip";
 import { cn, parseLocalDate } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -426,14 +426,14 @@ export function TaxSetupCard({
 
             <div className="glass-card rounded-xl p-5 space-y-5">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <CustomSelect
+                <Select
                   label="Filing Status"
                   value={filingStatus}
                   onChange={(val) => setFilingStatus(val as FilingStatus)}
                   options={FILING_STATUS_OPTIONS}
                   size="sm"
                 />
-                <CustomSelect
+                <Select
                   label="State"
                   value={state}
                   onChange={setState}
@@ -445,7 +445,7 @@ export function TaxSetupCard({
                   size="sm"
                 />
                 {businessProfile ? (
-                  <div className="sm:col-span-2 rounded-lg border border-border bg-[rgba(var(--ink),0.03)] px-3 py-2.5 text-sm">
+                  <div className="sm:col-span-2 glass-card rounded-xl bg-[rgba(var(--ink),0.03)] px-3 py-2.5 text-sm">
                     <p className="text-xs font-medium text-muted-foreground">
                       Business structure
                     </p>
@@ -461,7 +461,7 @@ export function TaxSetupCard({
                   </div>
                 ) : (
                   <>
-                    <CustomSelect
+                    <Select
                       label="Business Structure"
                       value={businessType}
                       onChange={handleBusinessTypeChange}
@@ -469,7 +469,7 @@ export function TaxSetupCard({
                       size="sm"
                     />
                     {showClassification && (
-                      <CustomSelect
+                      <Select
                         label="Tax Classification"
                         value={taxClassification ?? ""}
                         onChange={(val) =>
@@ -482,14 +482,15 @@ export function TaxSetupCard({
                   </>
                 )}
                 <NumberInput
-                  integer
+                  size="sm"
+                  precision={0}
+                  step={1}
                   label="Dependents"
                   value={dependents || ""}
-                  onChange={(e) =>
-                    setDependents(Math.max(0, Number(e.target.value) || 0))
+                  onChange={(nextValue) =>
+                    setDependents(Math.max(0, Number(String(nextValue)) || 0))
                   }
                   placeholder="0"
-                  className="h-8 text-sm bg-input border-border"
                 />
               </div>
             </div>
@@ -640,7 +641,7 @@ export function TaxSetupCard({
                     {isSelected && isExpanded && (
                       <div className="border-t border-white/[0.06] p-4 pt-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <CustomSelect
+                          <Select
                             label="Filing Status"
                             value={profile.filingStatus}
                             onChange={(val) =>
@@ -651,7 +652,7 @@ export function TaxSetupCard({
                             options={FILING_STATUS_OPTIONS}
                             size="sm"
                           />
-                          <CustomSelect
+                          <Select
                             label="State"
                             value={profile.state ?? ""}
                             onChange={(val) =>
@@ -664,7 +665,7 @@ export function TaxSetupCard({
                             placeholder="Select state"
                             size="sm"
                           />
-                          <CustomSelect
+                          <Select
                             label="Business Structure"
                             value={profile.businessType}
                             onChange={(val) => {
@@ -678,7 +679,7 @@ export function TaxSetupCard({
                             size="sm"
                           />
                           {yearShowClassification && (
-                            <CustomSelect
+                            <Select
                               label="Tax Classification"
                               value={profile.taxClassification ?? ""}
                               onChange={(val) =>
@@ -691,19 +692,20 @@ export function TaxSetupCard({
                             />
                           )}
                           <NumberInput
-                            integer
+                            size="sm"
+                            precision={0}
+                            step={1}
                             label="Dependents"
                             value={profile.dependents || ""}
-                            onChange={(e) =>
+                            onChange={(nextValue) =>
                               updateYearOverride(year, {
                                 dependents: Math.max(
                                   0,
-                                  Number(e.target.value) || 0,
+                                  Number(String(nextValue)) || 0,
                                 ),
                               })
                             }
                             placeholder="0"
-                            className="h-8 text-sm bg-input border-border"
                           />
                         </div>
                       </div>
@@ -717,20 +719,22 @@ export function TaxSetupCard({
             {showAddYear ? (
               <div className="flex flex-col gap-1">
                 <div className="flex items-center gap-2">
-                  <Input
+                  <TextInput
+                    aria-label="Year"
+                    size="sm"
                     inputMode="numeric"
                     maxLength={4}
                     placeholder={`e.g. ${supportedYears[0] ?? 2026}`}
                     value={addYearValue}
-                    onChange={(e) => {
-                      const digitsOnly = e.target.value
+                    onChange={(nextValue) => {
+                      const digitsOnly = nextValue
                         .replace(/\D/g, "")
                         .slice(0, 4);
                       setAddYearValue(digitsOnly);
                       if (addYearError) setAddYearError(null);
                     }}
                     onKeyDown={(e) => e.key === "Enter" && addYear()}
-                    className="h-8 w-28 text-sm"
+                    className="w-28"
                     autoFocus
                   />
                   <Button

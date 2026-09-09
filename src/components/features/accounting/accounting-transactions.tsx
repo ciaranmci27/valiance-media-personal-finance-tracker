@@ -1,4 +1,5 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpDown,
@@ -20,8 +21,8 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
@@ -731,7 +732,7 @@ export function AccountingTransactions({
               <Checkbox
                 size="sm"
                 checked={chosenSet.has(e.id)}
-                aria-label={`Select ${e.memo}`}
+                ariaLabel={`Select ${e.memo}`}
                 disabled={busy}
                 onChange={() => toggleOne(e)}
                 className="mt-0.5"
@@ -952,14 +953,13 @@ export function AccountingTransactions({
             ))}
           </div>
           <div className="flex w-full items-center gap-2 sm:w-auto">
-            <Input
+            <TextInput
               aria-label="Search transactions"
               placeholder="Search transactions"
-              icon={<Search size={15} aria-hidden="true" />}
+              prefix={<Search size={15} aria-hidden="true" />}
               value={query}
               maxLength={200}
-              onChange={(e) => setQuery(e.target.value)}
-              className="h-9 sm:w-56"
+              onChange={(nextValue) => setQuery(nextValue)}
             />
             <Button
               size="sm"
@@ -1000,31 +1000,29 @@ export function AccountingTransactions({
 
         {filters && (
           <div className="grid gap-3 border-b border-border bg-[rgba(var(--ink),0.02)] p-4 sm:grid-cols-2 xl:grid-cols-4">
-            <Input
-              type="date"
+            <DateInput
               label="From date"
               value={from}
-              onChange={(e) => changed(() => setFrom(e.target.value))}
+              onChange={(nextValue) => changed(() => setFrom(nextValue))}
             />
-            <Input
-              type="date"
+            <DateInput
               label="Through date"
               value={to}
-              onChange={(e) => changed(() => setTo(e.target.value))}
+              onChange={(nextValue) => changed(() => setTo(nextValue))}
             />
-            <Input
+            <TextInput
               label="Minimum amount"
               inputMode="decimal"
               placeholder="0.00"
               value={minimum}
-              onChange={(e) => changed(() => setMinimum(e.target.value))}
+              onChange={(nextValue) => changed(() => setMinimum(nextValue))}
             />
-            <Input
+            <TextInput
               label="Maximum amount"
               inputMode="decimal"
               placeholder="No maximum"
               value={maximum}
-              onChange={(e) => changed(() => setMaximum(e.target.value))}
+              onChange={(nextValue) => changed(() => setMaximum(nextValue))}
             />
             <AccountingPicker
               label="Source"
@@ -1187,7 +1185,7 @@ export function AccountingTransactions({
                     .at(-1),
                 )}
               </p>
-              <div className="grid grid-cols-2 gap-3 rounded-lg border border-border p-3 text-sm">
+              <div className="grid grid-cols-2 gap-3 glass-card rounded-xl p-3 text-sm">
                 {(["in", "out"] as const).map((direction) => (
                   <div key={direction}>
                     <p className="text-xs text-muted-foreground">
@@ -1293,7 +1291,7 @@ export function AccountingTransactions({
                   setBulkCategory({ ...bulkCategory, account: v })
                 }
               />
-              <div className="max-h-64 divide-y divide-border overflow-auto rounded-lg border border-border px-3">
+              <div className="max-h-64 divide-y divide-border overflow-auto glass-card rounded-xl px-3">
                 {bulkCategory.entries.map((e) => (
                   <div
                     key={e.id}

@@ -6,16 +6,8 @@ import { FileText } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { toast } from "@/components/ui/toast";
 import { generateFormW2 } from "@/lib/payroll/forms-actions";
-import {
-  FormViewerShell,
-  LineRow,
-  SectionHeading,
-} from "./form-viewer-shell";
-import type {
-  FormW2Data,
-  PayrollEmployee,
-  PayrollForm,
-} from "@/types/payroll";
+import { FormViewerShell, LineRow, SectionHeading } from "./form-viewer-shell";
+import type { FormW2Data, PayrollEmployee, PayrollForm } from "@/types/payroll";
 import { Term } from "./term";
 
 interface Props {
@@ -89,17 +81,38 @@ function FormW2Layout({ data }: { data: FormW2Data }) {
     <div className="space-y-6">
       <section className="glass-card rounded-xl p-5 space-y-2">
         <SectionHeading>Federal</SectionHeading>
-        <LineRow number="1" label="Wages, tips, other compensation" value={data.box_1_wages} emphasis />
+        <LineRow
+          number="1"
+          label="Wages, tips, other compensation"
+          value={data.box_1_wages}
+          emphasis
+        />
         <LineRow
           number="2"
           label="Federal income tax withheld"
           value={data.box_2_federal_income_tax}
         />
         <div className="border-t border-border my-2 pt-2">
-          <LineRow number="3" label="Social Security wages" value={data.box_3_ss_wages} />
-          <LineRow number="4" label="Social Security tax withheld" value={data.box_4_ss_tax} />
-          <LineRow number="5" label="Medicare wages and tips" value={data.box_5_medicare_wages} />
-          <LineRow number="6" label="Medicare tax withheld" value={data.box_6_medicare_tax} />
+          <LineRow
+            number="3"
+            label="Social Security wages"
+            value={data.box_3_ss_wages}
+          />
+          <LineRow
+            number="4"
+            label="Social Security tax withheld"
+            value={data.box_4_ss_tax}
+          />
+          <LineRow
+            number="5"
+            label="Medicare wages and tips"
+            value={data.box_5_medicare_wages}
+          />
+          <LineRow
+            number="6"
+            label="Medicare tax withheld"
+            value={data.box_6_medicare_tax}
+          />
         </div>
       </section>
 
@@ -107,17 +120,22 @@ function FormW2Layout({ data }: { data: FormW2Data }) {
         <section className="glass-card rounded-xl p-5 space-y-2">
           <SectionHeading>Supplemental</SectionHeading>
           {data.box_12 && data.box_12.length > 0 && (
-            <div className="rounded-lg border border-border overflow-hidden">
+            <div className="glass-card rounded-xl overflow-hidden">
               <table className="w-full text-sm">
                 <thead className="bg-secondary/40 text-xs uppercase tracking-wider text-muted-foreground">
                   <tr>
-                    <th className="text-left px-3 py-2 font-medium">Box 12 code</th>
+                    <th className="text-left px-3 py-2 font-medium">
+                      Box 12 code
+                    </th>
                     <th className="text-right px-3 py-2 font-medium">Amount</th>
                   </tr>
                 </thead>
                 <tbody>
                   {data.box_12.map((c, i) => (
-                    <tr key={`${c.code}-${i}`} className="border-t border-border">
+                    <tr
+                      key={`${c.code}-${i}`}
+                      className="border-t border-border"
+                    >
                       <td className="px-3 py-2 font-mono text-muted-foreground">
                         {c.code} {box12Label(c.code)}
                       </td>

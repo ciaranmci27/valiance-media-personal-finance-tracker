@@ -1,4 +1,5 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -14,11 +15,10 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
 import { MaskedValue } from "@/components/ui/masked-value";
-import { CustomSelect } from "@/components/ui/select";
+import { Select } from "@/components/ui/inputs/Select";
 import { usePrivacy } from "@/contexts/privacy-context";
 import { cn } from "@/lib/utils";
 import type { BooksMetadata } from "./types";
@@ -449,7 +449,7 @@ export function AccountingReports({
         className="glass-card space-y-4 rounded-xl p-4 sm:p-5"
       >
         <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[180px_1fr_1fr_200px_auto]">
-          <CustomSelect
+          <Select
             id="report-period"
             label="Date range"
             value={
@@ -466,25 +466,23 @@ export function AccountingReports({
               ...presets.map((p) => ({ value: p.value, label: p.label })),
             ]}
           />
-          <Input
+          <DateInput
             label={report.id === "balance-sheet" ? "Activity from" : "From"}
-            type="date"
-            min="1900-01-01"
-            max="2100-12-31"
+            minDate="1900-01-01"
+            maxDate="2100-12-31"
             required
             value={draft.from}
-            onChange={(e) => setDraft({ ...draft, from: e.target.value })}
+            onChange={(nextValue) => setDraft({ ...draft, from: nextValue })}
           />
-          <Input
+          <DateInput
             label={report.id === "balance-sheet" ? "As of" : "Through"}
-            type="date"
-            min="1900-01-01"
-            max="2100-12-31"
+            minDate="1900-01-01"
+            maxDate="2100-12-31"
             required
             value={draft.to}
-            onChange={(e) => setDraft({ ...draft, to: e.target.value })}
+            onChange={(nextValue) => setDraft({ ...draft, to: nextValue })}
           />
-          <CustomSelect
+          <Select
             id="report-mode"
             label="Book mode"
             value={draft.mode}
@@ -557,22 +555,20 @@ export function AccountingReports({
         </div>
         {!!draft.compare_from && (
           <div className="flex flex-wrap items-end gap-3 border-t border-border pt-4">
-            <Input
+            <DateInput
               label="Compare from"
-              type="date"
               required
               value={draft.compare_from}
-              onChange={(e) =>
-                setDraft({ ...draft, compare_from: e.target.value })
+              onChange={(nextValue) =>
+                setDraft({ ...draft, compare_from: nextValue })
               }
             />
-            <Input
+            <DateInput
               label="Compare through"
-              type="date"
               required
               value={draft.compare_to ?? ""}
-              onChange={(e) =>
-                setDraft({ ...draft, compare_to: e.target.value })
+              onChange={(nextValue) =>
+                setDraft({ ...draft, compare_to: nextValue })
               }
             />
             <Button

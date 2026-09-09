@@ -1,4 +1,5 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
@@ -9,9 +10,9 @@ import {
   Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
-import { CustomSelect } from "@/components/ui/select";
+import { Select } from "@/components/ui/inputs/Select";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Pagination } from "@/components/ui/pagination";
@@ -433,7 +434,7 @@ export function AccountingPayrollRuns({
             <label htmlFor="payroll-year" className="sr-only">
               Tax year
             </label>
-            <CustomSelect
+            <Select
               id="payroll-year"
               value={year}
               onChange={(v) => {
@@ -444,13 +445,12 @@ export function AccountingPayrollRuns({
               size="sm"
             />
           </div>
-          <Input
+          <TextInput
             aria-label="Search payroll runs"
             placeholder="Search runs"
-            icon={<Search size={15} aria-hidden="true" />}
+            prefix={<Search size={15} aria-hidden="true" />}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="h-9 sm:w-56"
+            onChange={(nextValue) => setQuery(nextValue)}
           />
         </div>
         {(error || cmd.error) && (
@@ -642,7 +642,7 @@ function RunDetail({
               ["Employer cost", detail.preview.totals.employer_cents],
             ] as const
           ).map(([label, value]) => (
-            <div key={label} className="rounded-lg border border-border p-3">
+            <div key={label} className="glass-card rounded-xl p-3">
               <p className="text-xs text-muted-foreground">{label}</p>
               <p className="mt-0.5 font-medium tabular-nums">
                 <MaskedValue value={money(value)} />
@@ -661,7 +661,7 @@ function RunDetail({
           <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             Journal lines
           </p>
-          <div className="divide-y divide-border rounded-lg border border-border">
+          <div className="divide-y divide-border glass-card rounded-xl">
             {detail.preview.lines.map((l, i) => {
               const cents = BigInt(l.amount_cents);
               return (
@@ -694,7 +694,7 @@ function RunDetail({
         {detail.status === "draft" && (
           <div className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
-              <CustomSelect
+              <Select
                 label="Posting"
                 value={template}
                 onChange={(v) => {
@@ -1059,12 +1059,12 @@ function RunForm({
   }
 
   const moneyField = (label: string, key: keyof FormState) => (
-    <Input
+    <TextInput
       label={label}
       inputMode="decimal"
       placeholder="0.00"
       value={String(state[key])}
-      onChange={(e) => set({ [key]: e.target.value } as Partial<FormState>)}
+      onChange={(nextValue) => set({ [key]: nextValue } as Partial<FormState>)}
     />
   );
 
@@ -1086,13 +1086,13 @@ function RunForm({
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <Input
+            <TextInput
               label="Patriot payroll number"
               required
               disabled={!!record}
               aria-describedby={record ? "provider-run-help" : undefined}
               value={state.providerId}
-              onChange={(e) => set({ providerId: e.target.value })}
+              onChange={(nextValue) => set({ providerId: nextValue })}
               placeholder="For example, 2026-09 monthly"
             />
             {record && (
@@ -1105,26 +1105,23 @@ function RunForm({
               </p>
             )}
           </div>
-          <Input
+          <DateInput
             label="Pay date"
-            type="date"
             required
             value={state.payDate}
-            onChange={(e) => set({ payDate: e.target.value })}
+            onChange={(nextValue) => set({ payDate: nextValue })}
           />
-          <Input
+          <DateInput
             label="Period from"
-            type="date"
             required
             value={state.from}
-            onChange={(e) => set({ from: e.target.value })}
+            onChange={(nextValue) => set({ from: nextValue })}
           />
-          <Input
+          <DateInput
             label="Period to"
-            type="date"
             required
             value={state.to}
-            onChange={(e) => set({ to: e.target.value })}
+            onChange={(nextValue) => set({ to: nextValue })}
           />
         </div>
 
@@ -1135,7 +1132,7 @@ function RunForm({
           {moneyField("Employer payroll taxes", "employer")}
         </div>
 
-        <details className="rounded-lg border border-border">
+        <details className="glass-card rounded-xl">
           <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
             Other register lines
           </summary>
@@ -1170,11 +1167,11 @@ function RunForm({
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Input
+          <TextInput
             label="Employee"
             required
             value={state.employeeName}
-            onChange={(e) => set({ employeeName: e.target.value })}
+            onChange={(nextValue) => set({ employeeName: nextValue })}
             placeholder="Owner name"
           />
           <EvidencePicker
@@ -1203,7 +1200,7 @@ function RunForm({
         </div>
 
         {showAccounts && (
-          <div className="grid gap-4 rounded-lg border border-border p-4 sm:grid-cols-2">
+          <div className="grid gap-4 glass-card rounded-xl p-4 sm:grid-cols-2">
             <AccountingPicker
               label="Wages expense"
               visibleLabel="Wages expense"
@@ -1288,18 +1285,18 @@ function RunForm({
         )}
 
         {showFacts && (
-          <div className="grid gap-4 rounded-lg border border-border p-4 sm:grid-cols-2">
+          <div className="grid gap-4 glass-card rounded-xl p-4 sm:grid-cols-2">
             {FACT_FIELDS.map(([key, label]) => (
-              <Input
+              <TextInput
                 key={key}
                 label={label}
                 inputMode="decimal"
                 placeholder="0.00"
                 value={state.facts[key]}
-                onChange={(e) =>
+                onChange={(nextValue) =>
                   setState((s) => ({
                     ...s,
-                    facts: { ...s.facts, [key]: e.target.value },
+                    facts: { ...s.facts, [key]: nextValue },
                   }))
                 }
               />
@@ -1354,19 +1351,18 @@ function VoidDialog({
           });
         }}
       >
-        <Input
+        <DateInput
           label="Effective date"
-          type="date"
           required
           value={date}
-          onChange={(e) => setDate(e.target.value)}
+          onChange={(nextValue) => setDate(nextValue)}
         />
-        <Input
+        <TextInput
           label="Reason"
           required
           maxLength={1000}
           value={reason}
-          onChange={(e) => setReason(e.target.value)}
+          onChange={(nextValue) => setReason(nextValue)}
         />
         <p className="text-xs text-muted-foreground">
           Run {run.provider_run_id}, pay date {dateLabel(run.pay_date)}.

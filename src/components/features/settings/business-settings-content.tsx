@@ -1,4 +1,5 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 
 import * as React from "react";
 import Link from "next/link";
@@ -16,9 +17,9 @@ import {
   HeaderControls,
 } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { CustomSelect } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Select } from "@/components/ui/inputs/Select";
+import { Toggle } from "@/components/ui/inputs/Toggle";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -235,20 +236,20 @@ export function BusinessSettingsContent() {
             description="How the business is registered. These appear on reports and the year-end package."
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Input
+              <TextInput
                 label="Legal name"
                 required
                 value={profile.legal_name}
-                onChange={(e) => update({ legal_name: e.target.value })}
+                onChange={(nextValue) => update({ legal_name: nextValue })}
                 placeholder="Valiance Media LLC"
               />
-              <Input
+              <TextInput
                 label="Doing business as"
                 value={profile.dba}
-                onChange={(e) => update({ dba: e.target.value })}
+                onChange={(nextValue) => update({ dba: nextValue })}
                 placeholder="Optional"
               />
-              <CustomSelect
+              <Select
                 label="Entity type"
                 value={profile.entity_type}
                 options={ENTITY_TYPE_OPTIONS}
@@ -260,23 +261,22 @@ export function BusinessSettingsContent() {
                   });
                 }}
               />
-              <Input
+              <TextInput
                 label="EIN"
                 value={profile.ein}
-                onChange={(e) => update({ ein: e.target.value })}
+                onChange={(nextValue) => update({ ein: nextValue })}
                 placeholder="12-3456789"
                 inputMode="numeric"
                 autoComplete="off"
               />
-              <Input
+              <DateInput
                 label="Formation date"
-                type="date"
                 value={profile.formation_date ?? ""}
-                onChange={(e) =>
-                  update({ formation_date: e.target.value || null })
+                onChange={(nextValue) =>
+                  update({ formation_date: nextValue || null })
                 }
               />
-              <CustomSelect
+              <Select
                 label="State of formation"
                 value={profile.state_of_formation}
                 options={stateOptions}
@@ -284,52 +284,52 @@ export function BusinessSettingsContent() {
               />
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Input
+              <TextInput
                 label="Address"
                 value={profile.address.line1}
-                onChange={(e) => updateAddress({ line1: e.target.value })}
+                onChange={(nextValue) => updateAddress({ line1: nextValue })}
                 placeholder="Street"
                 className="sm:col-span-2"
               />
-              <Input
+              <TextInput
                 aria-label="Address line 2"
                 value={profile.address.line2}
-                onChange={(e) => updateAddress({ line2: e.target.value })}
+                onChange={(nextValue) => updateAddress({ line2: nextValue })}
                 placeholder="Suite, unit (optional)"
                 className="sm:col-span-2"
               />
-              <Input
+              <TextInput
                 label="City"
                 value={profile.address.city}
-                onChange={(e) => updateAddress({ city: e.target.value })}
+                onChange={(nextValue) => updateAddress({ city: nextValue })}
               />
               <div className="grid grid-cols-[1fr_120px] gap-4">
-                <CustomSelect
+                <Select
                   label="State"
                   value={profile.address.state}
                   options={stateOptions}
                   onChange={(v) => updateAddress({ state: v })}
                 />
-                <Input
+                <TextInput
                   label="ZIP"
                   value={profile.address.postal_code}
-                  onChange={(e) =>
-                    updateAddress({ postal_code: e.target.value })
+                  onChange={(nextValue) =>
+                    updateAddress({ postal_code: nextValue })
                   }
                   inputMode="numeric"
                 />
               </div>
-              <Input
+              <TextInput
                 label="Phone"
                 type="tel"
                 value={profile.phone}
-                onChange={(e) => update({ phone: e.target.value })}
+                onChange={(nextValue) => update({ phone: nextValue })}
               />
-              <Input
+              <TextInput
                 label="Business email"
                 type="email"
                 value={profile.email}
-                onChange={(e) => update({ email: e.target.value })}
+                onChange={(nextValue) => update({ email: nextValue })}
               />
             </div>
           </Section>
@@ -340,7 +340,7 @@ export function BusinessSettingsContent() {
             description="How the business is taxed. The estimator applies this to every tax year from the election year onward."
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <CustomSelect
+              <Select
                 label="Tax classification"
                 value={profile.tax_classification}
                 options={classOptions}
@@ -349,7 +349,7 @@ export function BusinessSettingsContent() {
                   update({ tax_classification: v as ProfileClassification })
                 }
               />
-              <CustomSelect
+              <Select
                 label="In effect since tax year"
                 value={
                   profile.tax_classification_since
@@ -362,14 +362,14 @@ export function BusinessSettingsContent() {
                 }
                 helperText="Earlier years keep their own settings."
               />
-              <CustomSelect
+              <Select
                 label="Home state for taxes"
                 value={profile.home_state}
                 options={stateOptions}
                 onChange={(v) => update({ home_state: v })}
               />
               <div className="flex items-end pb-2">
-                <Switch
+                <Toggle
                   checked={profile.is_sstb}
                   onChange={(v) => update({ is_sstb: v })}
                   label="Specified service business (limits the QBI deduction)"
@@ -390,25 +390,24 @@ export function BusinessSettingsContent() {
             description="Settings the accounting ledger reads once. Change them before importing history."
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <CustomSelect
+              <Select
                 label="Fiscal year starts in"
                 value={String(profile.fiscal_year_start_month)}
                 options={MONTH_OPTIONS}
                 onChange={(v) => update({ fiscal_year_start_month: Number(v) })}
               />
-              <CustomSelect
+              <Select
                 label="Books timezone"
                 value={profile.books_timezone}
                 options={TIMEZONE_OPTIONS}
                 onChange={(v) => update({ books_timezone: v })}
                 helperText="Dates bank transactions post on."
               />
-              <Input
+              <DateInput
                 label="Books start on"
-                type="date"
                 value={profile.earliest_history_date ?? ""}
-                onChange={(e) =>
-                  update({ earliest_history_date: e.target.value || null })
+                onChange={(nextValue) =>
+                  update({ earliest_history_date: nextValue || null })
                 }
               />
             </div>
@@ -420,28 +419,30 @@ export function BusinessSettingsContent() {
             description="Who signs and who prepares. Used on reports and when sharing the year-end package."
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Input
+              <TextInput
                 label="Owner name"
                 value={profile.owner_name}
-                onChange={(e) => update({ owner_name: e.target.value })}
+                onChange={(nextValue) => update({ owner_name: nextValue })}
               />
-              <Input
+              <TextInput
                 label="Owner title"
                 value={profile.owner_title}
-                onChange={(e) => update({ owner_title: e.target.value })}
+                onChange={(nextValue) => update({ owner_title: nextValue })}
                 placeholder="Owner"
               />
-              <Input
+              <TextInput
                 label="Accountant name"
                 value={profile.accountant_name}
-                onChange={(e) => update({ accountant_name: e.target.value })}
+                onChange={(nextValue) => update({ accountant_name: nextValue })}
                 placeholder="Optional"
               />
-              <Input
+              <TextInput
                 label="Accountant email"
                 type="email"
                 value={profile.accountant_email}
-                onChange={(e) => update({ accountant_email: e.target.value })}
+                onChange={(nextValue) =>
+                  update({ accountant_email: nextValue })
+                }
                 placeholder="Optional"
               />
             </div>

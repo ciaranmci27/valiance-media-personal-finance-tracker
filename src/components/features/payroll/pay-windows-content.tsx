@@ -13,13 +13,10 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DateInput } from "@/components/ui/date-input";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { toast } from "@/components/ui/toast";
 import { cn, formatDate } from "@/lib/utils";
-import type {
-  PayWindow,
-  PayWindowEmployee,
-} from "@/lib/payroll/runs-actions";
+import type { PayWindow, PayWindowEmployee } from "@/lib/payroll/runs-actions";
 
 interface Props {
   windows: PayWindow[];
@@ -255,9 +252,7 @@ function WindowCard({ window: w }: { window: PayWindow }) {
           >
             {formatDate(w.pay_date)}
           </p>
-          {w.overdue && (
-            <p className="text-[11px] text-error">Past due</p>
-          )}
+          {w.overdue && <p className="text-[11px] text-error">Past due</p>}
           {!w.overdue && w.imminent && (
             <p className="text-[11px] text-warning">Due within 7 days</p>
           )}

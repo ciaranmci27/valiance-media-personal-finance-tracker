@@ -1,9 +1,11 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
+import { FileInput } from "@/components/ui/inputs/FileInput";
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, ShieldCheck, ArrowUpRight, Upload } from "lucide-react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import {
   Dialog,
@@ -12,9 +14,9 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
-import { CustomSelect } from "@/components/ui/select";
+import { Select } from "@/components/ui/inputs/Select";
 import { parseUsd } from "@/lib/accounting/money";
 import type {
   HistoryControls,
@@ -302,7 +304,7 @@ export function AccountingHistory({
     const key = monthKeys[i];
     return (
       <>
-        <Input
+        <TextInput
           id={id}
           label={id ? monthHeaders[i] : undefined}
           aria-label={
@@ -311,10 +313,10 @@ export function AccountingHistory({
           inputMode="decimal"
           placeholder="Enter source amount"
           value={monthly[`${m.from}:${key}`] ?? ""}
-          onChange={(e) => {
+          onChange={(nextValue) => {
             setMonthly((v) => ({
               ...v,
-              [`${m.from}:${key}`]: e.target.value,
+              [`${m.from}:${key}`]: nextValue,
             }));
             dirty();
           }}
@@ -396,25 +398,23 @@ export function AccountingHistory({
       <h3 className="pt-2 font-semibold">Or enter source controls by hand</h3>
       <section className="glass-card rounded-xl p-5">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Input
+          <DateInput
             label="Source report starts"
-            type="date"
             value={from}
-            onChange={(e) => {
-              if (e.target.value) {
-                setFrom(e.target.value);
+            onChange={(nextValue) => {
+              if (nextValue) {
+                setFrom(nextValue);
                 resetScope();
               }
             }}
           />
-          <Input
+          <DateInput
             label="Source report ends"
-            type="date"
-            min={from}
+            minDate={from}
             value={to}
-            onChange={(e) => {
-              if (e.target.value) {
-                setTo(e.target.value);
+            onChange={(nextValue) => {
+              if (nextValue) {
+                setTo(nextValue);
                 resetScope();
               }
             }}
@@ -456,7 +456,7 @@ export function AccountingHistory({
               />
             </div>
             <div className="mt-4">
-              <CustomSelect
+              <Select
                 id="history-kind"
                 label="What the report proves"
                 value={kind}
@@ -539,15 +539,15 @@ export function AccountingHistory({
                         />
                       </p>
                     </div>
-                    <Input
+                    <TextInput
                       aria-label={`Source amount for ${a.name}`}
                       inputMode="decimal"
                       placeholder="Source amount"
                       value={accounts[a.account_id] ?? ""}
-                      onChange={(e) => {
+                      onChange={(nextValue) => {
                         setAccounts((v) => ({
                           ...v,
-                          [a.account_id]: e.target.value,
+                          [a.account_id]: nextValue,
                         }));
                         dirty();
                       }}
@@ -581,13 +581,13 @@ export function AccountingHistory({
                 ],
               ].map(([key, label, actual]) => (
                 <div key={key}>
-                  <Input
+                  <TextInput
                     label={label}
                     inputMode="decimal"
                     value={totals[key] ?? ""}
                     placeholder="Enter source amount"
-                    onChange={(e) => {
-                      setTotals((v) => ({ ...v, [key]: e.target.value }));
+                    onChange={(nextValue) => {
+                      setTotals((v) => ({ ...v, [key]: nextValue }));
                       dirty();
                     }}
                   />
@@ -603,12 +603,12 @@ export function AccountingHistory({
               closing entries.
             </p>
             <div className="mt-5">
-              <Input
+              <TextInput
                 label="Coverage and comparison notes"
                 required
                 maxLength={3000}
                 value={reason}
-                onChange={(e) => setReason(e.target.value)}
+                onChange={(nextValue) => setReason(nextValue)}
                 placeholder="Identify the source report, scope, and reviewed mappings"
               />
             </div>
@@ -686,11 +686,11 @@ export function AccountingHistory({
               )}
               {!compared.result.ready && (
                 <div className="mt-4 space-y-4">
-                  <Input
+                  <TextInput
                     label="Explanation for the differences"
                     maxLength={3000}
                     value={explanation}
-                    onChange={(e) => setExplanation(e.target.value)}
+                    onChange={(nextValue) => setExplanation(nextValue)}
                     placeholder="Why the books and the source report differ"
                   />
                   <p className="text-xs text-muted-foreground">
@@ -1045,10 +1045,9 @@ function WaveReportCheck({
         <span className="text-sm">
           Choose the CSV exports for one year, up to two files
         </span>
-        <input
+        <FileInput
           aria-label="Wave report CSV files"
-          className="mt-4 block w-full text-sm file:mr-4 file:rounded-md file:border-0 file:bg-secondary file:px-4 file:py-2 file:text-foreground"
-          type="file"
+          className="mt-4 w-full"
           multiple
           accept=".csv,text/csv"
           disabled={pending}
@@ -1102,20 +1101,20 @@ function WaveReportCheck({
               this comparison can count as verified.
             </p>
           )}
-          <Input
+          <TextInput
             label="Comparison notes"
             required
             maxLength={3000}
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(nextValue) => setReason(nextValue)}
           />
           {preview.differences > 0 && (
             <div>
-              <Input
+              <TextInput
                 label="Explanation for the differences"
                 maxLength={3000}
                 value={explanation}
-                onChange={(e) => setExplanation(e.target.value)}
+                onChange={(nextValue) => setExplanation(nextValue)}
                 placeholder="Why the books and the Wave report differ"
               />
               <p className="mt-1.5 text-xs text-muted-foreground">

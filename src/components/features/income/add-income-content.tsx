@@ -1,7 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
+import {
+  MobileMenuButton,
+  HeaderControls,
+} from "@/components/layout/page-header";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -14,10 +17,10 @@ import {
   Save,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CustomSelect } from "@/components/ui/select";
-import { DateInput } from "@/components/ui/date-input";
-import { NumberInput } from "@/components/ui/number-input";
-import { Textarea } from "@/components/ui/textarea";
+import { Select } from "@/components/ui/inputs/Select";
+import { DateInput } from "@/components/ui/inputs/DateInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { Textarea } from "@/components/ui/inputs/Textarea";
 import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
@@ -61,7 +64,9 @@ function groupItemsBySource(
   const groups = new Map<string, SourceGroup>();
 
   for (const item of items) {
-    const fallbackSource = sources.find((source) => source.id === item.source_id);
+    const fallbackSource = sources.find(
+      (source) => source.id === item.source_id,
+    );
     const source = item.income_sources || fallbackSource;
     if (!source) continue;
 
@@ -213,10 +218,12 @@ export function AddIncomeContent({
             <DollarSign className="h-4 w-4" />
             <span className="text-sm font-medium">Month Total</span>
           </div>
-          <p className={cn(
-            "text-2xl font-bold tabular-nums",
-            monthTotal < 0 ? "text-error" : "text-teal-light",
-          )}>
+          <p
+            className={cn(
+              "text-2xl font-bold tabular-nums",
+              monthTotal < 0 ? "text-error" : "text-teal-light",
+            )}
+          >
             {formatCurrency(monthTotal)}
           </p>
         </div>
@@ -245,7 +252,7 @@ export function AddIncomeContent({
             required
           />
 
-          <CustomSelect
+          <Select
             label="Source"
             value={sourceId}
             onChange={setSourceId}
@@ -256,19 +263,20 @@ export function AddIncomeContent({
           />
 
           <NumberInput
+            step={0.01}
             label="Amount"
             value={amount}
-            onChange={(event) => setAmount(event.target.value)}
+            onChange={(nextValue) => setAmount(String(nextValue))}
             placeholder="0.00"
-            className="h-10 min-h-10 tabular-nums"
+            className="tabular-nums"
             required
           />
 
           <Textarea
+            aria-label="Notes"
             value={notes}
-            onChange={(event) => setNotes(event.target.value)}
+            onChange={(nextValue) => setNotes(nextValue)}
             placeholder="Notes for this item..."
-            className="min-h-[96px]"
           />
 
           <Button
@@ -317,19 +325,26 @@ export function AddIncomeContent({
                     <div className="flex items-center gap-3 min-w-0">
                       <span
                         className="h-3 w-3 rounded-full shrink-0"
-                        style={{ backgroundColor: group.source.color || "#5B8A8A" }}
+                        style={{
+                          backgroundColor: group.source.color || "#5B8A8A",
+                        }}
                       />
                       <div className="min-w-0">
-                        <p className="font-medium truncate">{group.source.name}</p>
+                        <p className="font-medium truncate">
+                          {group.source.name}
+                        </p>
                         <p className="text-xs text-muted-foreground">
-                          {group.items.length} item{group.items.length === 1 ? "" : "s"}
+                          {group.items.length} item
+                          {group.items.length === 1 ? "" : "s"}
                         </p>
                       </div>
                     </div>
-                    <p className={cn(
-                      "tabular-nums font-semibold",
-                      group.total < 0 ? "text-error" : "text-teal-light",
-                    )}>
+                    <p
+                      className={cn(
+                        "tabular-nums font-semibold",
+                        group.total < 0 ? "text-error" : "text-teal-light",
+                      )}
+                    >
                       {formatCurrency(group.total)}
                     </p>
                   </div>
@@ -350,10 +365,14 @@ export function AddIncomeContent({
                             </p>
                           )}
                         </div>
-                        <p className={cn(
-                          "tabular-nums text-sm font-medium",
-                          Number(item.amount) < 0 ? "text-error" : "text-foreground",
-                        )}>
+                        <p
+                          className={cn(
+                            "tabular-nums text-sm font-medium",
+                            Number(item.amount) < 0
+                              ? "text-error"
+                              : "text-foreground",
+                          )}
+                        >
                           {formatCurrency(Number(item.amount))}
                         </p>
                       </div>

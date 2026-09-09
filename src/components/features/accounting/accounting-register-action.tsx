@@ -1,9 +1,10 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useRef, useState } from "react";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { CustomSelect } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
+import { Select } from "@/components/ui/inputs/Select";
 import { MaskedValue } from "@/components/ui/masked-value";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
 import { centsToDecimal } from "@/lib/accounting/money";
@@ -236,7 +237,7 @@ export function AccountingRegisterAction({
                 : "Create an equal and opposite entry. The original journal and register history are retained. Dependent depreciation, disposals or payments must remain valid."}
             </p>
           ) : (
-            <CustomSelect
+            <Select
               label="Entry source"
               value={mode}
               onChange={(v) => {
@@ -253,19 +254,18 @@ export function AccountingRegisterAction({
               ]}
             />
           )}
-          <Input
+          <DateInput
             label="Entry date"
-            type="date"
             required
-            max={today}
+            maxDate={today}
             readOnly={isVoid && movement?.mode === "historical"}
             value={date}
-            onChange={(e) => setDate(e.target.value)}
+            onChange={(nextValue) => setDate(nextValue)}
           />
           {!isVoid && (
             <>
               <div className="grid gap-3 sm:grid-cols-2">
-                <Input
+                <TextInput
                   label={
                     kind === "acquisition"
                       ? "Acquisition cost"
@@ -280,21 +280,21 @@ export function AccountingRegisterAction({
                   inputMode="decimal"
                   required
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(nextValue) => setAmount(nextValue)}
                 />
                 {kind === "payment" && (
                   <>
-                    <Input
+                    <TextInput
                       label="Interest from lender statement"
                       inputMode="decimal"
                       value={interest}
-                      onChange={(e) => setInterest(e.target.value)}
+                      onChange={(nextValue) => setInterest(nextValue)}
                     />
-                    <Input
+                    <TextInput
                       label="Documented loan fees"
                       inputMode="decimal"
                       value={fee}
-                      onChange={(e) => setFee(e.target.value)}
+                      onChange={(nextValue) => setFee(nextValue)}
                     />
                   </>
                 )}
@@ -411,12 +411,12 @@ export function AccountingRegisterAction({
             )}
           </>
         )}
-        <Input
+        <TextInput
           label="Reason and verification"
           required
           maxLength={1000}
           value={reason}
-          onChange={(e) => setReason(e.target.value)}
+          onChange={(nextValue) => setReason(nextValue)}
           disabled={command.busy}
         />
         <InvoiceActions

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
+import { verifyInputBank } from "./verify-input-bank";
 
 const require = createRequire(import.meta.url);
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -13,6 +14,7 @@ const integration = new Set([
 ]);
 
 async function main() {
+  await verifyInputBank();
   const includeIntegration = process.argv.includes("--integration");
   const files = (await readdir(scripts))
     .filter(

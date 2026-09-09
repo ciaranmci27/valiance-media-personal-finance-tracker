@@ -1,7 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
+import {
+  MobileMenuButton,
+  HeaderControls,
+} from "@/components/layout/page-header";
 import { useRouter } from "next/navigation";
 import {
   Pencil,
@@ -16,8 +19,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Textarea } from "@/components/ui/inputs/Textarea";
 import { useMaskedHover, getMaskedValue } from "@/components/ui/masked-value";
 import {
   formatCurrency,
@@ -70,17 +73,17 @@ export function NetWorthDetailContent({
   const displayAmount = getMaskedValue(
     formatCurrency(numericAmount),
     isHidden,
-    isRevealed
+    isRevealed,
   );
   const displayChange = getMaskedValue(
     `${change >= 0 ? "+" : ""}${formatCurrency(change)}`,
     isHidden,
-    isRevealed
+    isRevealed,
   );
   const displayPercent = getMaskedValue(
     formatPercentage(Math.abs(percentageChange)),
     isHidden,
-    isRevealed
+    isRevealed,
   );
   // Navigation
   const goToPrevious = () => {
@@ -122,7 +125,8 @@ export function NetWorthDetailContent({
   const handleDelete = async () => {
     const confirmed = await confirm({
       title: "Delete this entry?",
-      description: "This net worth entry will be moved to trash. You can restore it later.",
+      description:
+        "This net worth entry will be moved to trash. You can restore it later.",
       confirmLabel: "Delete",
       variant: "danger",
     });
@@ -171,7 +175,11 @@ export function NetWorthDetailContent({
           <HeaderControls />
           {isEditing ? (
             <>
-              <Button variant="ghost" onClick={handleCancel} disabled={isSaving}>
+              <Button
+                variant="ghost"
+                onClick={handleCancel}
+                disabled={isSaving}
+              >
                 <X className="h-4 w-4 sm:mr-1" />
                 <span className="hidden sm:inline">Cancel</span>
               </Button>
@@ -215,7 +223,7 @@ export function NetWorthDetailContent({
                   "p-1.5 rounded-lg transition-colors shrink-0 select-none",
                   prevEntryId
                     ? "hover:bg-secondary text-muted-foreground hover:text-foreground"
-                    : "text-muted-foreground/30 cursor-not-allowed"
+                    : "text-muted-foreground/30 cursor-not-allowed",
                 )}
               >
                 <ChevronLeft className="h-4 w-4" />
@@ -230,7 +238,7 @@ export function NetWorthDetailContent({
                   "p-1.5 rounded-lg transition-colors shrink-0 select-none",
                   nextEntryId
                     ? "hover:bg-secondary text-muted-foreground hover:text-foreground"
-                    : "text-muted-foreground/30 cursor-not-allowed"
+                    : "text-muted-foreground/30 cursor-not-allowed",
                 )}
               >
                 <ChevronRight className="h-4 w-4" />
@@ -249,16 +257,17 @@ export function NetWorthDetailContent({
             <span className="text-sm font-medium">Net Worth</span>
           </div>
           {isEditing ? (
-            <Input
+            <TextInput
+              aria-label="Amount (USD)"
               type="text"
               inputMode="decimal"
               value={amount ? Number(amount).toLocaleString("en-US") : ""}
-              onChange={(e) => {
-                const raw = e.target.value.replace(/[^0-9.\-]/g, "");
+              onChange={(nextValue) => {
+                const raw = nextValue.replace(/[^0-9.\-]/g, "");
                 setAmount(Number(raw) || 0);
               }}
               placeholder="0"
-              className="text-center text-xl sm:text-2xl font-bold tabular-nums max-w-[200px]"
+              className="tabular-nums max-w-[200px]"
             />
           ) : (
             <p className="text-xl sm:text-2xl font-bold tabular-nums text-teal-light">
@@ -266,12 +275,14 @@ export function NetWorthDetailContent({
             </p>
           )}
           {previousEntry && !isEditing && (
-            <p className={cn(
-              "text-xs tabular-nums mt-1",
-              trend === "up" && "text-success",
-              trend === "down" && "text-error",
-              trend === "neutral" && "text-muted-foreground"
-            )}>
+            <p
+              className={cn(
+                "text-xs tabular-nums mt-1",
+                trend === "up" && "text-success",
+                trend === "down" && "text-error",
+                trend === "neutral" && "text-muted-foreground",
+              )}
+            >
               {displayChange} ({displayPercent})
             </p>
           )}
@@ -282,24 +293,29 @@ export function NetWorthDetailContent({
       <div className="flex flex-col">
         <div className="flex items-center gap-2 text-muted-foreground mb-3">
           <FileText className="h-4 w-4" />
-          <span className="text-sm font-medium uppercase tracking-wider">Notes</span>
+          <span className="text-sm font-medium uppercase tracking-wider">
+            Notes
+          </span>
         </div>
         {isEditing ? (
           <Textarea
+            aria-label="Notes"
             value={notes}
-            onChange={(e) => setNotes(e.target.value)}
+            onChange={(nextValue) => setNotes(nextValue)}
             placeholder="Add notes about your net worth this month..."
-            className="flex-1 min-h-[150px] resize-none glass-card px-4 py-4"
+            className="flex-1"
           />
         ) : (
           <div
             className="rounded-xl glass-card min-h-[150px] px-4 py-4 cursor-pointer hover:bg-secondary transition-colors"
             onClick={() => setIsEditing(true)}
           >
-            <p className={cn(
-              "text-sm whitespace-pre-wrap",
-              !entry.notes && "text-muted-foreground italic"
-            )}>
+            <p
+              className={cn(
+                "text-sm whitespace-pre-wrap",
+                !entry.notes && "text-muted-foreground italic",
+              )}
+            >
               {entry.notes || "Click to add notes..."}
             </p>
           </div>
@@ -309,7 +325,12 @@ export function NetWorthDetailContent({
       {/* Bottom Actions */}
       {isEditing ? (
         <div className="flex md:hidden items-center justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={handleCancel} disabled={isSaving}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleCancel}
+            disabled={isSaving}
+          >
             <X className="h-4 w-4 mr-1" />
             Cancel
           </Button>

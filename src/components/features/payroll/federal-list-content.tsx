@@ -1,11 +1,11 @@
 "use client";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
 
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Landmark, Plus, ChevronRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import type { FederalTaxConfig } from "@/types/payroll";
@@ -23,7 +23,7 @@ export function FederalListContent({ configs }: Props) {
 
   const existingYears = React.useMemo(
     () => new Set(configs.map((c) => c.tax_year)),
-    [configs]
+    [configs],
   );
 
   const handleCreateYear = () => {
@@ -74,11 +74,12 @@ export function FederalListContent({ configs }: Props) {
 
       {showAddYear && (
         <div className="glass-card rounded-xl p-4 flex items-center gap-3">
-          <Input
-            type="number"
+          <NumberInput
+            aria-label="Year"
+            step={1}
             placeholder="e.g. 2027"
             value={newYear}
-            onChange={(e) => setNewYear(e.target.value)}
+            onChange={(nextValue) => setNewYear(String(nextValue))}
             onKeyDown={(e) => {
               if (e.key === "Enter") handleCreateYear();
               if (e.key === "Escape") {
@@ -86,11 +87,16 @@ export function FederalListContent({ configs }: Props) {
                 setNewYear("");
               }
             }}
-            className="h-9 max-w-[140px]"
+            className="max-w-[140px]"
             autoFocus
           />
           <Button size="sm" onClick={handleCreateYear} disabled={navigating}>
-            {navigating && <Loader2 className="h-4 w-4 animate-spin mr-2" aria-hidden="true" />}
+            {navigating && (
+              <Loader2
+                className="h-4 w-4 animate-spin mr-2"
+                aria-hidden="true"
+              />
+            )}
             Open Editor
           </Button>
           <button
@@ -121,23 +127,30 @@ export function FederalListContent({ configs }: Props) {
               <div
                 className={cn(
                   "glass-card rounded-xl p-4 transition-all duration-200",
-                  "hover:border-primary/30 hover:scale-[1.01]"
+                  "hover:border-primary/30 hover:scale-[1.01]",
                 )}
               >
                 <div className="flex items-center gap-4">
                   <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-copper/10 group-hover:scale-105 transition-transform">
-                    <Landmark className="h-5 w-5 text-copper" aria-hidden="true" />
+                    <Landmark
+                      className="h-5 w-5 text-copper"
+                      aria-hidden="true"
+                    />
                   </div>
                   <div className="flex-1 min-w-0">
                     <h3 className="font-medium text-foreground group-hover:text-teal-light transition-colors">
                       {cfg.tax_year} Tax Year
                     </h3>
                     <p className="text-sm text-muted-foreground truncate">
-                      SS wage base ${cfg.fica.ss_wage_base.toLocaleString()} · FUTA{" "}
-                      {(cfg.futa.rate * 100).toFixed(1)}% on ${cfg.futa.wage_base.toLocaleString()}
+                      SS wage base ${cfg.fica.ss_wage_base.toLocaleString()} ·
+                      FUTA {(cfg.futa.rate * 100).toFixed(1)}% on $
+                      {cfg.futa.wage_base.toLocaleString()}
                     </p>
                   </div>
-                  <ChevronRight className="h-5 w-5 text-muted-foreground/50 group-hover:text-teal-light group-hover:translate-x-0.5 transition-all" aria-hidden="true" />
+                  <ChevronRight
+                    className="h-5 w-5 text-muted-foreground/50 group-hover:text-teal-light group-hover:translate-x-0.5 transition-all"
+                    aria-hidden="true"
+                  />
                 </div>
               </div>
             </Link>

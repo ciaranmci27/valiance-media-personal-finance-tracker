@@ -24,17 +24,14 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { CustomSelect } from "@/components/ui/select";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Select } from "@/components/ui/inputs/Select";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { toast } from "@/components/ui/toast";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { markRunPaid, markRunsPaidBatch } from "@/lib/payroll/runs-actions";
 import { runStatusLabel } from "@/lib/payroll/labels";
-import {
-  DEPOSIT_TYPE_LABELS,
-  PAY_FREQUENCY_LABELS,
-} from "@/types/payroll";
+import { DEPOSIT_TYPE_LABELS, PAY_FREQUENCY_LABELS } from "@/types/payroll";
 import type {
   PayrollEmployee,
   PayrollRun,
@@ -186,15 +183,9 @@ export function CycleDetailContent({
       const ok = res.data.succeeded.length;
       const failed = res.data.failed.length;
       if (failed === 0) {
-        toast(
-          "success",
-          `Marked ${ok} run${ok === 1 ? "" : "s"} as paid`,
-        );
+        toast("success", `Marked ${ok} run${ok === 1 ? "" : "s"} as paid`);
       } else {
-        toast(
-          "warning",
-          `Marked ${ok}; ${failed} failed. Check each run.`,
-        );
+        toast("warning", `Marked ${ok}; ${failed} failed. Check each run.`);
       }
       setDialog(null);
       setPaymentReference("");
@@ -237,9 +228,7 @@ export function CycleDetailContent({
             <p className="text-xs text-muted-foreground flex items-center gap-1.5">
               <Users className="h-3.5 w-3.5" aria-hidden="true" />
               {total} {total === 1 ? "employee" : "employees"}
-              {runs.length > total
-                ? ` (+${runs.length - total} voided)`
-                : ""}
+              {runs.length > total ? ` (+${runs.length - total} voided)` : ""}
             </p>
           </div>
         </div>
@@ -251,7 +240,7 @@ export function CycleDetailContent({
           per-run list below. */}
       <div className="glass-card rounded-xl p-5 space-y-4">
         {total === 0 ? (
-          <div className="rounded-lg border border-border bg-secondary/30 p-4 flex items-start gap-3">
+          <div className="glass-card rounded-xl bg-secondary/30 p-4 flex items-start gap-3">
             <XCircle
               className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0"
               aria-hidden="true"
@@ -334,7 +323,10 @@ export function CycleDetailContent({
                       onClick={() => setDialog("markAllPaid")}
                       disabled={submitting}
                     >
-                      <CheckCircle2 className="h-3.5 w-3.5 mr-1" aria-hidden="true" />
+                      <CheckCircle2
+                        className="h-3.5 w-3.5 mr-1"
+                        aria-hidden="true"
+                      />
                       {approvedRuns.length === total
                         ? "Mark all as paid"
                         : `Mark ${approvedRuns.length} as paid`}
@@ -717,7 +709,8 @@ function MarkPaidDialog({
             <label className="text-xs uppercase tracking-wider text-muted-foreground">
               Payment method
             </label>
-            <CustomSelect
+            <Select
+              ariaLabel="Payment method"
               value={paymentMethod}
               onChange={onPaymentMethodChange}
               options={[
@@ -733,9 +726,10 @@ function MarkPaidDialog({
             <label className="text-xs uppercase tracking-wider text-muted-foreground">
               Reference (optional)
             </label>
-            <Input
+            <TextInput
+              aria-label="Payment reference"
               value={paymentReference}
-              onChange={(e) => onPaymentReferenceChange(e.target.value)}
+              onChange={(nextValue) => onPaymentReferenceChange(nextValue)}
               placeholder="Check # or transaction id"
             />
           </div>

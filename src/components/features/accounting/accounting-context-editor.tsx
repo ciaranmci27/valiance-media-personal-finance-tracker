@@ -1,5 +1,5 @@
 "use client";
-import { SearchableSelect } from "@/components/ui/searchable-select";
+import { Select } from "@/components/ui/inputs/Select";
 import type { BooksMetadata } from "./types";
 import type { CommandContext } from "./use-accounting-command";
 
@@ -25,7 +25,8 @@ export function AccountingContextEditor({
   );
   return (
     <div className={className ?? "grid gap-4 sm:grid-cols-2"}>
-      <SearchableSelect
+      <Select
+        searchable
         label="Payee"
         visibleLabel="Payee"
         value={value.payee_id ?? ""}

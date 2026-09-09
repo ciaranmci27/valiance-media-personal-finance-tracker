@@ -1,14 +1,15 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import { Landmark, Search, Pencil, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Pagination } from "@/components/ui/pagination";
-import { CustomSelect } from "@/components/ui/select";
+import { Select } from "@/components/ui/inputs/Select";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
   Dialog,
@@ -75,6 +76,7 @@ export function AccountingAccounts({
   const [type, setType] = useState("all");
   const [archived, setArchived] = useState(false);
   const [asOf, setAsOf] = useState(data.to);
+  const yearStart = `${asOf.slice(0, 4)}-01-01`;
   const [ledger, setLedger] = useState<BalanceRow | null>(null);
   const [seed, setSeed] = useState(false);
   const [localReconcile, setReconcile] = useState<BalanceRow | null>(null);
@@ -235,13 +237,12 @@ export function AccountingAccounts({
                 ))}
               </div>
               <div className="flex flex-wrap items-end justify-between gap-3">
-                <Input
+                <TextInput
                   aria-label="Search accounts"
                   placeholder="Search by name or code"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  icon={<Search size={16} aria-hidden="true" />}
-                  className="sm:w-80"
+                  onChange={(nextValue) => setQuery(nextValue)}
+                  prefix={<Search size={16} aria-hidden="true" />}
                 />
                 <Checkbox
                   checked={archived}
@@ -251,19 +252,14 @@ export function AccountingAccounts({
                 />
                 <form action="/accounting" className="flex items-end gap-2">
                   <input type="hidden" name="view" value="accounts" />
-                  <input
-                    type="hidden"
-                    name="from"
-                    value={`${asOf.slice(0, 4)}-01-01`}
-                  />
-                  <Input
-                    type="date"
+                  <input type="hidden" name="from" value={yearStart} />
+                  <DateInput
                     name="to"
                     label="Balances as of"
                     value={asOf}
-                    onChange={(e) => setAsOf(e.target.value)}
-                    min="1900-01-01"
-                    max="2100-12-31"
+                    onChange={(nextValue) => setAsOf(nextValue)}
+                    minDate="1900-01-01"
+                    maxDate="2100-12-31"
                     required
                     disabled={demo}
                   />
@@ -382,7 +378,7 @@ export function AccountingAccounts({
               balances.
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-64 overflow-y-auto rounded-lg border border-border">
+          <div className="max-h-64 overflow-y-auto glass-card rounded-xl">
             {defaultChart.map((a) => (
               <p
                 key={a.id}
@@ -505,20 +501,20 @@ function AccountEditForm({
           onSaved();
       }}
     >
-      <Input
+      <TextInput
         label="Account name"
         name="name"
         defaultValue={account.name}
         required
         maxLength={120}
       />
-      <Input
+      <TextInput
         label="Account code"
         name="code"
         defaultValue={account.code}
         maxLength={20}
       />
-      <CustomSelect
+      <Select
         label="Account use"
         value={cashKind}
         options={[
@@ -562,7 +558,7 @@ function AccountEditForm({
           Report grouping
         </summary>
         <div className="mt-3 space-y-3">
-          <Input
+          <TextInput
             label="Report group"
             name="subtype"
             maxLength={100}

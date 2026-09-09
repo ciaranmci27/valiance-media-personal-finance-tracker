@@ -2,12 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import {
-  CheckCircle2,
-  ChevronRight,
-  Clock,
-  FileText,
-} from "lucide-react";
+import { CheckCircle2, ChevronRight, Clock, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PayrollForm } from "@/types/payroll";
 import { formStatusLabel } from "@/lib/payroll/labels";
@@ -49,7 +44,10 @@ export function FormW2IndexContent({ year, employees }: Props) {
       {withRuns.length === 0 && withoutRuns.length === 0 && (
         <div className="glass-card rounded-xl p-10 text-center text-sm text-muted-foreground">
           No employees on file for {year}. Add employees in the{" "}
-          <Link href="/payroll/employees" className="text-teal-light hover:underline">
+          <Link
+            href="/payroll/employees"
+            className="text-teal-light hover:underline"
+          >
             employee roster
           </Link>{" "}
           first.
@@ -58,9 +56,7 @@ export function FormW2IndexContent({ year, employees }: Props) {
 
       {withRuns.length > 0 && (
         <section className="glass-card rounded-xl p-5 space-y-3">
-          <h2 className="text-sm font-semibold">
-            Employees paid in {year}
-          </h2>
+          <h2 className="text-sm font-semibold">Employees paid in {year}</h2>
           <p className="text-xs text-muted-foreground">
             Each employee who received wages this year needs a W-2. Click any
             row to generate or view their W-2.
@@ -109,7 +105,7 @@ function EmployeeRow({
     <Link
       href={href}
       className={cn(
-        "rounded-lg border border-border p-3 flex items-center gap-3 transition-colors hover:border-primary/30 hover:bg-secondary",
+        "glass-card rounded-xl p-3 flex items-center gap-3 transition-colors hover:border-primary/30 hover:bg-secondary",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         muted && "opacity-70",
       )}

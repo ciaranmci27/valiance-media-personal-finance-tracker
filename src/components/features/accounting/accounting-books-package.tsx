@@ -1,4 +1,6 @@
 "use client";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
@@ -9,7 +11,6 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Pagination } from "@/components/ui/pagination";
 import { SectionHeader } from "@/components/ui/section-header";
 import {
@@ -231,16 +232,16 @@ export function AccountingBooksPackage({
         }}
         className="glass-card flex flex-wrap items-end gap-3 rounded-xl p-4"
       >
-        <Input
+        <NumberInput
+          step={1}
           id="package-year"
           label="Year"
-          type="number"
-          min="1900"
-          max="2100"
+          min={1900}
+          max={2100}
           value={year}
           className="w-28"
-          onChange={(event) => {
-            const value = event.target.value;
+          onChange={(nextValue) => {
+            const value = String(nextValue);
             setYear(value);
             if (
               /^\d{4}$/.test(value) &&
@@ -254,13 +255,12 @@ export function AccountingBooksPackage({
               );
           }}
         />
-        <Input
+        <DateInput
           id="package-through"
           label="Through"
-          type="date"
           value={through}
-          max={todayInBooks()}
-          onChange={(event) => setThrough(event.target.value)}
+          maxDate={todayInBooks()}
+          onChange={(nextValue) => setThrough(nextValue)}
         />
         <Button
           type="submit"

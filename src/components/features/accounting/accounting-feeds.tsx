@@ -1,4 +1,6 @@
 "use client";
+import { PasswordInput } from "@/components/ui/inputs/PasswordInput";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -12,12 +14,12 @@ import {
 } from "lucide-react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
-import { SearchableSelect } from "@/components/ui/searchable-select";
-import { CustomSelect } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { Select } from "@/components/ui/inputs/Select";
+
+import { Toggle } from "@/components/ui/inputs/Toggle";
 import {
   Dialog,
   DialogContent,
@@ -514,7 +516,7 @@ export function AccountingFeeds({
             </div>
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border bg-secondary/10 px-5 py-3">
               <div>
-                <Switch
+                <Toggle
                   checked={connection.scheduled}
                   label="Daily background sync"
                   disabled={
@@ -729,10 +731,10 @@ function ConnectFeed({
             void save();
           }}
         >
-          <Input
+          <TextInput
             label="Connection name"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(nextValue) => setName(nextValue)}
             maxLength={120}
             required
             disabled={busy || attempted}
@@ -746,14 +748,13 @@ function ConnectFeed({
             Create a SimpleFIN setup token
             <ArrowRight size={14} aria-hidden="true" />
           </a>
-          <Input
+          <PasswordInput
             label="Setup token"
             className="font-mono"
-            type="password"
             autoComplete="off"
             spellCheck={false}
             value={token}
-            onChange={(e) => setToken(e.target.value)}
+            onChange={(nextValue) => setToken(nextValue)}
             maxLength={12000}
             required
             disabled={busy || attempted}
@@ -892,7 +893,7 @@ function MapFeed({
             });
           }}
         >
-          <CustomSelect
+          <Select
             label="Account ownership"
             value={ownership}
             onChange={(value) => {
@@ -910,7 +911,8 @@ function MapFeed({
           />
           {ownership === "company" && (
             <>
-              <SearchableSelect
+              <Select
+                searchable
                 label="Book account"
                 visibleLabel="Book account"
                 value={accountId}
@@ -926,18 +928,17 @@ function MapFeed({
                 </p>
               )}
               <div className="grid gap-3 sm:grid-cols-2">
-                <Input
+                <DateInput
                   label="History begins"
-                  type="date"
                   value={start}
-                  onChange={(e) => {
-                    setStart(e.target.value);
+                  onChange={(nextValue) => {
+                    setStart(nextValue);
                     setReviewed(false);
                   }}
                   disabled={locked}
                   required
                 />
-                <CustomSelect
+                <Select
                   label="Posting date timezone"
                   value={zone}
                   onChange={(value) => {
@@ -951,7 +952,7 @@ function MapFeed({
                   ]}
                 />
               </div>
-              <CustomSelect
+              <Select
                 label="Transaction sign"
                 value={String(movement)}
                 onChange={(value) => {
@@ -971,7 +972,7 @@ function MapFeed({
                   },
                 ]}
               />
-              <CustomSelect
+              <Select
                 label="Balance sign"
                 value={String(balance)}
                 onChange={(value) => {
@@ -997,10 +998,10 @@ function MapFeed({
               </p>
             </>
           )}
-          <Input
+          <TextInput
             label="Review note"
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(nextValue) => setReason(nextValue)}
             maxLength={1000}
             required
             placeholder="Statement and account ownership checked"
@@ -1088,10 +1089,10 @@ function DisconnectFeed({
             });
           }}
         >
-          <Input
+          <TextInput
             label="Reason"
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(nextValue) => setReason(nextValue)}
             maxLength={1000}
             required
           />
@@ -1166,20 +1167,19 @@ function SkipHistory({
             Current checkpoint:{" "}
             {dateLabel(stampDate(account.checkpoint ?? account.history_start))}
           </p>
-          <Input
+          <DateInput
             label="Continue from date"
-            type="date"
             value={date}
-            onChange={(e) => {
-              setDate(e.target.value);
+            onChange={(nextValue) => {
+              setDate(nextValue);
               setReviewed(false);
             }}
             required
           />
-          <Input
+          <TextInput
             label="Why this history is unavailable"
             value={reason}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(nextValue) => setReason(nextValue)}
             required
             maxLength={1000}
           />

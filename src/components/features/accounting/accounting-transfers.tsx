@@ -1,9 +1,10 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useState } from "react";
 import { ArrowRight, ArrowLeftRight, Plus, Link2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Pagination } from "@/components/ui/pagination";
 import {
   Dialog,
@@ -384,25 +385,23 @@ function TransferForm({
           {mode === "create" ? (
             <>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Input
+                <DateInput
                   label="Outgoing posting date"
-                  type="date"
                   value={outDate}
-                  onChange={(e) => setOutDate(e.target.value)}
+                  onChange={(nextValue) => setOutDate(nextValue)}
                 />
-                <Input
+                <DateInput
                   label="Incoming posting date"
-                  type="date"
                   value={inDate}
-                  onChange={(e) => setInDate(e.target.value)}
+                  onChange={(nextValue) => setInDate(nextValue)}
                 />
               </div>
-              <Input
+              <TextInput
                 label="Transfer amount (USD)"
                 inputMode="decimal"
                 placeholder="0.00"
                 value={amount}
-                onChange={(e) => setAmount(e.target.value)}
+                onChange={(nextValue) => setAmount(nextValue)}
               />
             </>
           ) : (
@@ -433,14 +432,14 @@ function TransferForm({
               />
             </div>
           )}
-          <Input
+          <TextInput
             label="Description"
             placeholder="Operating account to savings"
             maxLength={1000}
             value={memo}
-            onChange={(e) => setMemo(e.target.value)}
+            onChange={(nextValue) => setMemo(nextValue)}
           />
-          <div className="rounded-lg border border-border bg-secondary/30 p-4 text-sm">
+          <div className="glass-card rounded-xl bg-secondary/30 p-4 text-sm">
             <h3 className="font-medium">Posting review</h3>
             <p className="mt-2 text-muted-foreground">
               {mode === "link"
@@ -557,12 +556,12 @@ function TransferEntryPicker({
     ) ?? [];
   return (
     <div className="space-y-2">
-      <Input
+      <TextInput
         label={label}
         placeholder="Search posted descriptions"
         value={query}
         disabled={!account}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(nextValue) => setQuery(nextValue)}
       />
       {selected ? (
         <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
@@ -575,7 +574,7 @@ function TransferEntryPicker({
           </Button>
         </div>
       ) : (
-        <div className="max-h-44 overflow-y-auto rounded-lg border border-border">
+        <div className="max-h-44 overflow-y-auto glass-card rounded-xl">
           {candidates.map((e) => (
             <Button
               type="button"
@@ -667,25 +666,23 @@ function ReverseTransfer({
           </DialogDescription>
         </DialogHeader>
         <div className="mt-5 space-y-4">
-          <Input
+          <DateInput
             label={separate ? "Outgoing reversal date" : "Reversal date"}
-            type="date"
             value={outDate}
-            onChange={(e) => setOutDate(e.target.value)}
+            onChange={(nextValue) => setOutDate(nextValue)}
           />
           {separate && (
-            <Input
+            <DateInput
               label="Incoming reversal date"
-              type="date"
               value={inDate}
-              onChange={(e) => setInDate(e.target.value)}
+              onChange={(nextValue) => setInDate(nextValue)}
             />
           )}
-          <Input
+          <TextInput
             label="Reason"
             value={reason}
             maxLength={1000}
-            onChange={(e) => setReason(e.target.value)}
+            onChange={(nextValue) => setReason(nextValue)}
           />
           {command.error && (
             <p role="alert" className="text-sm text-error">

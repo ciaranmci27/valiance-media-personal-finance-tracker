@@ -1,7 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
+import {
+  MobileMenuButton,
+  HeaderControls,
+} from "@/components/layout/page-header";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -16,8 +19,8 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Textarea } from "@/components/ui/inputs/Textarea";
 import {
   formatCurrency,
   calculatePercentageChange,
@@ -81,8 +84,18 @@ export function AddNetWorthContent({
 
   // Month navigation
   const monthNames = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
   ];
 
   const monthRef = React.useRef(selectedMonth);
@@ -210,10 +223,12 @@ export function AddNetWorthContent({
       {/* Month & Amount Summary */}
       <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-px rounded-xl overflow-hidden glass-card">
         {/* Month Selector */}
-        <div className={cn(
-          "bg-white/[0.03] p-3 sm:p-5 flex flex-col items-center justify-center transition-colors",
-          hasConflict && "bg-error/5"
-        )}>
+        <div
+          className={cn(
+            "bg-white/[0.03] p-3 sm:p-5 flex flex-col items-center justify-center transition-colors",
+            hasConflict && "bg-error/5",
+          )}
+        >
           <div className="flex items-center justify-center gap-1 text-muted-foreground mb-2">
             <Calendar className="h-4 w-4" />
             <span className="text-sm font-medium">Month</span>
@@ -231,16 +246,20 @@ export function AddNetWorthContent({
                 <ChevronLeft className="h-4 w-4" />
               </button>
               <div className="text-center px-1">
-                <p className={cn(
-                  "text-sm sm:text-base md:text-lg font-semibold whitespace-nowrap transition-colors",
-                  hasConflict && "text-error"
-                )}>
+                <p
+                  className={cn(
+                    "text-sm sm:text-base md:text-lg font-semibold whitespace-nowrap transition-colors",
+                    hasConflict && "text-error",
+                  )}
+                >
                   {monthNames[selectedMonth]}
                 </p>
-                <p className={cn(
-                  "text-xs transition-colors",
-                  hasConflict ? "text-error/70" : "text-muted-foreground"
-                )}>
+                <p
+                  className={cn(
+                    "text-xs transition-colors",
+                    hasConflict ? "text-error/70" : "text-muted-foreground",
+                  )}
+                >
                   {selectedYear}
                 </p>
               </div>
@@ -278,26 +297,32 @@ export function AddNetWorthContent({
             <DollarSign className="h-4 w-4" />
             <span className="text-sm font-medium">Net Worth</span>
           </div>
-          <Input
+          <TextInput
+            aria-label="Amount (USD)"
             type="text"
             inputMode="decimal"
             value={amount ? amount.toLocaleString("en-US") : ""}
-            onChange={(e) => {
-              const raw = e.target.value.replace(/[^0-9.\-]/g, "");
+            onChange={(nextValue) => {
+              const raw = nextValue.replace(/[^0-9.\-]/g, "");
               setAmount(Number(raw) || 0);
             }}
             placeholder="0"
-            className="text-center text-xl sm:text-2xl font-bold tabular-nums max-w-[200px]"
+            className="tabular-nums max-w-[200px]"
           />
-          {previousEntry && !hasConflict && (
-            amount > 0 ? (
-              <p className={cn(
-                "text-xs tabular-nums mt-1",
-                trend === "up" && "text-success",
-                trend === "down" && "text-error",
-                trend === "neutral" && "text-muted-foreground"
-              )}>
-                {change >= 0 ? "+" : ""}{formatCurrency(change)} ({formatPercentage(Math.abs(changePercent))})
+          {previousEntry &&
+            !hasConflict &&
+            (amount > 0 ? (
+              <p
+                className={cn(
+                  "text-xs tabular-nums mt-1",
+                  trend === "up" && "text-success",
+                  trend === "down" && "text-error",
+                  trend === "neutral" && "text-muted-foreground",
+                )}
+              >
+                {change >= 0 ? "+" : ""}
+                {formatCurrency(change)} (
+                {formatPercentage(Math.abs(changePercent))})
               </p>
             ) : (
               <button
@@ -307,8 +332,7 @@ export function AddNetWorthContent({
               >
                 Last month: {formatCurrency(Number(previousEntry.amount))}
               </button>
-            )
-          )}
+            ))}
         </div>
       </div>
 
@@ -316,13 +340,16 @@ export function AddNetWorthContent({
       <div className="flex flex-col">
         <div className="flex items-center gap-2 text-muted-foreground mb-3">
           <FileText className="h-4 w-4" />
-          <span className="text-sm font-medium uppercase tracking-wider">Notes</span>
+          <span className="text-sm font-medium uppercase tracking-wider">
+            Notes
+          </span>
         </div>
         <Textarea
+          aria-label="Notes"
           value={notes}
-          onChange={(e) => setNotes(e.target.value)}
+          onChange={(nextValue) => setNotes(nextValue)}
           placeholder="Add notes about your net worth this month..."
-          className="flex-1 min-h-[150px] resize-none glass-card px-4 py-4"
+          className="flex-1"
         />
       </div>
     </div>

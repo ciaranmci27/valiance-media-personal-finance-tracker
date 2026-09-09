@@ -1,11 +1,12 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Plus, ArrowUpRight, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { Input } from "@/components/ui/input";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Pagination } from "@/components/ui/pagination";
 import { SectionHeader } from "@/components/ui/section-header";
@@ -197,20 +198,19 @@ export function AccountingManualRegisters({
         </Button>
       </header>
       <div className="flex flex-wrap items-end gap-3">
-        <Input
+        <DateInput
           label="Balances as of"
-          type="date"
           value={date}
-          max={today}
-          onChange={(e) => setDate(e.target.value)}
+          maxDate={today}
+          onChange={(nextValue) => setDate(nextValue)}
         />
         <div className="min-w-48 flex-1">
-          <Input
+          <TextInput
             label={`Find ${kind === "asset" ? "an asset" : "a loan"}`}
             placeholder="Search by name"
             value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
+            onChange={(nextValue) => {
+              setQuery(nextValue);
               setOffset(0);
             }}
           />

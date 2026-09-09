@@ -1,4 +1,6 @@
 "use client";
+import { DateInput } from "@/components/ui/inputs/DateInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
 import { useState } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -20,11 +22,11 @@ import {
   Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { CustomSelect } from "@/components/ui/select";
-import { SearchableSelect } from "@/components/ui/searchable-select";
-import { Textarea } from "@/components/ui/textarea";
-import { Checkbox } from "@/components/ui/checkbox";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { Select } from "@/components/ui/inputs/Select";
+
+import { Textarea } from "@/components/ui/inputs/Textarea";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { Badge } from "@/components/ui/badge";
 import { SectionHeader } from "@/components/ui/section-header";
 import {
@@ -248,7 +250,7 @@ export function AccountingMore({
     <div className="grid items-start gap-6 xl:grid-cols-[208px_1fr]">
       <nav aria-label="More accounting sections" className="min-w-0">
         <div className="xl:hidden">
-          <CustomSelect
+          <Select
             label="Section"
             value={section}
             onChange={(v) => {
@@ -410,12 +412,12 @@ export function AccountingMore({
             />
             <div className="glass-card overflow-hidden rounded-xl">
               <div className="p-4">
-                <Input
-                  icon={<Search size={15} aria-hidden="true" />}
+                <TextInput
+                  prefix={<Search size={15} aria-hidden="true" />}
                   aria-label="Find payee"
                   placeholder="Find a payee or customer"
                   value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  onChange={(nextValue) => setQuery(nextValue)}
                 />
               </div>
               <div className="divide-y divide-border">
@@ -541,14 +543,14 @@ function PartyForm({
         });
       }}
     >
-      <Input
+      <TextInput
         label="Name"
         value={value.name}
-        onChange={(e) => setValue({ ...value, name: e.target.value })}
+        onChange={(nextValue) => setValue({ ...value, name: nextValue })}
         required
         maxLength={120}
       />
-      <CustomSelect
+      <Select
         label="Relationship"
         value={value.kind}
         onChange={(v) => setValue({ ...value, kind: v as Party["kind"] })}
@@ -558,7 +560,8 @@ function PartyForm({
           { value: "both", label: "Vendor and customer" },
         ]}
       />
-      <SearchableSelect
+      <Select
+        searchable
         label="Default category"
         visibleLabel="Default category"
         value={value.default_account_id ?? ""}
@@ -577,7 +580,7 @@ function PartyForm({
         onChange={(v) => setValue({ ...value, default_account_id: v || null })}
       />
       <div className="grid gap-4 sm:grid-cols-2">
-        <CustomSelect
+        <Select
           label="Contractor status"
           value={value.tax_classification}
           onChange={(v) =>
@@ -595,7 +598,7 @@ function PartyForm({
             { value: "other", label: "Other" },
           ]}
         />
-        <CustomSelect
+        <Select
           label="W-9 on file"
           value={value.documentation}
           onChange={(v) =>
@@ -613,7 +616,7 @@ function PartyForm({
         label="Notes"
         maxLength={3000}
         value={value.notes}
-        onChange={(e) => setValue({ ...value, notes: e.target.value })}
+        onChange={(nextValue) => setValue({ ...value, notes: nextValue })}
       />
       <Checkbox
         checked={value.is_archived}
@@ -691,14 +694,14 @@ function BookSettings({
             USD, cash basis, one company.
           </p>
         </div>
-        <Input
+        <TextInput
           label="Name on reports"
           value={form.legal_name}
-          onChange={(e) => setForm({ ...form, legal_name: e.target.value })}
+          onChange={(nextValue) => setForm({ ...form, legal_name: nextValue })}
           required
           maxLength={200}
         />
-        <CustomSelect
+        <Select
           label="System of record"
           value={form.primary_system ?? "wave"}
           disabled={primary}
@@ -721,38 +724,38 @@ function BookSettings({
           }
         />
         {form.primary_system === "admin" && !primary && (
-          <Input
+          <DateInput
             label="Primary from"
-            type="date"
             required
             value={form.primary_system_since ?? ""}
-            onChange={(e) =>
+            onChange={(nextValue) =>
               setForm({
                 ...form,
-                primary_system_since: e.target.value || null,
+                primary_system_since: nextValue || null,
               })
             }
           />
         )}
-        <Input
+        <DateInput
           label="Books start on"
-          type="date"
           value={form.history_start ?? ""}
           disabled={primary}
-          onChange={(e) =>
-            setForm({ ...form, history_start: e.target.value || null })
+          onChange={(nextValue) =>
+            setForm({ ...form, history_start: nextValue || null })
           }
         />
-        <Input
+        <NumberInput
+          step={1}
           label="Transfer matching window (days)"
-          type="number"
           min={0}
           max={30}
           value={form.transfer_window_days}
-          onChange={(e) =>
-            setForm({ ...form, transfer_window_days: Number(e.target.value) })
+          onChange={(nextValue) =>
+            setForm({
+              ...form,
+              transfer_window_days: Number(String(nextValue)),
+            })
           }
-          className="sm:w-64"
         />
         {command.error && (
           <p role="alert" className="text-sm text-error">

@@ -1,7 +1,10 @@
 "use client";
 
 import * as React from "react";
-import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
+import {
+  MobileMenuButton,
+  HeaderControls,
+} from "@/components/layout/page-header";
 import { useRouter } from "next/navigation";
 import {
   Pencil,
@@ -36,12 +39,12 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
-import { DateInput } from "@/components/ui/date-input";
-import { Input } from "@/components/ui/input";
-import { NumberInput } from "@/components/ui/number-input";
-import { CustomSelect } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { EmailTagsInput } from "@/components/ui/email-tags-input";
+import { DateInput } from "@/components/ui/inputs/DateInput";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
+import { Select } from "@/components/ui/inputs/Select";
+import { Textarea } from "@/components/ui/inputs/Textarea";
+import { TagsInput } from "@/components/ui/inputs/TagsInput";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn, formatDate } from "@/lib/utils";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
@@ -282,7 +285,7 @@ function RunStatusBadge({ status }: { status: AutomationRun["status"] }) {
         "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium",
         status === "success" && "bg-success/10 text-success",
         status === "failed" && "bg-error/10 text-error",
-        status === "running" && "bg-blue-500/10 text-blue-500"
+        status === "running" && "bg-blue-500/10 text-blue-500",
       )}
     >
       {status === "success" && <CheckCircle className="h-3 w-3" />}
@@ -322,43 +325,43 @@ export function AutomationDetailContent({
   // Form state
   const [name, setName] = React.useState(automation.name);
   const [description, setDescription] = React.useState(
-    automation.description || ""
+    automation.description || "",
   );
 
   // Trigger type state
   const [triggerType, setTriggerType] = React.useState<TriggerType>(
-    automation.trigger_type as TriggerType
+    automation.trigger_type as TriggerType,
   );
 
   // Schedule state (only used for schedule trigger)
-  const [frequency, setFrequency] = React.useState<ScheduleTriggerConfig["frequency"]>(
-    isScheduleTrigger ? triggerConfig.frequency || "monthly" : "monthly"
-  );
+  const [frequency, setFrequency] = React.useState<
+    ScheduleTriggerConfig["frequency"]
+  >(isScheduleTrigger ? triggerConfig.frequency || "monthly" : "monthly");
   const [time, setTime] = React.useState(
-    isScheduleTrigger ? triggerConfig.time : "09:00"
+    isScheduleTrigger ? triggerConfig.time : "09:00",
   );
   const [timezone, setTimezone] = React.useState(
-    isScheduleTrigger ? triggerConfig.timezone : "America/New_York"
+    isScheduleTrigger ? triggerConfig.timezone : "America/New_York",
   );
   const [dayOfWeek, setDayOfWeek] = React.useState(
-    isScheduleTrigger ? triggerConfig.day_of_week ?? 1 : 1
+    isScheduleTrigger ? (triggerConfig.day_of_week ?? 1) : 1,
   );
   const [dayOfMonth, setDayOfMonth] = React.useState(
-    isScheduleTrigger ? triggerConfig.day_of_month ?? 1 : 1
+    isScheduleTrigger ? (triggerConfig.day_of_month ?? 1) : 1,
   );
   const [month, setMonth] = React.useState(
-    isScheduleTrigger ? triggerConfig.month ?? 1 : 1
+    isScheduleTrigger ? (triggerConfig.month ?? 1) : 1,
   );
 
   // Duration state
-  const [durationType, setDurationType] = React.useState<ScheduleTriggerConfig["duration_type"]>(
-    isScheduleTrigger ? triggerConfig.duration_type || "forever" : "forever"
-  );
+  const [durationType, setDurationType] = React.useState<
+    ScheduleTriggerConfig["duration_type"]
+  >(isScheduleTrigger ? triggerConfig.duration_type || "forever" : "forever");
   const [runCount, setRunCount] = React.useState(
-    isScheduleTrigger ? triggerConfig.run_count ?? 10 : 10
+    isScheduleTrigger ? (triggerConfig.run_count ?? 10) : 10,
   );
   const [runUntil, setRunUntil] = React.useState(
-    isScheduleTrigger ? triggerConfig.run_until ?? "" : ""
+    isScheduleTrigger ? (triggerConfig.run_until ?? "") : "",
   );
 
   // Actions state
@@ -367,7 +370,7 @@ export function AutomationDetailContent({
       id: a.id,
       type: a.action_type,
       config: a.action_config as EmailActionConfig | NotificationActionConfig,
-    }))
+    })),
   );
 
   const addAction = (type: "email" | "notification") => {
@@ -385,7 +388,7 @@ export function AutomationDetailContent({
 
   const updateAction = (
     id: string,
-    config: EmailActionConfig | NotificationActionConfig
+    config: EmailActionConfig | NotificationActionConfig,
   ) => {
     setActions(actions.map((a) => (a.id === id ? { ...a, config } : a)));
   };
@@ -394,7 +397,9 @@ export function AutomationDetailContent({
     setActions(actions.filter((a) => a.id !== id));
   };
 
-  const buildTriggerConfig = (): ScheduleTriggerConfig | Record<string, never> => {
+  const buildTriggerConfig = ():
+    | ScheduleTriggerConfig
+    | Record<string, never> => {
     if (triggerType === "manual") {
       return {};
     }
@@ -404,7 +409,9 @@ export function AutomationDetailContent({
       time,
       timezone,
       duration_type: durationType,
-      runs_completed: isScheduleTrigger ? triggerConfig.runs_completed ?? 0 : 0,
+      runs_completed: isScheduleTrigger
+        ? (triggerConfig.runs_completed ?? 0)
+        : 0,
     };
 
     if (frequency === "weekly") config.day_of_week = dayOfWeek;
@@ -480,7 +487,8 @@ export function AutomationDetailContent({
   const handleDelete = async () => {
     const confirmed = await confirm({
       title: "Delete this automation?",
-      description: "This automation will be moved to trash. You can restore it later.",
+      description:
+        "This automation will be moved to trash. You can restore it later.",
       confirmLabel: "Delete",
       variant: "danger",
     });
@@ -530,7 +538,7 @@ export function AutomationDetailContent({
         id: a.id,
         type: a.action_type,
         config: a.action_config as EmailActionConfig | NotificationActionConfig,
-      }))
+      })),
     );
     setIsEditing(false);
   };
@@ -559,7 +567,8 @@ export function AutomationDetailContent({
   const handleRunNow = async () => {
     const confirmed = await confirm({
       title: "Run this automation?",
-      description: "This will execute a test run of the automation immediately.",
+      description:
+        "This will execute a test run of the automation immediately.",
       confirmLabel: "Run Now",
       variant: "default",
     });
@@ -577,9 +586,12 @@ export function AutomationDetailContent({
       const supabase = createClient();
 
       // Use Supabase's built-in function invocation
-      const { data, error } = await supabase.functions.invoke("process-automations", {
-        body: { automation_id: automation.id },
-      });
+      const { data, error } = await supabase.functions.invoke(
+        "process-automations",
+        {
+          body: { automation_id: automation.id },
+        },
+      );
 
       if (error) {
         throw error;
@@ -593,7 +605,10 @@ export function AutomationDetailContent({
       }
     } catch (error) {
       console.error("Error running automation:", error);
-      toast("error", error instanceof Error ? error.message : "Failed to run automation");
+      toast(
+        "error",
+        error instanceof Error ? error.message : "Failed to run automation",
+      );
     } finally {
       setIsRunning(false);
     }
@@ -612,7 +627,7 @@ export function AutomationDetailContent({
                 "inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs font-medium",
                 automation.is_active
                   ? "bg-success/10 text-success"
-                  : "bg-secondary text-muted-foreground"
+                  : "bg-secondary text-muted-foreground",
               )}
             >
               {automation.is_active ? (
@@ -638,7 +653,11 @@ export function AutomationDetailContent({
           <HeaderControls />
           {isEditing ? (
             <>
-              <Button variant="ghost" onClick={handleCancel} disabled={isSaving}>
+              <Button
+                variant="ghost"
+                onClick={handleCancel}
+                disabled={isSaving}
+              >
                 <X className="h-4 w-4 mr-1" />
                 Cancel
               </Button>
@@ -656,7 +675,11 @@ export function AutomationDetailContent({
               <Button
                 variant="ghost"
                 onClick={handleToggleActive}
-                className={automation.is_active ? "text-copper hover:text-copper" : "text-success hover:text-success"}
+                className={
+                  automation.is_active
+                    ? "text-copper hover:text-copper"
+                    : "text-success hover:text-success"
+                }
               >
                 {automation.is_active ? (
                   <>
@@ -776,16 +799,16 @@ export function AutomationDetailContent({
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <Input
+                <TextInput
                   label="Name"
                   value={name}
-                  onChange={(e) => setName(e.target.value)}
+                  onChange={(nextValue) => setName(nextValue)}
                   required
                 />
                 <Textarea
                   label="Description"
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={(nextValue) => setDescription(nextValue)}
                   placeholder="What does this automation do?"
                 />
               </CardContent>
@@ -811,7 +834,7 @@ export function AutomationDetailContent({
           </CardHeader>
           <CardContent>
             {isEditing && isPayrollTrigger ? (
-              <div className="rounded-lg border border-border bg-secondary p-4 text-sm text-muted-foreground space-y-2">
+              <div className="glass-card rounded-xl bg-secondary p-4 text-sm text-muted-foreground space-y-2">
                 <p className="text-foreground font-medium">
                   Payroll event triggers aren&apos;t editable here yet.
                 </p>
@@ -847,7 +870,7 @@ export function AutomationDetailContent({
                       "flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left",
                       triggerType === "manual"
                         ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/50 hover:bg-secondary"
+                        : "border-border hover:border-primary/50 hover:bg-secondary",
                     )}
                   >
                     <div
@@ -855,7 +878,7 @@ export function AutomationDetailContent({
                         "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
                         triggerType === "manual"
                           ? "bg-primary/10 text-teal-light"
-                          : "bg-secondary text-muted-foreground"
+                          : "bg-secondary text-muted-foreground",
                       )}
                     >
                       <MousePointerClick className="h-5 w-5" />
@@ -875,7 +898,7 @@ export function AutomationDetailContent({
                       "flex items-start gap-3 p-4 rounded-lg border-2 transition-all text-left",
                       triggerType === "schedule"
                         ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/50 hover:bg-secondary"
+                        : "border-border hover:border-primary/50 hover:bg-secondary",
                     )}
                   >
                     <div
@@ -883,7 +906,7 @@ export function AutomationDetailContent({
                         "flex h-10 w-10 items-center justify-center rounded-lg shrink-0",
                         triggerType === "schedule"
                           ? "bg-primary/10 text-teal-light"
-                          : "bg-secondary text-muted-foreground"
+                          : "bg-secondary text-muted-foreground",
                       )}
                     >
                       <Calendar className="h-5 w-5" />
@@ -911,13 +934,15 @@ export function AutomationDetailContent({
                             key={opt.value}
                             type="button"
                             onClick={() =>
-                              setFrequency(opt.value as ScheduleTriggerConfig["frequency"])
+                              setFrequency(
+                                opt.value as ScheduleTriggerConfig["frequency"],
+                              )
                             }
                             className={cn(
                               "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
                               frequency === opt.value
                                 ? "border-primary bg-primary/10 text-teal-light"
-                                : "border-border hover:border-primary/50 hover:bg-secondary"
+                                : "border-border hover:border-primary/50 hover:bg-secondary",
                             )}
                           >
                             {opt.label}
@@ -928,7 +953,7 @@ export function AutomationDetailContent({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       {frequency === "weekly" && (
-                        <CustomSelect
+                        <Select
                           label="Day of Week"
                           value={dayOfWeek.toString()}
                           onChange={(v) => setDayOfWeek(parseInt(v))}
@@ -938,8 +963,10 @@ export function AutomationDetailContent({
                           }))}
                         />
                       )}
-                      {["monthly", "quarterly", "yearly"].includes(frequency) && (
-                        <CustomSelect
+                      {["monthly", "quarterly", "yearly"].includes(
+                        frequency,
+                      ) && (
+                        <Select
                           label="Day of Month"
                           value={dayOfMonth.toString()}
                           onChange={(v) => setDayOfMonth(parseInt(v))}
@@ -950,7 +977,7 @@ export function AutomationDetailContent({
                         />
                       )}
                       {frequency === "yearly" && (
-                        <CustomSelect
+                        <Select
                           label="Month"
                           value={month.toString()}
                           onChange={(v) => setMonth(parseInt(v))}
@@ -960,13 +987,13 @@ export function AutomationDetailContent({
                           }))}
                         />
                       )}
-                      <CustomSelect
+                      <Select
                         label="Time"
                         value={time}
                         onChange={setTime}
                         options={timeOptions}
                       />
-                      <CustomSelect
+                      <Select
                         label="Timezone"
                         value={timezone}
                         onChange={setTimezone}
@@ -980,34 +1007,39 @@ export function AutomationDetailContent({
                         Duration
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        {(["forever", "count", "until"] as const).map((type) => (
-                          <button
-                            key={type}
-                            type="button"
-                            onClick={() => setDurationType(type)}
-                            className={cn(
-                              "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
-                              durationType === type
-                                ? "border-primary bg-primary/10 text-teal-light"
-                                : "border-border hover:border-primary/50 hover:bg-secondary"
-                            )}
-                          >
-                            {type === "forever"
-                              ? "Forever"
-                              : type === "count"
-                                ? "# of Times"
-                                : "Until Date"}
-                          </button>
-                        ))}
+                        {(["forever", "count", "until"] as const).map(
+                          (type) => (
+                            <button
+                              key={type}
+                              type="button"
+                              onClick={() => setDurationType(type)}
+                              className={cn(
+                                "px-3 py-2 text-sm font-medium rounded-lg border transition-colors",
+                                durationType === type
+                                  ? "border-primary bg-primary/10 text-teal-light"
+                                  : "border-border hover:border-primary/50 hover:bg-secondary",
+                              )}
+                            >
+                              {type === "forever"
+                                ? "Forever"
+                                : type === "count"
+                                  ? "# of Times"
+                                  : "Until Date"}
+                            </button>
+                          ),
+                        )}
                       </div>
                       {durationType === "count" && (
                         <NumberInput
-                          integer
+                          precision={0}
+                          step={1}
                           min={1}
                           max={999}
                           label="Number of times to run"
                           value={runCount.toString()}
-                          onChange={(e) => setRunCount(parseInt(e.target.value) || 1)}
+                          onChange={(nextValue) =>
+                            setRunCount(parseInt(String(nextValue)) || 1)
+                          }
                         />
                       )}
                       {durationType === "until" && (
@@ -1032,8 +1064,9 @@ export function AutomationDetailContent({
                     <div className="flex flex-wrap items-center gap-4 text-sm">
                       <span className="inline-flex items-center gap-1.5">
                         <Globe className="h-4 w-4 text-muted-foreground" />
-                        {timezones.find((tz) => tz.value === triggerConfig.timezone)
-                          ?.label || triggerConfig.timezone}
+                        {timezones.find(
+                          (tz) => tz.value === triggerConfig.timezone,
+                        )?.label || triggerConfig.timezone}
                       </span>
                       {automation.next_run_at && (
                         <span className="inline-flex items-center gap-1.5 text-muted-foreground">
@@ -1085,7 +1118,8 @@ export function AutomationDetailContent({
                   </>
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    This automation runs when manually triggered using the &quot;Run Now&quot; button.
+                    This automation runs when manually triggered using the
+                    &quot;Run Now&quot; button.
                   </p>
                 )}
               </div>
@@ -1107,7 +1141,11 @@ export function AutomationDetailContent({
                 )}
                 <CardTitle className="text-base font-semibold flex items-center gap-2">
                   <Zap className="h-4 w-4 text-muted-foreground" />
-                  Actions ({isEditing ? actions.length : automation.automation_actions.length})
+                  Actions (
+                  {isEditing
+                    ? actions.length
+                    : automation.automation_actions.length}
+                  )
                 </CardTitle>
               </div>
               {isEditing && (
@@ -1154,7 +1192,7 @@ export function AutomationDetailContent({
                                 "flex h-8 w-8 items-center justify-center rounded-lg shrink-0",
                                 action.type === "email"
                                   ? "bg-blue-500/10 text-blue-500"
-                                  : "bg-amber-500/10 text-amber-500"
+                                  : "bg-amber-500/10 text-amber-500",
                               )}
                             >
                               {action.type === "email" ? (
@@ -1174,10 +1212,15 @@ export function AutomationDetailContent({
                                 <div className="space-y-1.5">
                                   <div className="flex items-center gap-2">
                                     <AtSign className="h-3.5 w-3.5 text-muted-foreground" />
-                                    <label className="text-sm font-medium">Recipient Email</label>
+                                    <label className="text-sm font-medium">
+                                      Recipient Email
+                                    </label>
                                   </div>
-                                  <EmailTagsInput
-                                    value={(action.config as EmailActionConfig).to}
+                                  <TagsInput
+                                    type="email"
+                                    value={
+                                      (action.config as EmailActionConfig).to
+                                    }
                                     onChange={(value) =>
                                       updateAction(action.id, {
                                         ...(action.config as EmailActionConfig),
@@ -1194,23 +1237,34 @@ export function AutomationDetailContent({
                                   <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                       <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                                      <label className="text-sm font-medium">Subject Line</label>
+                                      <label className="text-sm font-medium">
+                                        Subject Line
+                                      </label>
                                     </div>
-                                    <span className={cn(
-                                      "text-xs",
-                                      ((action.config as EmailActionConfig).subject?.length || 0) > 60
-                                        ? "text-amber-500"
-                                        : "text-muted-foreground"
-                                    )}>
-                                      {(action.config as EmailActionConfig).subject?.length || 0}/60
+                                    <span
+                                      className={cn(
+                                        "text-xs",
+                                        ((action.config as EmailActionConfig)
+                                          .subject?.length || 0) > 60
+                                          ? "text-amber-500"
+                                          : "text-muted-foreground",
+                                      )}
+                                    >
+                                      {(action.config as EmailActionConfig)
+                                        .subject?.length || 0}
+                                      /60
                                     </span>
                                   </div>
-                                  <Input
-                                    value={(action.config as EmailActionConfig).subject}
-                                    onChange={(e) =>
+                                  <TextInput
+                                    aria-label="Email subject"
+                                    value={
+                                      (action.config as EmailActionConfig)
+                                        .subject
+                                    }
+                                    onChange={(nextValue) =>
                                       updateAction(action.id, {
                                         ...(action.config as EmailActionConfig),
-                                        subject: e.target.value,
+                                        subject: nextValue,
                                       })
                                     }
                                     placeholder="Monthly Report Ready for Review"
@@ -1223,7 +1277,9 @@ export function AutomationDetailContent({
                                   <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                       <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                                      <label className="text-sm font-medium">Email Body</label>
+                                      <label className="text-sm font-medium">
+                                        Email Body
+                                      </label>
                                     </div>
                                     <div className="flex items-center gap-1 p-1 bg-secondary rounded-lg">
                                       <button
@@ -1236,9 +1292,10 @@ export function AutomationDetailContent({
                                         }
                                         className={cn(
                                           "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
-                                          ((action.config as EmailActionConfig).format || "text") === "text"
+                                          ((action.config as EmailActionConfig)
+                                            .format || "text") === "text"
                                             ? "bg-[rgba(var(--ink),0.09)] text-foreground shadow-[inset_0_1px_0_rgba(var(--ink),0.16)]"
-                                            : "text-muted-foreground hover:text-foreground"
+                                            : "text-muted-foreground hover:text-foreground",
                                         )}
                                       >
                                         <Type className="h-3 w-3" />
@@ -1254,9 +1311,10 @@ export function AutomationDetailContent({
                                         }
                                         className={cn(
                                           "flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors",
-                                          (action.config as EmailActionConfig).format === "html"
+                                          (action.config as EmailActionConfig)
+                                            .format === "html"
                                             ? "bg-[rgba(var(--ink),0.09)] text-foreground shadow-[inset_0_1px_0_rgba(var(--ink),0.16)]"
-                                            : "text-muted-foreground hover:text-foreground"
+                                            : "text-muted-foreground hover:text-foreground",
                                         )}
                                       >
                                         <Code className="h-3 w-3" />
@@ -1265,22 +1323,29 @@ export function AutomationDetailContent({
                                     </div>
                                   </div>
                                   <Textarea
-                                    value={(action.config as EmailActionConfig).body}
-                                    onChange={(e) =>
+                                    aria-label="Email body"
+                                    value={
+                                      (action.config as EmailActionConfig).body
+                                    }
+                                    onChange={(nextValue) =>
                                       updateAction(action.id, {
                                         ...(action.config as EmailActionConfig),
-                                        body: e.target.value,
+                                        body: nextValue,
                                       })
                                     }
                                     placeholder="Email body content..."
                                     className={cn(
                                       "min-h-[120px] text-sm",
-                                      (action.config as EmailActionConfig).format === "html" ? "font-mono" : ""
+                                      (action.config as EmailActionConfig)
+                                        .format === "html"
+                                        ? "font-mono"
+                                        : "",
                                     )}
                                     required
                                   />
                                   <p className="text-xs text-muted-foreground">
-                                    {(action.config as EmailActionConfig).format === "html"
+                                    {(action.config as EmailActionConfig)
+                                      .format === "html"
                                       ? "Write HTML markup for rich formatting. Inline styles recommended."
                                       : "Plain text email. Line breaks will be preserved."}
                                   </p>
@@ -1291,7 +1356,11 @@ export function AutomationDetailContent({
                                   <summary className="flex items-center gap-2 cursor-pointer text-sm text-muted-foreground hover:text-foreground transition-colors list-none">
                                     <ChevronRight className="h-4 w-4 transition-transform group-open:rotate-90" />
                                     <span>Additional Options</span>
-                                    {((action.config as EmailActionConfig).cc || (action.config as EmailActionConfig).bcc || (action.config as EmailActionConfig).replyTo) && (
+                                    {((action.config as EmailActionConfig).cc ||
+                                      (action.config as EmailActionConfig)
+                                        .bcc ||
+                                      (action.config as EmailActionConfig)
+                                        .replyTo) && (
                                       <span className="text-xs bg-primary/10 text-teal-light px-1.5 py-0.5 rounded">
                                         configured
                                       </span>
@@ -1299,8 +1368,12 @@ export function AutomationDetailContent({
                                   </summary>
                                   <div className="mt-4 space-y-4">
                                     {/* CC */}
-                                    <EmailTagsInput
-                                      value={(action.config as EmailActionConfig).cc || ""}
+                                    <TagsInput
+                                      type="email"
+                                      value={
+                                        (action.config as EmailActionConfig)
+                                          .cc || ""
+                                      }
                                       onChange={(value) =>
                                         updateAction(action.id, {
                                           ...(action.config as EmailActionConfig),
@@ -1309,12 +1382,16 @@ export function AutomationDetailContent({
                                       }
                                       label="CC (optional)"
                                       placeholder="Add CC recipient"
-                                      helperText="Carbon copy - visible to all recipients"
+                                      description="Carbon copy - visible to all recipients"
                                     />
 
                                     {/* BCC */}
-                                    <EmailTagsInput
-                                      value={(action.config as EmailActionConfig).bcc || ""}
+                                    <TagsInput
+                                      type="email"
+                                      value={
+                                        (action.config as EmailActionConfig)
+                                          .bcc || ""
+                                      }
                                       onChange={(value) =>
                                         updateAction(action.id, {
                                           ...(action.config as EmailActionConfig),
@@ -1323,22 +1400,28 @@ export function AutomationDetailContent({
                                       }
                                       label="BCC (optional)"
                                       placeholder="Add BCC recipient"
-                                      helperText="Blind carbon copy - hidden from other recipients"
+                                      description="Blind carbon copy - hidden from other recipients"
                                     />
 
                                     {/* Reply-To */}
                                     <div className="space-y-1.5">
                                       <div className="flex items-center gap-2">
                                         <Reply className="h-3.5 w-3.5 text-muted-foreground" />
-                                        <label className="text-sm font-medium">Reply-To (optional)</label>
+                                        <label className="text-sm font-medium">
+                                          Reply-To (optional)
+                                        </label>
                                       </div>
-                                      <Input
+                                      <TextInput
+                                        aria-label="Reply-to email"
                                         type="email"
-                                        value={(action.config as EmailActionConfig).replyTo || ""}
-                                        onChange={(e) =>
+                                        value={
+                                          (action.config as EmailActionConfig)
+                                            .replyTo || ""
+                                        }
+                                        onChange={(nextValue) =>
                                           updateAction(action.id, {
                                             ...(action.config as EmailActionConfig),
-                                            replyTo: e.target.value || undefined,
+                                            replyTo: nextValue || undefined,
                                           })
                                         }
                                         placeholder="replies@company.com"
@@ -1353,14 +1436,21 @@ export function AutomationDetailContent({
                                 <div className="space-y-1.5">
                                   <div className="flex items-center gap-2">
                                     <Bell className="h-3.5 w-3.5 text-muted-foreground" />
-                                    <label className="text-sm font-medium">Notification Title</label>
+                                    <label className="text-sm font-medium">
+                                      Notification Title
+                                    </label>
                                   </div>
-                                  <Input
-                                    value={(action.config as NotificationActionConfig).title}
-                                    onChange={(e) =>
+                                  <TextInput
+                                    aria-label="Notification title"
+                                    value={
+                                      (
+                                        action.config as NotificationActionConfig
+                                      ).title
+                                    }
+                                    onChange={(nextValue) =>
                                       updateAction(action.id, {
                                         ...(action.config as NotificationActionConfig),
-                                        title: e.target.value,
+                                        title: nextValue,
                                       })
                                     }
                                     placeholder="Report Ready"
@@ -1372,18 +1462,24 @@ export function AutomationDetailContent({
                                 <div className="space-y-1.5">
                                   <div className="flex items-center gap-2">
                                     <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                                    <label className="text-sm font-medium">Message</label>
+                                    <label className="text-sm font-medium">
+                                      Message
+                                    </label>
                                   </div>
                                   <Textarea
-                                    value={(action.config as NotificationActionConfig).message}
-                                    onChange={(e) =>
+                                    aria-label="Notification message"
+                                    value={
+                                      (
+                                        action.config as NotificationActionConfig
+                                      ).message
+                                    }
+                                    onChange={(nextValue) =>
                                       updateAction(action.id, {
                                         ...(action.config as NotificationActionConfig),
-                                        message: e.target.value,
+                                        message: nextValue,
                                       })
                                     }
                                     placeholder="Your monthly report is ready for review."
-                                    className="min-h-[80px]"
                                     required
                                   />
                                 </div>
@@ -1392,14 +1488,21 @@ export function AutomationDetailContent({
                                 <div className="space-y-1.5">
                                   <div className="flex items-center gap-2">
                                     <LinkIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                                    <label className="text-sm font-medium">Link (optional)</label>
+                                    <label className="text-sm font-medium">
+                                      Link (optional)
+                                    </label>
                                   </div>
-                                  <Input
-                                    value={(action.config as NotificationActionConfig).link || ""}
-                                    onChange={(e) =>
+                                  <TextInput
+                                    aria-label="Notification link"
+                                    value={
+                                      (
+                                        action.config as NotificationActionConfig
+                                      ).link || ""
+                                    }
+                                    onChange={(nextValue) =>
                                       updateAction(action.id, {
                                         ...(action.config as NotificationActionConfig),
-                                        link: e.target.value,
+                                        link: nextValue,
                                       })
                                     }
                                     placeholder="/income or /settings"
@@ -1409,15 +1512,15 @@ export function AutomationDetailContent({
                             )}
                           </div>
                           <Tooltip content="Remove action">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-error"
-                            onClick={() => removeAction(action.id)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-muted-foreground hover:text-error"
+                              onClick={() => removeAction(action.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           </Tooltip>
                         </div>
                       </CardContent>
@@ -1446,7 +1549,7 @@ export function AutomationDetailContent({
                             "flex h-8 w-8 items-center justify-center rounded-lg shrink-0",
                             action.action_type === "email"
                               ? "bg-blue-500/10 text-blue-500"
-                              : "bg-amber-500/10 text-amber-500"
+                              : "bg-amber-500/10 text-amber-500",
                           )}
                         >
                           {action.action_type === "email" ? (
@@ -1535,7 +1638,8 @@ export function AutomationDetailContent({
             </div>
           ) : (
             <div className="px-4 py-6 text-center text-sm text-muted-foreground">
-              No runs yet. Click &quot;Test Run&quot; to trigger this automation.
+              No runs yet. Click &quot;Test Run&quot; to trigger this
+              automation.
             </div>
           )}
         </CardContent>
@@ -1544,7 +1648,12 @@ export function AutomationDetailContent({
       {/* Bottom Actions */}
       {isEditing ? (
         <div className="flex md:hidden items-center justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={handleCancel} disabled={isSaving}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleCancel}
+            disabled={isSaving}
+          >
             <X className="h-4 w-4 mr-1" />
             Cancel
           </Button>

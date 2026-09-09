@@ -22,9 +22,9 @@ import {
   Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { NumberInput } from "@/components/ui/number-input";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
+import { TextInput } from "@/components/ui/inputs/TextInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { toast } from "@/components/ui/toast";
 import { ConfirmationDialog } from "@/components/ui/confirmation-dialog";
@@ -41,7 +41,7 @@ import {
   type WithholdingCategory,
   type WithholdingLineItem,
 } from "@/types/payroll";
-import { CustomSelect } from "@/components/ui/select";
+import { Select } from "@/components/ui/inputs/Select";
 import { Term } from "./term";
 
 const CATEGORY_OPTIONS: { value: WithholdingCategory; label: string }[] = (
@@ -144,11 +144,11 @@ export function RunBatchContent({
     });
   }, [initialPreview]);
 
-  const scopedBadge = initialEmployeeIds != null && initialEmployeeIds.length > 0;
+  const scopedBadge =
+    initialEmployeeIds != null && initialEmployeeIds.length > 0;
 
   const selectedCount = React.useMemo(
-    () =>
-      preview.items.filter((it) => rows[itemKey(it)]?.include).length,
+    () => preview.items.filter((it) => rows[itemKey(it)]?.include).length,
     [preview.items, rows],
   );
 
@@ -478,7 +478,7 @@ export function RunBatchContent({
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
             {/* Employees take home */}
-            <div className="rounded-lg border border-border bg-secondary p-4 space-y-2">
+            <div className="glass-card rounded-xl bg-secondary p-4 space-y-2">
               <div className="flex items-center gap-2">
                 <UserCircle
                   className="h-4 w-4 text-muted-foreground"
@@ -514,7 +514,7 @@ export function RunBatchContent({
             </div>
 
             {/* Employer pays */}
-            <div className="rounded-lg border border-border bg-secondary p-4 space-y-2">
+            <div className="glass-card rounded-xl bg-secondary p-4 space-y-2">
               <div className="flex items-center gap-2">
                 <Wallet
                   className="h-4 w-4 text-muted-foreground"
@@ -546,8 +546,8 @@ export function RunBatchContent({
           {totals.dirtyCount > 0 && (
             <p className="text-xs text-warning">
               {totals.dirtyCount} row
-              {totals.dirtyCount === 1 ? " has" : "s have"} a gross override
-              or pre-tax deduction - taxes, deductions, and net above exclude{" "}
+              {totals.dirtyCount === 1 ? " has" : "s have"} a gross override or
+              pre-tax deduction - taxes, deductions, and net above exclude{" "}
               {totals.dirtyCount === 1 ? "it" : "them"} and will be recomputed
               server-side when you click Approve payroll.
             </p>
@@ -572,10 +572,8 @@ export function RunBatchContent({
                   : "Every employee is already covered for this cycle"}
               </h3>
               <p className="text-sm text-muted-foreground mt-0.5">
-                Open the existing{" "}
-                {totalErrors === 1 ? "run" : "runs"} below to view, edit, or
-                approve{" "}
-                {totalErrors === 1 ? "it" : "them"}.
+                Open the existing {totalErrors === 1 ? "run" : "runs"} below to
+                view, edit, or approve {totalErrors === 1 ? "it" : "them"}.
               </p>
             </div>
           </div>
@@ -584,7 +582,7 @@ export function RunBatchContent({
             {preview.errors.map((e) => (
               <li
                 key={e.employee.id}
-                className="flex items-center justify-between gap-3 rounded-lg border border-border bg-secondary px-4 py-3"
+                className="flex items-center justify-between gap-3 glass-card rounded-xl bg-secondary px-4 py-3"
               >
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-foreground truncate">
@@ -701,7 +699,10 @@ export function RunBatchContent({
               disabled={submitting || selectedCount === 0}
             >
               {submitting ? (
-                <Loader2 className="h-4 w-4 mr-1 animate-spin" aria-hidden="true" />
+                <Loader2
+                  className="h-4 w-4 mr-1 animate-spin"
+                  aria-hidden="true"
+                />
               ) : (
                 <Play className="h-4 w-4 mr-1" aria-hidden="true" />
               )}
@@ -785,7 +786,7 @@ function RunRow({
         <Checkbox
           checked={state.include}
           onChange={(next) => onChange({ include: next })}
-          aria-label={`Include ${item.employee.first_name} ${item.employee.last_name}`}
+          ariaLabel={`Include ${item.employee.first_name} ${item.employee.last_name}`}
         />
 
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-teal-light font-semibold text-sm flex-shrink-0">
@@ -810,12 +811,15 @@ function RunRow({
           </div>
           {grossEditing ? (
             <NumberInput
+              step={0.01}
               value={
                 state.overrideGross !== ""
                   ? state.overrideGross
                   : item.calculated.gross_pay.toFixed(2)
               }
-              onChange={(e) => onChange({ overrideGross: e.target.value })}
+              onChange={(nextValue) =>
+                onChange({ overrideGross: String(nextValue) })
+              }
               onBlur={() => setGrossEditing(false)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === "Escape") {
@@ -868,9 +872,7 @@ function RunRow({
               <div className="font-mono font-semibold text-muted-foreground">
                 -
               </div>
-              <div className="text-xs text-warning">
-                recomputes on run
-              </div>
+              <div className="text-xs text-warning">recomputes on run</div>
             </>
           ) : (
             <>
@@ -921,9 +923,8 @@ function RunRow({
                 Preview numbers are stale
               </p>
               <p className="text-muted-foreground">
-                Gross overrides or pre-tax deductions change taxable-wage
-                bases; the server recomputes FIT/FICA/FUTA and net pay
-                against{" "}
+                Gross overrides or pre-tax deductions change taxable-wage bases;
+                the server recomputes FIT/FICA/FUTA and net pay against{" "}
                 <span className="font-mono text-foreground">
                   {formatCurrency(display.gross_pay)}
                 </span>{" "}
@@ -1053,24 +1054,26 @@ function RunRow({
                     key={extra.id}
                     className="flex flex-wrap items-start gap-2"
                   >
-                    <Input
+                    <TextInput
                       value={extra.label}
-                      onChange={(e) =>
-                        onExtraChange(extra.id, "label", e.target.value)
+                      aria-label="Additional pay label"
+                      onChange={(nextValue) =>
+                        onExtraChange(extra.id, "label", nextValue)
                       }
                       placeholder="Label (e.g. 401k contribution)"
                       className="flex-1 min-w-[180px]"
                     />
                     <NumberInput
+                      step={0.01}
                       value={extra.amount}
-                      onChange={(e) =>
-                        onExtraChange(extra.id, "amount", e.target.value)
+                      onChange={(nextValue) =>
+                        onExtraChange(extra.id, "amount", String(nextValue))
                       }
                       placeholder="0.00"
                       className="w-28"
                       aria-label="Amount"
                     />
-                    <CustomSelect
+                    <Select
                       value={extra.category}
                       onChange={(next) =>
                         onExtraCategoryChange(
@@ -1095,10 +1098,10 @@ function RunRow({
               </div>
             )}
             <p className="text-xs text-muted-foreground mt-2">
-              Pre-tax §125 (health, HSA via cafeteria, FSA) reduces all
-              federal taxes and most state taxes. Pre-tax 401(k) reduces
-              FIT/SIT only - FICA and FUTA still apply. Post-tax deductions
-              (Roth 401(k), garnishments) reduce net pay only.
+              Pre-tax §125 (health, HSA via cafeteria, FSA) reduces all federal
+              taxes and most state taxes. Pre-tax 401(k) reduces FIT/SIT only -
+              FICA and FUTA still apply. Post-tax deductions (Roth 401(k),
+              garnishments) reduce net pay only.
             </p>
           </div>
           <div className="text-xs text-muted-foreground">
@@ -1116,7 +1119,9 @@ function RunRow({
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function initials(first: string, last: string): string {
-  return `${(first || "").charAt(0)}${(last || "").charAt(0)}`.toUpperCase() || "?";
+  return (
+    `${(first || "").charAt(0)}${(last || "").charAt(0)}`.toUpperCase() || "?"
+  );
 }
 
 /** Compute effective display numbers for a row given the user's overrides.
