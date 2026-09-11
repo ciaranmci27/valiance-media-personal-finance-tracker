@@ -9,17 +9,15 @@ import {
   ArrowLeftRight,
   ArrowUpRight,
   BookOpen,
-  Check,
   ChevronDown,
-  Download,
   Plus,
   RefreshCw,
   Wallet,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
+import { StatCardSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
-import { cn } from "@/lib/utils";
 import { defaultChart } from "@/lib/accounting/chart";
 import { parseUsd } from "@/lib/accounting/money";
 import type {
@@ -32,6 +30,11 @@ import type {
 } from "@/lib/accounting/workflows";
 import { registerFilterSchema } from "@/lib/accounting/workflows";
 import { presentTransaction } from "@/lib/accounting/transactions";
+import { feedSyncDue, type FeedData } from "@/lib/accounting/feeds";
+import {
+  resolveAccountingView,
+  type AccountingView,
+} from "@/lib/accounting/views";
 import {
   AccountingTransactions,
   type TransactionAction,
@@ -48,6 +51,7 @@ import {
   type Editor,
 } from "./accounting-journal-dialogs";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+import { AccountingNotices, booksNotices } from "./accounting-notices";
 import type { BooksMetadata } from "./types";
 
 const ZERO = BigInt(0);
@@ -55,6 +59,21 @@ const loadingView = () => (
   <p role="status" className="p-6 text-sm text-muted-foreground">
     Loading...
   </p>
+);
+const loadingOverview = () => (
+  <div
+    role="status"
+    aria-label="Loading overview"
+    className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 lg:grid-cols-4 lg:gap-4"
+  >
+    {[0, 1, 2, 3].map((i) => (
+      <StatCardSkeleton key={i} />
+    ))}
+  </div>
+);
+const AccountingOverview = dynamic(
+  () => import("./accounting-overview").then((m) => m.AccountingOverview),
+  { loading: loadingOverview },
 );
 const AccountingReports = dynamic(
   () => import("./accounting-reports").then((m) => m.AccountingReports),
@@ -73,14 +92,7 @@ const AccountingMore = dynamic(
   { loading: loadingView },
 );
 
-type View = "journal" | "reports" | "accounts" | "close" | "manage";
-const VIEWS: { key: View; label: string; demoHidden?: boolean }[] = [
-  { key: "journal", label: "Transactions" },
-  { key: "reports", label: "Reports" },
-  { key: "accounts", label: "Accounts" },
-  { key: "close", label: "Month end", demoHidden: true },
-  { key: "manage", label: "More" },
-];
+type View = AccountingView;
 
 type Workspace = AccountingWorkspace;
 
@@ -114,50 +126,12 @@ function demoManage(workspace: AccountingWorkspace): BooksMetadata {
   };
 }
 
-/** One destination in the top navigation. Module level so it keeps focus across re-renders. */
-function NavButton({
-  item,
-  active,
-  reviewCount,
-  onSelect,
-}: {
-  item: (typeof VIEWS)[number];
-  active: boolean;
-  reviewCount: number;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-current={active ? "page" : undefined}
-      className={cn(
-        "inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        active
-          ? "bg-secondary text-foreground"
-          : "text-muted-foreground hover:text-foreground",
-      )}
-    >
-      {item.label}
-      {item.key === "journal" && reviewCount > 0 && (
-        <span
-          className={cn(
-            "rounded-full px-1.5 text-[11px] font-semibold tabular-nums leading-4",
-            active ? "bg-copper/25 text-copper" : "bg-copper/20 text-copper",
-          )}
-          aria-label={`${reviewCount} to review`}
-        >
-          {reviewCount}
-        </span>
-      )}
-    </button>
-  );
-}
-
 /**
- * The accounting workspace: five destinations, one add menu, and the shared
- * entry dialogs. State lives in the URL (`view`, `section`, `entry`) so links
- * and the browser's back button keep working.
+ * The accounting workspace. The sidebar links to its screens (Overview,
+ * Transactions, Accounts, Reports, Records, Settings); this shell renders
+ * the one the URL names, owns the add menu and the shared entry dialogs.
+ * State lives in the URL (`view`, `section`, `entry`, `report`) so links
+ * and the back button keep working.
  */
 export function AccountingBooks({
   initial,
@@ -172,12 +146,13 @@ export function AccountingBooks({
 }) {
   const [data, setData] = useState<Workspace>(initial);
   const params = useSearchParams();
-  const candidate = params.get("view");
-  const view: View = VIEWS.some((v) => v.key === candidate)
-    ? (candidate as View)
-    : "journal";
+  const view = resolveAccountingView(params.get("view"), params.get("section"));
 
-  function setView(next: View, section?: string) {
+  function setView(
+    next: View,
+    section?: string,
+    extra?: Record<string, string>,
+  ) {
     if (next !== "journal") {
       setRegisterFilter(null);
       setAccountFilter("");
@@ -187,6 +162,8 @@ export function AccountingBooks({
     url.searchParams.delete("entry");
     if (section) url.searchParams.set("section", section);
     else url.searchParams.delete("section");
+    for (const [key, value] of Object.entries(extra ?? {}))
+      url.searchParams.set(key, value);
     window.history.pushState(null, "", url);
   }
 
@@ -217,6 +194,8 @@ export function AccountingBooks({
   const [addAccount, setAddAccount] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const syncRequested = useRef(false);
+  // Bank feed state drives the notices under the header and the Overview.
+  const [feeds, setFeeds] = useState<FeedData | null>(null);
 
   let urlFilter: Partial<RegisterFilter> = {};
   try {
@@ -232,15 +211,28 @@ export function AccountingBooks({
   const accountMap = new Map(data.accounts.map((a) => [a.id, a]));
 
   async function refreshBooks() {
-    const [next, metadata] = await Promise.all([
+    const [next, metadata, feedState] = await Promise.all([
       accountingGet<Workspace>({ from: data.from, to: data.to }),
       accountingGet<BooksMetadata>({ view: "manage" }),
+      accountingGet<FeedData>({ view: "feeds" }).catch(() => null),
     ]);
     setData(next);
     setManage(metadata);
     setManageLoaded(true);
+    if (feedState) setFeeds(feedState);
     setSelected(null);
+    // The sidebar's review badge follows the books.
+    window.dispatchEvent(new Event("accounting-refreshed"));
   }
+
+  // Navigation can also come from the sidebar, so filters that only make
+  // sense on Transactions reset whenever another screen is open.
+  useEffect(() => {
+    if (view !== "journal") {
+      setRegisterFilter(null);
+      setAccountFilter("");
+    }
+  }, [view]);
   const cmd = useAccountingCommand(refreshBooks);
 
   useEffect(() => {
@@ -254,26 +246,60 @@ export function AccountingBooks({
       .catch((e) => {
         if (!controller.signal.aborted) setError(e.message);
       });
+    accountingGet<FeedData>({ view: "feeds" }, controller.signal)
+      .then(setFeeds)
+      .catch(() => undefined);
     return () => controller.abort();
   }, [demo, initial.revision]);
 
-  // Sync on open: when the books report the newest feed run is stale, ask
-  // for one in the background and refresh when it lands.
+  // Sync on open: when the books report the newest feed run is stale, run
+  // each due connection in the background, the same way Sync now does, and
+  // refresh once new activity has landed.
   useEffect(() => {
     if (demo || !data.sync_due || syncRequested.current) return;
     syncRequested.current = true;
     setSyncing(true);
-    fetch("/api/accounting", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        key: crypto.randomUUID(),
-        command: { type: "bank.sync_request" },
-      }),
-    })
-      .then(async (r) => {
-        if (r.ok) await refreshBooks();
-      })
+    (async () => {
+      const feeds = await accountingGet<FeedData>({ view: "feeds" });
+      // Only a connection with at least one mapped account can sync; the
+      // Overview explains the mapping step for the rest.
+      const mapped = new Set(
+        feeds.identities
+          .filter((i) => i.feed_account_id)
+          .map((i) => i.connection_id),
+      );
+      let synced = false;
+      let blocked = "";
+      for (const connection of feeds.connections.filter(
+        (c) => feedSyncDue(c) && mapped.has(c.id),
+      )) {
+        const response = await fetch("/api/accounting/feeds", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "sync", id: connection.id }),
+        });
+        if (response.ok) synced = true;
+        else if (!blocked) {
+          const body = (await response.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          blocked = body.error ?? "";
+        }
+      }
+      if (synced) await refreshBooks();
+      else if (blocked) {
+        // Once per session: the Overview keeps showing the state after this.
+        const seen = `accounting.sync-blocked:${blocked}`;
+        let shown = false;
+        try {
+          shown = sessionStorage.getItem(seen) === "1";
+          sessionStorage.setItem(seen, "1");
+        } catch {
+          /* Private mode: fall back to showing it. */
+        }
+        if (!shown) toast("error", blocked);
+      }
+    })()
       .catch(() => {
         /* The next visit tries again. */
       })
@@ -418,8 +444,6 @@ export function AccountingBooks({
     }
   }
 
-  const reviewCount = data.needs_review_count ?? data.draft_count;
-
   const addMenu = (
     <Menu.Root>
       <Menu.Trigger asChild id="accounting-add-transaction">
@@ -449,12 +473,12 @@ export function AccountingBooks({
             {
               label: "Transfer or card payment",
               icon: ArrowLeftRight,
-              run: () => setView("manage", "transfers"),
+              run: () => setView("records", "transfers"),
             },
             {
               label: "Payroll run",
               icon: Wallet,
-              run: () => setView("manage", "payroll"),
+              run: () => setView("records", "payroll"),
             },
             {
               label: "Journal entry",
@@ -476,10 +500,6 @@ export function AccountingBooks({
     </Menu.Root>
   );
 
-  const visibleViews = VIEWS.filter((v) => !demo || !v.demoHidden);
-  const primaryViews = visibleViews.slice(0, 2);
-  const secondaryViews = visibleViews.slice(2);
-
   return (
     <div className="space-y-5 lg:space-y-6">
       <PageHeader
@@ -490,97 +510,25 @@ export function AccountingBooks({
         actions={addMenu}
       />
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
-        <nav
-          aria-label="Accounting sections"
-          className="grid w-full grid-cols-[1fr_1fr_auto] gap-1 md:hidden"
+      {syncing && (
+        <p
+          role="status"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
         >
-          {primaryViews.map((item) => (
-            <NavButton
-              key={item.key}
-              item={item}
-              active={view === item.key}
-              reviewCount={reviewCount}
-              onSelect={() => setView(item.key)}
-            />
-          ))}
-          <Menu.Root>
-            <Menu.Trigger asChild id="accounting-mobile-views">
-              <button
-                type="button"
-                aria-label="More accounting sections"
-                className={cn(
-                  "inline-flex items-center justify-center gap-1 rounded-lg px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  secondaryViews.some((v) => v.key === view)
-                    ? "bg-secondary text-foreground"
-                    : "text-muted-foreground",
-                )}
-              >
-                {secondaryViews.find((v) => v.key === view)?.label ?? "More"}
-                <ChevronDown size={14} aria-hidden="true" />
-              </button>
-            </Menu.Trigger>
-            <Menu.Portal>
-              <Menu.Content
-                align="end"
-                sideOffset={8}
-                className="z-[70] min-w-56 rounded-xl border border-border bg-popover p-1.5 shadow-[var(--shadow-overlay)] animate-in fade-in-0 zoom-in-95"
-              >
-                {secondaryViews.map((item) => (
-                  <Menu.Item
-                    key={item.key}
-                    onSelect={() => setView(item.key)}
-                    className="flex cursor-pointer items-center justify-between gap-4 rounded-lg px-3 py-3 text-sm outline-none data-[highlighted]:bg-secondary"
-                  >
-                    {item.label}
-                    {view === item.key && (
-                      <Check size={14} aria-hidden="true" />
-                    )}
-                  </Menu.Item>
-                ))}
-              </Menu.Content>
-            </Menu.Portal>
-          </Menu.Root>
-        </nav>
-        <nav
-          aria-label="Accounting sections"
-          className="hidden flex-wrap gap-1 md:flex"
-        >
-          {visibleViews.map((item) => (
-            <NavButton
-              key={item.key}
-              item={item}
-              active={view === item.key}
-              reviewCount={reviewCount}
-              onSelect={() => setView(item.key)}
-            />
-          ))}
-        </nav>
-        <div className="hidden items-center gap-4 sm:flex">
-          {syncing && (
-            <span
-              role="status"
-              className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
-            >
-              <RefreshCw
-                size={13}
-                aria-hidden="true"
-                className="animate-spin"
-              />
-              Syncing bank feeds
-            </span>
-          )}
-          {!demo && (
-            <a
-              href="/api/accounting?export=true"
-              className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <Download size={15} aria-hidden="true" />
-              Export books
-            </a>
-          )}
-        </div>
-      </div>
+          <RefreshCw size={13} aria-hidden="true" className="animate-spin" />
+          Syncing bank feeds
+        </p>
+      )}
+
+      <AccountingNotices
+        notices={booksNotices({
+          feeds,
+          manage,
+          demo,
+          onFeeds: () => setView("settings", "feeds"),
+          onSettings: () => setView("settings", "settings"),
+        })}
+      />
 
       {(testing || demo) && (
         <p className="glass-card rounded-xl bg-[rgba(var(--ink),0.03)] px-3 py-2 text-xs text-muted-foreground">
@@ -598,6 +546,33 @@ export function AccountingBooks({
         </p>
       )}
 
+      {view === "overview" && (
+        <AccountingOverview
+          data={data}
+          manage={manage}
+          feeds={feeds}
+          metadataLoading={!manageLoaded}
+          demo={demo}
+          onReview={() => {
+            setRegisterFilter({ status: "draft" });
+            setAccountFilter("");
+            setListKey((k) => k + 1);
+            setView("journal");
+          }}
+          onTransactions={() => setView("journal")}
+          onAccounts={() => setView("accounts")}
+          onFeeds={() => setView("settings", "feeds")}
+          onMonthEnd={() => setView("close")}
+          onReport={(id) => setView("reports", undefined, { report: id })}
+          onEntry={(entry) =>
+            void transactionAction(
+              entry.status === "draft" ? "edit" : "detail",
+              entry,
+            )
+          }
+          onAdd={(direction) => setSimpleEditor({ direction })}
+        />
+      )}
       {view === "journal" && (
         <AccountingTransactions
           key={`${listKey}:${accountFilter}:${JSON.stringify(registerFilter)}`}
@@ -620,7 +595,7 @@ export function AccountingBooks({
           demo={demo}
           onRefresh={refreshBooks}
           onAdd={() => setAddAccount(true)}
-          onFeeds={() => setView("manage", "feeds")}
+          onFeeds={() => setView("settings", "feeds")}
           onEntry={(id) => void openEntry(id)}
         />
       )}
@@ -631,11 +606,13 @@ export function AccountingBooks({
           onEntry={openEntry}
           onAccounts={() => setView("accounts")}
           onTransactions={() => setView("journal")}
-          onImports={() => setView("manage", "imports")}
+          onImports={() => setView("settings", "imports")}
         />
       )}
-      {view === "manage" && (
+      {(view === "settings" || view === "records") && (
         <AccountingMore
+          key={view}
+          scope={view}
           initialSection={params.get("section") ?? undefined}
           data={data}
           manage={manage}
@@ -658,6 +635,7 @@ export function AccountingBooks({
           revision={data.revision}
           manage={manage}
           onEntry={openEntry}
+          onRecords={(section) => setView("records", section)}
           demo={demo}
         />
       )}

@@ -17,6 +17,7 @@ import {
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Select } from "@/components/ui/inputs/Select";
+import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
 import { parseUsd } from "@/lib/accounting/money";
 import type {
   HistoryControls,
@@ -159,9 +160,7 @@ const checkLabel: Record<HistoryView["checks"][number]["status"], string> = {
   mismatch: "Mismatch",
 };
 function Money({ value }: { value: string | bigint }) {
-  return (
-    <MaskedValue value={money(value)} className="font-mono tabular-nums" />
-  );
+  return <MaskedValue value={money(value)} className="tabular-nums" />;
 }
 type MonthRow = HistoryPreview["monthly"][number];
 const monthKeys = [
@@ -434,7 +433,19 @@ export function AccountingHistory({
         </p>
       )}
       {!data && !error && (
-        <p className="text-sm text-muted-foreground">Loading book controls…</p>
+        <div
+          role="status"
+          aria-label="Loading book controls…"
+          className="space-y-5"
+        >
+          {Array.from({ length: 2 }).map((_, i) => (
+            <div key={i} className="glass-card space-y-3 rounded-xl p-5">
+              <Skeleton className="h-5 w-56" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-4/5" />
+            </div>
+          ))}
+        </div>
       )}
       {data && history && (
         <>
@@ -1036,7 +1047,7 @@ function WaveReportCheck({
         files as evidence. The first year on the books takes its opening balance
         sheet alone.
       </p>
-      <label className="mt-4 block rounded-lg border border-dashed border-border p-5 text-center">
+      <label className="mt-4 block rounded-xl border border-dashed border-border p-5 text-center">
         <Upload
           className="mx-auto mb-3 text-teal-light"
           size={22}
@@ -1058,9 +1069,16 @@ function WaveReportCheck({
         />
       </label>
       {busy && !preview && (
-        <p role="status" className="mt-3 text-sm text-muted-foreground">
-          Reading reports…
-        </p>
+        <div
+          role="status"
+          aria-label="Reading reports…"
+          className="mt-3 space-y-4"
+        >
+          <Skeleton className="h-4 w-72" />
+          <div className="glass-card rounded-xl p-4">
+            <TableSkeleton rows={4} />
+          </div>
+        </div>
       )}
       {(error || command.error) && (
         <p role="alert" className="mt-3 text-sm text-error">
@@ -1164,15 +1182,12 @@ function HistoryLock({
         if (!v && !cmd.busy) onClose();
       }}
     >
-      <DialogContent>
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Accept these historical month baselines?</DialogTitle>
+          <DialogTitle>Lock covered months?</DialogTitle>
           <DialogDescription>
-            Lock full calendar months inside {dateLabel(value.from_date)} to{" "}
-            {dateLabel(value.to_date)}, retaining this source-report parity
-            proof. These records are labeled historical baselines. No local
-            statement matches are invented, and no new opening balance is
-            posted.
+            Full months from {dateLabel(value.from_date)} to{" "}
+            {dateLabel(value.to_date)} become historical baselines.
           </DialogDescription>
         </DialogHeader>
         {cmd.error && (
@@ -1182,7 +1197,7 @@ function HistoryLock({
         )}
         <div className="flex justify-end gap-2">
           <Button variant="ghost" disabled={cmd.busy} onClick={onClose}>
-            Back
+            Cancel
           </Button>
           <Button
             disabled={cmd.busy}
@@ -1196,7 +1211,7 @@ function HistoryLock({
               })
             }
           >
-            Lock covered full months
+            Lock
           </Button>
         </div>
       </DialogContent>

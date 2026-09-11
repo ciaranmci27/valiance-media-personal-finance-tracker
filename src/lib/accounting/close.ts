@@ -78,7 +78,8 @@ export const closeCommandSchema = z.discriminatedUnion("type", [
       type: z.literal("reconciliation.save"),
       id,
       expected_version: z.number().int().nonnegative(),
-      bank_account_id: id,
+      // bank_accounts ids are hash-derived, not RFC 4122 shaped.
+      bank_account_id: z.guid(),
       statement_start: dateSchema,
       statement_end: dateSchema,
       opening_balance_cents: cents,

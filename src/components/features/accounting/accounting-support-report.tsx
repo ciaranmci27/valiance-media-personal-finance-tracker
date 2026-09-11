@@ -6,6 +6,7 @@ import { ArrowLeft, Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Pagination } from "@/components/ui/pagination";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
   supportReportCatalog,
@@ -461,12 +462,13 @@ export function AccountingSupportReport({
         </>
       ) : (
         loading && (
-          <p
+          <div
             role="status"
-            className="py-16 text-center text-sm text-muted-foreground"
+            aria-label="Loading report..."
+            className="glass-card rounded-xl p-4"
           >
-            Loading report...
-          </p>
+            <TableSkeleton rows={8} />
+          </div>
         )
       )}
     </div>

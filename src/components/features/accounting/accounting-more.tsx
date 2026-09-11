@@ -199,23 +199,45 @@ const SECTIONS: {
     icon: Building2,
   },
 ];
-const GROUPS: { name: string; ids: MoreSection[] }[] = [
+export type MoreScope = "settings" | "records";
+const SCOPES: Record<
+  MoreScope,
   {
-    name: "Everyday",
-    ids: ["feeds", "imports", "transfers", "documents", "rules", "payees"],
+    title: string;
+    description: string;
+    groups: { name: string; ids: MoreSection[] }[];
+  }
+> = {
+  settings: {
+    title: "Settings",
+    description:
+      "Bank connections, automatic categorization, imports and the books themselves.",
+    groups: [
+      { name: "Connections", ids: ["feeds"] },
+      { name: "Automation", ids: ["rules", "payees"] },
+      { name: "Data", ids: ["imports", "history"] },
+      { name: "Books", ids: ["settings"] },
+    ],
   },
-  {
-    name: "Records",
-    ids: ["payroll", "assets", "loans", "contractors", "tax"],
+  records: {
+    title: "Records",
+    description:
+      "Transfers, receipts, payroll and the registers behind year end.",
+    groups: [
+      { name: "Money movement", ids: ["transfers", "documents"] },
+      { name: "Payroll and registers", ids: ["payroll", "assets", "loans"] },
+      { name: "Year end", ids: ["contractors", "tax"] },
+    ],
   },
-  { name: "Setup", ids: ["history", "settings"] },
-];
+};
 
 /**
- * Everything that is not daily work: connections, imports, registers, tax
- * and setup. One rail on wide screens, one select on narrow ones.
+ * The screens behind the four tabs. Settings holds connections, automation
+ * and setup; Records holds transfers, receipts, payroll and the registers.
+ * One rail on wide screens, one select on narrow ones.
  */
 export function AccountingMore({
+  scope,
   data,
   manage,
   demo,
@@ -224,6 +246,7 @@ export function AccountingMore({
   onFilter,
   initialSection,
 }: {
+  scope: MoreScope;
   initialSection?: string;
   data: AccountingWorkspace;
   manage: BooksMetadata;
@@ -233,10 +256,12 @@ export function AccountingMore({
   onFilter: (filter: Partial<RegisterFilter>) => void;
 }) {
   const params = useSearchParams();
+  const { title, description, groups: GROUPS } = SCOPES[scope];
+  const inScope = new Set(GROUPS.flatMap((g) => g.ids));
   const candidate = params.get("section") ?? initialSection;
-  const section: MoreSection = SECTIONS.some((s) => s.id === candidate)
+  const section: MoreSection = inScope.has(candidate as MoreSection)
     ? (candidate as MoreSection)
-    : "feeds";
+    : GROUPS[0].ids[0];
   function setSection(next: MoreSection) {
     const url = new URL(window.location.href);
     url.searchParams.set("section", next);
@@ -247,274 +272,289 @@ export function AccountingMore({
   const today = todayInBooks();
 
   return (
-    <div className="grid items-start gap-6 xl:grid-cols-[208px_1fr]">
-      <nav aria-label="More accounting sections" className="min-w-0">
-        <div className="xl:hidden">
-          <Select
-            label="Section"
-            value={section}
-            onChange={(v) => {
-              setSection(v as MoreSection);
-              setQuery("");
-            }}
-            options={GROUPS.flatMap((g) => [
-              { value: `group-${g.name}`, label: g.name, isGroupHeader: true },
-              ...g.ids.map((id) => ({
-                value: id,
-                label: SECTIONS.find((s) => s.id === id)!.name,
-              })),
-            ])}
-          />
-        </div>
-        <div className="hidden space-y-5 xl:block">
-          {GROUPS.map((group) => (
-            <div key={group.name}>
-              <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                {group.name}
-              </p>
-              {group.ids
-                .map((id) => SECTIONS.find((s) => s.id === id)!)
-                .map((s) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    aria-current={s.id === section ? "page" : undefined}
-                    onClick={() => {
-                      setSection(s.id);
-                      setQuery("");
-                    }}
-                    className={cn(
-                      "flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      section === s.id
-                        ? "border-primary/30 bg-primary/5 text-foreground"
-                        : "border-transparent text-muted-foreground hover:bg-secondary hover:text-foreground",
-                    )}
-                  >
-                    <s.icon
-                      size={15}
-                      aria-hidden="true"
-                      className={section === s.id ? "text-teal-light" : ""}
-                    />
-                    {s.name}
-                  </button>
-                ))}
-            </div>
-          ))}
-        </div>
-      </nav>
-
-      <div className="min-w-0">
-        {section === "tax" && (
-          <AccountingTaxWorkpapers demo={demo} onRefresh={onRefresh} />
-        )}
-        {section === "contractors" && (
-          <AccountingContractors
-            manage={manage}
-            demo={demo}
-            onRefresh={onRefresh}
-            onEntry={onEntry}
-          />
-        )}
-        {(section === "assets" || section === "loans") && (
-          <AccountingManualRegisters
-            key={section}
-            kind={section === "assets" ? "asset" : "loan"}
-            accounts={data.accounts}
-            manage={manage}
-            demo={demo}
-            onRefresh={onRefresh}
-            onEntry={onEntry}
-          />
-        )}
-        {section === "payroll" && (
-          <AccountingPayrollRuns
-            accounts={data.accounts}
-            manage={manage}
-            today={today}
-            demo={demo}
-            onRefresh={onRefresh}
-            onEntry={onEntry}
-          />
-        )}
-        {section === "feeds" && (
-          <AccountingFeeds
-            data={data}
-            manage={manage}
-            demo={demo}
-            onRefresh={onRefresh}
-            onImports={() => setSection("imports")}
-          />
-        )}
-        {section === "rules" && (
-          <AccountingRules
-            data={data}
-            manage={manage}
-            demo={demo}
-            onRefresh={onRefresh}
-            onEntry={onEntry}
-          />
-        )}
-        {section === "transfers" && (
-          <AccountingTransfers
-            from={data.from}
-            to={data.to}
-            accounts={data.accounts}
-            profiles={manage.profiles}
-            demo={demo}
-            onRefresh={onRefresh}
-            onEntry={onEntry}
-          />
-        )}
-        {section === "imports" && (
-          <AccountingImports
-            accounts={data.accounts}
-            profiles={manage.profiles}
-            demo={demo}
-            onRefresh={onRefresh}
-            onEntry={onEntry}
-          />
-        )}
-        {section === "documents" && (
-          <AccountingDocuments demo={demo} onEntry={onEntry} />
-        )}
-        {section === "history" && (
-          <AccountingHistory date={data.to} demo={demo} onRefresh={onRefresh} />
-        )}
-
-        {section === "payees" && (
-          <section className="space-y-3">
-            <SectionHeader
-              label="Payees"
-              count={manage.parties.length}
-              description="Vendors and customers, with the contractor flag for year-end reporting."
-              action={
-                <Button
-                  size="sm"
-                  disabled={demo}
-                  onClick={() =>
-                    setParty({
-                      id: crypto.randomUUID(),
-                      version: 0,
-                      name: "",
-                      kind: "vendor",
-                      default_account_id: null,
-                      tax_classification: "unreviewed",
-                      documentation: "missing",
-                      notes: "",
-                      is_archived: false,
-                    })
-                  }
-                >
-                  <Plus size={15} aria-hidden="true" />
-                  Add payee
-                </Button>
-              }
-            />
-            <div className="glass-card overflow-hidden rounded-xl">
-              <div className="p-4">
-                <TextInput
-                  prefix={<Search size={15} aria-hidden="true" />}
-                  aria-label="Find payee"
-                  placeholder="Find a payee or customer"
-                  value={query}
-                  onChange={(nextValue) => setQuery(nextValue)}
-                />
-              </div>
-              <div className="divide-y divide-border">
-                {manage.parties
-                  .filter((p) =>
-                    p.name.toLowerCase().includes(query.toLowerCase()),
-                  )
-                  .map((p) => (
-                    <div
-                      key={p.id}
-                      className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5"
-                    >
-                      <div className="min-w-0">
-                        <p className="flex items-center gap-2 font-medium">
-                          <span className="truncate">{p.name}</span>
-                          {p.is_archived && <Badge size="sm">Archived</Badge>}
-                          {p.tax_classification !== "unreviewed" && (
-                            <Badge size="sm" variant="copper">
-                              {enumLabel(p.tax_classification)}
-                            </Badge>
-                          )}
-                        </p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {enumLabel(p.kind)}. Documentation{" "}
-                          {enumLabel(p.documentation).toLowerCase()}.
-                        </p>
-                      </div>
-                      <div className="flex gap-1">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onFilter({ payee: p.id })}
-                        >
-                          Transactions
-                          <ArrowRight size={14} aria-hidden="true" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          aria-label={`Edit ${p.name}`}
-                          disabled={demo}
-                          onClick={() => setParty(p)}
-                        >
-                          <Pencil size={15} aria-hidden="true" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                {!manage.parties.length && (
-                  <p className="px-5 pb-8 pt-4 text-sm text-muted-foreground">
-                    No payees yet. Add recurring vendors and customers, then
-                    choose them on transactions.
-                  </p>
-                )}
-              </div>
-            </div>
-          </section>
-        )}
-
-        {section === "settings" && (
-          <BookSettings
-            key={manage.preferences?.version ?? 0}
-            data={data}
-            manage={manage}
-            demo={demo}
-            onRefresh={onRefresh}
-          />
-        )}
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
       </div>
-
-      <Dialog
-        open={!!party}
-        onOpenChange={(open) => {
-          if (!open) setParty(null);
-        }}
-      >
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {party?.version ? "Edit payee" : "Add payee"}
-            </DialogTitle>
-            <DialogDescription>
-              Defaults help with review. They do not rewrite past entries.
-            </DialogDescription>
-          </DialogHeader>
-          {party && (
-            <PartyForm
-              party={party}
-              data={data}
-              onSaved={async () => {
-                await onRefresh();
-                setParty(null);
+      <div className="grid items-start gap-6 xl:grid-cols-[208px_1fr]">
+        <nav aria-label={`${title} sections`} className="min-w-0">
+          <div className="xl:hidden">
+            <Select
+              label="Section"
+              value={section}
+              onChange={(v) => {
+                setSection(v as MoreSection);
+                setQuery("");
               }}
+              options={GROUPS.flatMap((g) => [
+                {
+                  value: `group-${g.name}`,
+                  label: g.name,
+                  isGroupHeader: true,
+                },
+                ...g.ids.map((id) => ({
+                  value: id,
+                  label: SECTIONS.find((s) => s.id === id)!.name,
+                })),
+              ])}
+            />
+          </div>
+          <div className="hidden space-y-5 xl:block">
+            {GROUPS.map((group) => (
+              <div key={group.name}>
+                <p className="mb-2 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  {group.name}
+                </p>
+                {group.ids
+                  .map((id) => SECTIONS.find((s) => s.id === id)!)
+                  .map((s) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      aria-current={s.id === section ? "page" : undefined}
+                      onClick={() => {
+                        setSection(s.id);
+                        setQuery("");
+                      }}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        section === s.id
+                          ? "border-primary/30 bg-primary/5 text-foreground"
+                          : "border-transparent text-muted-foreground hover:bg-secondary hover:text-foreground",
+                      )}
+                    >
+                      <s.icon
+                        size={15}
+                        aria-hidden="true"
+                        className={section === s.id ? "text-teal-light" : ""}
+                      />
+                      {s.name}
+                    </button>
+                  ))}
+              </div>
+            ))}
+          </div>
+        </nav>
+
+        <div className="min-w-0">
+          {section === "tax" && (
+            <AccountingTaxWorkpapers demo={demo} onRefresh={onRefresh} />
+          )}
+          {section === "contractors" && (
+            <AccountingContractors
+              manage={manage}
+              demo={demo}
+              onRefresh={onRefresh}
+              onEntry={onEntry}
             />
           )}
-        </DialogContent>
-      </Dialog>
+          {(section === "assets" || section === "loans") && (
+            <AccountingManualRegisters
+              key={section}
+              kind={section === "assets" ? "asset" : "loan"}
+              accounts={data.accounts}
+              manage={manage}
+              demo={demo}
+              onRefresh={onRefresh}
+              onEntry={onEntry}
+            />
+          )}
+          {section === "payroll" && (
+            <AccountingPayrollRuns
+              accounts={data.accounts}
+              manage={manage}
+              today={today}
+              demo={demo}
+              onRefresh={onRefresh}
+              onEntry={onEntry}
+            />
+          )}
+          {section === "feeds" && (
+            <AccountingFeeds
+              data={data}
+              manage={manage}
+              demo={demo}
+              onRefresh={onRefresh}
+              onImports={() => setSection("imports")}
+            />
+          )}
+          {section === "rules" && (
+            <AccountingRules
+              data={data}
+              manage={manage}
+              demo={demo}
+              onRefresh={onRefresh}
+              onEntry={onEntry}
+            />
+          )}
+          {section === "transfers" && (
+            <AccountingTransfers
+              from={data.from}
+              to={data.to}
+              accounts={data.accounts}
+              profiles={manage.profiles}
+              demo={demo}
+              onRefresh={onRefresh}
+              onEntry={onEntry}
+            />
+          )}
+          {section === "imports" && (
+            <AccountingImports
+              accounts={data.accounts}
+              profiles={manage.profiles}
+              demo={demo}
+              onRefresh={onRefresh}
+              onEntry={onEntry}
+            />
+          )}
+          {section === "documents" && (
+            <AccountingDocuments demo={demo} onEntry={onEntry} />
+          )}
+          {section === "history" && (
+            <AccountingHistory
+              date={data.to}
+              demo={demo}
+              onRefresh={onRefresh}
+            />
+          )}
+
+          {section === "payees" && (
+            <section className="space-y-3">
+              <SectionHeader
+                label="Payees"
+                count={manage.parties.length}
+                description="Vendors and customers, with the contractor flag for year-end reporting."
+                action={
+                  <Button
+                    size="sm"
+                    disabled={demo}
+                    onClick={() =>
+                      setParty({
+                        id: crypto.randomUUID(),
+                        version: 0,
+                        name: "",
+                        kind: "vendor",
+                        default_account_id: null,
+                        tax_classification: "unreviewed",
+                        documentation: "missing",
+                        notes: "",
+                        is_archived: false,
+                      })
+                    }
+                  >
+                    <Plus size={15} aria-hidden="true" />
+                    Add payee
+                  </Button>
+                }
+              />
+              <div className="glass-card overflow-hidden rounded-xl">
+                <div className="p-4">
+                  <TextInput
+                    prefix={<Search size={15} aria-hidden="true" />}
+                    aria-label="Find payee"
+                    placeholder="Find a payee or customer"
+                    value={query}
+                    onChange={(nextValue) => setQuery(nextValue)}
+                  />
+                </div>
+                <div className="divide-y divide-border">
+                  {manage.parties
+                    .filter((p) =>
+                      p.name.toLowerCase().includes(query.toLowerCase()),
+                    )
+                    .map((p) => (
+                      <div
+                        key={p.id}
+                        className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5"
+                      >
+                        <div className="min-w-0">
+                          <p className="flex items-center gap-2 font-medium">
+                            <span className="truncate">{p.name}</span>
+                            {p.is_archived && <Badge size="sm">Archived</Badge>}
+                            {p.tax_classification !== "unreviewed" && (
+                              <Badge size="sm" variant="copper">
+                                {enumLabel(p.tax_classification)}
+                              </Badge>
+                            )}
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {enumLabel(p.kind)}. Documentation{" "}
+                            {enumLabel(p.documentation).toLowerCase()}.
+                          </p>
+                        </div>
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onFilter({ payee: p.id })}
+                          >
+                            Transactions
+                            <ArrowRight size={14} aria-hidden="true" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            aria-label={`Edit ${p.name}`}
+                            disabled={demo}
+                            onClick={() => setParty(p)}
+                          >
+                            <Pencil size={15} aria-hidden="true" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  {!manage.parties.length && (
+                    <p className="px-5 pb-8 pt-4 text-sm text-muted-foreground">
+                      No payees yet. Add recurring vendors and customers, then
+                      choose them on transactions.
+                    </p>
+                  )}
+                </div>
+              </div>
+            </section>
+          )}
+
+          {section === "settings" && (
+            <BookSettings
+              key={manage.preferences?.version ?? 0}
+              data={data}
+              manage={manage}
+              demo={demo}
+              onRefresh={onRefresh}
+            />
+          )}
+        </div>
+
+        <Dialog
+          open={!!party}
+          onOpenChange={(open) => {
+            if (!open) setParty(null);
+          }}
+        >
+          <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>
+                {party?.version ? "Edit payee" : "Add payee"}
+              </DialogTitle>
+              <DialogDescription className="sr-only">
+                Name, relationship and default category for this payee.
+              </DialogDescription>
+            </DialogHeader>
+            {party && (
+              <PartyForm
+                party={party}
+                data={data}
+                onCancel={() => setParty(null)}
+                onSaved={async () => {
+                  await onRefresh();
+                  setParty(null);
+                }}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   );
 }
@@ -522,17 +562,19 @@ export function AccountingMore({
 function PartyForm({
   party,
   data,
+  onCancel,
   onSaved,
 }: {
   party: Party;
   data: AccountingWorkspace;
+  onCancel: () => void;
   onSaved: () => Promise<void>;
 }) {
   const [value, setValue] = useState(party);
   const command = useAccountingCommand(onSaved);
   return (
     <form
-      className="space-y-4"
+      className="mt-4 space-y-5"
       onSubmit={(e) => {
         e.preventDefault();
         const { version, ...fields } = value;
@@ -540,6 +582,7 @@ function PartyForm({
           type: "party.save",
           ...fields,
           expected_version: version,
+          is_contractor: fields.tax_classification !== "unreviewed",
         });
       }}
     >
@@ -578,59 +621,74 @@ function PartyForm({
             })),
         ]}
         onChange={(v) => setValue({ ...value, default_account_id: v || null })}
+        helperText="Fills new bank activity from this payee."
       />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Select
-          label="Contractor status"
-          value={value.tax_classification}
-          onChange={(v) =>
-            setValue({
-              ...value,
-              tax_classification: v as Party["tax_classification"],
-            })
-          }
-          options={[
-            { value: "unreviewed", label: "Not a contractor / unreviewed" },
-            { value: "individual", label: "Individual contractor" },
-            { value: "corporation", label: "Corporation" },
-            { value: "partnership", label: "Partnership" },
-            { value: "foreign", label: "Foreign" },
-            { value: "other", label: "Other" },
-          ]}
-        />
-        <Select
-          label="W-9 on file"
-          value={value.documentation}
-          onChange={(v) =>
-            setValue({ ...value, documentation: v as Party["documentation"] })
-          }
-          options={[
-            { value: "missing", label: "Missing" },
-            { value: "requested", label: "Requested" },
-            { value: "received", label: "Received" },
-            { value: "not_required", label: "Not required" },
-          ]}
-        />
-      </div>
-      <Textarea
-        label="Notes"
-        maxLength={3000}
-        value={value.notes}
-        onChange={(nextValue) => setValue({ ...value, notes: nextValue })}
-      />
-      <Checkbox
-        checked={value.is_archived}
-        onChange={(v) => setValue({ ...value, is_archived: v })}
-        label="Archive from new selections"
-      />
+      <details className="group rounded-xl border border-border">
+        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+          Advanced
+        </summary>
+        <div className="space-y-4 border-t border-border p-4">
+          <Select
+            label="Contractor status"
+            value={value.tax_classification}
+            onChange={(v) =>
+              setValue({
+                ...value,
+                tax_classification: v as Party["tax_classification"],
+              })
+            }
+            options={[
+              { value: "unreviewed", label: "Not a contractor / unreviewed" },
+              { value: "individual", label: "Individual contractor" },
+              { value: "corporation", label: "Corporation" },
+              { value: "foreign", label: "Foreign" },
+              { value: "other", label: "Other" },
+            ]}
+          />
+          <Select
+            label="W-9 on file"
+            value={value.documentation}
+            onChange={(v) =>
+              setValue({
+                ...value,
+                documentation: v as Party["documentation"],
+              })
+            }
+            options={[
+              { value: "missing", label: "Missing" },
+              { value: "received", label: "Received" },
+              { value: "not_required", label: "Not required" },
+            ]}
+          />
+          <Textarea
+            label="Notes"
+            maxLength={3000}
+            value={value.notes}
+            onChange={(nextValue) => setValue({ ...value, notes: nextValue })}
+          />
+          <Checkbox
+            checked={value.is_archived}
+            onChange={(v) => setValue({ ...value, is_archived: v })}
+            label="Archive from new selections"
+          />
+        </div>
+      </details>
       {command.error && (
         <p className="text-sm text-error" role="alert">
           {command.error}
         </p>
       )}
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={command.busy}
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
         <Button disabled={command.busy} loading={command.busy}>
-          Save payee
+          Save
         </Button>
       </div>
     </form>
@@ -769,20 +827,21 @@ function BookSettings({
         </div>
       </form>
       <section className="glass-card rounded-xl p-5">
-        <h2 className="font-semibold">Exports</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          A complete, portable copy of the books: accounts, every journal line,
-          matches, documents index and audit history.
-        </p>
-        {demo ? (
-          <p className="mt-3 text-sm text-muted-foreground">
-            Exports are available in your own books.
-          </p>
-        ) : (
-          <Button asChild variant="outline" size="sm" className="mt-3">
-            <a href="/api/accounting?export=true">Download full export</a>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="font-semibold">Export the books</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Transactions, accounts, statements, payees, receipts and payroll
+              download from Data management, where you choose what to include.
+            </p>
+          </div>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/settings/data">
+              Open Data management
+              <ArrowUpRight size={14} aria-hidden="true" />
+            </Link>
           </Button>
-        )}
+        </div>
       </section>
     </div>
   );

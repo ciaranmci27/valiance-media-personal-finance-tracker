@@ -211,7 +211,7 @@ export function AccountingRules({
           Rules are available in your configured company books.
         </p>
       )}
-      <section className="glass-card overflow-hidden">
+      <section className="glass-card overflow-hidden rounded-xl">
         <div className="border-b border-border p-4">
           <h3 className="font-medium">Categorization rules</h3>
           <p className="mt-1 text-xs text-muted-foreground">
@@ -327,7 +327,7 @@ export function AccountingRules({
           ))
         )}
       </section>
-      <section className="glass-card p-5 space-y-4">
+      <section className="glass-card space-y-4 rounded-xl p-5">
         <div>
           <h3 className="font-semibold">Preview & apply</h3>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -428,7 +428,7 @@ export function AccountingRules({
                           {row.memo}
                         </button>
                         <MaskedValue
-                          className="font-mono text-sm tabular-nums"
+                          className="text-sm tabular-nums"
                           value={money(row.bank_amount_cents)}
                         />
                       </div>
@@ -595,7 +595,7 @@ export function AccountingRules({
           </>
         )}
       </section>
-      <section className="glass-card overflow-hidden">
+      <section className="glass-card overflow-hidden rounded-xl">
         <div className="flex flex-wrap justify-between gap-3 border-b border-border p-4">
           <div>
             <h3 className="font-medium">Payee aliases</h3>
@@ -704,13 +704,6 @@ function RuleEditor({
   onClose: () => void;
   onSaved: (id: string) => Promise<void>;
 }) {
-  const [value, setValue] = useState(rule),
-    [min, setMin] = useState(centsToDecimal(rule.min_cents)),
-    [max, setMax] = useState(centsToDecimal(rule.max_cents)),
-    [reason, setReason] = useState("");
-  const cmd = useAccountingCommand();
-  const set = (key: keyof AccountingRule, v: string | number | null) =>
-    setValue((previous) => ({ ...previous, [key]: v }));
   const banks = data.accounts.filter(
       (a) =>
         !a.is_archived &&
@@ -735,6 +728,29 @@ function RuleEditor({
   const payees = manage.parties
     .filter((p) => !p.is_archived)
     .map((p) => ({ value: p.id, label: p.name }));
+  // With one bank or card account the condition is implied, so it starts
+  // filled and lives under Advanced. With several it stays visible.
+  const [value, setValue] = useState(() => ({
+      ...rule,
+      bank_account_id: rule.bank_account_id || (banks[0]?.id ?? ""),
+    })),
+    [min, setMin] = useState(centsToDecimal(rule.min_cents)),
+    [max, setMax] = useState(centsToDecimal(rule.max_cents)),
+    [reason, setReason] = useState("");
+  const cmd = useAccountingCommand();
+  const set = (key: keyof AccountingRule, v: string | number | null) =>
+    setValue((previous) => ({ ...previous, [key]: v }));
+  const bankPicker = (
+    <AccountingPicker
+      label="Bank or card account"
+      visibleLabel="Bank or card account"
+      required
+      placeholder="Choose account"
+      value={value.bank_account_id}
+      options={banks.map((a) => ({ value: a.id, label: a.name }))}
+      onChange={(v) => set("bank_account_id", v)}
+    />
+  );
   return (
     <Dialog
       open
@@ -742,18 +758,16 @@ function RuleEditor({
         if (!open && !cmd.busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>
-            {rule.version ? "Edit rule" : "Create a categorization rule"}
-          </DialogTitle>
-          <DialogDescription>
-            All conditions must match. The rule changes only the uncategorized
-            side of a draft. Save, preview, then enable.
+          <DialogTitle>{rule.version ? "Edit rule" : "New rule"}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Match bank descriptions to a category. Saving pauses the rule until
+            its preview is approved.
           </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-4"
+          className="mt-4 space-y-5"
           onSubmit={async (e) => {
             e.preventDefault();
             try {
@@ -791,127 +805,134 @@ function RuleEditor({
           }}
         >
           <TextInput
-            label="Rule name"
+            label="Name"
             required
             maxLength={120}
             value={value.name}
             onChange={(nextValue) => set("name", nextValue)}
           />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <NumberInput
-              step={1}
-              label="Priority (lower wins)"
-              min={1}
-              max={10000}
-              required
-              value={value.priority}
-              onChange={(nextValue) =>
-                set("priority", Number(String(nextValue)))
-              }
-            />
-            <AccountingPicker
-              label="Bank or card account"
-              visibleLabel="Bank or card account"
-              required
-              placeholder="Choose account"
-              value={value.bank_account_id}
-              options={banks.map((a) => ({ value: a.id, label: a.name }))}
-              onChange={(v) => set("bank_account_id", v)}
-            />
+          <div className="grid gap-4 sm:grid-cols-[minmax(0,10rem)_1fr]">
             <Select
-              label="Description comparison"
+              label="Match"
               value={value.description_mode}
               options={[
-                { value: "exact", label: "Exact normalized description" },
-                { value: "prefix", label: "Starts with" },
                 { value: "contains", label: "Contains" },
+                { value: "prefix", label: "Starts with" },
+                { value: "exact", label: "Is exactly" },
               ]}
               onChange={(v) => set("description_mode", v)}
             />
             <TextInput
-              label="Description text"
+              label="Bank description"
               required
               maxLength={250}
               value={value.description}
               onChange={(nextValue) => set("description", nextValue)}
             />
-            <Select
-              label="Movement direction"
-              value={value.direction}
-              options={[
-                { value: "decrease", label: "Withdrawal / card charge" },
-                { value: "increase", label: "Deposit / card payment" },
-              ]}
-              onChange={(v) => set("direction", v)}
-            />
-            <AccountingPicker
-              label="Only this payee"
-              visibleLabel="Only this payee"
-              value={value.match_payee_id ?? ""}
-              options={[{ value: "", label: "Any payee" }, ...payees]}
-              onChange={(v) => set("match_payee_id", v || null)}
-            />
-            <TextInput
-              label="Minimum absolute amount"
-              required
-              inputMode="decimal"
-              value={min}
-              onChange={(nextValue) => setMin(nextValue)}
-            />
-            <TextInput
-              label="Maximum absolute amount"
-              required
-              inputMode="decimal"
-              value={max}
-              onChange={(nextValue) => setMax(nextValue)}
-            />
-            <AccountingPicker
-              label="Category to assign"
-              visibleLabel="Category to assign"
-              required
-              placeholder="Choose category"
-              value={value.category_account_id}
-              options={categories.map((a) => ({ value: a.id, label: a.name }))}
-              onChange={(v) => set("category_account_id", v)}
-            />
-            <AccountingPicker
-              label="Payee to assign"
-              visibleLabel="Payee to assign"
-              value={value.assign_payee_id ?? ""}
-              options={[
-                { value: "", label: "Keep current or resolved alias" },
-                ...payees,
-              ]}
-              onChange={(v) => set("assign_payee_id", v || null)}
-            />
           </div>
-          <p className="text-xs text-muted-foreground">
-            Descriptions ignore case and repeated spaces. Amount bounds include
-            both endpoints. Transfers, split entries, and already reviewed
-            categories require their own review.
-          </p>
+          <AccountingPicker
+            label="Category"
+            visibleLabel="Category"
+            required
+            placeholder="Choose category"
+            value={value.category_account_id}
+            options={categories.map((a) => ({ value: a.id, label: a.name }))}
+            onChange={(v) => set("category_account_id", v)}
+          />
+          {banks.length > 1 && bankPicker}
           <TextInput
-            label="Reason for this rule or change"
+            label="Reason"
             required
             maxLength={1000}
             value={reason}
             onChange={(nextValue) => setReason(nextValue)}
           />
+          <details className="group rounded-xl border border-border">
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+              Advanced
+            </summary>
+            <div className="space-y-4 border-t border-border p-4">
+              {banks.length <= 1 && bankPicker}
+              <Select
+                label="Direction"
+                value={value.direction}
+                options={[
+                  { value: "decrease", label: "Withdrawal or card charge" },
+                  { value: "increase", label: "Deposit or card payment" },
+                ]}
+                onChange={(v) => set("direction", v)}
+              />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <TextInput
+                  label="Minimum amount"
+                  required
+                  inputMode="decimal"
+                  value={min}
+                  onChange={(nextValue) => setMin(nextValue)}
+                />
+                <TextInput
+                  label="Maximum amount"
+                  required
+                  inputMode="decimal"
+                  value={max}
+                  onChange={(nextValue) => setMax(nextValue)}
+                />
+              </div>
+              <NumberInput
+                step={1}
+                label="Priority"
+                description="Lower wins."
+                min={1}
+                max={10000}
+                required
+                value={value.priority}
+                onChange={(nextValue) =>
+                  set("priority", Number(String(nextValue)))
+                }
+              />
+              <AccountingPicker
+                label="Only this payee"
+                visibleLabel="Only this payee"
+                value={value.match_payee_id ?? ""}
+                options={[{ value: "", label: "Any payee" }, ...payees]}
+                onChange={(v) => set("match_payee_id", v || null)}
+              />
+              <AccountingPicker
+                label="Assign payee"
+                visibleLabel="Assign payee"
+                value={value.assign_payee_id ?? ""}
+                options={[
+                  { value: "", label: "Keep current or resolved alias" },
+                  ...payees,
+                ]}
+                onChange={(v) => set("assign_payee_id", v || null)}
+              />
+            </div>
+          </details>
           {cmd.error && (
             <p role="alert" className="text-sm text-error">
               {cmd.error}
             </p>
           )}
-          <Button
-            type="submit"
-            className="w-full"
-            loading={cmd.busy}
-            disabled={
-              cmd.busy || !value.bank_account_id || !value.category_account_id
-            }
-          >
-            Save for preview
-          </Button>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={cmd.busy}
+              onClick={onClose}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              loading={cmd.busy}
+              disabled={
+                cmd.busy || !value.bank_account_id || !value.category_account_id
+              }
+            >
+              Save
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
@@ -937,16 +958,17 @@ function AliasEditor({
         if (!open && !cmd.busy) onClose();
       }}
     >
-      <DialogContent>
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Payee alias</DialogTitle>
-          <DialogDescription>
-            Match a normalized description to a payee. Aliases are suggestions
-            until a reviewed draft rule uses them.
+          <DialogTitle>
+            {alias.version ? "Edit alias" : "New alias"}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Match a bank description to a payee.
           </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-4"
+          className="mt-4 space-y-5"
           onSubmit={async (e) => {
             e.preventDefault();
             await cmd.execute({
@@ -971,22 +993,9 @@ function AliasEditor({
               .map((p) => ({ value: p.id, label: p.name }))}
             onChange={(party_id) => setValue((v) => ({ ...v, party_id }))}
           />
-          <Select
-            label="Match"
-            value={value.match_mode}
-            options={[
-              { value: "exact", label: "Exact normalized description" },
-              { value: "prefix", label: "Starts with" },
-            ]}
-            onChange={(mode) =>
-              setValue((v) => ({
-                ...v,
-                match_mode: mode as PayeeAlias["match_mode"],
-              }))
-            }
-          />
           <TextInput
             label="Bank description"
+            description="Case and extra spaces are ignored."
             required
             maxLength={250}
             value={value.description}
@@ -994,24 +1003,54 @@ function AliasEditor({
               setValue((v) => ({ ...v, description: nextValue }))
             }
           />
-          <Toggle
-            checked={value.enabled}
-            onChange={(enabled) => setValue((v) => ({ ...v, enabled }))}
-            label="Enable this alias"
-          />
+          <details className="group rounded-xl border border-border">
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+              Advanced
+            </summary>
+            <div className="space-y-4 border-t border-border p-4">
+              <Select
+                label="Match"
+                value={value.match_mode}
+                options={[
+                  { value: "exact", label: "Is exactly" },
+                  { value: "prefix", label: "Starts with" },
+                ]}
+                onChange={(mode) =>
+                  setValue((v) => ({
+                    ...v,
+                    match_mode: mode as PayeeAlias["match_mode"],
+                  }))
+                }
+              />
+              <Toggle
+                checked={value.enabled}
+                onChange={(enabled) => setValue((v) => ({ ...v, enabled }))}
+                label="Enabled"
+              />
+            </div>
+          </details>
           {cmd.error && (
             <p role="alert" className="text-sm text-error">
               {cmd.error}
             </p>
           )}
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={cmd.busy || !value.party_id}
-            loading={cmd.busy}
-          >
-            Save alias
-          </Button>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={cmd.busy}
+              onClick={onClose}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              disabled={cmd.busy || !value.party_id}
+              loading={cmd.busy}
+            >
+              Save
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

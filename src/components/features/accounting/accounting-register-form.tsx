@@ -14,9 +14,9 @@ import {
 import { centsToDecimal } from "@/lib/accounting/money";
 import { AccountingPicker } from "./accounting-picker";
 import {
-  InvoiceDialog,
-  InvoiceEvidence,
-  InvoiceActions,
+  EvidencePicker,
+  WorkflowActions,
+  WorkflowDialog,
   usdCents,
 } from "./accounting-dialog";
 import { useAccountingCommand } from "./use-accounting-command";
@@ -60,6 +60,7 @@ export function AccountingRegisterForm({
     [error, setError] = useState("");
   const command = useAccountingCommand(onSaved),
     fixed = Boolean(record?.movement_count),
+    asset = kind === "asset",
     profiles = new Map(manage.profiles.map((p) => [p.account_id, p]));
   const set = (key: string, value: string) =>
     setValues((v) => ({ ...v, [key]: value }));
@@ -92,19 +93,18 @@ export function AccountingRegisterForm({
         expense_account_id: values.expense_account_id,
         terms: values.terms,
       };
-      const body =
-        kind === "asset"
-          ? assetBodySchema.parse({
-              ...base,
-              in_service_on: values.in_service_on,
-              accumulated_account_id: values.accumulated_account_id,
-              method: values.method,
-            })
-          : loanBodySchema.parse({
-              ...base,
-              lender: values.lender,
-              fee_account_id: values.fee_account_id,
-            });
+      const body = asset
+        ? assetBodySchema.parse({
+            ...base,
+            in_service_on: values.in_service_on,
+            accumulated_account_id: values.accumulated_account_id,
+            method: values.method,
+          })
+        : loanBodySchema.parse({
+            ...base,
+            lender: values.lender,
+            fee_account_id: values.fee_account_id,
+          });
       const result = await command.execute({
         type: "register.save",
         id,
@@ -112,7 +112,10 @@ export function AccountingRegisterForm({
         kind,
         body,
         document_id: doc || null,
-        reason,
+        // The revision note is optional here; the command still needs one.
+        reason:
+          reason.trim() ||
+          (record ? "Register details updated" : "Register created"),
       });
       if (result) {
         onClose();
@@ -121,127 +124,29 @@ export function AccountingRegisterForm({
     } catch (e) {
       setError(
         e instanceof Error && e.name === "ZodError"
-          ? "Complete the dates, source details and required account mappings."
+          ? "Complete the required fields and accounts."
           : (e as Error).message,
       );
     }
   }
-  const termsLabel =
-    kind === "asset" ? "Asset notes" : "Terms and source schedule";
   return (
-    <InvoiceDialog
-      title={`${record ? "Edit" : "New"} ${kind === "asset" ? "asset" : "loan"}`}
-      description="Save the register details, then record or link its reviewed journal entries. Saving these details alone changes no account balance."
+    <WorkflowDialog
+      title={`${record ? "Edit" : "New"} ${kind}`}
       onClose={onClose}
       busy={command.busy}
+      form
+      size="sm"
     >
       <form className="space-y-5" onSubmit={save}>
         <fieldset disabled={command.busy} className="space-y-5">
           <TextInput
-            label={kind === "asset" ? "Asset name" : "Loan name"}
+            label={asset ? "Asset name" : "Loan name"}
             required
             maxLength={160}
             value={values.name}
             onChange={(nextValue) => set("name", nextValue)}
           />
-          {fixed && (
-            <p className="text-xs text-muted-foreground">
-              Dates, original amounts and accounts are retained with the journal
-              history. Descriptive details and source notes can be updated.
-            </p>
-          )}
-          <fieldset disabled={fixed} className="space-y-4 disabled:opacity-70">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <DateInput
-                label={
-                  kind === "asset" ? "Acquisition date" : "Loan start date"
-                }
-                required
-                value={values.started_on}
-                onChange={(nextValue) => set("started_on", nextValue)}
-              />
-              <TextInput
-                label={
-                  kind === "asset"
-                    ? "Original cost"
-                    : "Original principal on schedule"
-                }
-                inputMode="decimal"
-                required
-                value={values.amount}
-                onChange={(nextValue) => set("amount", nextValue)}
-              />
-              {kind === "asset" && (
-                <DateInput
-                  label="Placed in service"
-                  required
-                  value={values.in_service_on}
-                  onChange={(nextValue) => set("in_service_on", nextValue)}
-                />
-              )}
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <AccountingPicker
-                label={
-                  kind === "asset" ? "Asset account" : "Loan principal account"
-                }
-                value={values.account_id}
-                options={options(kind === "asset" ? "asset" : "liability")}
-                onChange={(v) => set("account_id", v)}
-                disabled={fixed}
-                placeholder="Choose an account"
-              />
-              <AccountingPicker
-                label={
-                  kind === "asset"
-                    ? "Depreciation expense account"
-                    : "Interest expense account"
-                }
-                value={values.expense_account_id}
-                options={options("expense")}
-                onChange={(v) => set("expense_account_id", v)}
-                disabled={fixed}
-                placeholder="Choose an expense account"
-              />
-              {kind === "asset" ? (
-                <AccountingPicker
-                  label="Accumulated depreciation account"
-                  value={values.accumulated_account_id}
-                  options={options("asset", true)}
-                  onChange={(v) => set("accumulated_account_id", v)}
-                  disabled={fixed}
-                  placeholder="Choose a credit-balance asset account"
-                />
-              ) : (
-                <AccountingPicker
-                  label="Loan fee expense account"
-                  value={values.fee_account_id}
-                  options={options("expense")}
-                  onChange={(v) => set("fee_account_id", v)}
-                  disabled={fixed}
-                  placeholder="Choose a fee expense account"
-                />
-              )}
-            </div>
-          </fieldset>
-          <a
-            className="inline-block text-xs text-teal-light hover:underline"
-            href="/accounting?view=accounts"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Manage accounts
-          </a>
-          {kind === "asset" ? (
-            <TextInput
-              label="Depreciation method and source schedule"
-              required
-              maxLength={1000}
-              placeholder="For example: annual amounts from the reviewed book schedule"
-              value={values.method}
-              onChange={(nextValue) => set("method", nextValue)}
-            />
-          ) : (
+          {!asset && (
             <TextInput
               label="Lender"
               required
@@ -250,34 +155,116 @@ export function AccountingRegisterForm({
               onChange={(nextValue) => set("lender", nextValue)}
             />
           )}
-          <Textarea
-            label={termsLabel}
-            aria-label={termsLabel}
-            maxLength={4000}
-            value={values.terms}
-            onChange={(nextValue) => set("terms", nextValue)}
-            placeholder={
-              kind === "asset"
-                ? "Location, identifying details or disposal considerations"
-                : "Maturity, payment terms and the lender statement used for splits"
-            }
-          />
-          <InvoiceEvidence value={doc} onChange={setDoc} />
-          <TextInput
-            label="Reason and source notes"
-            required
-            maxLength={1000}
-            value={reason}
-            onChange={(nextValue) => setReason(nextValue)}
-          />
+          <fieldset disabled={fixed} className="space-y-5 disabled:opacity-70">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <DateInput
+                label={asset ? "Acquired on" : "Start date"}
+                required
+                value={values.started_on}
+                onChange={(nextValue) => set("started_on", nextValue)}
+              />
+              <TextInput
+                label={asset ? "Original cost" : "Original principal"}
+                inputMode="decimal"
+                placeholder="0.00"
+                required
+                value={values.amount}
+                onChange={(nextValue) => set("amount", nextValue)}
+              />
+            </div>
+            {asset && (
+              <DateInput
+                label="Placed in service"
+                required
+                value={values.in_service_on}
+                onChange={(nextValue) => set("in_service_on", nextValue)}
+              />
+            )}
+            <AccountingPicker
+              label={asset ? "Asset account" : "Loan account"}
+              visibleLabel={asset ? "Asset account" : "Loan account"}
+              value={values.account_id}
+              options={options(asset ? "asset" : "liability")}
+              onChange={(v) => set("account_id", v)}
+              disabled={fixed}
+              placeholder="Choose an account"
+            />
+            <AccountingPicker
+              label={asset ? "Depreciation expense" : "Interest expense"}
+              visibleLabel={asset ? "Depreciation expense" : "Interest expense"}
+              value={values.expense_account_id}
+              options={options("expense")}
+              onChange={(v) => set("expense_account_id", v)}
+              disabled={fixed}
+              placeholder="Choose an expense account"
+            />
+            {asset ? (
+              <AccountingPicker
+                label="Accumulated depreciation"
+                visibleLabel="Accumulated depreciation"
+                value={values.accumulated_account_id}
+                options={options("asset", true)}
+                onChange={(v) => set("accumulated_account_id", v)}
+                disabled={fixed}
+                placeholder="Choose a contra asset account"
+              />
+            ) : (
+              <AccountingPicker
+                label="Loan fee expense"
+                visibleLabel="Loan fee expense"
+                value={values.fee_account_id}
+                options={options("expense")}
+                onChange={(v) => set("fee_account_id", v)}
+                disabled={fixed}
+                placeholder="Choose a fee expense account"
+              />
+            )}
+          </fieldset>
+          {asset && (
+            <TextInput
+              label="Depreciation method"
+              required
+              maxLength={1000}
+              placeholder="Straight line over five years"
+              value={values.method}
+              onChange={(nextValue) => set("method", nextValue)}
+            />
+          )}
+          <details className="group rounded-xl border border-border">
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+              Advanced
+            </summary>
+            <div className="space-y-4 border-t border-border p-4">
+              <Textarea
+                label={asset ? "Details" : "Terms"}
+                maxLength={4000}
+                rows={3}
+                value={values.terms}
+                onChange={(nextValue) => set("terms", nextValue)}
+                placeholder={
+                  asset
+                    ? "Location, serial number or disposal notes"
+                    : "Maturity, payment schedule and statement used for splits"
+                }
+              />
+              <EvidencePicker value={doc} onChange={setDoc} />
+              <TextInput
+                label="Revision note"
+                maxLength={1000}
+                placeholder="Optional"
+                value={reason}
+                onChange={(nextValue) => setReason(nextValue)}
+              />
+            </div>
+          </details>
         </fieldset>
-        <InvoiceActions
+        <WorkflowActions
           busy={command.busy}
           error={error || command.error}
-          label="Save register"
+          label="Save"
           onClose={onClose}
         />
       </form>
-    </InvoiceDialog>
+    </WorkflowDialog>
   );
 }

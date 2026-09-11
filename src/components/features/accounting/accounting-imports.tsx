@@ -29,6 +29,7 @@ import { MaskedValue } from "@/components/ui/masked-value";
 import { Pagination } from "@/components/ui/pagination";
 import { Select } from "@/components/ui/inputs/Select";
 import { SectionHeader } from "@/components/ui/section-header";
+import { TableSkeleton } from "@/components/ui/skeleton";
 
 import { Tooltip } from "@/components/ui/tooltip";
 import type {
@@ -49,6 +50,7 @@ import type {
   ImportGroup,
 } from "@/lib/accounting/imports/contracts";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+import { WorkflowDialog } from "./accounting-dialog";
 import { uploadEvidence } from "./accounting-documents";
 import { AccountingBankMatch } from "./accounting-bank-match";
 import { AccountingEntryPicker } from "./accounting-entry-picker";
@@ -426,7 +428,7 @@ export function AccountingImports({
       numeric: true,
       className: "whitespace-nowrap",
       render: (g) => (
-        <MaskedValue value={groupAmount(g)} className="font-mono" />
+        <MaskedValue value={groupAmount(g)} className="tabular-nums" />
       ),
     },
     {
@@ -463,10 +465,7 @@ export function AccountingImports({
         <p className="mt-1 text-xs text-muted-foreground">{g.reason}</p>
       )}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <MaskedValue
-          value={groupAmount(g)}
-          className="font-mono text-sm tabular-nums"
-        />
+        <MaskedValue value={groupAmount(g)} className="text-sm tabular-nums" />
         {groupActions(g)}
       </div>
     </div>
@@ -600,7 +599,7 @@ export function AccountingImports({
                 <div className="glass-card rounded-xl p-4" key={key}>
                   <p className="text-xs text-muted-foreground">{label}</p>
                   <p
-                    className={`mt-2 font-mono text-2xl tabular-nums ${statusStyle[key]}`}
+                    className={`mt-2 text-2xl tabular-nums ${statusStyle[key]}`}
                   >
                     {data.counts[key] ?? 0}
                   </p>
@@ -669,56 +668,64 @@ export function AccountingImports({
                 if (!command.busy) setCancel(open);
               }}
             >
-              <DialogContent>
+              <DialogContent className="max-w-md">
                 <DialogHeader>
-                  <DialogTitle>Cancel this import batch?</DialogTitle>
-                  <DialogDescription>
-                    Applied entries remain in the books with their evidence. The
-                    remaining groups stay available for a later resume. This
-                    does not reverse any transactions.
+                  <DialogTitle>Cancel import</DialogTitle>
+                  <DialogDescription className="sr-only">
+                    Stop this import batch. Applied entries stay in the books.
                   </DialogDescription>
                 </DialogHeader>
-                <TextInput
-                  label="Cancellation reason"
-                  maxLength={1000}
-                  value={cancelReason}
-                  onChange={(nextValue) => setCancelReason(nextValue)}
-                />
-                {command.error && (
-                  <p role="alert" className="text-sm text-error">
-                    {command.error}
-                  </p>
-                )}
-                <div className="flex justify-end gap-2">
-                  <Button
-                    variant="ghost"
-                    disabled={command.busy}
-                    onClick={() => setCancel(false)}
-                  >
-                    Back
-                  </Button>
-                  <Button
-                    disabled={!cancelReason.trim() || command.busy}
-                    loading={command.busy}
-                    onClick={async () => {
-                      if (
-                        await command.execute({
-                          type: "import.cancel",
-                          id: batch.id,
-                          expected_version: batch.version,
-                          reason: cancelReason,
-                        })
-                      ) {
-                        setCancel(false);
-                        await reload().catch((e: Error) =>
-                          setLoadError(e.message),
-                        );
-                      }
-                    }}
-                  >
-                    Cancel batch
-                  </Button>
-                </div>
+                <form
+                  className="space-y-5"
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (
+                      await command.execute({
+                        type: "import.cancel",
+                        id: batch.id,
+                        expected_version: batch.version,
+                        reason: cancelReason,
+                      })
+                    ) {
+                      setCancel(false);
+                      await reload().catch((e: Error) =>
+                        setLoadError(e.message),
+                      );
+                    }
+                  }}
+                >
+                  <TextInput
+                    label="Reason"
+                    placeholder="Why this import is stopping"
+                    required
+                    maxLength={1000}
+                    value={cancelReason}
+                    onChange={(nextValue) => setCancelReason(nextValue)}
+                  />
+                  {command.error && (
+                    <p role="alert" className="text-sm text-error">
+                      {command.error}
+                    </p>
+                  )}
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={command.busy}
+                      onClick={() => setCancel(false)}
+                    >
+                      Back
+                    </Button>
+                    <Button
+                      type="submit"
+                      variant="destructive"
+                      disabled={!cancelReason.trim() || command.busy}
+                      loading={command.busy}
+                    >
+                      Cancel import
+                    </Button>
+                  </div>
+                </form>
               </DialogContent>
             </Dialog>
             {["review", "applying"].includes(batch.status) && (
@@ -789,55 +796,52 @@ export function AccountingImports({
           }}
         />
       )}
-      <Dialog open={wizard} onOpenChange={setWizard}>
-        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Import your accounting data</DialogTitle>
-            <DialogDescription>
-              Choose the source, map the columns, and review before changing the
-              books.
-            </DialogDescription>
-          </DialogHeader>
-          {wizard && (
-            <ImportWizard
-              accounts={accounts}
-              profiles={profiles}
-              onRefresh={onRefresh}
-              onDone={async (id) => {
-                setWizard(false);
-                setBatchId(id);
-                setOffset(0);
-                await reload(id, 0);
-              }}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {wizard && (
+        <WorkflowDialog
+          title="Import CSV"
+          size="lg"
+          onClose={() => setWizard(false)}
+        >
+          <ImportWizard
+            accounts={accounts}
+            profiles={profiles}
+            onRefresh={onRefresh}
+            onDone={async (id) => {
+              setWizard(false);
+              setBatchId(id);
+              setOffset(0);
+              await reload(id, 0);
+            }}
+          />
+        </WorkflowDialog>
+      )}
       <Dialog open={approve} onOpenChange={setApprove}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>
               {batch?.mode === "journal"
-                ? "Post imported historical entries"
-                : "Create bank review drafts"}
+                ? "Post imported entries"
+                : "Create review drafts"}
             </DialogTitle>
             <DialogDescription>
+              {countLabel(data.counts.new ?? 0, "ready group")}{" "}
               {batch?.mode === "journal"
-                ? "These balanced entries will affect the normal ledger and reports. Corrections will preserve the original history."
-                : "These movements will enter the review queue for categorization. They will affect reports when you post them."}
+                ? "will be posted to the books."
+                : "will enter the review queue."}
             </DialogDescription>
           </DialogHeader>
-          <div className="glass-card rounded-xl p-4 text-sm">
-            <p>{data.counts.new ?? 0} ready groups</p>
-            <p className="mt-2 text-muted-foreground">
-              Duplicates remain linked to their existing entries. Unresolved
-              matches and exceptions stay pending.
-            </p>
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              disabled={working}
+              onClick={() => setApprove(false)}
+            >
+              Cancel
+            </Button>
+            <Button disabled={working} onClick={() => void apply()}>
+              {batch?.mode === "journal" ? "Post" : "Create drafts"}
+            </Button>
           </div>
-          <Button onClick={() => void apply()}>
-            <Check size={16} aria-hidden="true" />
-            Approve {batch?.mode === "journal" ? "posting" : "drafts"}
-          </Button>
         </DialogContent>
       </Dialog>
       <Dialog
@@ -846,15 +850,26 @@ export function AccountingImports({
           if (!open) setReview(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>Review source group</DialogTitle>
-            <DialogDescription>{review?.memo}</DialogDescription>
+            <DialogDescription>
+              {review && (
+                <>
+                  {dateLabel(review.entry_date)} · {review.memo} ·{" "}
+                  <MaskedValue
+                    value={groupAmount(review)}
+                    className="tabular-nums"
+                  />
+                </>
+              )}
+            </DialogDescription>
           </DialogHeader>
           {review && (
             <ImportResolution
               group={review}
               onEntry={onEntry}
+              onClose={() => setReview(null)}
               onSaved={async () => {
                 setReview(null);
                 await reload();
@@ -872,10 +887,12 @@ function ImportResolution({
   group,
   onSaved,
   onEntry,
+  onClose,
 }: {
   group: ImportGroup;
   onSaved: () => Promise<void>;
   onEntry: (id: string) => void;
+  onClose: () => void;
 }) {
   const [resolution, setResolution] = useState<"new" | "match" | "exclude">(
       group.candidate_entry_id ? "match" : "exclude",
@@ -885,7 +902,7 @@ function ImportResolution({
   const command = useAccountingCommand(onSaved);
   return (
     <form
-      className="space-y-4"
+      className="space-y-5"
       onSubmit={(e) => {
         e.preventDefault();
         void command.execute({
@@ -899,35 +916,39 @@ function ImportResolution({
       }}
     >
       {group.reason && <p className="text-sm text-warning">{group.reason}</p>}
-      {group.candidate_entry_id && (
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => onEntry(group.candidate_entry_id!)}
-        >
-          Inspect suggested entry
-        </Button>
-      )}
       <Select
         id="import-resolution"
         label="Treatment"
         value={resolution}
         onChange={(value) => setResolution(value as typeof resolution)}
         options={[
-          { value: "match", label: "Attach to an existing posted entry" },
+          { value: "match", label: "Attach to an existing entry" },
           ...(group.status !== "exception"
-            ? [{ value: "new", label: "Separate transaction, keep as new" }]
+            ? [{ value: "new", label: "Keep as a new transaction" }]
             : []),
-          { value: "exclude", label: "Exclude this source observation" },
+          { value: "exclude", label: "Exclude this observation" },
         ]}
       />
       {resolution === "match" && (
-        <AccountingEntryPicker
-          value={entry}
-          onChange={setEntry}
-          postedOnly
-          disabled={command.busy}
-        />
+        <>
+          {group.candidate_entry_id && (
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto px-0"
+              onClick={() => onEntry(group.candidate_entry_id!)}
+            >
+              Inspect suggested entry
+            </Button>
+          )}
+          <AccountingEntryPicker
+            value={entry}
+            onChange={setEntry}
+            postedOnly
+            disabled={command.busy}
+          />
+        </>
       )}
       <TextInput
         label="Reason"
@@ -935,24 +956,30 @@ function ImportResolution({
         onChange={(nextValue) => setReason(nextValue)}
         required
         maxLength={1000}
-        placeholder="Explain how you verified this treatment"
+        placeholder="How you verified this"
       />
-      <p className="text-xs text-muted-foreground">
-        Matching checks the actual account and amount. Exclusion preserves the
-        observation and does not certify historical coverage.
-      </p>
       {command.error && (
         <p role="alert" className="text-sm text-error">
           {command.error}
         </p>
       )}
-      <Button
-        disabled={
-          command.busy || !reason.trim() || (resolution === "match" && !entry)
-        }
-      >
-        Save treatment
-      </Button>
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={command.busy}
+          onClick={onClose}
+        >
+          Cancel
+        </Button>
+        <Button
+          disabled={
+            command.busy || !reason.trim() || (resolution === "match" && !entry)
+          }
+        >
+          Save
+        </Button>
+      </div>
     </form>
   );
 }
@@ -1384,7 +1411,7 @@ function ImportWizard({
           <span className="whitespace-nowrap">
             {dateLabel(group.entry_date) || "Invalid date"}
           </span>
-          <span className="font-mono tabular-nums">{previewLines(group)}</span>
+          <span className="tabular-nums">{previewLines(group)}</span>
         </div>
         <p className="mt-2">{group.memo}</p>
         {group.errors.map((issue, n) => (
@@ -1415,13 +1442,13 @@ function ImportWizard({
           ].map(([label, value]) => (
             <div key={label} className="glass-card rounded-xl p-4">
               <p className="text-xs text-muted-foreground">{label}</p>
-              <p className="mt-2 font-mono text-xl tabular-nums">
+              <p className="mt-2 text-xl tabular-nums">
                 <MaskedValue value={value} />
               </p>
             </div>
           ))}
         </div>
-        <div className="glass-card max-h-80 overflow-auto rounded-xl">
+        <div className="max-h-80 overflow-auto rounded-xl border border-border">
           <DataTable
             columns={previewColumns}
             data={previewRows}
@@ -1431,15 +1458,14 @@ function ImportWizard({
             mobileCard={previewCard}
           />
         </div>
-        <p className="text-xs text-muted-foreground">
-          Showing the first {Math.min(100, preview.groups.length)} groups. Every
-          row is validated. Saving this preview checks existing sources and
-          creates a resumable review batch.
-        </p>
+        {preview.groups.length > 100 && (
+          <p className="text-xs text-muted-foreground">
+            Showing the first 100 of {preview.groups.length} groups.
+          </p>
+        )}
         {preview.errorCount > 0 && (
           <p role="alert" className="text-sm text-error">
-            Resolve every validation error before staging. Correct the mapping
-            or the source file, then preview again.
+            Fix the validation errors above, then preview again.
           </p>
         )}
         {(error || command.error) && (
@@ -1455,7 +1481,7 @@ function ImportWizard({
             disabled={busy || preview.errorCount > 0 || !cashConfirmed}
             onClick={() => void stage()}
           >
-            {busy ? "Saving preview…" : "Save preview and check duplicates"}
+            {busy ? "Saving..." : "Save preview"}
             <ArrowRight size={16} aria-hidden="true" />
           </Button>
         </div>
@@ -1506,14 +1532,13 @@ function ImportWizard({
             maxLength={250}
           />
           <p className="mt-1.5 text-xs text-muted-foreground">
-            Use the same scope for future exports of this ledger or account.
-            Keep years and filenames out of the scope.
+            Reuse the same scope for later exports; no years or filenames.
           </p>
         </div>
       </div>
       {!inspection ? (
         <>
-          <label className="block rounded-lg border border-dashed border-border p-6 text-center">
+          <label className="block rounded-xl border border-dashed border-border p-6 text-center">
             <Upload
               className="mx-auto mb-3 text-teal-light"
               size={24}
@@ -1568,8 +1593,8 @@ function ImportWizard({
         </>
       ) : (
         <>
-          <div className="glass-card flex items-center justify-between rounded-xl p-4">
-            <p className="text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <p className="min-w-0 truncate text-sm">
               {file?.name} · {inspection.rowCount} rows
               {inspection.adapter === "wave" && " · Wave ledger"}
             </p>
@@ -1582,35 +1607,28 @@ function ImportWizard({
             </Button>
           </div>
           {inspection.adapter === "wave" ? (
-            <section className="glass-card rounded-xl p-4">
+            <section>
               <SectionHeader
                 label="Map Wave accounts"
                 count={proposals.length}
               />
-              <p className="mb-4 text-xs text-muted-foreground">
-                Each Wave account name is saved on the book account that takes
-                its history. Accounts already carrying the name, or sharing it,
-                are preselected. Anything else becomes a new account with
-                Wave&apos;s classification.
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 {proposals.map((p) => (
-                  <div key={p.name} className="glass-card rounded-xl p-3">
-                    <Select
-                      searchable
-                      label={`Book account for ${p.name}`}
-                      visibleLabel={p.name}
-                      value={waveMap[p.name] ?? ""}
-                      onChange={(value) => {
-                        setWaveMap({ ...waveMap, [p.name]: value });
-                        setWaveSaved(false);
-                        setPreview(null);
-                      }}
-                      placeholder="Choose account"
-                      options={waveOptions(p)}
-                      helperText={`Wave: ${enumLabel(p.type)} · ${enumLabel(p.subtype)} · ${waveStatus(p)}`}
-                    />
-                  </div>
+                  <Select
+                    key={p.name}
+                    searchable
+                    label={`Book account for ${p.name}`}
+                    visibleLabel={p.name}
+                    value={waveMap[p.name] ?? ""}
+                    onChange={(value) => {
+                      setWaveMap({ ...waveMap, [p.name]: value });
+                      setWaveSaved(false);
+                      setPreview(null);
+                    }}
+                    placeholder="Choose account"
+                    options={waveOptions(p)}
+                    helperText={`Wave: ${enumLabel(p.type)} · ${enumLabel(p.subtype)} · ${waveStatus(p)}`}
+                  />
                 ))}
               </div>
               {waveDuplicates.length > 0 && (
@@ -1792,15 +1810,8 @@ function ImportWizard({
                     className="items-start text-left"
                     checked={stable}
                     onChange={setStable}
-                    label={
-                      <span className="block">
-                        Group IDs are stable across repeated exports
-                        <span className="block text-xs font-normal text-muted-foreground">
-                          Leave unchecked for export row numbers or IDs that are
-                          regenerated.
-                        </span>
-                      </span>
-                    }
+                    label="Group IDs are stable across repeated exports"
+                    description="Leave unchecked for row numbers or regenerated IDs."
                   />
                   {sourceAccounts.length > 500 ? (
                     <p className="text-sm text-error">
@@ -1809,12 +1820,12 @@ function ImportWizard({
                     </p>
                   ) : (
                     sourceAccounts.length > 0 && (
-                      <section className="glass-card rounded-xl p-4">
+                      <section>
                         <SectionHeader
                           label="Map accounts"
                           count={sourceAccounts.length}
                         />
-                        <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="grid gap-4 sm:grid-cols-2">
                           {sourceAccounts.map((label) => (
                             <Select
                               searchable
@@ -1840,24 +1851,16 @@ function ImportWizard({
               )}
             </>
           )}
-          <div className="glass-card rounded-xl p-4">
-            <Checkbox
-              className="items-start text-left"
-              checked={cashConfirmed}
-              onChange={setCashConfirmed}
-              label={
-                <span className="block">
-                  {mode === "journal"
-                    ? "I verified this export is suitable for cash-basis books. It excludes unsupported accrual conversions and duplicate annual closing entries."
-                    : "These are actual movements on the selected business account."}
-                  <span className="mt-1 block text-xs font-normal text-muted-foreground">
-                    Unverified historical conversions need a source report
-                    comparison before they can be considered complete.
-                  </span>
-                </span>
-              }
-            />
-          </div>
+          <Checkbox
+            className="items-start text-left"
+            checked={cashConfirmed}
+            onChange={setCashConfirmed}
+            label={
+              mode === "journal"
+                ? "This export is cash-basis"
+                : "These are real movements on this account"
+            }
+          />
           <Button
             disabled={
               busy ||
@@ -2039,10 +2042,7 @@ function ImportComparisonPanel({
       <div className="min-w-0">
         <p className="text-sm">
           {dateLabel(group.entry_date)} ·{" "}
-          <MaskedValue
-            value={groupAmount(group)}
-            className="font-mono tabular-nums"
-          />
+          <MaskedValue value={groupAmount(group)} className="tabular-nums" />
         </p>
         <p className="mt-1 truncate text-xs text-muted-foreground">
           {group.memo}
@@ -2182,9 +2182,9 @@ function ImportComparisonPanel({
         </p>
       )}
       {loading && !data && (
-        <p role="status" className="text-sm text-muted-foreground">
-          Comparing files...
-        </p>
+        <div role="status" aria-label="Comparing files...">
+          <TableSkeleton rows={5} />
+        </div>
       )}
       {data && (
         <>

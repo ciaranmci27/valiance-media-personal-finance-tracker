@@ -143,6 +143,9 @@ export async function syncSimpleFin(options: {
             run_id: runId,
             partial: true,
             discovery: !!options.discover,
+            // Unmatched movements become drafts in Needs review; matched ones
+            // attach to the entry they corroborate.
+            create_drafts: !options.discover,
             accounts: [
               {
                 ...account,
@@ -171,6 +174,7 @@ export async function syncSimpleFin(options: {
       id: options.connectionId,
       accounts: [],
       discovery: !!options.discover,
+      create_drafts: !options.discover,
       run_id: runId,
       complete,
       error: safeProviderMessage([...new Set(errors)].join(" ")),

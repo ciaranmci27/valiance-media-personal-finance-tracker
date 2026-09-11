@@ -18,6 +18,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { MaskedValue } from "@/components/ui/masked-value";
+import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { parseUsd, centsToDecimal } from "@/lib/accounting/money";
 import { statementCents } from "@/lib/accounting/statement-money";
@@ -43,25 +44,28 @@ const statusVariant: Record<Statement["status"], BadgeVariant> = {
 };
 const confirmCopy: Record<
   Confirm["kind"],
-  { title: string; description: string; action: string }
+  {
+    title: string;
+    description: string;
+    action: string;
+    destructive?: boolean;
+  }
 > = {
   complete: {
-    title: "Complete this reconciliation?",
-    description:
-      "Saves the selected transactions and the statement totals as this statement's proof. This does not lock a calendar month.",
+    title: "Complete reconciliation?",
+    description: "Saves the selected transactions as this statement's proof.",
     action: "Complete",
   },
   reopen: {
-    title: "Reopen this statement?",
-    description:
-      "The statement goes back to in progress so its selection can change. Reopen any affected month close first.",
+    title: "Reopen statement?",
+    description: "The statement goes back to in progress.",
     action: "Reopen",
   },
   remove: {
-    title: "Remove this item?",
-    description:
-      "The transaction stays posted. It is only taken off this statement.",
-    action: "Remove item",
+    title: "Remove item?",
+    description: "The transaction stays posted.",
+    action: "Remove",
+    destructive: true,
   },
 };
 const linkClass =
@@ -72,7 +76,7 @@ function Money({ value, card = false }: { value: string; card?: boolean }) {
   return (
     <MaskedValue
       value={money(statementCents(value, card))}
-      className="font-mono tabular-nums"
+      className="tabular-nums"
     />
   );
 }
@@ -264,7 +268,13 @@ export function AccountingReconciliation({
             count={data ? data.statements.length : undefined}
           />
           {!data ? (
-            <p className="text-sm text-muted-foreground">Loading statements…</p>
+            <div
+              role="status"
+              aria-label="Loading statements…"
+              className="glass-card rounded-xl p-4"
+            >
+              <TableSkeleton rows={4} />
+            </div>
           ) : (
             <DataTable
               columns={statementColumns}
@@ -314,7 +324,24 @@ export function AccountingReconciliation({
         </section>
       )}
       {selected && !r && !error && (
-        <p className="text-sm text-muted-foreground">Loading statement…</p>
+        <div
+          role="status"
+          aria-label="Loading statement…"
+          className="glass-card rounded-xl p-5"
+        >
+          <div className="flex flex-wrap justify-between gap-4">
+            <div className="space-y-2">
+              <Skeleton className="h-5 w-48" />
+              <Skeleton className="h-4 w-36" />
+            </div>
+            <Skeleton className="h-7 w-28" />
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-16 rounded-lg" />
+            ))}
+          </div>
+        </div>
       )}
       {r && p && (
         <>
@@ -561,61 +588,77 @@ export function AccountingReconciliation({
           if (!v && !command.busy) setConfirm(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{copy?.title}</DialogTitle>
-            <DialogDescription>
-              {confirm?.kind === "remove" &&
-                `${confirm.item.description}, ${dateLabel(confirm.item.entry_date)}. `}
-              {copy?.description}
+            {/* Removing names the item; the other confirmations need no subtitle. */}
+            <DialogDescription
+              className={confirm?.kind === "remove" ? undefined : "sr-only"}
+            >
+              {confirm?.kind === "remove"
+                ? `${confirm.item.description}, ${dateLabel(confirm.item.entry_date)}.`
+                : copy?.description}
             </DialogDescription>
           </DialogHeader>
-          {confirm && confirm.kind !== "complete" && (
-            <TextInput
-              label="Reason"
-              value={reason}
-              onChange={(nextValue) => setReason(nextValue)}
-              maxLength={1000}
-            />
-          )}
-          <ErrorText value={command.error} />
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="ghost"
-              disabled={command.busy}
-              onClick={() => setConfirm(null)}
-            >
-              Back
-            </Button>
-            <Button
-              disabled={
-                command.busy || (confirm?.kind !== "complete" && !reason.trim())
-              }
-              loading={command.busy}
-              onClick={async () => {
-                if (!r || !confirm) return;
-                const base = { id: r.id, expected_version: r.version };
-                const c: WorkflowCommand =
-                  confirm.kind === "complete"
-                    ? { ...base, type: "reconciliation.complete" }
-                    : confirm.kind === "reopen"
-                      ? { ...base, type: "reconciliation.reopen", reason }
-                      : {
-                          ...base,
-                          type: "reconciliation.item.remove",
-                          item_id: confirm.item.id,
-                          reason,
-                        };
-                if (await command.execute(c)) setConfirm(null);
-              }}
-            >
-              {copy?.action}
-            </Button>
+          <div className="mt-4 space-y-5">
+            {confirm && confirm.kind !== "complete" && (
+              <TextInput
+                label="Reason"
+                required
+                value={reason}
+                onChange={(nextValue) => setReason(nextValue)}
+                maxLength={1000}
+              />
+            )}
+            <ErrorText value={command.error} />
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={command.busy}
+                onClick={() => setConfirm(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant={copy?.destructive ? "destructive" : "default"}
+                disabled={
+                  command.busy ||
+                  (confirm?.kind !== "complete" && !reason.trim())
+                }
+                loading={command.busy}
+                onClick={async () => {
+                  if (!r || !confirm) return;
+                  const base = { id: r.id, expected_version: r.version };
+                  const c: WorkflowCommand =
+                    confirm.kind === "complete"
+                      ? { ...base, type: "reconciliation.complete" }
+                      : confirm.kind === "reopen"
+                        ? { ...base, type: "reconciliation.reopen", reason }
+                        : {
+                            ...base,
+                            type: "reconciliation.item.remove",
+                            item_id: confirm.item.id,
+                            reason,
+                          };
+                  if (await command.execute(c)) setConfirm(null);
+                }}
+              >
+                {copy?.action}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
     </div>
   );
+}
+
+/** The calendar day after an ISO date, for the next statement's start. */
+function dayAfter(date: string) {
+  const next = new Date(`${date}T00:00:00Z`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next.toISOString().slice(0, 10);
 }
 
 function ErrorText({ value }: { value: string }) {
@@ -637,16 +680,20 @@ function StatementCreate({
   onSaved: (id: string) => Promise<void>;
 }) {
   const card = account.account_type === "liability";
+  // The next statement starts the day after the last completed one and
+  // opens with its ending balance; both stay editable.
+  const last = statements
+    .filter((s) => s.status === "completed")
+    .sort((a, b) => b.to_date.localeCompare(a.to_date))[0];
   const [id] = useState(() => crypto.randomUUID()),
-    [from, setFrom] = useState(""),
+    [from, setFrom] = useState(last ? dayAfter(last.to_date) : ""),
     [to, setTo] = useState(""),
-    [opening, setOpening] = useState("0.00"),
+    [opening, setOpening] = useState(
+      last ? centsToDecimal(statementCents(last.ending_cents, card)) : "0.00",
+    ),
     [ending, setEnding] = useState(""),
     [doc, setDoc] = useState("");
-  const cmd = useAccountingCommand(),
-    last = statements
-      .filter((s) => s.status === "completed")
-      .sort((a, b) => b.to_date.localeCompare(a.to_date))[0];
+  const cmd = useAccountingCommand();
   return (
     <Dialog
       open
@@ -654,18 +701,15 @@ function StatementCreate({
         if (!v && !cmd.busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>New statement · {account.name}</DialogTitle>
-          <DialogDescription>
-            Copy the dates and balances from your statement.{" "}
-            {card
-              ? "Enter amounts owed as positive, and a credit balance as negative."
-              : "Enter money held as positive, and an overdraft as negative."}
+          <DialogTitle>New statement</DialogTitle>
+          <DialogDescription className="sr-only">
+            Statement dates and balances for {account.name}.
           </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-4"
+          className="mt-4 space-y-5"
           onSubmit={async (e) => {
             e.preventDefault();
             try {
@@ -687,27 +731,22 @@ function StatementCreate({
             }
           }}
         >
-          {last && (
-            <p className="rounded-lg bg-secondary/40 p-3 text-sm">
-              Previous statement ended {dateLabel(last.to_date)} at{" "}
-              {money(statementCents(last.ending_cents, card))}. Continue with
-              the next day and the same opening balance.
-            </p>
-          )}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid gap-4 sm:grid-cols-2">
             <DateInput
-              label="Statement starts"
+              label="Start date"
               required
               value={from}
               onChange={(nextValue) => setFrom(nextValue)}
             />
             <DateInput
-              label="Statement ends"
+              label="End date"
               minDate={from}
               required
               value={to}
               onChange={(nextValue) => setTo(nextValue)}
             />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
             <TextInput
               label={card ? "Opening amount owed" : "Opening balance"}
               required
@@ -723,24 +762,32 @@ function StatementCreate({
               onChange={(nextValue) => setEnding(nextValue)}
             />
           </div>
-          <AccountingDocumentPicker
-            value={doc}
-            onChange={setDoc}
-            label="Original statement (optional)"
-          />
-          <p className="text-xs text-muted-foreground">
-            Attach the statement file when you have it. The proof is the
-            selected posted transactions against these balances.
-          </p>
+          <details className="group rounded-xl border border-border">
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+              Advanced
+            </summary>
+            <div className="space-y-4 border-t border-border p-4">
+              <AccountingDocumentPicker
+                value={doc}
+                onChange={setDoc}
+                label="Statement file (optional)"
+              />
+            </div>
+          </details>
           <ErrorText value={cmd.error} />
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={cmd.busy}
-            loading={cmd.busy}
-          >
-            Create statement
-          </Button>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={cmd.busy}
+              onClick={onClose}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={cmd.busy} loading={cmd.busy}>
+              Create
+            </Button>
+          </div>
         </form>
       </DialogContent>
     </Dialog>
@@ -801,108 +848,121 @@ function SelectLine({
         if (!v && !cmd.busy) onClose();
       }}
     >
-      <DialogContent className="sm:max-w-xl">
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Add a statement item</DialogTitle>
-          <DialogDescription>
-            Choose the posted transaction on {account.name} that appears on this
-            statement, dated on or before {dateLabel(r.to_date)}. Part of a
-            transaction can be selected when the statement shows only part of
-            it.
+          <DialogTitle>Add statement item</DialogTitle>
+          <DialogDescription className="sr-only">
+            Choose a posted transaction on {account.name} that appears on this
+            statement.
           </DialogDescription>
         </DialogHeader>
-        <TextInput
-          aria-label="Find a posted transaction"
-          placeholder="Search memo or exact date"
-          value={query}
-          onChange={(nextValue) => {
-            setQuery(nextValue);
-            setPage(0);
-            setLine(null);
-          }}
-        />
-        <div className="max-h-64 space-y-2 overflow-y-auto">
-          {candidates.map((l) => (
-            <label
-              key={l.id}
-              className={cn(
-                "flex cursor-pointer items-center gap-3 rounded-lg border p-3 text-sm",
-                line?.id === l.id
-                  ? "border-teal-light bg-teal-light/5"
-                  : "border-border",
-              )}
-            >
-              <Radio
-                name="statement-line"
-                value={l.id}
-                checked={line?.id === l.id}
-                onChange={() => pick(l)}
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate">{l.memo}</span>
-                <span className="block text-xs text-muted-foreground">
-                  {dateLabel(l.entry_date)}
+        <div className="mt-4 space-y-5">
+          <TextInput
+            aria-label="Find a posted transaction"
+            placeholder="Search memo or date"
+            prefix={<Search size={15} aria-hidden="true" />}
+            value={query}
+            onChange={(nextValue) => {
+              setQuery(nextValue);
+              setPage(0);
+              setLine(null);
+            }}
+          />
+          <div className="max-h-64 divide-y divide-border overflow-y-auto rounded-xl border border-border">
+            {candidates.map((l) => (
+              <label
+                key={l.id}
+                className={cn(
+                  "flex cursor-pointer items-center gap-3 px-4 py-3 text-sm transition-colors",
+                  line?.id === l.id
+                    ? "bg-teal-light/5"
+                    : "hover:bg-secondary/40",
+                )}
+              >
+                <Radio
+                  name="statement-line"
+                  value={l.id}
+                  checked={line?.id === l.id}
+                  onChange={() => pick(l)}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{l.memo}</span>
+                  <span className="block text-xs text-muted-foreground">
+                    {dateLabel(l.entry_date)}
+                  </span>
                 </span>
-              </span>
-              <Money value={l.remaining_cents} card={card} />
-            </label>
-          ))}
-          {!candidates.length && (
-            <p className="py-4 text-sm text-muted-foreground">
-              No unselected posted transactions on this page. Search another
-              page or post the missing transaction first.
-            </p>
-          )}
+                <Money value={l.remaining_cents} card={card} />
+              </label>
+            ))}
+            {!candidates.length && (
+              <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                No unselected transactions on this page.
+              </p>
+            )}
+          </div>
+          <Pagination
+            offset={page * 100}
+            limit={100}
+            total={data?.line_count ?? 0}
+            onChange={(offset) => {
+              setPage(Math.floor(offset / 100));
+              setLine(null);
+            }}
+            className="px-0 py-0"
+          />
+          <TextInput
+            label="Amount on statement"
+            description="Can be part of the transaction."
+            inputMode="decimal"
+            value={amount}
+            onChange={(nextValue) => setAmount(nextValue)}
+          />
+          <ErrorText value={cmd.error || readError} />
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={cmd.busy}
+              onClick={onClose}
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={!line || cmd.busy}
+              loading={cmd.busy}
+              onClick={async () => {
+                try {
+                  const n = parseUsd(amount);
+                  if (n <= BigInt(0) || !line)
+                    throw new Error(
+                      "Choose a transaction and a positive amount.",
+                    );
+                  await cmd.execute({
+                    type: "reconciliation.allocate",
+                    id: r.id,
+                    expected_version: r.version,
+                    allocations: [
+                      {
+                        id,
+                        entry_line_id: line.id,
+                        amount_cents: (BigInt(line.remaining_cents) < BigInt(0)
+                          ? -n
+                          : n
+                        ).toString(),
+                      },
+                    ],
+                  });
+                } catch (e) {
+                  cmd.setError(
+                    e instanceof Error ? e.message : "Check the amount.",
+                  );
+                }
+              }}
+            >
+              Add
+            </Button>
+          </div>
         </div>
-        <Pagination
-          offset={page * 100}
-          limit={100}
-          total={data?.line_count ?? 0}
-          onChange={(offset) => {
-            setPage(Math.floor(offset / 100));
-            setLine(null);
-          }}
-          className="px-0"
-        />
-        <TextInput
-          label="Amount on the statement (positive)"
-          inputMode="decimal"
-          value={amount}
-          onChange={(nextValue) => setAmount(nextValue)}
-        />
-        <ErrorText value={cmd.error || readError} />
-        <Button
-          disabled={!line || cmd.busy}
-          loading={cmd.busy}
-          onClick={async () => {
-            try {
-              const n = parseUsd(amount);
-              if (n <= BigInt(0) || !line)
-                throw new Error("Choose a transaction and a positive amount.");
-              await cmd.execute({
-                type: "reconciliation.allocate",
-                id: r.id,
-                expected_version: r.version,
-                allocations: [
-                  {
-                    id,
-                    entry_line_id: line.id,
-                    amount_cents: (BigInt(line.remaining_cents) < BigInt(0)
-                      ? -n
-                      : n
-                    ).toString(),
-                  },
-                ],
-              });
-            } catch (e) {
-              cmd.setError(
-                e instanceof Error ? e.message : "Check the amount.",
-              );
-            }
-          }}
-        >
-          Add to statement
-        </Button>
       </DialogContent>
     </Dialog>
   );

@@ -3,6 +3,7 @@ import { Radio } from "@/components/ui/inputs/RadioGroup";
 import { useEffect, useId, useState } from "react";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Pagination } from "@/components/ui/pagination";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { JournalEntry } from "@/lib/accounting/contracts";
 import { dateLabel, enumLabel } from "./format";
 import { accountingGet } from "./use-accounting-command";
@@ -103,11 +104,25 @@ export function AccountingEntryPicker({
             </span>
           </label>
         ))}
-        {!result?.entries.length && (
-          <p className="p-5 text-sm text-muted-foreground">
-            {loading ? "Finding transactions..." : "No matching transactions."}
-          </p>
-        )}
+        {!result?.entries.length &&
+          (loading ? (
+            <div
+              role="status"
+              aria-label="Finding transactions..."
+              className="space-y-3 px-3 py-3"
+            >
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="space-y-2">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-3 w-1/2" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="p-5 text-sm text-muted-foreground">
+              No matching transactions.
+            </p>
+          ))}
       </div>
       <Pagination
         offset={offset}

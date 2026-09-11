@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { siteConfig } from "@/config/site";
 import { cn } from "@/lib/utils";
 import {
@@ -11,22 +11,33 @@ import {
   CircleDollarSign,
   ReceiptText,
   PiggyBank,
-  Landmark,
   BookOpen,
   Users2,
   Zap,
   Layers,
   LogOut,
   X,
+  ChevronDown,
+  Landmark,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 import { PAYROLL_ENABLED, ACCOUNTING_ENABLED } from "@/lib/env";
+import {
+  ACCOUNTING_NAV,
+  accountingHref,
+  accountingNavFor,
+  resolveAccountingView,
+} from "@/lib/accounting/views";
 
 interface NavItem {
   title: string;
   href: string;
-  icon: React.ComponentType<{ size?: number; className?: string; "aria-hidden"?: boolean }>;
+  icon: React.ComponentType<{
+    size?: number;
+    className?: string;
+    "aria-hidden"?: boolean;
+  }>;
 }
 
 const navItems: NavItem[] = [
@@ -50,11 +61,6 @@ const navItems: NavItem[] = [
     href: "/net-worth",
     icon: PiggyBank,
   },
-  {
-    title: "Tax Estimator",
-    href: "/tax-payments",
-    icon: Landmark,
-  },
   ...(PAYROLL_ENABLED
     ? [
         {
@@ -64,7 +70,14 @@ const navItems: NavItem[] = [
         },
       ]
     : []),
-  ...(ACCOUNTING_ENABLED ? [{ title: "Accounting", href: "/accounting", icon: BookOpen }] : []),
+  ...(ACCOUNTING_ENABLED
+    ? [{ title: "Accounting", href: "/accounting", icon: BookOpen }]
+    : []),
+  {
+    title: "Tax Estimator",
+    href: "/tax-payments",
+    icon: Landmark,
+  },
   {
     title: "Automations",
     href: "/automations",
@@ -76,6 +89,74 @@ const navItems: NavItem[] = [
     icon: Layers,
   },
 ];
+
+const ACCOUNTING_HREF = "/accounting";
+
+/** The rail under Accounting: one hairline under the parent icon, a brand tick beside the open screen. */
+function AccountingLinks({
+  onNavigate,
+  reviewCount,
+}: {
+  onNavigate: () => void;
+  reviewCount: number;
+}) {
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const onAccounting = pathname === ACCOUNTING_HREF;
+  const current = onAccounting
+    ? accountingNavFor(
+        resolveAccountingView(params.get("view"), params.get("section")),
+      )
+    : null;
+  return (
+    <div className="relative ml-[20.5px] mt-0.5 mb-1 animate-slideDown">
+      <span
+        className="absolute left-0 top-1 bottom-1 w-px bg-white/[0.08]"
+        aria-hidden="true"
+      />
+      {ACCOUNTING_NAV.map((link) => {
+        const href = accountingHref(link.view);
+        const active = current === link.view;
+        return (
+          <Link
+            key={link.view}
+            href={href}
+            onClick={(e) => {
+              onNavigate();
+              // Already on the books: swap the view in place instead of a
+              // server round trip, exactly as the screens do themselves.
+              if (onAccounting) {
+                e.preventDefault();
+                window.history.pushState(null, "", href);
+              }
+            }}
+            aria-current={active ? "page" : undefined}
+            className={cn(
+              "relative flex items-center gap-2 pl-[21.5px] pr-3 py-1.5 rounded-md text-[13px] font-medium transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+              active ? "text-teal-light" : "text-zinc-500 hover:text-zinc-200",
+            )}
+          >
+            {active && (
+              <span
+                className="absolute -left-[0.5px] top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-full bg-brand-400"
+                aria-hidden="true"
+              />
+            )}
+            <span className="flex-1">{link.label}</span>
+            {link.view === "journal" && reviewCount > 0 && (
+              <span
+                className="rounded-full bg-copper/20 px-1.5 text-[10px] font-semibold leading-4 tabular-nums text-copper"
+                aria-label={`${reviewCount} to review`}
+              >
+                {reviewCount > 99 ? "99+" : reviewCount}
+              </span>
+            )}
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -89,6 +170,42 @@ export function Sidebar() {
     window.addEventListener("open-sidebar", open);
     return () => window.removeEventListener("open-sidebar", open);
   }, []);
+
+  // Accounting expands into its screens. null = follow the route (open while
+  // on the books); a manual toggle always wins.
+  const [accountingOpen, setAccountingOpen] = React.useState<boolean | null>(
+    null,
+  );
+  const onAccounting =
+    pathname === ACCOUNTING_HREF || pathname.startsWith(`${ACCOUNTING_HREF}/`);
+  const accountingExpanded = accountingOpen ?? onAccounting;
+
+  // Drafts waiting for a category: the number the Transactions link carries.
+  // Refreshed on navigation and whenever the books report a change.
+  const [reviewCount, setReviewCount] = React.useState(0);
+  const fetchReviewCount = React.useCallback(async () => {
+    if (!ACCOUNTING_ENABLED || isDemoMode()) return;
+    try {
+      const filter = JSON.stringify({ status: "draft", offset: 0, limit: 1 });
+      const response = await fetch(
+        `/api/accounting?view=register&filter=${encodeURIComponent(filter)}`,
+        { cache: "no-store" },
+      );
+      if (!response.ok) return;
+      const result = (await response.json()) as { total?: number };
+      if (typeof result.total === "number") setReviewCount(result.total);
+    } catch {
+      /* The badge is a convenience; the pages carry the real count. */
+    }
+  }, []);
+  React.useEffect(() => {
+    void fetchReviewCount();
+  }, [fetchReviewCount, pathname]);
+  React.useEffect(() => {
+    const handler = () => void fetchReviewCount();
+    window.addEventListener("accounting-refreshed", handler);
+    return () => window.removeEventListener("accounting-refreshed", handler);
+  }, [fetchReviewCount]);
 
   const handleSignOut = async () => {
     // In demo mode, just redirect without calling Supabase
@@ -132,7 +249,8 @@ export function Sidebar() {
     setMobileOpen(false);
   };
 
-  const settingsActive = pathname === "/settings" || pathname.startsWith("/settings/");
+  const settingsActive =
+    pathname === "/settings" || pathname.startsWith("/settings/");
   const initials = siteConfig.realName
     .split(" ")
     .map((word) => word[0])
@@ -160,7 +278,7 @@ export function Sidebar() {
           "fixed top-0 left-0 h-full w-60 glass-sidebar flex flex-col z-50",
           "transform transition-transform duration-200 ease-out",
           "lg:translate-x-0",
-          mobileOpen ? "translate-x-0" : "-translate-x-full"
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
         )}
       >
         {/* Logo header, h-16 so its border aligns with the page header */}
@@ -192,6 +310,56 @@ export function Sidebar() {
             const Icon = item.icon;
             const active = isActive(item.href);
 
+            // Accounting is the one expandable group: the row toggles the
+            // rail of its screens instead of navigating, so the books need
+            // no tab bar of their own. The parent reads active only while a
+            // screen is open; expanding alone does not color it.
+            if (item.href === ACCOUNTING_HREF) {
+              return (
+                <div key={item.href}>
+                  <button
+                    type="button"
+                    onClick={() => setAccountingOpen(!accountingExpanded)}
+                    aria-expanded={accountingExpanded}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                      active
+                        ? "bg-primary/15 text-teal-light glow-brand-soft"
+                        : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
+                    )}
+                  >
+                    <span className="relative flex-shrink-0 leading-none">
+                      <Icon size={18} aria-hidden />
+                      {!accountingExpanded && reviewCount > 0 && (
+                        <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white bg-primary">
+                          {reviewCount > 9 ? "9+" : reviewCount}
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-sm font-medium flex-1 text-left">
+                      {item.title}
+                    </span>
+                    <ChevronDown
+                      size={14}
+                      className={cn(
+                        "flex-shrink-0 transition-transform",
+                        !accountingExpanded && "-rotate-90",
+                      )}
+                      aria-hidden
+                    />
+                  </button>
+                  {accountingExpanded && (
+                    <React.Suspense fallback={null}>
+                      <AccountingLinks
+                        onNavigate={handleNavClick}
+                        reviewCount={reviewCount}
+                      />
+                    </React.Suspense>
+                  )}
+                </div>
+              );
+            }
+
             return (
               <Link
                 key={item.href}
@@ -201,7 +369,7 @@ export function Sidebar() {
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150",
                   active
                     ? "bg-primary/15 text-teal-light glow-brand-soft"
-                    : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200"
+                    : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
                 )}
               >
                 <span className="relative flex-shrink-0 leading-none">
@@ -220,7 +388,9 @@ export function Sidebar() {
             onClick={handleNavClick}
             className={cn(
               "flex items-center gap-3 px-2 py-2 rounded-lg transition-colors",
-              settingsActive ? "bg-primary/15 glow-brand-soft" : "hover:bg-white/5"
+              settingsActive
+                ? "bg-primary/15 glow-brand-soft"
+                : "hover:bg-white/5",
             )}
           >
             <span
@@ -236,7 +406,7 @@ export function Sidebar() {
               <span
                 className={cn(
                   "block text-xs truncate",
-                  settingsActive ? "text-teal-light" : "text-zinc-500"
+                  settingsActive ? "text-teal-light" : "text-zinc-500",
                 )}
               >
                 Owner

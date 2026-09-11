@@ -1,8 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
-import { Link2, Check, Search, ArrowUpRight } from "lucide-react";
+import { Check, Search, ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { TextInput } from "@/components/ui/inputs/TextInput";
@@ -16,6 +15,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { MaskedValue } from "@/components/ui/masked-value";
+import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { BankReview } from "@/lib/accounting/bank-matching";
 import { parseUsd, centsToDecimal } from "@/lib/accounting/money";
@@ -47,7 +47,6 @@ export function AccountingBankMatch({
     [selected, setSelected] = useState<Candidate | null>(null),
     [amount, setAmount] = useState(""),
     [reason, setReason] = useState(""),
-    [approved, setApproved] = useState(false),
     [release, setRelease] = useState<{ id: string; match: Match } | null>(null),
     [releaseReason, setReleaseReason] = useState("");
   const command = useAccountingCommand();
@@ -93,12 +92,12 @@ export function AccountingBankMatch({
         cents !== null &&
         cents > BigInt(0) &&
         cents <= remaining &&
-        cents <= BigInt(selected.available_cents))) &&
-    (!completes || !data.drafts.length || approved);
+        cents <= BigInt(selected.available_cents)));
+  // A duplicate that is already fully allocated has nothing left to confirm.
+  const canSave = !!data && (!full || data.group.status !== "duplicate");
   async function refreshed() {
     setSelected(null);
     setAmount("");
-    setApproved(false);
     setTick((t) => t + 1);
     await onSaved();
   }
@@ -113,10 +112,10 @@ export function AccountingBankMatch({
       allocations: full
         ? []
         : [{ line_id: selected!.line_id, amount_cents: cents!.toString() }],
-      discard_drafts:
-        completes && approved
-          ? data.drafts.map((d) => ({ id: d.id, expected_version: d.version }))
-          : [],
+      // Completing the movement retires the drafts that stand for the same source.
+      discard_drafts: completes
+        ? data.drafts.map((d) => ({ id: d.id, expected_version: d.version }))
+        : [],
     });
     if (result) await refreshed();
   }
@@ -139,7 +138,7 @@ export function AccountingBankMatch({
     if (command.busy) return;
     if (selected) {
       const ok = await confirm({
-        title: "Discard this unsaved bank match selection?",
+        title: "Discard selection?",
         description: "The selected bank line and amount will not be saved.",
         confirmLabel: "Discard",
         variant: "warning",
@@ -159,7 +158,6 @@ export function AccountingBankMatch({
           : remaining,
       ),
     );
-    setApproved(false);
   }
   const matchColumns: DataTableColumn<Match>[] = [
     {
@@ -184,7 +182,7 @@ export function AccountingBankMatch({
       align: "right",
       numeric: true,
       render: (m) => (
-        <MaskedValue value={money(m.amount_cents)} className="font-mono" />
+        <MaskedValue value={money(m.amount_cents)} className="tabular-nums" />
       ),
     },
     {
@@ -245,7 +243,10 @@ export function AccountingBankMatch({
       align: "right",
       numeric: true,
       render: (c) => (
-        <MaskedValue value={money(c.available_cents)} className="font-mono" />
+        <MaskedValue
+          value={money(c.available_cents)}
+          className="tabular-nums"
+        />
       ),
     },
   ];
@@ -256,12 +257,11 @@ export function AccountingBankMatch({
         if (!open) void close();
       }}
     >
-      <DialogContent className="max-h-[92dvh] max-w-4xl overflow-y-auto">
+      <DialogContent className="max-h-[92dvh] max-w-2xl overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Match bank evidence</DialogTitle>
-          <DialogDescription>
-            Attach this imported movement to posted bank lines. Partial matches
-            never create another posting.
+          <DialogTitle>Match bank movement</DialogTitle>
+          <DialogDescription className="sr-only">
+            Attach this imported movement to posted bank lines.
           </DialogDescription>
         </DialogHeader>
         <div className="mt-5 space-y-5">
@@ -271,49 +271,51 @@ export function AccountingBankMatch({
             </p>
           )}
           {!data && loading && (
-            <p role="status" className="text-sm text-muted-foreground">
-              Loading bank movement…
-            </p>
+            <div
+              role="status"
+              aria-label="Loading bank movement..."
+              className="space-y-5"
+            >
+              <div className="flex flex-wrap justify-between gap-3">
+                <div className="space-y-2">
+                  <Skeleton className="h-5 w-48" />
+                  <Skeleton className="h-3 w-40" />
+                </div>
+                <Skeleton className="h-5 w-24" />
+              </div>
+              <TableSkeleton rows={3} />
+            </div>
           )}
           {data && (
             <>
               {data.source_conflict && (
-                <p
-                  role="alert"
-                  className="rounded-lg border border-warning/30 p-3 text-sm"
-                >
-                  This provider identity has conflicting dates, accounts, or
-                  amounts in the source history. Resolve the changed source
-                  record before matching it.
+                <p role="alert" className="text-sm text-warning">
+                  The source record changed. Resolve it before matching.
                 </p>
               )}
-              <section className="glass-card rounded-xl p-4">
-                <div className="flex flex-wrap justify-between gap-3">
-                  <div>
-                    <h3 className="font-medium">{data.group.memo}</h3>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {dateLabel(data.group.entry_date)} ·{" "}
-                      {data.group.account_name}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {data.group.source_system} · {data.group.source_scope}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <MaskedValue
-                      value={money(data.group.bank_amount_cents)}
-                      className="font-mono tabular-nums"
-                    />
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Remaining:{" "}
-                      <MaskedValue
-                        value={money(data.remaining_cents)}
-                        className="tabular-nums"
-                      />
-                    </p>
-                  </div>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-medium">{data.group.memo}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {dateLabel(data.group.entry_date)} ·{" "}
+                    {data.group.account_name} · {data.group.source_system} ·{" "}
+                    {data.group.source_scope}
+                  </p>
                 </div>
-              </section>
+                <div className="text-right">
+                  <MaskedValue
+                    value={money(data.group.bank_amount_cents)}
+                    className="tabular-nums"
+                  />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Remaining{" "}
+                    <MaskedValue
+                      value={money(data.remaining_cents)}
+                      className="tabular-nums"
+                    />
+                  </p>
+                </div>
+              </div>
               {data.matches.length > 0 && (
                 <section>
                   <SectionHeader
@@ -335,7 +337,7 @@ export function AccountingBankMatch({
                           </div>
                           <MaskedValue
                             value={money(m.amount_cents)}
-                            className="shrink-0 font-mono text-sm tabular-nums"
+                            className="shrink-0 text-sm tabular-nums"
                           />
                         </div>
                         {m.release ? (
@@ -375,22 +377,19 @@ export function AccountingBankMatch({
                 </section>
               )}
               {release && (
-                <section className="rounded-lg border border-warning/30 p-4">
-                  <h3 className="text-sm font-medium">
-                    Release this evidence match
-                  </h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {release.match.memo}. The posted transaction stays in the
-                    books; this source returns to review.
+                <div className="space-y-3 border-t border-border pt-4">
+                  <p className="text-sm font-medium">
+                    Release {release.match.memo}
                   </p>
                   <TextInput
-                    label="Release reason"
-                    className="mt-3"
+                    label="Reason"
+                    placeholder="Why this match is wrong"
                     value={releaseReason}
                     onChange={(nextValue) => setReleaseReason(nextValue)}
                     maxLength={1000}
+                    required
                   />
-                  <div className="mt-3 flex justify-end gap-2">
+                  <div className="flex justify-end gap-2">
                     <Button
                       size="sm"
                       variant="ghost"
@@ -408,39 +407,25 @@ export function AccountingBankMatch({
                         void releaseMatch().catch((e) => setError(e.message))
                       }
                     >
-                      Release match
+                      Release
                     </Button>
                   </div>
-                </section>
+                </div>
               )}
               {!full && (
                 <section className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <Search
-                      size={16}
-                      className="text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                    <h3 className="text-sm font-medium">
-                      Find a posted bank line
-                    </h3>
-                  </div>
                   <TextInput
-                    aria-label="Search matching entries"
-                    placeholder="Search a description or exact YYYY-MM-DD date"
+                    label="Posted bank line"
+                    leftIcon={Search}
+                    placeholder="Search a description or YYYY-MM-DD"
                     value={query}
                     onChange={(nextValue) => {
                       setQuery(nextValue);
                       setOffset(0);
                       setSelected(null);
-                      setApproved(false);
                     }}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Closest dates appear first. Available amounts exclude
-                    allocations already made by this source.
-                  </p>
-                  <div className="max-h-64 overflow-y-auto glass-card rounded-xl">
+                  <div className="max-h-64 overflow-y-auto rounded-xl border border-border">
                     <DataTable
                       columns={candidateColumns}
                       data={data.candidates}
@@ -477,7 +462,7 @@ export function AccountingBankMatch({
                           <span className="shrink-0 text-right">
                             <MaskedValue
                               value={money(c.available_cents)}
-                              className="font-mono tabular-nums"
+                              className="tabular-nums"
                             />
                             <span className="mt-1 block text-xs text-muted-foreground">
                               Available
@@ -495,32 +480,32 @@ export function AccountingBankMatch({
                     onChange={setOffset}
                   />
                   {selected && (
-                    <div className="rounded-lg border border-primary/30 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="text-sm font-medium">{selected.memo}</p>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="min-w-0 truncate text-sm font-medium">
+                          {selected.memo}
+                        </p>
                         <Button
                           size="sm"
-                          variant="ghost"
+                          variant="link"
+                          className="h-auto shrink-0 px-0"
                           onClick={() => onEntry(selected.entry_id)}
                         >
-                          <ArrowUpRight size={14} aria-hidden="true" />
                           Inspect
+                          <ArrowUpRight size={14} aria-hidden="true" />
                         </Button>
                       </div>
                       <TextInput
-                        label="Amount to match (USD)"
+                        label="Amount (USD)"
                         inputMode="decimal"
                         value={amount}
-                        onChange={(nextValue) => {
-                          setAmount(nextValue);
-                          setApproved(false);
-                        }}
+                        onChange={setAmount}
+                        description={
+                          completes
+                            ? "Completes the movement"
+                            : "The rest stays in review"
+                        }
                       />
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {completes
-                          ? "This completes the source movement."
-                          : "Any unmatched amount remains in review."}
-                      </p>
                     </div>
                   )}
                 </section>
@@ -531,74 +516,48 @@ export function AccountingBankMatch({
                   className="flex items-center gap-2 text-sm text-teal-light"
                 >
                   <Check size={16} aria-hidden="true" />
-                  This source movement is fully allocated.
+                  This movement is fully allocated.
                 </p>
               )}
               {completes && data.drafts.length > 0 && (
-                <section className="space-y-3 rounded-lg border border-warning/30 p-4">
-                  <h3 className="text-sm font-medium">
-                    Resolve redundant imported drafts
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    These unposted drafts represent the same source. Completing
-                    the match discards them and retains their history and linked
-                    documents.
+                <div>
+                  <p className="text-sm font-medium">
+                    Drafts discarded on completion
                   </p>
-                  {data.drafts.map((d) => (
-                    <details key={d.id} className="text-sm">
-                      <summary className="cursor-pointer">
-                        {dateLabel(d.entry_date)} · {d.memo}
-                      </summary>
-                      <div className="mt-2 space-y-1 pl-3">
-                        {d.lines.map((l) => (
-                          <div
-                            key={l.id}
-                            className="flex justify-between gap-3"
-                          >
-                            <span>{l.account_name}</span>
-                            <MaskedValue
-                              value={money(l.amount_cents)}
-                              className="tabular-nums"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  ))}
-                  <Checkbox
-                    className="items-start text-left"
-                    checked={approved}
-                    onChange={setApproved}
-                    label="I reviewed these drafts and approve discarding them when this match completes."
-                  />
-                </section>
-              )}
-              {(!full || data.group.status !== "duplicate") && (
-                <>
-                  <TextInput
-                    label="Matching reason"
-                    placeholder="Explain how the source and posting agree"
-                    value={reason}
-                    onChange={(nextValue) => setReason(nextValue)}
-                    maxLength={1000}
-                  />
-                  <div className="flex justify-end">
-                    <Button
-                      disabled={!valid || command.busy || !!release}
-                      loading={command.busy}
-                      onClick={() =>
-                        void save().catch((e) => setError(e.message))
-                      }
-                    >
-                      <Link2 size={15} aria-hidden="true" />
-                      {full
-                        ? "Confirm existing allocation"
-                        : completes
-                          ? "Complete match"
-                          : "Save partial match"}
-                    </Button>
+                  <div className="mt-2 divide-y divide-border rounded-xl border border-border text-sm">
+                    {data.drafts.map((d) => (
+                      <details key={d.id} className="px-4 py-3">
+                        <summary className="cursor-pointer">
+                          {dateLabel(d.entry_date)} · {d.memo}
+                        </summary>
+                        <div className="mt-2 space-y-1 pl-3">
+                          {d.lines.map((l) => (
+                            <div
+                              key={l.id}
+                              className="flex justify-between gap-3"
+                            >
+                              <span>{l.account_name}</span>
+                              <MaskedValue
+                                value={money(l.amount_cents)}
+                                className="tabular-nums"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                    ))}
                   </div>
-                </>
+                </div>
+              )}
+              {canSave && (
+                <TextInput
+                  label="Reason"
+                  placeholder="How the source and posting agree"
+                  value={reason}
+                  onChange={(nextValue) => setReason(nextValue)}
+                  maxLength={1000}
+                  required
+                />
               )}
             </>
           )}
@@ -607,25 +566,23 @@ export function AccountingBankMatch({
               {command.error}
             </p>
           )}
-          <div className="flex justify-between border-t border-border pt-4">
+          <div className="flex justify-end gap-2">
             <Button
               variant="ghost"
               disabled={command.busy}
-              onClick={() => {
-                setSelected(null);
-                setApproved(false);
-                setTick((t) => t + 1);
-              }}
-            >
-              Refresh review
-            </Button>
-            <Button
-              variant="outline"
-              disabled={command.busy}
               onClick={() => void close()}
             >
-              Done
+              {canSave ? "Cancel" : "Close"}
             </Button>
+            {canSave && (
+              <Button
+                disabled={!valid || command.busy || !!release}
+                loading={command.busy}
+                onClick={() => void save().catch((e) => setError(e.message))}
+              >
+                {full ? "Confirm" : "Match"}
+              </Button>
+            )}
           </div>
         </div>
         {dialog}

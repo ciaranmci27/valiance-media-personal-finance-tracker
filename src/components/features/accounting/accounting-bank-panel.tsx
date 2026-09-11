@@ -1,8 +1,15 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, CreditCard, Landmark, RefreshCw } from "lucide-react";
+import {
+  ArrowUpRight,
+  CheckCircle2,
+  CircleAlert,
+  CircleDashed,
+  RefreshCw,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
+import { InstitutionLogo } from "@/components/ui/institution-logo";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { SectionHeader } from "@/components/ui/section-header";
 import { toast } from "@/components/ui/toast";
@@ -12,21 +19,23 @@ import type { FeedData } from "@/lib/accounting/feeds";
 import { accountingGet } from "./use-accounting-command";
 import { money, timestampLabel } from "./format";
 
-type Status = "connected" | "reconnect" | "disconnected" | "none";
+type Status = "connected" | "reconnect" | "disconnected" | "unmapped" | "none";
 
 const STATUS: Record<Status, { label: string; variant: BadgeVariant }> = {
   connected: { label: "Connected", variant: "success" },
   reconnect: { label: "Reconnect", variant: "warning" },
   disconnected: { label: "Disconnected", variant: "default" },
+  unmapped: { label: "Not mapped", variant: "warning" },
   none: { label: "No feed", variant: "default" },
 };
 
 const ZERO = BigInt(0);
 
 /**
- * Bank and card accounts with the book balance beside the balance the bank
- * reported, the last sync and a Sync now. This is the daily "do the books
- * match the bank" glance; the chart of accounts sits below it.
+ * Bank and card accounts as tiles: the institution mark, the book balance in
+ * large type, and one quiet line saying whether the bank agrees. This is the
+ * daily "do the books match the bank" glance; the chart of accounts sits
+ * below it.
  */
 export function AccountingBankPanel({
   accounts,
@@ -120,7 +129,9 @@ export function AccountingBankPanel({
     const identity = best?.identity ?? null;
     const connection = best?.connection ?? null;
     const status: Status = !connection
-      ? "none"
+      ? feeds?.connections.some((c) => c.status === "active")
+        ? "unmapped"
+        : "none"
       : connection.status === "active"
         ? "connected"
         : connection.status === "reconnect_required"
@@ -156,119 +167,118 @@ export function AccountingBankPanel({
         }
       />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        {rows.map((r) => (
-          <div
-            key={r.account.id}
-            className={cn(
-              "glass-card flex flex-col gap-3 rounded-xl p-4",
-              r.difference !== null &&
-                r.difference !== ZERO &&
-                "border-warning/30",
-            )}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <button
-                type="button"
-                onClick={() => onLedger(r.account)}
-                className="flex min-w-0 items-center gap-2.5 rounded text-left transition-colors hover:text-teal-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-teal-light">
-                  {isCard(r.account) ? (
-                    <CreditCard size={15} aria-hidden="true" />
-                  ) : (
-                    <Landmark size={15} aria-hidden="true" />
-                  )}
-                </span>
-                <span className="min-w-0">
-                  <span className="block truncate text-sm font-medium">
-                    {r.account.name}
-                  </span>
-                  <span className="block truncate text-[11px] text-muted-foreground">
-                    {r.identity?.institution || r.account.code}
-                  </span>
-                </span>
-              </button>
-              {(!demo || r.status !== "none") && (
-                <Badge variant={STATUS[r.status].variant} size="sm" dot>
-                  {STATUS[r.status].label}
-                </Badge>
+        {rows.map((r) => {
+          const off = r.difference !== null && r.difference !== ZERO;
+          return (
+            <div
+              key={r.account.id}
+              className={cn(
+                "glass-card flex min-w-0 flex-col gap-4 rounded-xl p-4",
+                off && "border-warning/30",
               )}
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-                  Books
-                </p>
-                <p className="mt-0.5 font-mono text-lg tracking-tight">
+            >
+              <div className="flex items-start justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => onLedger(r.account)}
+                  className="flex min-w-0 items-center gap-3 rounded text-left transition-colors hover:text-teal-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <InstitutionLogo
+                    institution={r.identity?.institution}
+                    name={r.account.name}
+                    size={36}
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium">
+                      {r.account.name}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {isCard(r.account) ? "Credit card" : "Bank account"}
+                      {r.identity?.institution
+                        ? ` · ${r.identity.institution}`
+                        : ""}
+                    </span>
+                  </span>
+                </button>
+                {(!demo || r.status !== "none") && (
+                  <Badge variant={STATUS[r.status].variant} size="sm" dot>
+                    {STATUS[r.status].label}
+                  </Badge>
+                )}
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-semibold tracking-tight tabular-nums">
                   <MaskedValue value={money(r.book)} />
                 </p>
-              </div>
-              <div>
-                <p className="text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
-                  Bank
-                </p>
-                <p className="mt-0.5 font-mono text-lg tracking-tight">
-                  {r.difference !== null ? (
-                    <MaskedValue value={money(r.book - r.difference)} />
-                  ) : (
-                    <span className="font-sans text-sm text-muted-foreground">
-                      {demo ? "Live only" : "Not reported"}
+                <p className="mt-1 truncate text-xs text-muted-foreground">
+                  {off ? (
+                    <span className="inline-flex items-center gap-1 text-warning">
+                      <CircleAlert size={12} aria-hidden="true" />
+                      Bank shows{" "}
+                      <MaskedValue value={money(r.book - r.difference!)} />
                     </span>
+                  ) : r.difference !== null ? (
+                    <span className="inline-flex items-center gap-1 text-teal-light">
+                      <CheckCircle2 size={12} aria-hidden="true" />
+                      Matches the bank
+                      {r.connection?.last_success_at
+                        ? ` · synced ${timestampLabel(r.connection.last_success_at)}`
+                        : ""}
+                    </span>
+                  ) : r.connection?.last_success_at ? (
+                    `Synced ${timestampLabel(r.connection.last_success_at)}`
+                  ) : r.status === "unmapped" ? (
+                    <button
+                      type="button"
+                      onClick={onFeeds}
+                      className="inline-flex items-center gap-1 rounded text-warning hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <CircleAlert size={12} aria-hidden="true" />
+                      Connected, not mapped yet. Map it in Bank feeds
+                    </button>
+                  ) : r.status === "none" ? (
+                    <span className="inline-flex items-center gap-1">
+                      <CircleDashed size={12} aria-hidden="true" />
+                      {demo ? "Connect a feed after go-live" : "Not connected"}
+                    </span>
+                  ) : (
+                    "Never synced"
                   )}
                 </p>
               </div>
-            </div>
-            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-              <span className="min-w-0 truncate">
-                {r.difference !== null && r.difference !== ZERO ? (
-                  <span className="text-warning">
-                    Off by <MaskedValue value={money(r.difference)} />
-                  </span>
-                ) : r.connection?.last_success_at ? (
-                  `Synced ${timestampLabel(r.connection.last_success_at)}`
-                ) : r.status === "none" ? (
-                  demo ? (
-                    "Connect a feed after go-live"
-                  ) : (
-                    "Connect this account in Bank feeds"
-                  )
-                ) : (
-                  "Never synced"
-                )}
-              </span>
-              <span className="flex shrink-0 items-center gap-1">
-                {!demo && (
+              {!demo && (
+                <div className="-mx-2 -mb-1 flex flex-wrap items-center gap-1">
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 px-2"
+                    className="h-8 px-2"
                     onClick={() => onReconcile(r.account)}
                   >
                     Reconcile
                   </Button>
-                )}
-                {r.connection && !demo && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2"
-                    disabled={syncing !== null || r.status === "disconnected"}
-                    onClick={() => void sync(r.connection!.id)}
-                  >
-                    <RefreshCw
-                      size={13}
-                      aria-hidden="true"
-                      className={cn(
-                        syncing === r.connection.id && "animate-spin",
-                      )}
-                    />
-                    Sync now
-                  </Button>
-                )}
-              </span>
+                  {r.connection && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2"
+                      disabled={syncing !== null || r.status === "disconnected"}
+                      onClick={() => void sync(r.connection!.id)}
+                    >
+                      <RefreshCw
+                        size={13}
+                        aria-hidden="true"
+                        className={cn(
+                          syncing === r.connection.id && "animate-spin",
+                        )}
+                      />
+                      Sync now
+                    </Button>
+                  )}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </section>
   );

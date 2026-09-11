@@ -6,6 +6,7 @@ import {
   ArrowRight,
   CheckCircle2,
   Clock3,
+  EyeOff,
   Landmark,
   Link2,
   Plus,
@@ -14,10 +15,11 @@ import {
 } from "lucide-react";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/inputs/Checkbox";
+import { InstitutionLogo } from "@/components/ui/institution-logo";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Select } from "@/components/ui/inputs/Select";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import { Toggle } from "@/components/ui/inputs/Toggle";
 import {
@@ -237,9 +239,20 @@ export function AccountingFeeds({
         ))}
       </div>
       {!state && !demo && !error && (
-        <p role="status" className="text-sm text-muted-foreground">
-          Loading connections...
-        </p>
+        <div
+          role="status"
+          aria-label="Loading connections..."
+          className="glass-card overflow-hidden rounded-xl"
+        >
+          <div className="space-y-2 border-b border-border p-5">
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-3 w-72" />
+          </div>
+          <div className="space-y-3 p-5">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+          </div>
+        </div>
       )}
       {state?.connections.length === 0 && (
         <div className="glass-card flex flex-col items-center rounded-xl px-6 py-12 text-center">
@@ -340,14 +353,28 @@ export function AccountingFeeds({
                 )}
               </div>
             </div>
-            {connection.last_error && (
+            {connection.last_error.startsWith("Discover and review") ? (
+              <p
+                role="status"
+                className="border-b border-border bg-[rgba(var(--ink),0.04)] px-5 py-3 text-sm"
+              >
+                <span className="font-medium">
+                  {identities.filter((i) => i.feed_account_id).length} of{" "}
+                  {identities.length} accounts mapped.
+                </span>{" "}
+                <span className="text-muted-foreground">
+                  Nothing syncs until each account below is mapped to a book
+                  account, or marked personal or ignored.
+                </span>
+              </p>
+            ) : connection.last_error ? (
               <p
                 role="status"
                 className="border-b border-border bg-warning/10 px-5 py-3 text-sm text-warning"
               >
                 {connection.last_error}
               </p>
-            )}
+            ) : null}
             {connection.status === "claiming" && (
               <p className="px-5 py-3 text-sm text-muted-foreground">
                 A one-time setup attempt is recorded. If it stopped
@@ -373,42 +400,110 @@ export function AccountingFeeds({
                     balance !== null && balance !== undefined && mapped
                       ? BigInt(balance) * BigInt(mapped.balance_sign)
                       : null;
+                const twin = identities.some(
+                  (o) =>
+                    o.id !== identity.id &&
+                    o.name === identity.name &&
+                    o.institution === identity.institution,
+                );
+                const locked =
+                  demo || cmd.busy || running || connection.status !== "active";
+                const ignore = () =>
+                  void cmd.execute({
+                    type: "feed.map",
+                    id: identity.id,
+                    expected_version: identity.version,
+                    ownership: "ignored",
+                    account_id: null,
+                    history_start: String(Math.floor(Date.now() / 1000)),
+                    posting_timezone: "America/Phoenix",
+                    movement_sign: 1,
+                    balance_sign: 1,
+                    reviewed: true,
+                    reason: "Ignored from Bank feeds",
+                  });
                 return (
                   <div key={identity.id} className="p-5">
-                    <div className="flex flex-wrap justify-between gap-3">
-                      <div>
-                        <p className="font-medium">
-                          {identity.name}
-                          <span className="ml-2 text-xs text-muted-foreground">
-                            {identity.currency}
-                          </span>
-                        </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {identity.institution} ·{" "}
-                          {undecided
-                            ? "Ownership decision required"
-                            : unmapped
-                              ? "Book account mapping required"
-                              : mapped
-                                ? accountName(mapped.account_id)
-                                : identity.ownership === "personal"
-                                  ? "Personal account, excluded"
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <InstitutionLogo
+                          institution={identity.institution}
+                          name={identity.name}
+                          size={36}
+                        />
+                        <div className="min-w-0">
+                          <p className="flex flex-wrap items-center gap-2 font-medium">
+                            <span className="truncate">{identity.name}</span>
+                            {undecided || unmapped ? (
+                              <Badge variant="warning" size="sm" dot>
+                                Needs mapping
+                              </Badge>
+                            ) : mapped ? (
+                              <Badge variant="success" size="sm" dot>
+                                Mapped
+                              </Badge>
+                            ) : (
+                              <Badge size="sm">
+                                {identity.ownership === "personal"
+                                  ? "Personal"
                                   : "Ignored"}
-                        </p>
+                              </Badge>
+                            )}
+                          </p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {identity.institution}
+                            {identity.currency !== "USD"
+                              ? ` · ${identity.currency}`
+                              : ""}
+                            {" · "}
+                            {undecided
+                              ? "Not mapped yet"
+                              : unmapped
+                                ? "Choose the book account it feeds"
+                                : mapped
+                                  ? `Feeds ${accountName(mapped.account_id)}`
+                                  : identity.ownership === "personal"
+                                    ? "Personal, left out of the books"
+                                    : "Ignored"}
+                          </p>
+                          {twin && (
+                            <p className="mt-1 text-xs text-warning">
+                              The bank lists this account more than once. Map
+                              one entry and ignore the other.
+                            </p>
+                          )}
+                        </div>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={
-                          demo ||
-                          cmd.busy ||
-                          running ||
-                          connection.status !== "active"
-                        }
-                        onClick={() => setMapping(identity)}
-                      >
-                        Review mapping
-                      </Button>
+                      <div className="flex shrink-0 items-center gap-2">
+                        {undecided && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={locked}
+                            onClick={ignore}
+                          >
+                            <EyeOff size={14} aria-hidden="true" />
+                            Ignore
+                          </Button>
+                        )}
+                        <Button
+                          size="sm"
+                          variant={
+                            undecided || unmapped ? "default" : "outline"
+                          }
+                          disabled={locked}
+                          onClick={() => setMapping(identity)}
+                        >
+                          {undecided
+                            ? "Map account"
+                            : unmapped
+                              ? "Choose account"
+                              : "Edit mapping"}
+                          {(undecided || unmapped) && (
+                            <ArrowRight size={14} aria-hidden="true" />
+                          )}
+                        </Button>
+                      </div>
                     </div>
                     {mapped && (
                       <div className="mt-4 grid gap-4 text-sm sm:grid-cols-3">
@@ -617,6 +712,7 @@ export function AccountingFeeds({
           accounts={data.accounts}
           profiles={manage.profiles}
           canonical={state.accounts}
+          defaultStart={manage.preferences?.primary_system_since ?? null}
           onClose={() => setMapping(null)}
           onSaved={async () => {
             await refresh();
@@ -714,57 +810,60 @@ function ConnectFeed({
         if (!open && !busy) onClose();
       }}
     >
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>
             {current ? "Reconnect SimpleFIN" : "Connect SimpleFIN"}
           </DialogTitle>
-          <DialogDescription>
-            Create a setup token in SimpleFIN, then paste it here. A token is
-            claimed once and its access credentials stay on the server.
+          <DialogDescription className="sr-only">
+            Paste a SimpleFIN setup token to connect your bank.
           </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-4"
+          className="space-y-5"
           onSubmit={(e) => {
             e.preventDefault();
             void save();
           }}
         >
-          <TextInput
-            label="Connection name"
-            value={name}
-            onChange={(nextValue) => setName(nextValue)}
-            maxLength={120}
-            required
-            disabled={busy || attempted}
-          />
-          <a
-            className="inline-flex items-center gap-1 text-sm text-teal-light underline underline-offset-4"
-            href="https://bridge.simplefin.org/simplefin/create"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Create a SimpleFIN setup token
-            <ArrowRight size={14} aria-hidden="true" />
-          </a>
-          <PasswordInput
-            label="Setup token"
-            className="font-mono"
-            autoComplete="off"
-            spellCheck={false}
-            value={token}
-            onChange={(nextValue) => setToken(nextValue)}
-            maxLength={12000}
-            required
-            disabled={busy || attempted}
-          />
-          {current && (
-            <p className="text-xs text-muted-foreground">
-              Review account mappings again after discovery. Reuse each existing
-              book account to preserve its history and opening balances.
-            </p>
-          )}
+          <div className="space-y-2">
+            <PasswordInput
+              label="Setup token"
+              placeholder="Paste your setup token"
+              className="font-mono"
+              autoComplete="off"
+              spellCheck={false}
+              value={token}
+              onChange={(nextValue) => setToken(nextValue)}
+              maxLength={12000}
+              required
+              disabled={busy || attempted}
+            />
+            <a
+              className="inline-flex items-center gap-1 text-xs text-teal-light underline-offset-4 hover:underline"
+              href="https://bridge.simplefin.org/simplefin/create"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Create a setup token in SimpleFIN
+              <ArrowRight size={12} aria-hidden="true" />
+            </a>
+          </div>
+          <details className="group rounded-xl border border-border">
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+              Advanced
+            </summary>
+            <div className="space-y-4 border-t border-border p-4">
+              <TextInput
+                label="Connection name"
+                value={name}
+                onChange={(nextValue) => setName(nextValue)}
+                maxLength={120}
+                required
+                disabled={busy || attempted}
+              />
+            </div>
+          </details>
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -773,16 +872,16 @@ function ConnectFeed({
           <div className="flex justify-end gap-2">
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               disabled={busy}
               onClick={onClose}
             >
-              {attempted ? "Close and review status" : "Cancel"}
+              {attempted ? "Close" : "Cancel"}
             </Button>
             <Button
               disabled={busy || attempted || !name.trim() || !token.trim()}
             >
-              {busy ? "Connecting..." : "Connect securely"}
+              {busy ? "Connecting..." : "Connect"}
             </Button>
           </div>
         </form>
@@ -795,6 +894,7 @@ function MapFeed({
   accounts,
   profiles,
   canonical,
+  defaultStart,
   onClose,
   onSaved,
 }: {
@@ -802,6 +902,8 @@ function MapFeed({
   accounts: AccountingWorkspace["accounts"];
   profiles: BooksMetadata["profiles"];
   canonical: FeedCanonicalAccount[];
+  /** The day these books became primary; history begins there so nothing already in the books is pulled twice. */
+  defaultStart: string | null;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -810,10 +912,10 @@ function MapFeed({
     >(identity.ownership === "unreviewed" ? "company" : identity.ownership),
     [accountId, setAccountId] = useState(identity.account?.account_id ?? ""),
     [start, setStart] = useState(
-      stampDate(
-        identity.account?.history_start ??
-          Math.floor(Date.now() / 1000) - 90 * 86400,
-      ),
+      identity.account
+        ? stampDate(identity.account.history_start)
+        : (defaultStart ??
+            stampDate(Math.floor(Date.now() / 1000) - 90 * 86400)),
     ),
     [zone, setZone] = useState<"UTC" | "America/Phoenix">(
       identity.account?.posting_timezone ?? "America/Phoenix",
@@ -823,9 +925,7 @@ function MapFeed({
     ),
     [balance, setBalance] = useState<1 | -1>(
       identity.account?.balance_sign ?? 1,
-    ),
-    [reason, setReason] = useState(""),
-    [reviewed, setReviewed] = useState(false);
+    );
   const cmd = useAccountingCommand(onSaved),
     existing = canonical.find((a) => a.account_id === accountId),
     banks = accounts.filter(
@@ -837,10 +937,10 @@ function MapFeed({
             ["bank", "card", "cash"].includes(p.cash_kind),
         ),
     );
-  const locked = !!existing && !existing.can_edit_settings;
+  const locked = !!existing && !existing.can_edit_settings,
+    usd = identity.currency === "USD";
   function choose(id: string) {
     setAccountId(id);
-    setReviewed(false);
     const saved = canonical.find((a) => a.account_id === id);
     if (saved) {
       setStart(stampDate(saved.history_start));
@@ -856,16 +956,15 @@ function MapFeed({
         if (!open && !cmd.busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[90vh] max-w-xl overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Review {identity.name}</DialogTitle>
-          <DialogDescription>
-            Confirm ownership, the matching book account, and the source sign
-            and date conventions against an original statement.
+          <DialogTitle>Map {identity.name}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Choose whose account this is and which book account it feeds.
           </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-4"
+          className="space-y-5"
           onSubmit={(e) => {
             e.preventDefault();
             const historyStart =
@@ -889,136 +988,93 @@ function MapFeed({
               movement_sign: movement,
               balance_sign: balance,
               reviewed: true,
-              reason,
+              reason: "Mapped from Bank feeds",
             });
           }}
         >
           <Select
-            label="Account ownership"
+            label="This account is"
             value={ownership}
             onChange={(value) => {
               setOwnership(value as typeof ownership);
-              setReviewed(false);
             }}
             options={[
               { value: "company", label: "Company account" },
-              {
-                value: "personal",
-                label: "Personal, exclude from company books",
-              },
-              { value: "ignored", label: "Ignore this account" },
+              { value: "personal", label: "Personal, leave it out" },
+              { value: "ignored", label: "Ignore it" },
             ]}
           />
           {ownership === "company" && (
             <>
               <Select
                 searchable
-                label="Book account"
-                visibleLabel="Book account"
+                label="Feeds book account"
+                visibleLabel="Feeds book account"
                 value={accountId}
                 onChange={choose}
-                placeholder="Choose an existing bank or card account"
+                placeholder="Choose a bank or card account"
                 required
                 options={banks.map((a) => ({ value: a.id, label: a.name }))}
+                error={
+                  usd ? undefined : "Only USD accounts can feed the books."
+                }
               />
-              {existing && (
-                <p className="rounded-lg bg-primary/5 p-3 text-xs">
-                  This account has a saved feed identity. Its original history
-                  settings and checkpoint will be reused.
-                </p>
-              )}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <DateInput
-                  label="History begins"
-                  value={start}
-                  onChange={(nextValue) => {
-                    setStart(nextValue);
-                    setReviewed(false);
-                  }}
-                  disabled={locked}
-                  required
-                />
-                <Select
-                  label="Posting date timezone"
-                  value={zone}
-                  onChange={(value) => {
-                    setZone(value as typeof zone);
-                    setReviewed(false);
-                  }}
-                  disabled={locked}
-                  options={[
-                    { value: "America/Phoenix", label: "America/Phoenix" },
-                    { value: "UTC", label: "UTC" },
-                  ]}
-                />
-              </div>
-              <Select
-                label="Transaction sign"
-                value={String(movement)}
-                onChange={(value) => {
-                  setMovement(Number(value) as 1 | -1);
-                  setReviewed(false);
-                }}
+              <DateInput
+                label="History begins"
+                value={start}
+                onChange={setStart}
                 disabled={locked}
-                options={[
-                  {
-                    value: "1",
-                    label:
-                      "Keep source sign: deposit/payment +, withdrawal/charge -",
-                  },
-                  {
-                    value: "-1",
-                    label: "Reverse source sign, supported by statement",
-                  },
-                ]}
+                required
+                description={
+                  locked
+                    ? "Kept from this account's saved feed."
+                    : defaultStart
+                      ? "Starts where these books became primary, so nothing is pulled twice."
+                      : undefined
+                }
               />
-              <Select
-                label="Balance sign"
-                value={String(balance)}
-                onChange={(value) => {
-                  setBalance(Number(value) as 1 | -1);
-                  setReviewed(false);
-                }}
-                disabled={locked}
-                options={[
-                  {
-                    value: "1",
-                    label: "Keep source sign: cash +, card debt -",
-                  },
-                  {
-                    value: "-1",
-                    label: "Reverse source balance, card debt shown positive",
-                  },
-                ]}
-              />
-              <p className="text-xs text-muted-foreground">
-                No opening balance is created from this connection. Longer
-                history may need original CSV exports. Only USD accounts are
-                supported.
-              </p>
+              <details className="group rounded-xl border border-border">
+                <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+                  Advanced
+                </summary>
+                <div className="space-y-4 border-t border-border p-4">
+                  <Select
+                    label="Transaction sign"
+                    value={String(movement)}
+                    onChange={(value) => {
+                      setMovement(Number(value) as 1 | -1);
+                    }}
+                    disabled={locked}
+                    options={[
+                      {
+                        value: "1",
+                        label: "Keep source sign (deposit +, charge -)",
+                      },
+                      { value: "-1", label: "Reverse source sign" },
+                    ]}
+                  />
+                  <Select
+                    label="Balance sign"
+                    value={String(balance)}
+                    onChange={(value) => {
+                      setBalance(Number(value) as 1 | -1);
+                    }}
+                    disabled={locked}
+                    options={[
+                      {
+                        value: "1",
+                        label: "Keep source sign (cash +, card debt -)",
+                      },
+                      {
+                        value: "-1",
+                        label: "Reverse source sign (card debt +)",
+                      },
+                    ]}
+                  />
+                </div>
+              </details>
             </>
           )}
-          <TextInput
-            label="Review note"
-            value={reason}
-            onChange={(nextValue) => setReason(nextValue)}
-            maxLength={1000}
-            required
-            placeholder="Statement and account ownership checked"
-          />
-          <Checkbox
-            className="items-start text-left"
-            checked={reviewed}
-            onChange={setReviewed}
-            label={
-              <>
-                I reviewed ownership
-                {ownership === "company"
-                  ? ", the book account, posting dates, and signs."
-                  : "."}
-              </>
-            }
-          />
           {cmd.error && (
             <p role="alert" className="text-sm text-destructive">
               {cmd.error}
@@ -1027,7 +1083,7 @@ function MapFeed({
           <div className="flex justify-end gap-2">
             <Button
               type="button"
-              variant="outline"
+              variant="ghost"
               disabled={cmd.busy}
               onClick={onClose}
             >
@@ -1035,14 +1091,10 @@ function MapFeed({
             </Button>
             <Button
               disabled={
-                cmd.busy ||
-                !reviewed ||
-                !reason.trim() ||
-                (ownership === "company" &&
-                  (!accountId || identity.currency !== "USD"))
+                cmd.busy || (ownership === "company" && (!accountId || !usd))
               }
             >
-              Save reviewed mapping
+              Save
             </Button>
           </div>
         </form>
@@ -1068,17 +1120,15 @@ function DisconnectFeed({
         if (!open && !cmd.busy) onClose();
       }}
     >
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Disconnect {connection.name}</DialogTitle>
+          <DialogTitle>Disconnect feed</DialogTitle>
           <DialogDescription>
-            Stop syncs and remove the stored access credential. Transactions,
-            account mappings, and source evidence remain in your books. Revoke
-            the token in SimpleFIN as well.
+            {connection.name} stops syncing. Revoke its token in SimpleFIN too.
           </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-4"
+          className="space-y-5"
           onSubmit={(e) => {
             e.preventDefault();
             void cmd.execute({
@@ -1091,6 +1141,7 @@ function DisconnectFeed({
         >
           <TextInput
             label="Reason"
+            placeholder="Why this feed is going away"
             value={reason}
             onChange={(nextValue) => setReason(nextValue)}
             maxLength={1000}
@@ -1103,14 +1154,16 @@ function DisconnectFeed({
           )}
           <div className="flex justify-end gap-2">
             <Button
-              variant="outline"
+              variant="ghost"
               type="button"
               disabled={cmd.busy}
               onClick={onClose}
             >
               Cancel
             </Button>
-            <Button disabled={cmd.busy || !reason.trim()}>Disconnect</Button>
+            <Button variant="destructive" disabled={cmd.busy || !reason.trim()}>
+              Disconnect
+            </Button>
           </div>
         </form>
       </DialogContent>
@@ -1127,8 +1180,7 @@ function SkipHistory({
   onSaved: () => Promise<void>;
 }) {
   const [date, setDate] = useState(""),
-    [reason, setReason] = useState(""),
-    [reviewed, setReviewed] = useState(false);
+    [reason, setReason] = useState("");
   const cmd = useAccountingCommand(onSaved);
   return (
     <Dialog
@@ -1137,17 +1189,15 @@ function SkipHistory({
         if (!open && !cmd.busy) onClose();
       }}
     >
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Continue past unavailable bank history</DialogTitle>
-          <DialogDescription>
-            Use this only when the bank cannot return an older period. The
-            checkpoint moves forward; verify the skipped range against original
-            statements or historical imports.
+          <DialogTitle>Skip unavailable history</DialogTitle>
+          <DialogDescription className="sr-only">
+            Move the sync checkpoint past a period the bank cannot return.
           </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-4"
+          className="space-y-5"
           onSubmit={(e) => {
             e.preventDefault();
             void cmd.execute({
@@ -1163,31 +1213,22 @@ function SkipHistory({
             });
           }}
         >
-          <p className="text-sm">
-            Current checkpoint:{" "}
-            {dateLabel(stampDate(account.checkpoint ?? account.history_start))}
-          </p>
           <DateInput
-            label="Continue from date"
+            label="Continue from"
             value={date}
-            onChange={(nextValue) => {
-              setDate(nextValue);
-              setReviewed(false);
-            }}
+            onChange={setDate}
             required
+            description={`The checkpoint is at ${dateLabel(
+              stampDate(account.checkpoint ?? account.history_start),
+            )}.`}
           />
           <TextInput
-            label="Why this history is unavailable"
+            label="Reason"
+            placeholder="Why the bank cannot return this period"
             value={reason}
             onChange={(nextValue) => setReason(nextValue)}
             required
             maxLength={1000}
-          />
-          <Checkbox
-            className="items-start text-left"
-            checked={reviewed}
-            onChange={setReviewed}
-            label="I will verify this period with independent source evidence."
           />
           {cmd.error && (
             <p role="alert" className="text-sm text-destructive">
@@ -1196,16 +1237,14 @@ function SkipHistory({
           )}
           <div className="flex justify-end gap-2">
             <Button
-              variant="outline"
+              variant="ghost"
               type="button"
               disabled={cmd.busy}
               onClick={onClose}
             >
               Cancel
             </Button>
-            <Button disabled={cmd.busy || !reviewed || !date || !reason.trim()}>
-              Move checkpoint and continue
-            </Button>
+            <Button disabled={cmd.busy || !date || !reason.trim()}>Skip</Button>
           </div>
         </form>
       </DialogContent>

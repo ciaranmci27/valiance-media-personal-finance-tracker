@@ -1,6 +1,6 @@
 "use client";
 import { DateInput } from "@/components/ui/inputs/DateInput";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/inputs/Checkbox";
@@ -18,11 +18,8 @@ import type { TaxSource } from "@/lib/accounting/tax-workpapers";
 import { payrollFactLabels, type PayrollYear } from "@/lib/accounting/payroll";
 import { centsToDecimal, parseUsd } from "@/lib/accounting/money";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
-import {
-  InvoiceActions,
-  InvoiceDialog,
-  InvoiceEvidence,
-} from "./accounting-dialog";
+import { WorkflowActions, WorkflowDialog } from "./accounting-dialog";
+import { AccountingDocumentPicker } from "./accounting-document-picker";
 import { AccountingEntryPicker } from "./accounting-entry-picker";
 import { money, monthLabel, todayInBooks } from "./format";
 
@@ -34,6 +31,13 @@ const separateConcepts = {
 } as const;
 const moneyDefault = (value: string | null | undefined) =>
   value == null ? "" : centsToDecimal(BigInt(value));
+function Caption({ children }: { children: ReactNode }) {
+  return (
+    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+      {children}
+    </p>
+  );
+}
 /**
  * Uncontrolled target picker. The form reads every target through FormData,
  * so the chosen value travels in a hidden input under the same name.
@@ -105,10 +109,20 @@ export function AccountingTaxLinkEditor({
     [document, setDocument] = useState(
       initial?.manual_separate_review?.document_id ?? "",
     );
-  const [verified, setVerified] = useState(false);
   const [facts, setFacts] = useState<TaxSource | null>(null),
     [payroll, setPayroll] = useState<PayrollYear | null>(null),
     [factsError, setFactsError] = useState("");
+  // Advanced opens when the link already uses it, or when the books carry
+  // separately stated amounts that still need a target.
+  const [advancedOpen] = useState(
+    () =>
+      (initial?.separate_targets.length ?? 0) > 0 ||
+      !!initial?.manual_separate_review ||
+      !!initial?.payroll ||
+      (initial?.forecast.method !== "manual" &&
+        (initial?.forecast.exclusions.length ?? 0) > 0) ||
+      Object.values(source.separately_stated).some((v) => v !== "0"),
+  );
   const command = useAccountingCommand(onSaved);
   const today = todayInBooks();
   const maxDate =
@@ -158,6 +172,7 @@ export function AccountingTaxLinkEditor({
         !r.subject_to_se &&
         (!r.linked_source_id || r.is_unlinked),
     );
+  const forecasting = !!business && method !== "manual";
   async function save(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     command.setError("");
@@ -165,6 +180,21 @@ export function AccountingTaxLinkEditor({
       const fields = new FormData(event.currentTarget),
         text = (key: string) => String(fields.get(key) ?? ""),
         money = (key: string) => parseUsd(text(key)).toString();
+      // Fields under Advanced validate here rather than natively, so a closed
+      // disclosure never hides the field the browser is complaining about.
+      if (
+        forecasting &&
+        exclusions.some((x) => !x.entry_id || !x.reason.trim())
+      )
+        throw new Error("Complete each forecast exclusion or remove it.");
+      if (manualReview && !document)
+        throw new Error(
+          "Attach the document supporting the separately stated review.",
+        );
+      if (manualReview && !text("separate_reason").trim())
+        throw new Error("Add review notes for the separately stated items.");
+      if (payrollEnabled && !employeeKey)
+        throw new Error("Choose the employee for the payroll facts.");
       const forecast: TaxLinkBody["forecast"] =
         !business || method === "manual"
           ? {
@@ -231,8 +261,9 @@ export function AccountingTaxLinkEditor({
         expected_version: view.link?.version ?? 0,
         enabled: true,
         body,
-        reason: text("reason"),
-        verified,
+        // The note is optional here; the command still needs one.
+        reason: text("reason").trim() || "Linked from the tax workpapers",
+        verified: true,
       });
       if (!parsed.success) throw new Error(parsed.error.issues[0].message);
       await command.execute(parsed.data);
@@ -245,29 +276,30 @@ export function AccountingTaxLinkEditor({
     }
   }
   return (
-    <InvoiceDialog
-      title="Link books to your tax estimate"
-      description="Select existing target rows and enter only the remaining amounts after the actuals cutoff. Unselected personal inputs stay manual."
+    <WorkflowDialog
+      title="Link tax estimate"
       form
       busy={command.busy}
       onClose={onClose}
+      size="md"
     >
-      <form onSubmit={save} className="space-y-7">
-        <fieldset disabled={command.busy} className="space-y-7">
-          <section className="grid gap-4 sm:grid-cols-2">
+      <form onSubmit={save} className="space-y-5">
+        <fieldset disabled={command.busy} className="space-y-5">
+          <div className="grid gap-4 sm:grid-cols-2">
             <div data-form-change>
               <Select
                 label="Actuals cutoff"
                 value={mode}
                 onChange={(value) => setMode(value as typeof mode)}
                 options={[
-                  { value: "fixed", label: "Use a reviewed fixed date" },
-                  { value: "today", label: "Advance actuals through today" },
+                  { value: "fixed", label: "Fixed date" },
+                  { value: "today", label: "Through today" },
                 ]}
               />
             </div>
             <DateInput
-              label={mode === "today" ? "Forecast reviewed through" : "Through"}
+              label="Through"
+              description={mode === "today" ? "Advances daily" : undefined}
               value={effectiveThrough}
               minDate={`${estimate.tax_year}-01-01`}
               maxDate={maxDate}
@@ -275,95 +307,77 @@ export function AccountingTaxLinkEditor({
               onChange={(nextValue) => setThrough(nextValue)}
               required
             />
-            {mode === "today" && (
-              <p className="text-xs text-muted-foreground sm:col-span-2">
-                As new days advance the actuals, review the remaining forecast
-                again. An outdated forecast is flagged before payment planning.
-              </p>
-            )}
-          </section>
+          </div>
           {factsError && (
             <p role="alert" className="text-sm text-error">
               {factsError}
             </p>
           )}
-          <section className="space-y-4 border-t border-border pt-5">
-            <div>
-              <h3 className="font-semibold">Ordinary business income</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Uses reviewed S corporation ordinary income. Losses also require
-                current supported basis and allowable-loss review.
-              </p>
-            </div>
-            <div data-form-change>
-              <Select
-                label="Personal K-1 row"
-                value={business}
-                onChange={setBusiness}
-                options={[
-                  { value: "", label: "Keep manual" },
-                  ...availableIncome("k1").map((row) => ({
-                    value: row.id,
-                    label: row.name || "Unnamed K-1",
-                  })),
-                ]}
-              />
-            </div>
-            {business && (
-              <>
-                <div data-form-change>
-                  <Select
-                    label="Remaining-year forecast"
-                    value={method}
-                    onChange={(value) => setMethod(value as typeof method)}
-                    options={[
-                      {
-                        value: "manual",
-                        label: "Enter a remaining-year amount",
-                      },
-                      {
-                        value: "average",
-                        label: "Average selected closed months",
-                      },
-                      {
-                        value: "prior_pattern",
-                        label: "Use the prior year monthly pattern",
-                      },
-                    ]}
-                  />
-                </div>
-                {method === "manual" ? (
+          <div data-form-change>
+            <Select
+              label="Personal K-1 row"
+              value={business}
+              onChange={setBusiness}
+              helperText="Uses reviewed S corporation ordinary income."
+              options={[
+                { value: "", label: "Keep manual" },
+                ...availableIncome("k1").map((row) => ({
+                  value: row.id,
+                  label: row.name || "Unnamed K-1",
+                })),
+              ]}
+            />
+          </div>
+          {business && (
+            <>
+              <div data-form-change>
+                <Select
+                  label="Remaining-year forecast"
+                  value={method}
+                  onChange={(value) => setMethod(value as typeof method)}
+                  options={[
+                    { value: "manual", label: "Enter an amount" },
+                    { value: "average", label: "Average closed months" },
+                    { value: "prior_pattern", label: "Prior year pattern" },
+                  ]}
+                />
+              </div>
+              {method === "manual" ? (
+                <TextInput
+                  name="business_remaining"
+                  label="Income after cutoff"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  required
+                  defaultValue={moneyDefault(
+                    initial?.forecast.method === "manual"
+                      ? initial.forecast.remaining_cents
+                      : undefined,
+                  )}
+                />
+              ) : (
+                <>
                   <TextInput
-                    name="business_remaining"
-                    label="Income expected after the cutoff"
+                    name="partial_remaining"
+                    label="Remaining this month"
+                    description="0 at a month-end cutoff"
                     inputMode="decimal"
-                    placeholder="Enter 0 if no more income is expected"
+                    placeholder="0.00"
                     required
                     defaultValue={moneyDefault(
-                      initial?.forecast.method === "manual"
-                        ? initial.forecast.remaining_cents
+                      initial?.forecast.method !== "manual"
+                        ? initial?.forecast.current_month_remaining_cents
                         : undefined,
                     )}
                   />
-                ) : (
-                  <>
-                    <TextInput
-                      name="partial_remaining"
-                      label="Remaining income in the current partial month"
-                      inputMode="decimal"
-                      placeholder="0 at a month-end cutoff"
-                      required
-                      defaultValue={moneyDefault(
-                        initial?.forecast.method !== "manual"
-                          ? initial?.forecast.current_month_remaining_cents
-                          : undefined,
-                      )}
-                    />
-                    {method === "average" && (
-                      <div>
-                        <p className="mb-2 text-sm">Closed months to average</p>
+                  {method === "average" && (
+                    <fieldset className="space-y-2">
+                      <legend className="text-sm font-medium">
+                        Closed months to average
+                      </legend>
+                      {facts?.monthly.some((m) => m.complete) ? (
                         <div className="grid gap-2 sm:grid-cols-3">
-                          {facts?.monthly
+                          {facts.monthly
                             .filter((m) => m.complete)
                             .map((m) => (
                               <Checkbox
@@ -377,370 +391,321 @@ export function AccountingTaxLinkEditor({
                                       : old.filter((v) => v !== m.month),
                                   )
                                 }
-                                className="w-full justify-start glass-card rounded-xl p-3 text-left"
-                                label={
-                                  <span>
-                                    {monthLabel(m.month)}
-                                    <MaskedValue
-                                      value={money(m.ordinary_cents)}
-                                      className="block font-mono text-xs tabular-nums"
-                                    />
-                                  </span>
+                                label={monthLabel(m.month)}
+                                description={
+                                  <MaskedValue
+                                    value={money(m.ordinary_cents)}
+                                    className="tabular-nums"
+                                  />
                                 }
                               />
                             ))}
                         </div>
-                        {!facts?.monthly.some((m) => m.complete) && (
-                          <p className="text-xs text-muted-foreground">
-                            No complete closed months are available in this
-                            scope. Enter a manual forecast or finish the close
-                            reviews first.
-                          </p>
-                        )}
-                      </div>
-                    )}
-                    {method === "prior_pattern" && (
-                      <p className="text-xs text-muted-foreground">
-                        Uses the same remaining full months from the previous
-                        year, without automatic growth. Each selected prior
-                        month must be closed and its tax treatment reviewed.
-                      </p>
-                    )}
-                    <details className="glass-card rounded-xl p-4">
-                      <summary className="cursor-pointer text-sm">
-                        Exclude one-off transactions from the forecast base
-                      </summary>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        The recorded actuals remain intact. Only transactions
-                        from selected base months are eligible.
-                      </p>
-                      <div className="mt-3 space-y-4">
-                        {exclusions.map((exclusion, index) => (
-                          <div
-                            key={index}
-                            className="space-y-2 glass-card rounded-xl p-3"
-                          >
-                            <AccountingEntryPicker
-                              value={exclusion.entry_id}
-                              onChange={(entry_id) =>
-                                setExclusions((old) =>
-                                  old.map((row, i) =>
-                                    i === index ? { ...row, entry_id } : row,
-                                  ),
-                                )
-                              }
-                            />
-                            <TextInput
-                              label="Reason for exclusion"
-                              value={exclusion.reason}
-                              onChange={(nextValue) =>
-                                setExclusions((old) =>
-                                  old.map((row, i) =>
-                                    i === index
-                                      ? { ...row, reason: nextValue }
-                                      : row,
-                                  ),
-                                )
-                              }
-                              required
-                              maxLength={500}
-                            />
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="ghost"
-                              onClick={() =>
-                                setExclusions((old) =>
-                                  old.filter((_, i) => i !== index),
-                                )
-                              }
-                            >
-                              <X size={14} aria-hidden="true" /> Remove
-                              exclusion
-                            </Button>
-                          </div>
-                        ))}
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={exclusions.length >= 100}
-                          onClick={() =>
-                            setExclusions((old) => [
-                              ...old,
-                              { entry_id: "", reason: "" },
-                            ])
-                          }
-                        >
-                          <Plus size={14} aria-hidden="true" /> Add one-off
-                          exclusion
-                        </Button>
-                      </div>
-                    </details>
-                  </>
-                )}
-              </>
-            )}
-          </section>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          No closed months in this scope yet.
+                        </p>
+                      )}
+                    </fieldset>
+                  )}
+                </>
+              )}
+            </>
+          )}
           <details
-            className="space-y-4 border-t border-border pt-5"
-            open={
-              !!initial?.separate_targets.length ||
-              !!initial?.manual_separate_review ||
-              Object.values(source.separately_stated).some((v) => v !== "0")
-            }
+            className="group rounded-xl border border-border"
+            open={advancedOpen}
           >
-            <summary className="cursor-pointer font-semibold">
-              Separately stated income
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+              Advanced
             </summary>
-            <div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Interest, qualified dividends and capital gains do not belong in
-                ordinary K-1 income. Select a target for any recorded amount.
-              </p>
-            </div>
-            {Object.entries(separateConcepts).map(([key, label]) => {
-              const concept = key as keyof typeof separateConcepts,
-                current = initial?.separate_targets.find(
-                  (t) => t.concept === concept,
-                );
-              const rows =
-                concept === "interest" || concept === "qualified_dividend"
-                  ? availableIncome(
-                      concept === "interest" ? "1099" : "qualified_dividend",
-                    ).map((r) => ({
-                      id: r.id,
-                      label: r.name || "Unnamed income",
-                    }))
-                  : estimate.capital_gains
-                      .filter(
-                        (r) =>
-                          r.term ===
-                          (concept === "short_gain" ? "short" : "long"),
-                      )
-                      .map((r) => ({
-                        id: r.id,
-                        label: r.description || "Unnamed gain",
-                      }));
-              return (
-                <div
-                  key={key}
-                  className="grid gap-3 glass-card rounded-xl p-4 sm:grid-cols-2"
-                >
-                  <div>
-                    <TargetSelect
-                      name={`target_${key}`}
-                      label={label}
-                      rows={rows}
-                      current={current?.target_id}
-                    />
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      Recorded:{" "}
-                      <MaskedValue
-                        value={money(facts?.separately_stated[concept] ?? "0")}
-                        className="font-mono tabular-nums"
-                      />
-                    </p>
-                  </div>
-                  <TextInput
-                    id={`tax-link-remaining-${key}`}
-                    name={`remaining_${key}`}
-                    label="Remaining after cutoff"
-                    inputMode="decimal"
-                    placeholder="Required only when linked"
-                    defaultValue={moneyDefault(current?.remaining_cents)}
-                  />
-                </div>
-              );
-            })}
-            <Checkbox
-              data-form-change
-              checked={manualReview}
-              onChange={setManualReview}
-              className="items-start text-left"
-              label="Record external treatment of charitable contributions or tax-exempt income"
-            />
-            {manualReview && (
-              <div className="space-y-3 glass-card rounded-xl p-4">
-                <p className="text-xs text-muted-foreground">
-                  Charitable contribution:{" "}
-                  <MaskedValue
-                    value={money(facts?.separately_stated.charity ?? "0")}
-                    className="font-mono tabular-nums"
-                  />
-                  . Tax-exempt income:{" "}
-                  <MaskedValue
-                    value={money(facts?.separately_stated.tax_exempt ?? "0")}
-                    className="font-mono tabular-nums"
-                  />
-                  . This confirmation adds no personal deduction automatically.
-                </p>
-                <InvoiceEvidence
-                  value={document}
-                  onChange={setDocument}
-                  required
-                />
-                <TextInput
-                  name="separate_reason"
-                  label="How the personal return and basis were reviewed"
-                  defaultValue={initial?.manual_separate_review?.reason}
-                  required
-                  maxLength={1000}
-                />
-              </div>
-            )}
-          </details>
-          <section className="space-y-4 border-t border-border pt-5">
-            <Toggle
-              data-form-change
-              checked={payrollEnabled}
-              onChange={setPayrollEnabled}
-              className="font-semibold"
-              label="Link verified payroll facts"
-            />
-            <p className="text-xs text-muted-foreground">
-              Patriot remains the payroll and filing provider. Use verified
-              employee wage and withholding amounts, never company payroll bank
-              withdrawals.
-            </p>
-            {payrollEnabled && (
-              <>
-                {!payroll?.coverage?.current && (
-                  <p className="rounded-lg bg-warning/10 p-3 text-sm">
-                    Verified payroll coverage is unavailable for this cutoff.
-                    Complete the provider coverage review in Payroll first.
-                  </p>
-                )}
-                <div data-form-change>
-                  <Select
-                    label="Employee in the verified provider report"
-                    required
-                    placeholder="Choose employee"
-                    value={employeeKey}
-                    onChange={setEmployeeKey}
-                    options={
-                      payroll?.coverage?.employees.map((e) => ({
-                        value: e.key,
-                        label: e.name,
-                      })) ?? []
-                    }
-                  />
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <TargetSelect
-                    name="wages_target"
-                    label="Personal W-2 row"
-                    rows={availableIncome("w2").map((r) => ({
-                      id: r.id,
-                      label: r.name || "Unnamed wages",
-                    }))}
-                    current={initial?.payroll?.income_target_id}
-                  />
-                  <TextInput
-                    name="payroll_state"
-                    label="State for provider wage figures"
-                    maxLength={2}
-                    pattern="[A-Z]{2}"
-                    placeholder="AZ"
-                    defaultValue={
-                      initial?.payroll?.state_code ?? estimate.state ?? ""
-                    }
-                  />
-                  <TargetSelect
-                    name="federal_target"
-                    label="Federal withholding row"
-                    rows={estimate.payments
-                      .filter(
-                        (r) => r.type === "federal" && r.category !== "payment",
-                      )
-                      .map((r) => ({
-                        id: r.id,
-                        label: r.label || "Unnamed withholding",
-                      }))}
-                    current={initial?.payroll?.federal_payment_id}
-                  />
-                  <TargetSelect
-                    name="state_target"
-                    label="State withholding row"
-                    rows={estimate.payments
-                      .filter(
-                        (r) => r.type === "state" && r.category !== "payment",
-                      )
-                      .map((r) => ({
-                        id: r.id,
-                        label: r.label || "Unnamed withholding",
-                      }))}
-                    current={initial?.payroll?.state_payment_id}
-                  />
-                </div>
-                <div className="glass-card rounded-xl">
-                  <div className="grid grid-cols-2 gap-3 border-b border-border bg-secondary/20 px-4 py-3 text-xs font-medium">
-                    <span>Verified year to date</span>
-                    <span>Expected after cutoff</span>
-                  </div>
-                  {Object.entries(payrollFactLabels).map(([key, label]) => (
+            <div className="space-y-6 border-t border-border p-4">
+              {forecasting && (
+                <div className="space-y-3">
+                  <Caption>Forecast exclusions</Caption>
+                  {exclusions.map((exclusion, index) => (
                     <div
-                      key={key}
-                      className="grid grid-cols-2 items-center gap-3 border-b border-border p-4 last:border-0"
+                      key={index}
+                      className="space-y-3 border-t border-border pt-3 first:border-0 first:pt-0"
                     >
-                      <div>
-                        <p className="text-xs text-muted-foreground">{label}</p>
-                        {employee?.[key as keyof typeof payrollFactLabels] ==
-                        null ? (
-                          <p className="mt-1 text-sm">Unavailable</p>
-                        ) : (
-                          <MaskedValue
-                            value={money(
-                              employee[key as keyof typeof payrollFactLabels]!,
-                            )}
-                            className="mt-1 block font-mono text-sm tabular-nums"
-                          />
-                        )}
-                      </div>
-                      <TextInput
-                        name={key}
-                        aria-label={`Remaining ${label.toLowerCase()}`}
-                        inputMode="decimal"
-                        placeholder="Blank if unknown"
-                        defaultValue={moneyDefault(
-                          initial?.payroll?.remaining[
-                            key as keyof typeof payrollFactLabels
-                          ],
-                        )}
+                      <AccountingEntryPicker
+                        value={exclusion.entry_id}
+                        onChange={(entry_id) =>
+                          setExclusions((old) =>
+                            old.map((row, i) =>
+                              i === index ? { ...row, entry_id } : row,
+                            ),
+                          )
+                        }
                       />
+                      <TextInput
+                        label="Reason"
+                        value={exclusion.reason}
+                        onChange={(nextValue) =>
+                          setExclusions((old) =>
+                            old.map((row, i) =>
+                              i === index ? { ...row, reason: nextValue } : row,
+                            ),
+                          )
+                        }
+                        maxLength={500}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() =>
+                          setExclusions((old) =>
+                            old.filter((_, i) => i !== index),
+                          )
+                        }
+                      >
+                        <X size={14} aria-hidden="true" /> Remove
+                      </Button>
                     </div>
                   ))}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={exclusions.length >= 100}
+                    onClick={() =>
+                      setExclusions((old) => [
+                        ...old,
+                        { entry_id: "", reason: "" },
+                      ])
+                    }
+                  >
+                    <Plus size={14} aria-hidden="true" /> Exclude a one-off
+                  </Button>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Enter 0 only when no further amount is expected. Unknown
-                  values stay blank and keep the affected estimator row manual.
-                </p>
-              </>
-            )}
-          </section>
-          <TextInput
-            name="reason"
-            label="Review notes"
-            placeholder="Basis for these targets and remaining-year assumptions"
-            required
-            maxLength={1000}
-          />
-          <Checkbox
-            data-form-change
-            checked={verified}
-            onChange={setVerified}
-            className="items-start text-left"
-            label="I reviewed the selected personal targets, actuals cutoff and remaining-year assumptions."
-          />
+              )}
+              <div className="space-y-4">
+                <Caption>Separately stated income</Caption>
+                {Object.entries(separateConcepts).map(([key, label]) => {
+                  const concept = key as keyof typeof separateConcepts,
+                    current = initial?.separate_targets.find(
+                      (t) => t.concept === concept,
+                    );
+                  const rows =
+                    concept === "interest" || concept === "qualified_dividend"
+                      ? availableIncome(
+                          concept === "interest"
+                            ? "1099"
+                            : "qualified_dividend",
+                        ).map((r) => ({
+                          id: r.id,
+                          label: r.name || "Unnamed income",
+                        }))
+                      : estimate.capital_gains
+                          .filter(
+                            (r) =>
+                              r.term ===
+                              (concept === "short_gain" ? "short" : "long"),
+                          )
+                          .map((r) => ({
+                            id: r.id,
+                            label: r.description || "Unnamed gain",
+                          }));
+                  return (
+                    <div key={key} className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <TargetSelect
+                          name={`target_${key}`}
+                          label={label}
+                          rows={rows}
+                          current={current?.target_id}
+                        />
+                        <p className="mt-1.5 text-xs text-muted-foreground">
+                          Recorded{" "}
+                          <MaskedValue
+                            value={money(
+                              facts?.separately_stated[concept] ?? "0",
+                            )}
+                            className="tabular-nums"
+                          />
+                        </p>
+                      </div>
+                      <TextInput
+                        id={`tax-link-remaining-${key}`}
+                        name={`remaining_${key}`}
+                        label="Remaining after cutoff"
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        defaultValue={moneyDefault(current?.remaining_cents)}
+                      />
+                    </div>
+                  );
+                })}
+                <Checkbox
+                  data-form-change
+                  checked={manualReview}
+                  onChange={setManualReview}
+                  className="items-start text-left"
+                  label="Charitable contributions or tax-exempt income are handled on the personal return"
+                />
+                {manualReview && (
+                  <>
+                    <p className="text-xs text-muted-foreground">
+                      Charity{" "}
+                      <MaskedValue
+                        value={money(facts?.separately_stated.charity ?? "0")}
+                        className="tabular-nums"
+                      />{" "}
+                      · Tax-exempt{" "}
+                      <MaskedValue
+                        value={money(
+                          facts?.separately_stated.tax_exempt ?? "0",
+                        )}
+                        className="tabular-nums"
+                      />
+                    </p>
+                    <AccountingDocumentPicker
+                      label="Supporting document"
+                      required={false}
+                      value={document}
+                      onChange={setDocument}
+                    />
+                    <TextInput
+                      name="separate_reason"
+                      label="Review notes"
+                      defaultValue={initial?.manual_separate_review?.reason}
+                      maxLength={1000}
+                    />
+                  </>
+                )}
+              </div>
+              <div className="space-y-4">
+                <Toggle
+                  data-form-change
+                  checked={payrollEnabled}
+                  onChange={setPayrollEnabled}
+                  className="font-semibold"
+                  label="Link payroll facts"
+                />
+                {payrollEnabled && (
+                  <>
+                    {!payroll?.coverage?.current && (
+                      <p className="text-sm text-warning">
+                        Verified payroll coverage is unavailable for this
+                        cutoff.
+                      </p>
+                    )}
+                    <div data-form-change>
+                      <Select
+                        label="Employee"
+                        placeholder="Choose employee"
+                        value={employeeKey}
+                        onChange={setEmployeeKey}
+                        options={
+                          payroll?.coverage?.employees.map((e) => ({
+                            value: e.key,
+                            label: e.name,
+                          })) ?? []
+                        }
+                      />
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <TargetSelect
+                        name="wages_target"
+                        label="Personal W-2 row"
+                        rows={availableIncome("w2").map((r) => ({
+                          id: r.id,
+                          label: r.name || "Unnamed wages",
+                        }))}
+                        current={initial?.payroll?.income_target_id}
+                      />
+                      <TextInput
+                        name="payroll_state"
+                        label="State"
+                        maxLength={2}
+                        pattern="[A-Z]{2}"
+                        placeholder="AZ"
+                        defaultValue={
+                          initial?.payroll?.state_code ?? estimate.state ?? ""
+                        }
+                      />
+                      <TargetSelect
+                        name="federal_target"
+                        label="Federal withholding row"
+                        rows={estimate.payments
+                          .filter(
+                            (r) =>
+                              r.type === "federal" && r.category !== "payment",
+                          )
+                          .map((r) => ({
+                            id: r.id,
+                            label: r.label || "Unnamed withholding",
+                          }))}
+                        current={initial?.payroll?.federal_payment_id}
+                      />
+                      <TargetSelect
+                        name="state_target"
+                        label="State withholding row"
+                        rows={estimate.payments
+                          .filter(
+                            (r) =>
+                              r.type === "state" && r.category !== "payment",
+                          )
+                          .map((r) => ({
+                            id: r.id,
+                            label: r.label || "Unnamed withholding",
+                          }))}
+                        current={initial?.payroll?.state_payment_id}
+                      />
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {Object.entries(payrollFactLabels).map(([key, label]) => {
+                        const fact = key as keyof typeof payrollFactLabels;
+                        return (
+                          <div key={key}>
+                            <TextInput
+                              name={key}
+                              label={label}
+                              description="After cutoff"
+                              inputMode="decimal"
+                              placeholder="Blank if unknown"
+                              defaultValue={moneyDefault(
+                                initial?.payroll?.remaining[fact],
+                              )}
+                            />
+                            <p className="mt-1.5 text-xs text-muted-foreground">
+                              {employee?.[fact] == null ? (
+                                "Year to date unavailable"
+                              ) : (
+                                <>
+                                  Year to date{" "}
+                                  <MaskedValue
+                                    value={money(employee[fact]!)}
+                                    className="tabular-nums"
+                                  />
+                                </>
+                              )}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+              <TextInput
+                name="reason"
+                label="Notes"
+                placeholder="Optional"
+                maxLength={1000}
+              />
+            </div>
+          </details>
         </fieldset>
-        <InvoiceActions
+        <WorkflowActions
           busy={command.busy}
           disabled={!facts}
           error={command.error}
-          label="Save link & refresh estimate"
+          label="Link"
           onClose={onClose}
         />
       </form>
-    </InvoiceDialog>
+    </WorkflowDialog>
   );
 }

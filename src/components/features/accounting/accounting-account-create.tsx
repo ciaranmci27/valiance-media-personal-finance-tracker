@@ -6,7 +6,7 @@ import type { AccountingAccount } from "@/lib/accounting/contracts";
 import type { AccountProfile } from "@/lib/accounting/workflows";
 import { defaultChart } from "@/lib/accounting/chart";
 import { AccountingPicker } from "./accounting-picker";
-import { InvoiceDialog, InvoiceActions } from "./accounting-dialog";
+import { WorkflowDialog, WorkflowActions } from "./accounting-dialog";
 import { useAccountingCommand } from "./use-accounting-command";
 import { enumLabel } from "./format";
 
@@ -41,13 +41,24 @@ export function AccountingAccountCreate({
     (a) =>
       a.account_type === type && !profiles.some((p) => p.purpose === a.purpose),
   );
+  // Only assets and liabilities can be a bank, cash or card account.
+  const useOptions = [
+    { value: "none", label: "General category" },
+    ...(type === "asset"
+      ? [
+          { value: "bank", label: "Bank account" },
+          { value: "cash", label: "Cash / undeposited funds" },
+        ]
+      : []),
+    ...(type === "liability" ? [{ value: "card", label: "Credit card" }] : []),
+  ];
   return (
-    <InvoiceDialog
+    <WorkflowDialog
       title="Add account"
-      description="Create a category or a bank account, ready to use in your books."
       busy={cmd.busy}
       onClose={onClose}
       form
+      size="sm"
     >
       <form
         className="space-y-5"
@@ -69,57 +80,39 @@ export function AccountingAccountCreate({
           if (saved) onClose();
         }}
       >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <TextInput
-            label="Account name"
-            name="name"
-            required
-            maxLength={120}
-            placeholder="For example: Website hosting"
+        <TextInput
+          label="Name"
+          name="name"
+          required
+          maxLength={120}
+          placeholder="For example: Website hosting"
+        />
+        {/* data-form-change keeps the dialog's discard guard aware of picks
+            made through the portal-rendered select. */}
+        <div data-form-change>
+          <Select
+            label="Type"
+            value={type}
+            options={accountTypes.map((t) => ({
+              value: t,
+              label: enumLabel(t),
+            }))}
+            onChange={(value) => {
+              const next = value as AccountingAccount["account_type"];
+              setType(next);
+              setSide(["asset", "expense"].includes(next) ? "debit" : "credit");
+              setCash("none");
+              setPurpose("");
+              setParent("");
+            }}
           />
-          <TextInput
-            label="Account code (optional)"
-            name="code"
-            maxLength={20}
-          />
-          {/* data-form-change keeps the dialog's discard guard aware of picks
-              made through the portal-rendered select. */}
-          <div data-form-change>
-            <Select
-              label="Type"
-              value={type}
-              options={accountTypes.map((t) => ({
-                value: t,
-                label: enumLabel(t),
-              }))}
-              onChange={(value) => {
-                const next = value as AccountingAccount["account_type"];
-                setType(next);
-                setSide(
-                  ["asset", "expense"].includes(next) ? "debit" : "credit",
-                );
-                setCash("none");
-                setPurpose("");
-                setParent("");
-              }}
-            />
-          </div>
+        </div>
+        {useOptions.length > 1 && (
           <div data-form-change>
             <Select
               label="Account use"
               value={cash}
-              options={[
-                { value: "none", label: "General category" },
-                ...(type === "asset"
-                  ? [
-                      { value: "bank", label: "Bank account" },
-                      { value: "cash", label: "Cash / undeposited funds" },
-                    ]
-                  : []),
-                ...(type === "liability"
-                  ? [{ value: "card", label: "Credit card" }]
-                  : []),
-              ]}
+              options={useOptions}
               onChange={(value) => {
                 const next = value as AccountProfile["cash_kind"];
                 setCash(next);
@@ -128,35 +121,30 @@ export function AccountingAccountCreate({
               }}
             />
           </div>
-        </div>
-        <div>
-          <AccountingPicker
-            label="Accounting purpose"
-            visibleLabel="Accounting purpose"
-            value={purpose}
-            options={[
-              { value: "", label: "General category" },
-              ...purposes.map((a) => ({ value: a.purpose!, label: a.name })),
-            ]}
-            onChange={(value) => {
-              setPurpose(value);
-              const definition = purposes.find((a) => a.purpose === value);
-              if (definition) {
-                setCash(definition.cash_kind);
-                setSide(definition.normal_side);
-              }
-            }}
-          />
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            Choose a purpose for payroll, transfers or other specialized tools.
-            Purposes already assigned to another account are omitted.
-          </p>
-        </div>
-        <details>
-          <summary className="cursor-pointer text-sm text-muted-foreground">
-            Report grouping and advanced options
+        )}
+        <details className="group rounded-xl border border-border">
+          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+            Advanced
           </summary>
-          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div className="space-y-4 border-t border-border p-4">
+            <TextInput label="Account code" name="code" maxLength={20} />
+            <AccountingPicker
+              label="Purpose"
+              visibleLabel="Purpose"
+              value={purpose}
+              options={[
+                { value: "", label: "General category" },
+                ...purposes.map((a) => ({ value: a.purpose!, label: a.name })),
+              ]}
+              onChange={(value) => {
+                setPurpose(value);
+                const definition = purposes.find((a) => a.purpose === value);
+                if (definition) {
+                  setCash(definition.cash_kind);
+                  setSide(definition.normal_side);
+                }
+              }}
+            />
             <TextInput
               label="Report group"
               name="subtype"
@@ -186,6 +174,7 @@ export function AccountingAccountCreate({
                 label="Normal balance"
                 value={side}
                 disabled={cash !== "none"}
+                helperText="Change only for a contra account."
                 options={[
                   { value: "debit", label: "Debit" },
                   { value: "credit", label: "Credit" },
@@ -193,19 +182,15 @@ export function AccountingAccountCreate({
                 onChange={(value) => setSide(value as "debit" | "credit")}
               />
             </div>
-            <p className="self-end text-xs leading-relaxed text-muted-foreground">
-              The normal balance follows the account type. Change it only for a
-              contra account, such as accumulated depreciation.
-            </p>
           </div>
         </details>
-        <InvoiceActions
+        <WorkflowActions
           busy={cmd.busy}
           error={cmd.error}
-          label="Create account"
+          label="Add"
           onClose={onClose}
         />
       </form>
-    </InvoiceDialog>
+    </WorkflowDialog>
   );
 }

@@ -4,6 +4,10 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Check, Copy, Plus, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  RowActionsMenu,
+  type RowAction,
+} from "@/components/ui/row-actions-menu";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Badge } from "@/components/ui/badge";
 import { MaskedValue } from "@/components/ui/masked-value";
@@ -27,7 +31,7 @@ import type { BooksMetadata } from "./types";
 import { AccountingContextEditor } from "./accounting-context-editor";
 import { AccountingEvidence } from "./accounting-evidence";
 import { commandContext, type CommandContext } from "./use-accounting-command";
-import { absMoney, dateLabel, enumLabel, money } from "./format";
+import { absMoney, dateLabel, enumLabel, money, signedMoney } from "./format";
 
 const ZERO = BigInt(0);
 
@@ -99,7 +103,7 @@ const STATUS_VARIANT = {
   discarded: "default",
 } as const;
 
-/** The full journal view of one entry, with every action it supports. */
+/** One entry in full: the amount, the accounts it moved between, and what can happen to it next. */
 export function EntryDetailDialog({
   entry,
   accounts,
@@ -127,6 +131,47 @@ export function EntryDetailDialog({
   onCopy: (entry: JournalEntry) => void;
   onCorrect: (entry: JournalEntry) => void;
 }) {
+  const total = entry
+    ? entry.lines.reduce(
+        (sum, l) =>
+          BigInt(l.amount_cents) > ZERO ? sum + BigInt(l.amount_cents) : sum,
+        ZERO,
+      )
+    : ZERO;
+  const more: RowAction[] = entry
+    ? [
+        {
+          label: "Copy as draft",
+          icon: <Copy size={14} aria-hidden="true" />,
+          onSelect: () => onCopy(entry),
+          disabled: demo,
+        },
+        ...(entry.status === "posted" && !entry.reversed_by_entry_id
+          ? [
+              {
+                label: "Reverse",
+                icon: <RotateCcw size={14} aria-hidden="true" />,
+                onSelect: () => onReverse(entry),
+                disabled: demo,
+                variant: "danger" as const,
+                separator: true,
+              },
+            ]
+          : []),
+        ...(entry.status === "draft"
+          ? [
+              {
+                label: "Discard draft",
+                icon: <X size={14} aria-hidden="true" />,
+                onSelect: () => onDiscard(entry),
+                disabled: demo,
+                variant: "danger" as const,
+                separator: true,
+              },
+            ]
+          : []),
+      ]
+    : [];
   return (
     <Dialog
       open={entry !== null}
@@ -134,9 +179,9 @@ export function EntryDetailDialog({
         if (!open) onClose();
       }}
     >
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>{entry?.memo}</DialogTitle>
+      <DialogContent className="flex max-h-[90dvh] max-w-xl flex-col overflow-hidden p-0">
+        <DialogHeader className="shrink-0 px-6 pb-2 pt-6 pr-12">
+          <DialogTitle className="leading-snug">{entry?.memo}</DialogTitle>
           <DialogDescription asChild>
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <span>{dateLabel(entry?.entry_date)}</span>
@@ -147,124 +192,125 @@ export function EntryDetailDialog({
                     : enumLabel(entry.status)}
                 </Badge>
               )}
-              <span>Source: {enumLabel(entry?.primary_origin)}</span>
+              <span>{enumLabel(entry?.primary_origin)}</span>
             </div>
           </DialogDescription>
         </DialogHeader>
         {entry && (
           <>
-            <div className="divide-y divide-border glass-card rounded-xl">
-              {entry.lines.map((l) => (
-                <div
-                  key={l.id}
-                  className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm"
-                >
-                  <span className="min-w-0">
-                    {accounts.get(l.account_id)?.name ?? "Account"}
-                    {l.memo && (
-                      <span className="mt-0.5 block text-xs text-muted-foreground">
-                        {l.memo}
+            <div className="min-h-0 space-y-5 overflow-y-auto px-6 pb-6 pt-3 [scrollbar-gutter:stable]">
+              <p className="text-3xl font-semibold tracking-tight tabular-nums">
+                <MaskedValue value={absMoney(total)} />
+              </p>
+              <div className="divide-y divide-border rounded-xl border border-border">
+                {entry.lines.map((l) => (
+                  <div
+                    key={l.id}
+                    className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate">
+                        {accounts.get(l.account_id)?.name ?? "Account"}
                       </span>
-                    )}
-                  </span>
-                  <span className="whitespace-nowrap tabular-nums">
-                    <span className="mr-1.5 text-xs text-muted-foreground">
-                      {BigInt(l.amount_cents) > ZERO ? "Dr" : "Cr"}
+                      {l.memo && (
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                          {l.memo}
+                        </span>
+                      )}
                     </span>
-                    <MaskedValue value={absMoney(l.amount_cents)} />
-                  </span>
-                </div>
-              ))}
-            </div>
-            {entry.reverses_entry_id && (
-              <p className="text-xs text-muted-foreground">
-                This reverses an earlier entry.{" "}
-                <Link
-                  className="text-teal-light underline-offset-4 hover:underline"
-                  href={`/accounting?${range}&entry=${entry.reverses_entry_id}`}
-                >
-                  View original entry
-                </Link>
-              </p>
-            )}
-            {entry.reversed_by_entry_id && (
-              <p className="text-xs text-muted-foreground">
-                This entry has been reversed.{" "}
-                <Link
-                  className="text-teal-light underline-offset-4 hover:underline"
-                  href={`/accounting?${range}&entry=${entry.reversed_by_entry_id}`}
-                >
-                  View reversal
-                </Link>
-                . Both stay in the books.
-              </p>
-            )}
-            <div className="flex flex-wrap gap-2 border-t border-border pt-4">
-              {entry.status === "draft" && (
-                <>
-                  <Button disabled={demo} onClick={() => onEdit(entry)}>
-                    Edit draft
-                  </Button>
-                  <Button
-                    disabled={demo}
-                    variant="outline"
-                    onClick={() => onPost(entry)}
+                    <span
+                      className={cn(
+                        "whitespace-nowrap tabular-nums",
+                        BigInt(l.amount_cents) < ZERO &&
+                          "text-muted-foreground",
+                      )}
+                    >
+                      <MaskedValue value={signedMoney(l.amount_cents)} />
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {entry.reverses_entry_id && (
+                <p className="text-xs text-muted-foreground">
+                  This reverses an earlier entry.{" "}
+                  <Link
+                    className="text-teal-light underline-offset-4 hover:underline"
+                    href={`/accounting?${range}&entry=${entry.reverses_entry_id}`}
                   >
-                    <Check size={15} aria-hidden="true" />
-                    Mark reviewed
-                  </Button>
-                  <Button
-                    disabled={demo}
-                    variant="ghost"
-                    onClick={() => onDiscard(entry)}
-                  >
-                    Discard draft
-                  </Button>
-                </>
+                    View original entry
+                  </Link>
+                </p>
               )}
-              {entry.status === "posted" && !entry.reversed_by_entry_id && (
-                <>
+              {entry.reversed_by_entry_id && (
+                <p className="text-xs text-muted-foreground">
+                  This entry has been reversed.{" "}
+                  <Link
+                    className="text-teal-light underline-offset-4 hover:underline"
+                    href={`/accounting?${range}&entry=${entry.reversed_by_entry_id}`}
+                  >
+                    View reversal
+                  </Link>
+                  . Both stay in the books.
+                </p>
+              )}
+              {!demo && (
+                <details className="group rounded-xl border border-border">
+                  <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+                    Receipts and history
+                  </summary>
+                  <div className="border-t border-border p-4">
+                    <AccountingEvidence
+                      entryId={entry.id}
+                      accounts={[...accounts.values()]}
+                      parties={parties}
+                    />
+                  </div>
+                </details>
+              )}
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-[rgba(var(--ink),0.04)] px-6 py-4">
+              <div className="flex items-center gap-2">
+                <RowActionsMenu
+                  label={`More actions for ${entry.memo}`}
+                  align="start"
+                  actions={more}
+                />
+                {!demo && (
+                  <Link
+                    className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+                    href={`/accounting?${range}&entry=${entry.id}`}
+                  >
+                    Entry link
+                  </Link>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {entry.status === "draft" && (
+                  <>
+                    <Button
+                      disabled={demo}
+                      variant="outline"
+                      onClick={() => onEdit(entry)}
+                    >
+                      Edit draft
+                    </Button>
+                    <Button disabled={demo} onClick={() => onPost(entry)}>
+                      <Check size={15} aria-hidden="true" />
+                      Mark reviewed
+                    </Button>
+                  </>
+                )}
+                {entry.status === "posted" && !entry.reversed_by_entry_id && (
                   <Button
                     disabled={demo}
                     variant="outline"
                     onClick={() => onCorrect(entry)}
                   >
-                    Correct and replace
+                    Correct
                   </Button>
-                  <Button
-                    disabled={demo}
-                    variant="ghost"
-                    onClick={() => onReverse(entry)}
-                  >
-                    <RotateCcw size={14} aria-hidden="true" />
-                    Reverse
-                  </Button>
-                </>
-              )}
-              <Button
-                disabled={demo}
-                variant="ghost"
-                onClick={() => onCopy(entry)}
-              >
-                <Copy size={14} aria-hidden="true" />
-                Copy as draft
-              </Button>
-              {!demo && (
-                <Link
-                  className="self-center text-sm text-teal-light underline-offset-4 hover:underline"
-                  href={`/accounting?${range}&entry=${entry.id}`}
-                >
-                  Open entry link
-                </Link>
-              )}
+                )}
+              </div>
             </div>
-            {!demo && (
-              <AccountingEvidence
-                entryId={entry.id}
-                accounts={[...accounts.values()]}
-                parties={parties}
-              />
-            )}
           </>
         )}
       </DialogContent>
@@ -383,15 +429,13 @@ export function JournalEditorDialog({
         <DialogHeader>
           <DialogTitle>
             {editor?.corrects
-              ? "Prepare replacement"
+              ? "Correct entry"
               : editor?.version
-                ? "Edit journal draft"
+                ? "Edit journal entry"
                 : "New journal entry"}
           </DialogTitle>
-          <DialogDescription>
-            {editor?.corrects
-              ? "Review the replacement before applying. The original, its reversal and the corrected entry stay linked."
-              : "Save a draft first. Reviewing requires balanced debits and credits."}
+          <DialogDescription className="sr-only">
+            Date, memo and balanced lines for this entry.
           </DialogDescription>
         </DialogHeader>
         {editor && (
@@ -441,10 +485,6 @@ export function JournalEditorDialog({
                     setEditor({ ...editor, correctionReason: nextValue })
                   }
                 />
-                <p className="text-xs text-muted-foreground sm:col-span-2">
-                  To fix a misdated entry, reverse it on its original date and
-                  use the correct date for the replacement.
-                </p>
               </div>
             )}
             {!editor.corrects && (
@@ -616,19 +656,12 @@ export function ApprovalDialog({
         <DialogHeader>
           <DialogTitle>
             {kind === "entry.post"
-              ? "Mark this entry reviewed?"
+              ? "Mark reviewed?"
               : kind === "entry.reverse"
-                ? "Reverse this entry"
-                : "Discard this draft"}
+                ? "Reverse entry"
+                : "Discard draft"}
           </DialogTitle>
-          <DialogDescription>
-            {approval?.entry.memo}.{" "}
-            {kind === "entry.post"
-              ? "Reviewed lines are locked and included in reports."
-              : kind === "entry.reverse"
-                ? "An equal and opposite entry is created. The original stays in the books."
-                : "The draft stays in the audit history and leaves the active journal."}
-          </DialogDescription>
+          <DialogDescription>{approval?.entry.memo}</DialogDescription>
         </DialogHeader>
         {approval && (
           <ApprovalForm
@@ -771,22 +804,16 @@ export function ReplacementReviewDialog({
     >
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Apply this correction?</DialogTitle>
-          <DialogDescription>
-            The original stays reviewed. One operation creates its reversal and
-            the replacement below. If either fails, neither is applied.
-          </DialogDescription>
+          <DialogTitle>Apply correction?</DialogTitle>
+          <DialogDescription>{review?.memo}</DialogDescription>
         </DialogHeader>
         {review && (
           <div className="space-y-4">
-            <div className="rounded-lg bg-[rgba(var(--ink),0.04)] p-4 text-sm">
-              <p className="font-medium">{review.memo}</p>
-              <p className="mt-1 text-muted-foreground">
-                Reverse original on {dateLabel(review.reversal_date)}.
-                Replacement dated {dateLabel(review.entry_date)}.
-              </p>
-              <p className="mt-1 text-muted-foreground">{review.reason}</p>
-            </div>
+            <p className="text-sm text-muted-foreground">
+              Reverses the original on {dateLabel(review.reversal_date)} and
+              posts the replacement on {dateLabel(review.entry_date)}.
+              {review.reason ? ` Reason: ${review.reason}` : ""}
+            </p>
             <div className="divide-y divide-border glass-card rounded-xl">
               {review.lines.map((l, i) => (
                 <div key={i} className="flex justify-between px-3 py-2 text-sm">

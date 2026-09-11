@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Checkbox } from "@/components/ui/inputs/Checkbox";
+import { InstitutionLogo } from "@/components/ui/institution-logo";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import {
   Dialog,
@@ -45,6 +46,11 @@ import {
 } from "./use-accounting-command";
 import { dateLabel, money } from "./format";
 
+/**
+ * The everyday transaction form: how much, what for, which account, which
+ * category. Splits, payee and the journal view stay one click away so the
+ * common case is four fields and a save.
+ */
 export function AccountingTransactionEditor({
   entry,
   initialDirection = "out",
@@ -114,7 +120,9 @@ export function AccountingTransactionEditor({
       : [{ key: crypto.randomUUID(), account: "", amount: "", memo: "" }],
   );
   const [review, setReview] = useState(false);
+  const [remember, setRemember] = useState(false);
   const [reason, setReason] = useState("");
+  const descriptor = (entry?.source_description ?? "").trim().slice(0, 250);
   const [error, setError] = useState("");
   const dirty = useRef(false);
   const command = useAccountingCommand(onSaved);
@@ -125,6 +133,14 @@ export function AccountingTransactionEditor({
       .filter((p) => p.cash_kind !== "none")
       .map((p) => p.account_id),
   );
+  const accountOptions = accounts
+    .filter((a) => !a.is_archived && bankIds.has(a.id))
+    .map((a) => ({
+      value: a.id,
+      label: a.name,
+      icon: <InstitutionLogo name={a.name} size={20} />,
+      group: a.account_type === "liability" ? "Credit cards" : "Cash & bank",
+    }));
   const categoryOptions = accounts
     .filter((a) => !a.is_archived && !bankIds.has(a.id))
     .map((a) => ({
@@ -170,9 +186,9 @@ export function AccountingTransactionEditor({
     if (
       !dirty.current ||
       (await confirm({
-        title: "Open the journal editor?",
+        title: "Open the journal view?",
         description: "Unsaved changes here will be discarded.",
-        confirmLabel: "Open journal editor",
+        confirmLabel: "Open journal view",
         variant: "warning",
       }))
     )
@@ -227,6 +243,16 @@ export function AccountingTransactionEditor({
             lines,
           };
       if (await command.execute(c)) {
+        if (remember && context.payee_id && descriptor)
+          await command.execute({
+            type: "alias.save",
+            id: crypto.randomUUID(),
+            expected_version: 0,
+            party_id: context.payee_id,
+            match_mode: "exact",
+            description: descriptor,
+            enabled: true,
+          });
         dirty.current = false;
         onClose();
       }
@@ -237,6 +263,14 @@ export function AccountingTransactionEditor({
     }
   }
 
+  const title = posted
+    ? "Correct transaction"
+    : entry
+      ? "Edit transaction"
+      : direction === "in"
+        ? "Money in"
+        : "Money out";
+
   return (
     <Dialog
       open
@@ -245,107 +279,64 @@ export function AccountingTransactionEditor({
       }}
     >
       <DialogContent
-        className="flex max-h-[90dvh] max-w-2xl flex-col overflow-hidden p-0"
+        className="flex max-h-[90dvh] max-w-xl flex-col overflow-hidden p-0"
         onEscapeKeyDown={(e) => {
           if (command.busy) e.preventDefault();
         }}
       >
-        <DialogHeader className="shrink-0 border-b border-border px-6 py-5">
-          <DialogTitle>
+        <DialogHeader className="shrink-0 px-6 pb-1 pt-6 pr-12">
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription className={cn(!posted && "sr-only")}>
             {posted
-              ? "Correct transaction"
-              : entry
-                ? "Edit transaction"
-                : "Add transaction"}
-          </DialogTitle>
-          <DialogDescription>
-            {posted
-              ? "The original stays in your history. This saves a linked reversal and corrected transaction together."
-              : "Choose the account, amount and category. Review when everything is right."}
+              ? "Saves a corrected copy and keeps the original in your history."
+              : "Amount, description, account and category."}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-5 overflow-y-auto px-6 py-5">
+        <div className="min-h-0 overflow-y-auto px-6 pb-6 pt-4 [scrollbar-gutter:stable]">
           <form
             id="accounting-transaction-form"
             onSubmit={(e) => {
               e.preventDefault();
               void save();
             }}
-            className="space-y-5"
+            className="space-y-6"
           >
-            <div className="grid gap-4 sm:grid-cols-[160px_1fr]">
-              <DateInput
-                label="Date"
-                value={entryDate}
-                required
-                onChange={(nextValue) => change(() => setDate(nextValue))}
+            <div className="grid gap-3 sm:grid-cols-[auto_1fr] sm:items-end">
+              <RadioGroup
+                ariaLabel="Direction"
+                orientation="horizontal"
+                value={direction}
+                onChange={(next) => change(() => setDirection(next))}
+                options={[
+                  {
+                    value: "out",
+                    label: (
+                      <span className="flex items-center gap-2">
+                        <ArrowUpRight size={14} aria-hidden="true" />
+                        Money out
+                      </span>
+                    ),
+                  },
+                  {
+                    value: "in",
+                    label: (
+                      <span className="flex items-center gap-2">
+                        <ArrowDownLeft size={14} aria-hidden="true" />
+                        Money in
+                      </span>
+                    ),
+                  },
+                ]}
               />
               <TextInput
-                label="Description"
-                placeholder="What was this transaction for?"
-                value={memo}
-                required
-                maxLength={1000}
-                onChange={(nextValue) => change(() => setMemo(nextValue))}
-              />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <AccountingPicker
-                label="Payment account"
-                visibleLabel="Account"
-                value={account}
-                options={accounts
-                  .filter((a) => !a.is_archived && bankIds.has(a.id))
-                  .map((a) => ({
-                    value: a.id,
-                    label: a.name,
-                    group:
-                      a.account_type === "liability"
-                        ? "Credit cards"
-                        : "Cash & bank",
-                  }))}
-                onChange={(v) => change(() => setAccount(v))}
-                placeholder="Choose a bank or card"
-              />
-              <div>
-                <p className="mb-1.5 text-sm font-medium text-foreground">
-                  Type
-                </p>
-                <RadioGroup
-                  ariaLabel="Direction"
-                  orientation="horizontal"
-                  value={direction}
-                  onChange={(next) => change(() => setDirection(next))}
-                  options={[
-                    {
-                      value: "out",
-                      label: (
-                        <span className="flex items-center gap-2">
-                          <ArrowUpRight size={14} aria-hidden="true" />
-                          Money out
-                        </span>
-                      ),
-                    },
-                    {
-                      value: "in",
-                      label: (
-                        <span className="flex items-center gap-2">
-                          <ArrowDownLeft size={14} aria-hidden="true" />
-                          Money in
-                        </span>
-                      ),
-                    },
-                  ]}
-                />
-              </div>
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <TextInput
-                label="Amount (USD)"
+                label="Amount"
+                size="lg"
+                prefix="$"
                 inputMode="decimal"
                 value={amount}
                 placeholder="0.00"
                 required
+                inputClassName="font-semibold tabular-nums"
                 onChange={(nextValue) =>
                   change(() => {
                     setAmount(nextValue);
@@ -353,6 +344,26 @@ export function AccountingTransactionEditor({
                       setSplits([{ ...splits[0], amount: nextValue }]);
                   })
                 }
+              />
+            </div>
+            <TextInput
+              label="Description"
+              placeholder="What was this for?"
+              value={memo}
+              required
+              maxLength={1000}
+              onChange={(nextValue) => change(() => setMemo(nextValue))}
+            />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <AccountingPicker
+                label={direction === "out" ? "Paid from" : "Deposited to"}
+                visibleLabel={
+                  direction === "out" ? "Paid from" : "Deposited to"
+                }
+                value={account}
+                options={accountOptions}
+                onChange={(v) => change(() => setAccount(v))}
+                placeholder="Choose a bank or card"
               />
               {splits.length === 1 ? (
                 <AccountingPicker
@@ -368,18 +379,50 @@ export function AccountingTransactionEditor({
               ) : (
                 <div>
                   <p className="mb-1.5 text-sm font-medium text-foreground">
-                    Categories
+                    Category
                   </p>
-                  <div className="flex h-10 items-center glass-card rounded-xl px-3 text-sm text-muted-foreground">
-                    {splits.length} split categories
+                  <div className="flex h-10 items-center rounded-xl border border-border px-3 text-sm text-muted-foreground">
+                    Split across {splits.length} categories
                   </div>
                 </div>
               )}
             </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <DateInput
+                label="Date"
+                value={entryDate}
+                required
+                onChange={(nextValue) => change(() => setDate(nextValue))}
+              />
+              {posted ? (
+                <TextInput
+                  label="Reason for the correction"
+                  value={reason}
+                  required
+                  placeholder="What changed and why"
+                  onChange={(nextValue) => change(() => setReason(nextValue))}
+                />
+              ) : (
+                <AccountingContextEditor
+                  className="min-w-0"
+                  value={context}
+                  manage={manage}
+                  onChange={(v) => change(() => setContext(v))}
+                />
+              )}
+            </div>
+            {!posted && context.payee_id && descriptor && (
+              <Checkbox
+                checked={remember}
+                onChange={setRemember}
+                label="Remember this payee for this bank description"
+                description={`Future "${descriptor}" activity gets this payee automatically.`}
+              />
+            )}
             {splits.length > 1 && (
-              <div className="space-y-3 rounded-xl border border-border bg-[rgba(var(--ink),0.02)] p-4">
+              <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium">Split transaction</h3>
+                  <h3 className="text-sm font-medium">Split</h3>
                   <span
                     className={cn(
                       "text-xs",
@@ -390,83 +433,92 @@ export function AccountingTransactionEditor({
                   >
                     {remaining !== null ? (
                       <>
-                        <MaskedValue value={money(remaining)} /> remaining
+                        <MaskedValue value={money(remaining)} /> left to assign
                       </>
                     ) : (
                       "Check amounts"
                     )}
                   </span>
                 </div>
-                {splits.map((s, i) => (
-                  <div
-                    key={s.key}
-                    className="grid grid-cols-[1fr_110px_32px] items-center gap-2"
-                  >
-                    <AccountingPicker
-                      label={`Split ${i + 1} category`}
-                      value={s.account}
-                      options={categoryOptions}
-                      onChange={(v) =>
-                        change(() =>
-                          setSplits(
-                            splits.map((x) =>
-                              x.key === s.key ? { ...x, account: v } : x,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                    <TextInput
-                      aria-label={`Split ${i + 1} amount`}
-                      inputMode="decimal"
-                      value={s.amount}
-                      onChange={(nextValue) =>
-                        change(() =>
-                          setSplits(
-                            splits.map((x) =>
-                              x.key === s.key ? { ...x, amount: nextValue } : x,
-                            ),
-                          ),
-                        )
-                      }
-                    />
-                    <Button
-                      type="button"
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label={`Remove split ${i + 1}`}
-                      onClick={() =>
-                        change(() =>
-                          setSplits(splits.filter((x) => x.key !== s.key)),
-                        )
-                      }
+                <div className="divide-y divide-border rounded-xl border border-border">
+                  {splits.map((s, i) => (
+                    <div
+                      key={s.key}
+                      className="grid grid-cols-[1fr_110px_32px] items-center gap-2 p-3"
                     >
-                      <Trash2 size={14} aria-hidden="true" />
-                    </Button>
-                    <TextInput
-                      aria-label={`Split ${i + 1} note`}
-                      className="col-span-3"
-                      placeholder="Split note (optional)"
-                      value={s.memo}
-                      onChange={(nextValue) =>
-                        change(() =>
-                          setSplits(
-                            splits.map((x) =>
-                              x.key === s.key ? { ...x, memo: nextValue } : x,
+                      <AccountingPicker
+                        label={`Split ${i + 1} category`}
+                        value={s.account}
+                        options={categoryOptions}
+                        placeholder="Category"
+                        onChange={(v) =>
+                          change(() =>
+                            setSplits(
+                              splits.map((x) =>
+                                x.key === s.key ? { ...x, account: v } : x,
+                              ),
                             ),
-                          ),
-                        )
-                      }
-                    />
-                  </div>
-                ))}
+                          )
+                        }
+                      />
+                      <TextInput
+                        aria-label={`Split ${i + 1} amount`}
+                        inputMode="decimal"
+                        placeholder="0.00"
+                        inputClassName="tabular-nums"
+                        value={s.amount}
+                        onChange={(nextValue) =>
+                          change(() =>
+                            setSplits(
+                              splits.map((x) =>
+                                x.key === s.key
+                                  ? { ...x, amount: nextValue }
+                                  : x,
+                              ),
+                            ),
+                          )
+                        }
+                      />
+                      <Button
+                        type="button"
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`Remove split ${i + 1}`}
+                        onClick={() =>
+                          change(() =>
+                            setSplits(splits.filter((x) => x.key !== s.key)),
+                          )
+                        }
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                      </Button>
+                      <TextInput
+                        aria-label={`Split ${i + 1} note`}
+                        className="col-span-3"
+                        size="sm"
+                        placeholder="Note (optional)"
+                        value={s.memo}
+                        onChange={(nextValue) =>
+                          change(() =>
+                            setSplits(
+                              splits.map((x) =>
+                                x.key === s.key ? { ...x, memo: nextValue } : x,
+                              ),
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
-            <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <Button
                 type="button"
                 variant="ghost"
                 size="sm"
+                className="-ml-2"
                 onClick={() =>
                   change(() =>
                     setSplits([
@@ -489,43 +541,30 @@ export function AccountingTransactionEditor({
                 ) : (
                   <Plus size={14} aria-hidden="true" />
                 )}
-                {splits.length === 1 ? "Split transaction" : "Add category"}
+                {splits.length === 1
+                  ? "Split across categories"
+                  : "Add category"}
               </Button>
               {!posted && (
                 <Button
                   type="button"
                   variant="link"
                   size="sm"
+                  className="text-muted-foreground"
                   disabled={command.busy}
                   onClick={() => void openJournal()}
                 >
-                  Open journal editor
+                  Journal view
                 </Button>
               )}
             </div>
-            {!posted && (
-              <AccountingContextEditor
-                value={context}
-                manage={manage}
-                onChange={(v) => change(() => setContext(v))}
-              />
-            )}
-            {posted && (
-              <TextInput
-                label="Correction reason"
-                value={reason}
-                required
-                placeholder="Explain what changed"
-                onChange={(nextValue) => change(() => setReason(nextValue))}
-              />
-            )}
           </form>
           {entry && (
-            <details className="rounded-xl border border-border">
-              <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
-                Receipts & source history
+            <details className="group mt-6 rounded-xl border border-border">
+              <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+                Receipts and history
               </summary>
-              <div className="p-4 pt-0">
+              <div className="border-t border-border p-4">
                 <AccountingEvidence
                   entryId={entry.id}
                   accounts={accounts}
@@ -534,21 +573,16 @@ export function AccountingTransactionEditor({
               </div>
             </details>
           )}
-          {!entry && (
-            <p className="text-xs text-muted-foreground">
-              Save this transaction to attach receipts and supporting documents.
-            </p>
-          )}
           {(error || command.error) && (
             <p
               role="alert"
-              className="rounded-lg border border-error/20 bg-error/5 p-3 text-sm text-error"
+              className="mt-4 rounded-lg border border-error/20 bg-error/5 p-3 text-sm text-error"
             >
               {error || command.error}
             </p>
           )}
         </div>
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-[rgba(var(--ink),0.02)] px-6 py-4">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-[rgba(var(--ink),0.04)] px-6 py-4">
           {!posted ? (
             <Checkbox
               checked={review}
@@ -557,7 +591,7 @@ export function AccountingTransactionEditor({
             />
           ) : (
             <span className="text-xs text-muted-foreground">
-              Original date: {dateLabel(entry?.entry_date)}
+              Original date {dateLabel(entry?.entry_date)}
             </span>
           )}
           <div className="flex items-center gap-2">
@@ -580,8 +614,8 @@ export function AccountingTransactionEditor({
                 : posted
                   ? "Save correction"
                   : review
-                    ? "Save & review"
-                    : "Save transaction"}
+                    ? "Save and review"
+                    : "Save"}
             </Button>
           </div>
         </div>

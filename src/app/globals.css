@@ -62,9 +62,15 @@
   --color-white: #ffffff;
 
   /* Brand text shade re-assert (light mode darkens it; this lets a nested
-     dark subtree such as the sidebar keep the true shade) */
+     dark subtree such as the sidebar keep the true shade). The Tailwind
+     tokens are re-derived here too: a var() chain computes on the element
+     that declares it, so without this a dark subtree inside a light page
+     would inherit the root's already-darkened value. */
   --teal-light: #8db3b3;
   --teal-mid: #749e9e;
+  --color-teal-light: var(--teal-light);
+  --color-brand-300: var(--teal-light);
+  --color-brand-400: var(--teal-mid);
 
   /* Semantic colors - the app's palette (emerald/amber/red/blue), remapped
      per theme exactly like the app's ramps. --destructive is the deeper
@@ -734,6 +740,26 @@ a.bg-teal {
 /* Soft inset brand ring for active sidebar items */
 .glow-brand-soft {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--teal) 28%, transparent);
+}
+
+/* Accordion reveal for sidebar sub-links (app verbatim) */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-slideDown {
+  animation: slideDown 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-slideDown {
+    animation: none;
+  }
 }
 
 /* Thin white-alpha scrollbar for the always-dark sidebar */

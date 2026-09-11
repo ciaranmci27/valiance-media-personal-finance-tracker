@@ -14,6 +14,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { MaskedValue } from "@/components/ui/masked-value";
+import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
 import type {
   AccountingAccount,
   JournalEntry,
@@ -107,7 +108,7 @@ export function AccountingTransfers({
           {error}
         </p>
       )}
-      <section className="glass-card overflow-hidden">
+      <section className="glass-card overflow-hidden rounded-xl">
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
           <span className="text-sm font-medium">
             Transfers touching this date range
@@ -122,9 +123,9 @@ export function AccountingTransfers({
           </Button>
         </div>
         {!data && !demo && !error ? (
-          <p role="status" className="p-6 text-sm text-muted-foreground">
-            Loading transfers…
-          </p>
+          <div role="status" aria-label="Loading transfers…" className="p-5">
+            <TableSkeleton rows={4} />
+          </div>
         ) : !data?.groups.length ? (
           <div className="p-10 text-center">
             <ArrowLeftRight
@@ -157,7 +158,7 @@ export function AccountingTransfers({
                 <div className="text-right">
                   <MaskedValue
                     value={money(g.amount_cents)}
-                    className="font-mono tabular-nums"
+                    className="tabular-nums"
                   />
                   <p className="mt-1 text-xs text-muted-foreground">
                     {g.status === "corrected"
@@ -289,8 +290,6 @@ function TransferForm({
     inAmount &&
     BigInt(outAmount) < BigInt(0) &&
     BigInt(inAmount) === -BigInt(outAmount);
-  const effectiveOut = mode === "link" ? outEntry?.entry_date : outDate,
-    effectiveIn = mode === "link" ? inEntry?.entry_date : inDate;
   const valid =
     !!fromAccount &&
     !!toAccount &&
@@ -342,25 +341,23 @@ function TransferForm({
         if (!open) void close();
       }}
     >
-      <DialogContent className="max-h-[90dvh] max-w-3xl overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
-            {mode === "create"
-              ? "Record a transfer"
-              : "Link existing transfer entries"}
+            {mode === "create" ? "Record transfer" : "Link transfer"}
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="sr-only">
             {mode === "create"
-              ? "Review both accounts and dates before posting. If these movements are already in your books, use Link existing."
-              : "Choose posted entries with matching bank movements and transit lines. Linking retains every existing posting."}
+              ? "Move money between two of your accounts."
+              : "Pair two posted entries as one transfer."}
           </DialogDescription>
         </DialogHeader>
         <div className="mt-5 space-y-5" onChange={() => setDirty(true)}>
           <div className="grid gap-4 sm:grid-cols-2">
             <AccountingPicker
-              label="From account"
-              visibleLabel="From account"
-              placeholder="Choose bank, cash, or card"
+              label="From"
+              visibleLabel="From"
+              placeholder="Choose account"
               value={fromAccount}
               options={accountOptions()}
               onChange={(value) => {
@@ -370,9 +367,9 @@ function TransferForm({
               }}
             />
             <AccountingPicker
-              label="To account"
-              visibleLabel="To account"
-              placeholder="Choose bank, cash, or card"
+              label="To"
+              visibleLabel="To"
+              placeholder="Choose account"
               value={toAccount}
               options={accountOptions(fromAccount)}
               onChange={(value) => {
@@ -386,18 +383,18 @@ function TransferForm({
             <>
               <div className="grid gap-4 sm:grid-cols-2">
                 <DateInput
-                  label="Outgoing posting date"
+                  label="Outgoing date"
                   value={outDate}
                   onChange={(nextValue) => setOutDate(nextValue)}
                 />
                 <DateInput
-                  label="Incoming posting date"
+                  label="Incoming date"
                   value={inDate}
                   onChange={(nextValue) => setInDate(nextValue)}
                 />
               </div>
               <TextInput
-                label="Transfer amount (USD)"
+                label="Amount"
                 inputMode="decimal"
                 placeholder="0.00"
                 value={amount}
@@ -439,24 +436,11 @@ function TransferForm({
             value={memo}
             onChange={(nextValue) => setMemo(nextValue)}
           />
-          <div className="glass-card rounded-xl bg-secondary/30 p-4 text-sm">
-            <h3 className="font-medium">Posting review</h3>
-            <p className="mt-2 text-muted-foreground">
-              {mode === "link"
-                ? "Existing entries retain their dates and amounts. Their transit lines must agree."
-                : effectiveOut && effectiveIn && effectiveOut === effectiveIn
-                  ? "One balanced entry moves the amount between the two accounts."
-                  : "Two balanced entries preserve both dates. The amount stays in Transfers in Transit between them."}
+          {mode === "link" && outEntry && inEntry && !linkValid && (
+            <p role="alert" className="text-sm text-error">
+              Choose an outgoing decrease and an equal incoming increase.
             </p>
-            <p className="mt-2 text-muted-foreground">
-              This transfer does not create income or expense.
-            </p>
-            {mode === "link" && outEntry && inEntry && !linkValid && (
-              <p className="mt-2 text-error">
-                Choose an outgoing decrease and an equal incoming increase.
-              </p>
-            )}
-          </div>
+          )}
           {command.error && (
             <p role="alert" className="text-sm text-error">
               {command.error}
@@ -464,7 +448,8 @@ function TransferForm({
           )}
           <div className="flex justify-end gap-2">
             <Button
-              variant="outline"
+              type="button"
+              variant="ghost"
               disabled={command.busy}
               onClick={() => void close()}
             >
@@ -477,7 +462,7 @@ function TransferForm({
                 void save().catch((e) => command.setError(e.message))
               }
             >
-              {mode === "create" ? "Post transfer" : "Link transfer"}
+              {mode === "create" ? "Record" : "Link"}
             </Button>
           </div>
         </div>
@@ -564,23 +549,25 @@ function TransferEntryPicker({
         onChange={(nextValue) => setQuery(nextValue)}
       />
       {selected ? (
-        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3">
-          <p className="text-sm font-medium">{selected.memo}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {dateLabel(selected.entry_date)}
-          </p>
+        <div className="flex items-start justify-between gap-2 rounded-xl border border-border p-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium">{selected.memo}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {dateLabel(selected.entry_date)}
+            </p>
+          </div>
           <Button size="sm" variant="ghost" onClick={() => onSelect(null)}>
-            Change selection
+            Change
           </Button>
         </div>
       ) : (
-        <div className="max-h-44 overflow-y-auto glass-card rounded-xl">
+        <div className="max-h-44 divide-y divide-border overflow-y-auto rounded-xl border border-border">
           {candidates.map((e) => (
             <Button
               type="button"
               key={e.id}
               variant="ghost"
-              className="h-auto w-full flex-col items-stretch gap-1 whitespace-normal rounded-none border-b border-border p-3 text-left font-normal last:border-0"
+              className="h-auto w-full flex-col items-stretch gap-1 whitespace-normal rounded-none p-3 text-left font-normal"
               onClick={() => onSelect(e)}
             >
               <span className="block">{e.memo}</span>
@@ -595,21 +582,29 @@ function TransferEntryPicker({
               </span>
             </Button>
           ))}
-          {!candidates.length && (
-            <p className="p-3 text-xs text-muted-foreground">
-              {!account
-                ? "Choose an account first."
-                : !data && !error
-                  ? "Loading entries…"
+          {!candidates.length &&
+            (account && !data && !error ? (
+              <div
+                role="status"
+                aria-label="Loading entries…"
+                className="space-y-2 p-3"
+              >
+                <Skeleton className="h-4 w-3/4" />
+                <Skeleton className="h-4 w-1/2" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+            ) : (
+              <p className="p-3 text-xs text-muted-foreground">
+                {!account
+                  ? "Choose an account first."
                   : "No matching movements in this date range."}
-            </p>
-          )}
+              </p>
+            ))}
         </div>
       )}
       {data && data.total > 50 && (
         <p className="text-xs text-muted-foreground">
-          Showing the first 50 entries. Narrow the search or accounting date
-          range.
+          First 50 shown; narrow the search.
         </p>
       )}
       {error && (
@@ -657,29 +652,42 @@ function ReverseTransfer({
         if (!open && !command.busy) onClose();
       }}
     >
-      <DialogContent>
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Reverse the complete transfer</DialogTitle>
+          <DialogTitle>Reverse transfer</DialogTitle>
           <DialogDescription>
-            {group.memo}. Both original entries and their evidence remain
-            available. Closed dates require the affected periods to be reopened.
+            {group.memo},{" "}
+            <MaskedValue
+              value={money(group.amount_cents)}
+              className="tabular-nums"
+            />
+            .
           </DialogDescription>
         </DialogHeader>
-        <div className="mt-5 space-y-4">
-          <DateInput
-            label={separate ? "Outgoing reversal date" : "Reversal date"}
-            value={outDate}
-            onChange={(nextValue) => setOutDate(nextValue)}
-          />
-          {separate && (
+        <div className="mt-5 space-y-5">
+          {separate ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <DateInput
+                label="Outgoing date"
+                value={outDate}
+                onChange={(nextValue) => setOutDate(nextValue)}
+              />
+              <DateInput
+                label="Incoming date"
+                value={inDate}
+                onChange={(nextValue) => setInDate(nextValue)}
+              />
+            </div>
+          ) : (
             <DateInput
-              label="Incoming reversal date"
-              value={inDate}
-              onChange={(nextValue) => setInDate(nextValue)}
+              label="Reversal date"
+              value={outDate}
+              onChange={(nextValue) => setOutDate(nextValue)}
             />
           )}
           <TextInput
             label="Reason"
+            required
             value={reason}
             maxLength={1000}
             onChange={(nextValue) => setReason(nextValue)}
@@ -690,17 +698,23 @@ function ReverseTransfer({
             </p>
           )}
           <div className="flex justify-end gap-2">
-            <Button variant="outline" disabled={command.busy} onClick={onClose}>
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={command.busy}
+              onClick={onClose}
+            >
               Cancel
             </Button>
             <Button
+              variant="destructive"
               disabled={!reason.trim() || !outDate || !inDate || command.busy}
               loading={command.busy}
               onClick={() =>
                 void save().catch((e) => command.setError(e.message))
               }
             >
-              Reverse transfer
+              Reverse
             </Button>
           </div>
         </div>

@@ -2,13 +2,13 @@
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeftRight,
   ArrowUpDown,
   Check,
   CheckCheck,
   Copy,
   FileText,
   Filter,
-  Landmark,
   Pencil,
   Search,
   SlidersHorizontal,
@@ -55,7 +55,10 @@ import {
   defaultEntryContext,
   presentTransaction,
 } from "@/lib/accounting/transactions";
+import { InstitutionLogo } from "@/components/ui/institution-logo";
+import { Toggle } from "@/components/ui/inputs/Toggle";
 import { AccountingPicker } from "./accounting-picker";
+import { AccountingTransferFromDraft } from "./accounting-transfer-from-draft";
 import {
   accountingGet,
   commandContext,
@@ -142,7 +145,32 @@ export function AccountingTransactions({
   const [bulkCategory, setBulkCategory] = useState<{
     entries: JournalEntry[];
     account: string;
+    review: boolean;
   } | null>(null);
+  const [transfer, setTransfer] = useState<{
+    entry: JournalEntry;
+    counterpart: JournalEntry | null;
+  } | null>(null);
+  // Picking a category can also mark the draft reviewed, the routine case
+  // for bank activity. Remembered per browser.
+  const [reviewOnCategorize, setReviewOnCategorize] = useState(false);
+  useEffect(() => {
+    try {
+      setReviewOnCategorize(
+        localStorage.getItem("accounting.review-on-categorize") === "1",
+      );
+    } catch {
+      /* Private mode keeps the default. */
+    }
+  }, []);
+  function rememberReviewChoice(next: boolean) {
+    setReviewOnCategorize(next);
+    try {
+      localStorage.setItem("accounting.review-on-categorize", next ? "1" : "0");
+    } catch {
+      /* Private mode keeps the choice for this page only. */
+    }
+  }
   const cmd = useAccountingCommand(onRefresh);
 
   const profiles = manage.profiles;
@@ -350,12 +378,13 @@ export function AccountingTransactions({
     entry: JournalEntry,
     accountId: string,
     payeeId?: string | null,
+    review = false,
   ): WorkflowCommand | null {
     const p = presentTransaction(entry, profiles);
     if (!p.editable || p.categoryLines.length !== 1) return null;
     const context = commandContext(entry.context ?? defaultEntryContext);
     return {
-      type: "transaction.save",
+      type: review ? "transaction.review" : "transaction.save",
       id: entry.id,
       expected_version: entry.version,
       entry_date: entry.entry_date,
@@ -374,10 +403,20 @@ export function AccountingTransactions({
     accountId: string,
     payeeId?: string | null,
   ) {
-    const command = saveCommand(entry, accountId, payeeId);
+    const command = saveCommand(
+      entry,
+      accountId,
+      payeeId,
+      reviewOnCategorize && entry.status === "draft",
+    );
     if (!command) return;
     if (await cmd.execute(command))
-      toast("success", "Category saved. Review it when you are ready.");
+      toast(
+        "success",
+        reviewOnCategorize && entry.status === "draft"
+          ? "Categorized and reviewed."
+          : "Category saved. Review it when you are ready.",
+      );
   }
 
   /** The bank's own wording for this movement, or the memo until the data layer reports it. */
@@ -407,15 +446,19 @@ export function AccountingTransactions({
   async function applyBulkCategory() {
     if (!bulkCategory?.account) return;
     const commands = bulkCategory.entries
-      .map((e) => saveCommand(e, bulkCategory.account))
+      .map((e) =>
+        saveCommand(e, bulkCategory.account, undefined, bulkCategory.review),
+      )
       .filter((c): c is WorkflowCommand => c !== null);
     const { done, failed, saved } = await cmd.executeMany(commands);
     if (done > 0 && !failed) {
       setBulkCategory(null);
-      setSelection({});
+      // Reviewed rows leave the queue; categorized ones stay selected so
+      // Review selected is one more click, not a fresh selection.
+      if (bulkCategory.review) setSelection({});
       toast(
         "success",
-        `${done} ${done === 1 ? "transaction" : "transactions"} categorized.`,
+        `${done} ${done === 1 ? "transaction" : "transactions"} ${bulkCategory.review ? "categorized and reviewed" : "categorized"}.`,
       );
     } else if (done > 0) {
       // Keep only the rows that did not land so a retry does not resend saved ones.
@@ -489,6 +532,16 @@ export function AccountingTransactions({
         icon: <Tag />,
         onSelect: () => void rememberPayee(row),
       });
+    if (entry.status === "draft") {
+      const p = presentTransaction(entry, profiles);
+      if (p.bankLine && p.editable && !demo)
+        actions.push({
+          label: "Record as transfer",
+          icon: <ArrowLeftRight />,
+          onSelect: () =>
+            setTransfer({ entry, counterpart: transferCounterpart(row) }),
+        });
+    }
     if (entry.status === "draft")
       actions.push({
         label: "Discard draft",
@@ -508,6 +561,61 @@ export function AccountingTransactions({
         disabled: readOnly("reverse"),
       });
     return actions;
+  }
+
+  const transferWindow = manage.preferences?.transfer_window_days ?? 5;
+  /** Another uncategorized draft on a different own account, same amount the other way, within the window. */
+  function transferCounterpart(entry: TransactionRow): JournalEntry | null {
+    const p = presentTransaction(entry, profiles);
+    if (!p.bankLine || !p.editable || p.categorized || !result) return null;
+    const amount = BigInt(p.bankLine.amount_cents);
+    return (
+      result.entries.find((other) => {
+        if (other.id === entry.id || other.status !== "draft") return false;
+        const q = presentTransaction(other, profiles);
+        if (!q.bankLine || !q.editable || q.categorized) return false;
+        if (q.bankLine.account_id === p.bankLine!.account_id) return false;
+        if (BigInt(q.bankLine.amount_cents) !== -amount) return false;
+        const days =
+          Math.abs(
+            Date.parse(other.entry_date) - Date.parse(entry.entry_date),
+          ) / 86400000;
+        return days <= transferWindow;
+      }) ?? null
+    );
+  }
+
+  function transferHint(
+    row: TransactionRow,
+    p: ReturnType<typeof presentTransaction>,
+  ) {
+    if (row.status !== "draft" || !p.editable || p.categorized || !p.bankLine)
+      return null;
+    const other = transferCounterpart(row);
+    if (!other) return null;
+    const otherAccount = accounts.get(
+      presentTransaction(other, profiles).bankLine!.account_id,
+    )?.name;
+    return (
+      <span className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+        <ArrowLeftRight
+          size={11}
+          aria-hidden="true"
+          className="text-teal-light"
+        />
+        <span className="truncate">
+          Matches the opposite movement on {otherAccount}
+        </span>
+        <button
+          type="button"
+          disabled={busy || demo}
+          onClick={() => setTransfer({ entry: row, counterpart: other })}
+          className="rounded px-1 font-medium text-teal-light hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        >
+          Record transfer
+        </button>
+      </span>
+    );
   }
 
   function priorHint(
@@ -650,6 +758,7 @@ export function AccountingTransactions({
               {e.reverses_entry_id ? ", reversal" : ""}
             </p>
             {priorHint(e, p)}
+            {transferHint(e, p)}
           </div>
         );
       },
@@ -660,11 +769,17 @@ export function AccountingTransactions({
       className: "hidden w-[15%] xl:table-cell",
       render: (e) => {
         const p = presentTransaction(e, profiles, account);
+        const first = p.accountIds[0]
+          ? accounts.get(p.accountIds[0])
+          : undefined;
         return (
-          <span className="block truncate text-xs text-muted-foreground">
-            {p.accountIds
-              .map((id) => accounts.get(id)?.name ?? "Unknown account")
-              .join(" / ") || "Multiple accounts"}
+          <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+            {first && <InstitutionLogo name={first.name} size={22} />}
+            <span className="truncate">
+              {p.accountIds
+                .map((id) => accounts.get(id)?.name ?? "Unknown account")
+                .join(" / ") || "Multiple accounts"}
+            </span>
           </span>
         );
       },
@@ -738,6 +853,13 @@ export function AccountingTransactions({
                 className="mt-0.5"
               />
             )}
+            {p.accountIds[0] && (
+              <InstitutionLogo
+                name={accounts.get(p.accountIds[0])?.name}
+                size={32}
+                className="mt-0.5"
+              />
+            )}
             <div className="min-w-0">
               <button
                 type="button"
@@ -765,6 +887,7 @@ export function AccountingTransactions({
           </span>
         </div>
         {priorHint(e, p)}
+        {transferHint(e, p)}
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 flex-1">{categoryCell(e, p)}</div>
           <div className="flex shrink-0 items-center gap-1">
@@ -832,6 +955,7 @@ export function AccountingTransactions({
                   return {
                     value: a.id,
                     label: a.name,
+                    icon: <InstitutionLogo name={a.name} size={20} />,
                     group:
                       p?.cash_kind === "card"
                         ? "Credit cards"
@@ -865,13 +989,13 @@ export function AccountingTransactions({
             triggerClassName="glass-card min-h-[60px] rounded-xl px-4 hover:border-[rgba(var(--ink),0.18)]"
           >
             <div className="flex min-w-0 flex-1 items-center gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-teal-light">
-                {account ? (
-                  <Landmark size={17} aria-hidden="true" />
-                ) : (
+              {account ? (
+                <InstitutionLogo name={accounts.get(account)?.name} size={36} />
+              ) : (
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-teal-light">
                   <Wallet size={17} aria-hidden="true" />
-                )}
-              </span>
+                </span>
+              )}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">
                   {accounts.get(account)?.name ?? "All accounts"}
@@ -911,46 +1035,56 @@ export function AccountingTransactions({
         aria-label="Transactions"
       >
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-          <div
-            role="tablist"
-            aria-label="Transaction status"
-            className="flex items-center gap-1 rounded-lg bg-[rgba(var(--ink),0.05)] p-1 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]"
-          >
-            {(
-              [
-                ["draft", "Needs review", reviewCount],
-                ["all", "All", null],
-                ["posted", "Reviewed", null],
-              ] as const
-            ).map(([value, label, count]) => (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={status === value}
-                onClick={() => changed(() => setStatus(value))}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  status === value
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                )}
-              >
-                {label}
-                {typeof count === "number" && count > 0 && (
-                  <span
-                    className={cn(
-                      "rounded-full px-1.5 text-[11px] font-semibold tabular-nums leading-4",
-                      status === value
-                        ? "bg-primary-foreground/20 text-primary-foreground"
-                        : "bg-copper/20 text-copper",
-                    )}
-                  >
-                    {count}
-                  </span>
-                )}
-              </button>
-            ))}
+          <div className="flex flex-wrap items-center gap-3">
+            <div
+              role="tablist"
+              aria-label="Transaction status"
+              className="flex items-center gap-1 rounded-lg bg-[rgba(var(--ink),0.05)] p-1 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]"
+            >
+              {(
+                [
+                  ["draft", "Needs review", reviewCount],
+                  ["all", "All", null],
+                  ["posted", "Reviewed", null],
+                ] as const
+              ).map(([value, label, count]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={status === value}
+                  onClick={() => changed(() => setStatus(value))}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    status === value
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                  )}
+                >
+                  {label}
+                  {typeof count === "number" && count > 0 && (
+                    <span
+                      className={cn(
+                        "rounded-full px-1.5 text-[11px] font-semibold tabular-nums leading-4",
+                        status === value
+                          ? "bg-primary-foreground/20 text-primary-foreground"
+                          : "bg-copper/20 text-copper",
+                      )}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+            {status === "draft" && !demo && (
+              <Toggle
+                size="sm"
+                checked={reviewOnCategorize}
+                onChange={rememberReviewChoice}
+                label="Review as I categorize"
+              />
+            )}
           </div>
           <div className="flex w-full items-center gap-2 sm:w-auto">
             <TextInput
@@ -999,7 +1133,7 @@ export function AccountingTransactions({
         </div>
 
         {filters && (
-          <div className="grid gap-3 border-b border-border bg-[rgba(var(--ink),0.02)] p-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 border-b border-border bg-[rgba(var(--ink),0.04)] p-4 sm:grid-cols-2 xl:grid-cols-4">
             <DateInput
               label="From date"
               value={from}
@@ -1092,6 +1226,7 @@ export function AccountingTransactions({
                       return p.editable && p.categoryLines.length === 1;
                     }),
                     account: "",
+                    review: reviewOnCategorize,
                   })
                 }
               >
@@ -1167,10 +1302,9 @@ export function AccountingTransactions({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Review selected transactions</DialogTitle>
-            <DialogDescription>
-              Only these visible transactions will be reviewed. Their dates,
-              categories and amounts must still match this preview.
+            <DialogTitle>Review selected</DialogTitle>
+            <DialogDescription className="sr-only">
+              The selected transactions become reviewed and count in reports.
             </DialogDescription>
           </DialogHeader>
           {bulk && (
@@ -1273,10 +1407,9 @@ export function AccountingTransactions({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Set one category</DialogTitle>
-            <DialogDescription>
-              Applies to the selected transactions that have a single category
-              line. They stay unreviewed until you review them.
+            <DialogTitle>Set category</DialogTitle>
+            <DialogDescription className="sr-only">
+              One category for every selected transaction.
             </DialogDescription>
           </DialogHeader>
           {bulkCategory && (
@@ -1310,6 +1443,14 @@ export function AccountingTransactions({
                   </p>
                 )}
               </div>
+              <Checkbox
+                checked={bulkCategory.review}
+                onChange={(v) =>
+                  setBulkCategory({ ...bulkCategory, review: v })
+                }
+                label="Mark them reviewed too"
+                description="Otherwise they stay selected for Review selected."
+              />
               {chosen.length > bulkCategory.entries.length &&
                 bulkCategory.entries.length > 0 && (
                   <p className="text-xs text-muted-foreground">
@@ -1332,12 +1473,30 @@ export function AccountingTransactions({
                 onClick={() => void applyBulkCategory()}
               >
                 <Tag size={15} aria-hidden="true" />
-                Categorize {bulkCategory.entries.length} transactions
+                {bulkCategory.review
+                  ? "Categorize and review"
+                  : "Categorize"}{" "}
+                {bulkCategory.entries.length} transactions
               </Button>
             </div>
           )}
         </DialogContent>
       </Dialog>
+
+      {transfer && (
+        <AccountingTransferFromDraft
+          entry={transfer.entry}
+          counterpart={transfer.counterpart}
+          accounts={data.accounts}
+          profiles={profiles}
+          revision={data.revision}
+          onClose={() => setTransfer(null)}
+          onSaved={async () => {
+            setTransfer(null);
+            await onRefresh();
+          }}
+        />
+      )}
     </div>
   );
 }

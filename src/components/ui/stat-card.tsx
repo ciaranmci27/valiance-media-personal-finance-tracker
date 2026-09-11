@@ -15,6 +15,8 @@ interface StatCardProps {
   trend?: "up" | "down" | "neutral";
   /** When true, inverts trend colors: decrease = success (green), increase = error (red) */
   invertTrend?: boolean;
+  /** Quiet line under the value, shown when there is no previous value to compare against. */
+  subtitle?: React.ReactNode;
 }
 
 export function StatCard({
@@ -26,6 +28,7 @@ export function StatCard({
   className,
   trend: forcedTrend,
   invertTrend = false,
+  subtitle,
 }: StatCardProps) {
   const { isHidden, isRevealed, showValue, hoverProps } = useMaskedHover();
 
@@ -45,46 +48,56 @@ export function StatCard({
     return ((value - previousValue) / Math.abs(previousValue)) * 100;
   }, [value, previousValue]);
 
-  const trend = forcedTrend ?? (percentageChange !== null
-    ? percentageChange > 0
-      ? "up"
-      : percentageChange < 0
-      ? "down"
-      : "neutral"
-    : "neutral");
+  const trend =
+    forcedTrend ??
+    (percentageChange !== null
+      ? percentageChange > 0
+        ? "up"
+        : percentageChange < 0
+          ? "down"
+          : "neutral"
+      : "neutral");
 
-  const TrendIcon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : Minus;
+  const TrendIcon =
+    trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : Minus;
   // When invertTrend is true, flip the colors (for expenses: decrease = good, increase = bad)
   const trendColor = invertTrend
     ? trend === "up"
       ? "text-error"
       : trend === "down"
-      ? "text-success"
-      : "text-muted-foreground"
+        ? "text-success"
+        : "text-muted-foreground"
     : trend === "up"
-    ? "text-success"
-    : trend === "down"
-    ? "text-error"
-    : "text-muted-foreground";
+      ? "text-success"
+      : trend === "down"
+        ? "text-error"
+        : "text-muted-foreground";
 
   // Get masked display values
   const displayValue = getMaskedValue(formattedValue, isHidden, isRevealed);
-  const displayPercentage = percentageChange !== null
-    ? getMaskedValue(formatPercentage(Math.abs(percentageChange)), isHidden, isRevealed)
-    : null;
+  const displayPercentage =
+    percentageChange !== null
+      ? getMaskedValue(
+          formatPercentage(Math.abs(percentageChange)),
+          isHidden,
+          isRevealed,
+        )
+      : null;
 
   return (
     <div
       className={cn(
         "glass-card rounded-xl p-4 lg:p-5 animate-fade-up transition-opacity",
         isHidden && "cursor-default",
-        className
+        className,
       )}
       {...hoverProps}
     >
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs lg:text-sm text-zinc-500 font-medium">{title}</p>
+          <p className="text-xs lg:text-sm text-zinc-500 font-medium">
+            {title}
+          </p>
           <p
             className={cn(
               "text-2xl lg:text-3xl font-bold tracking-tight leading-none mt-0.5 currency",
@@ -92,8 +105,8 @@ export function StatCard({
               isHidden && !isRevealed
                 ? "text-foreground"
                 : value < 0
-                ? "text-error"
-                : "text-foreground"
+                  ? "text-error"
+                  : "text-foreground",
             )}
           >
             {displayValue}
@@ -115,18 +128,18 @@ export function StatCard({
               isHidden && !isRevealed
                 ? "text-muted-foreground"
                 : invertTrend
-                ? // Inverted: up = bad (red), down = good (green)
-                  trend === "up"
-                  ? "text-error"
-                  : trend === "down"
-                  ? "text-success"
-                  : "text-muted-foreground"
-                : // Normal: up = good (green), down = bad (red)
-                  trend === "up"
-                ? "text-success"
-                : trend === "down"
-                ? "text-error"
-                : "text-muted-foreground"
+                  ? // Inverted: up = bad (red), down = good (green)
+                    trend === "up"
+                    ? "text-error"
+                    : trend === "down"
+                      ? "text-success"
+                      : "text-muted-foreground"
+                  : // Normal: up = good (green), down = bad (red)
+                    trend === "up"
+                    ? "text-success"
+                    : trend === "down"
+                      ? "text-error"
+                      : "text-muted-foreground",
             )}
           >
             {/* When hidden, always show neutral Minus icon */}
@@ -139,6 +152,9 @@ export function StatCard({
           </div>
           <span className="text-xs text-zinc-500">vs last month</span>
         </div>
+      )}
+      {percentageChange === null && subtitle && (
+        <p className="mt-3.5 text-xs text-zinc-500">{subtitle}</p>
       )}
     </div>
   );

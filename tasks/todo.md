@@ -1,3 +1,28 @@
+# Accounting: crash fixes and redesign (2026-09-10)
+
+## Crash fixes (done, verified)
+- [x] Month end: route `view=close` and `view=period-impact` in `src/app/api/accounting/route.ts` (Month end renders; 200 on both reads, 400 on a bad date).
+- [x] Receipts: `accounting.documents()` returns `entries` (id, memo, entry_date). Migration `20260910222855_accounting_documents_entries.sql` + `schema.sql`; regression check in `verify-accounting-banking.ts`. OWNER: apply the migration to the finance project.
+- [x] Sync on open: shell runs due connections through `/api/accounting/feeds` (same path as Sync now) and surfaces the blocking reason as a toast. `feedSyncDue()` in `lib/accounting/feeds.ts`.
+- [ ] Owner: review the 11 discovered account mappings in Bank feeds so syncs can run.
+- [x] Accounts view: bank cards overflow at 375px (fixed in the bank panel rewrite).
+
+## Redesign (plan in `accounting-redesign-plan.md`, waiting for sign-off)
+- [x] Phase A: sidebar accordion under Accounting (Overview, Transactions, Accounts, Reports, Records, Settings, Export books) mirroring the app sidebar; no in-page tab bar or gear; light-mode fix for brand text tokens inside the dark rail (`--color-teal-light` re-derived in the dark block). Settings and Records as views, Overview page (`accounting-overview.tsx` + `charts/cash-flow-chart.tsx`), `ui/institution-logo.tsx` with inlined brand glyphs (`lib/institution-icons.ts`), DM Sans money everywhere, skeleton loaders, DataTable tints raised for dark mode, dialogs calmed (transaction editor, entry detail). Old `?view=manage` links redirect.
+- [x] Data export moved to Settings > Data management: dataset picker (personal finance + books), JSON or CSV zip, optional books date range, `GET /api/export`. The old `/api/accounting?export=true` link (never routed) is gone from the sidebar and accounting settings.
+- [x] Flow audit 2026-09-11 (two agent reports, see chat): syncs now send `create_drafts` so unmatched movements land in Needs review; sync on open only tries connections with a mapped account; mapping dialog defaults History begins to `primary_system_since`; Accounts and Overview say "Not mapped" with a Map accounts action instead of "Not connected".
+- [x] Flow fixes 2026-09-11: books notices under every accounting header (`accounting-notices.tsx`: map accounts, partial mapping, reconnect, sync error, Wave still primary); contractor flag sent by party.save (partnership/requested options dropped, they never saved); payee default category applied in `apply_treatment` (migration appended, owner applies); New payee from the transaction editor; Remember payee checkbox in the editor; Income by customer hides vendors and vice versa; Review as I categorize toggle plus bulk Mark reviewed too, selection kept; Record as transfer from a draft row with counterpart detection (`accounting-transfer-from-draft.tsx`); month end step 2 only counts accounts with a bank balance; mapping dialog trimmed (no timezone, signs under Advanced, note optional, no checkbox) and duplicate identity hint.
+- [x] Modal simplification 2026-09-11 (owner: "every single modal I open has just way too much information"): `WorkflowDialog` takes an optional description (sr-only when omitted) and sizes sm/md/lg. Simplified: journal editor, approval, replacement review, bulk review, bulk set category, record transfer, new payee, connect/reconnect SimpleFIN, map account, disconnect, skip history, CSV import wizard, cancel import, post imported, review source group, lock covered months, attach document, match bank movement, edit account, standard chart, account ledger, add account, reconciliation confirm, new statement, add statement item, line detail, classify cash movement, rule editor, alias, add/edit payee, lock/reopen month. Pattern: short title, one sentence only when it changes the decision, extras under Advanced still submitting their defaults, one verb button plus ghost Cancel.
+- [x] Crash fix: the estimator link's history dialog read `count`/`snapshots`/`versions`, but `tax-history` returns only `rows`. `LinkHistory` in `accounting-tax-link.tsx` now renders the audit rows as "Change history" with plain-English actions (Recalculated, Link settings saved). The workpapers history empty state read the same missing `count` and now checks `rows.length`.
+- [ ] Modals not yet done (agent stopped on a model limit): payroll run, manual registers, register action, tax link, tax link editor, tax workpapers, transfers, books package.
+- [x] Sidebar: Tax Estimator moved to sit directly below the Accounting group, still a main-level item (not nested in the accordion).
+- [ ] Tax estimator zeroes a linked business income row and autosaves it when the books link is missing (`link: null`). 2026 Business Profit went 58208.07 to 0 on 2026-09-11; 2025 rows were already 0 from 2026-09-09. Needs a guard: never persist a derived 0 when the books read fails.
+- [ ] Still open: feed.map never stamps company ownership in the discovery map (SQL, hidden by the UI); a changed provider record stalls an account with only feed.skip as escape; scope `busy` to the row on Transactions; collapse the three review surfaces.
+- [ ] Phase B: Transactions simplification and vocabulary pass.
+- [ ] Phase C: Accounts and Reports polish, Month end card.
+- [ ] Phase D: one-click ownership review, feed worker scheduler.
+
+---
 # Payroll Feature - Implementation Plan
 
 Status: **Sections A & B complete (2026-04-17). Sections C-J pending.**

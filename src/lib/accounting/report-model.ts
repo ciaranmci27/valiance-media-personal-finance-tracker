@@ -112,6 +112,7 @@ export function buildReportModel(
   id: ReportId,
   data: ReportData,
   showZero = false,
+  parties?: { id: string; kind: "vendor" | "customer" | "both" }[],
 ): ReportModel {
   const meta = reportCatalog.find((r) => r.id === id)!;
   const comparison = !!data.filter.compare_from;
@@ -499,7 +500,17 @@ export function buildReportModel(
             "Prior costs",
           ]
         : ["Income", "Attributed costs", "Contribution"];
+    const partyKinds = parties
+      ? new Map(parties.map((p) => [p.id, p.kind] as const))
+      : null;
     for (const d of data.dimensions.filter((d) => d.kind === kind)) {
+      const partyKind = partyKinds?.get(d.id);
+      // A vendor has no place on the customer report, and the reverse.
+      if (
+        partyKind &&
+        (vendor ? partyKind === "customer" : partyKind === "vendor")
+      )
+        continue;
       const match = { ...base, [kind]: d.id },
         previous = { ...compareBase, [kind]: d.id };
       if (vendor) {

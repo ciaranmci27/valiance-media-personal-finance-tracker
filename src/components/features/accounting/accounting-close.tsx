@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Badge } from "@/components/ui/badge";
 import { SectionHeader } from "@/components/ui/section-header";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -143,8 +144,13 @@ export function AccountingClose({
   // The three checks that decide a month.
   const reviewCount = data ? data.drafts : 0;
   const balanceCount = data
-    ? data.accounts.filter((a) => a.difference_cents !== "0").length
+    ? data.accounts.filter(
+        (a) => a.difference_cents !== null && a.difference_cents !== "0",
+      ).length
     : 0;
+  const balancesKnown = data
+    ? data.accounts.some((a) => a.difference_cents !== null)
+    : false;
 
   const moreChecks: Check[] = data
     ? [
@@ -217,9 +223,15 @@ export function AccountingClose({
         </p>
       )}
       {!data && !error && (
-        <p className="text-sm text-muted-foreground" role="status">
-          Checking the books...
-        </p>
+        <div
+          role="status"
+          aria-label="Checking the books..."
+          className="grid gap-4 lg:grid-cols-3"
+        >
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-40 rounded-xl" />
+          ))}
+        </div>
       )}
 
       {data && history && (
@@ -250,14 +262,18 @@ export function AccountingClose({
               title="Balances match"
               done={balanceCount === 0}
               summary={
-                balanceCount === 0
-                  ? "Every bank and card account matches the balance the bank reported."
-                  : `${countLabel(balanceCount, "account")} to compare against the bank.`
+                !balancesKnown
+                  ? "No bank balances reported yet. This check starts once a bank feed is mapped."
+                  : balanceCount === 0
+                    ? "Every mapped bank and card account matches what the bank last reported."
+                    : `${countLabel(balanceCount, "account")} off from what the bank last reported.`
               }
               lines={data.accounts.map((a) => [
-                a.difference_cents === "0" ? 0 : 1,
+                a.difference_cents === null || a.difference_cents === "0"
+                  ? 0
+                  : 1,
                 a.difference_cents === null
-                  ? `${a.name}: no bank balance recorded`
+                  ? `${a.name}: no bank balance yet`
                   : `${a.name}: off by ${absMoney(a.difference_cents)}`,
               ])}
               actionLabel="Compare balances"
@@ -581,14 +597,20 @@ function CloseAction({
   const cmd = useAccountingCommand(onSaved);
   const kind = action.kind;
   const titles = {
-    close: `Lock ${monthLabel(month)}?`,
-    reopen: "Reopen this month?",
+    close: `Lock ${monthLabel(month)}`,
+    reopen: `Reopen ${monthLabel(month)}`,
   };
+  // Reopening carries into every later locked month; that list is the one
+  // fact that can change the owner's mind, so it is the visible subtitle.
+  const affected =
+    action.impact?.periods.map((p) => monthLabel(p.month_start)) ?? [];
+  const subtitle =
+    kind === "reopen" && affected.length
+      ? `Also affects ${affected.join(", ")}.`
+      : "";
   const descriptions = {
-    close:
-      "Saves an immutable copy of the reports and stops financial changes to this month.",
-    reopen:
-      "Changes to an earlier month flow into the opening balances of every later locked month.",
+    close: "Saves this month's reports and stops changes to it.",
+    reopen: "Changes flow into every later locked month.",
   };
 
   async function submit() {
@@ -612,42 +634,28 @@ function CloseAction({
         if (!v && !cmd.busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{titles[kind]}</DialogTitle>
-          <DialogDescription>{descriptions[kind]}</DialogDescription>
+          <DialogDescription className={subtitle ? undefined : "sr-only"}>
+            {subtitle || descriptions[kind]}
+          </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-4"
+          className="mt-4 space-y-5"
           onSubmit={(e) => {
             e.preventDefault();
             void submit();
           }}
         >
           {kind === "reopen" && (
-            <>
-              <div className="rounded-lg bg-[rgba(var(--ink),0.04)] p-4 text-sm">
-                <p className="font-medium">Affected locked months</p>
-                <p className="mt-2 text-muted-foreground">
-                  {action.impact?.periods
-                    .map((p) => monthLabel(p.month_start))
-                    .join(", ") || "No locked months"}
-                </p>
-              </div>
-              <TextInput
-                label="Reason"
-                required
-                maxLength={1000}
-                value={reason}
-                onChange={(nextValue) => setReason(nextValue)}
-              />
-            </>
-          )}
-          {kind === "close" && (
-            <p className="rounded-lg bg-[rgba(var(--ink),0.04)] p-4 text-sm">
-              {monthLabel(checklist.month_start)}: all checks passed. Revision{" "}
-              {checklist.revision}.
-            </p>
+            <TextInput
+              label="Reason"
+              required
+              maxLength={1000}
+              value={reason}
+              onChange={(nextValue) => setReason(nextValue)}
+            />
           )}
           {cmd.error && (
             <p role="alert" className="text-sm text-error">
@@ -661,10 +669,10 @@ function CloseAction({
               disabled={cmd.busy}
               onClick={onClose}
             >
-              Back
+              Cancel
             </Button>
             <Button type="submit" disabled={cmd.busy} loading={cmd.busy}>
-              {kind === "close" ? "Lock month" : "Reopen affected months"}
+              {kind === "close" ? "Lock" : "Reopen"}
             </Button>
           </div>
         </form>

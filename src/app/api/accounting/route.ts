@@ -478,6 +478,16 @@ export async function GET(req: NextRequest) {
       result = await readAccounting(client, "register", {
         p_filter: parsed.data,
       });
+    } else if (view === "close" || view === "period-impact") {
+      const parsed = dateSchema.safeParse(req.nextUrl.searchParams.get("date"));
+      if (!parsed.success)
+        return NextResponse.json(
+          { error: "Choose a valid month." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, view, {
+        month: `${parsed.data.slice(0, 7)}-01`,
+      });
     } else if (view === "account-ledger") {
       const schema = z
         .object({

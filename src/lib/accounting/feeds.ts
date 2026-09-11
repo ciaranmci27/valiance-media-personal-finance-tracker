@@ -1,5 +1,8 @@
 import { z } from "zod";
 const id = z.uuid(),
+  // Discovered accounts are keyed by a hash cast to uuid, which is not RFC 4122
+  // shaped, so those ids take the looser GUID check.
+  discovered = z.guid(),
   version = z.number().int().min(0).max(2147483646),
   reason = z.string().trim().min(1).max(1000);
 const stamp = z
@@ -35,7 +38,7 @@ export const feedCommandSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("feed.map"),
-      id,
+      id: discovered,
       expected_version: version,
       expected_feed_version: version.optional(),
       ownership: z.enum(["company", "personal", "ignored"]),
@@ -51,13 +54,13 @@ export const feedCommandSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("feed.skip"),
-      id,
+      id: discovered,
       expected_version: version,
       through: stamp,
       reason,
     })
     .strict(),
-  z.object({ type: z.literal("feed.prepare"), id }).strict(),
+  z.object({ type: z.literal("feed.prepare"), id: discovered }).strict(),
 ]);
 export type FeedCommand = z.infer<typeof feedCommandSchema>;
 export interface FeedConnection {
@@ -70,6 +73,15 @@ export interface FeedConnection {
   last_success_at: string | null;
   last_error: string;
   lease_until: string | null;
+}
+/** Mirrors the workspace sync_due rule: active, scheduled, and no complete run in the last six hours. */
+export function feedSyncDue(connection: FeedConnection, now = Date.now()) {
+  return (
+    connection.status === "active" &&
+    connection.scheduled &&
+    (connection.last_success_at === null ||
+      Date.parse(connection.last_success_at) < now - 6 * 60 * 60 * 1000)
+  );
 }
 export interface FeedCanonicalAccount {
   id: string;

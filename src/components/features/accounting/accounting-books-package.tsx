@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Pagination } from "@/components/ui/pagination";
 import { SectionHeader } from "@/components/ui/section-header";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import {
   booksPackageScopeSchema,
   type BooksPackagePreview,
@@ -387,11 +388,16 @@ export function AccountingBooksPackage({
           />
         </div>
         {!history.rows.length ? (
-          <p className="p-6 text-sm text-muted-foreground">
-            {loading
-              ? "Loading packages..."
-              : "Create the first package for this year. Later edits will not change a retained copy."}
-          </p>
+          loading ? (
+            <div role="status" aria-label="Loading packages..." className="p-5">
+              <TableSkeleton rows={3} />
+            </div>
+          ) : (
+            <p className="p-6 text-sm text-muted-foreground">
+              Create the first package for this year. Later edits will not
+              change a retained copy.
+            </p>
+          )
         ) : (
           <div className="divide-y divide-border">
             {history.rows.map((row) => (

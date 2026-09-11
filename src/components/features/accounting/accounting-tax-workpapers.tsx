@@ -34,9 +34,9 @@ import {
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { AccountingTaxLink } from "./accounting-tax-link";
 import {
-  InvoiceActions,
-  InvoiceDialog,
-  InvoiceEvidence,
+  EvidencePicker,
+  WorkflowActions,
+  WorkflowDialog,
 } from "./accounting-dialog";
 import { dateLabel, money, timestampLabel, todayInBooks } from "./format";
 
@@ -48,6 +48,8 @@ type HistoryScope = {
   kind: "basis" | "mapping" | "adjustment";
   key?: string;
   title: string;
+  /** The one line under the title, when the scope alone does not say what the history is for. */
+  subject?: string;
 };
 type TaxAccount = TaxSource["accounts"][number];
 const basisFields = [
@@ -265,7 +267,7 @@ export function AccountingTaxWorkpapers({
                     ) : (
                       <MaskedValue
                         value={money(cents)}
-                        className="mt-2 block font-mono text-xl tabular-nums"
+                        className="mt-2 block text-xl tabular-nums"
                       />
                     )}
                   </div>
@@ -311,7 +313,8 @@ export function AccountingTaxWorkpapers({
                   setHistory({
                     kind: "mapping",
                     key: a.account_id,
-                    title: a.name,
+                    title: "Treatment history",
+                    subject: a.name,
                   })
                 }
                 onReview={(a) => setEditor({ kind: "mapping", account: a })}
@@ -360,7 +363,7 @@ export function AccountingTaxWorkpapers({
                     <div className="flex items-center gap-3">
                       <MaskedValue
                         value={money(a.amount_cents)}
-                        className="font-mono tabular-nums"
+                        className="tabular-nums"
                       />
                       <Tooltip content="Adjustment history">
                         <Button
@@ -416,7 +419,7 @@ export function AccountingTaxWorkpapers({
                           <dd>
                             <MaskedValue
                               value={money(cents!)}
-                              className="font-mono tabular-nums"
+                              className="tabular-nums"
                             />
                           </dd>
                         </div>
@@ -447,7 +450,7 @@ export function AccountingTaxWorkpapers({
                     onClick={() =>
                       setHistory({
                         kind: "basis",
-                        title: "Basis worksheet history",
+                        title: "Basis history",
                       })
                     }
                   >
@@ -483,7 +486,7 @@ export function AccountingTaxWorkpapers({
                           ) : (
                             <MaskedValue
                               value={money(data.basis!.body[key])}
-                              className="font-mono tabular-nums"
+                              className="tabular-nums"
                             />
                           )}
                         </dd>
@@ -563,10 +566,7 @@ function AccountTreatmentTable({
     !a.current && a.line_count > 0 ? (
       <span className="text-xs text-muted-foreground">Needs review</span>
     ) : (
-      <MaskedValue
-        value={money(a.ordinary_cents)}
-        className="font-mono tabular-nums"
-      />
+      <MaskedValue value={money(a.ordinary_cents)} className="tabular-nums" />
     );
   const actions = (a: TaxAccount) => (
     <div className="flex justify-end gap-1">
@@ -600,10 +600,7 @@ function AccountTreatmentTable({
           align: "right",
           numeric: true,
           render: (a) => (
-            <MaskedValue
-              value={money(a.book_cents)}
-              className="font-mono tabular-nums"
-            />
+            <MaskedValue value={money(a.book_cents)} className="tabular-nums" />
           ),
         },
         {
@@ -629,7 +626,7 @@ function AccountTreatmentTable({
               <dd className="mt-0.5">
                 <MaskedValue
                   value={money(a.book_cents)}
-                  className="font-mono tabular-nums"
+                  className="tabular-nums"
                 />
               </dd>
             </div>
@@ -669,8 +666,7 @@ function TaxWorkpaperEditor({
         : "",
     );
   const [document, setDocument] = useState(existing?.document_id ?? ""),
-    [reason, setReason] = useState(existing?.reason ?? ""),
-    [verified, setVerified] = useState(false);
+    [reason, setReason] = useState(existing?.reason ?? "");
   const [concept, setConcept] = useState(
     editor.kind === "mapping"
       ? (editor.account.mapping?.concept ?? "")
@@ -721,12 +717,12 @@ function TaxWorkpaperEditor({
     ].includes(concept);
   const title =
     editor.kind === "mapping"
-      ? editor.account.name
+      ? "Tax treatment"
       : editor.kind === "basis"
-        ? "Shareholder basis worksheet"
+        ? "Basis worksheet"
         : editor.adjustment
-          ? "Revise tax adjustment"
-          : "Add tax adjustment";
+          ? "Revise adjustment"
+          : "Add adjustment";
   async function submit() {
     try {
       const common = {
@@ -734,8 +730,17 @@ function TaxWorkpaperEditor({
         year: source.year,
         expected_version: existing?.version ?? 0,
         document_id: document || null,
-        reason,
-        verified,
+        // The note is optional here; the command still needs one.
+        reason:
+          reason.trim() ||
+          (editor.kind === "mapping"
+            ? "Treatment reviewed"
+            : editor.kind === "basis"
+              ? "Basis worksheet updated"
+              : editor.adjustment
+                ? "Adjustment revised"
+                : "Adjustment added"),
+        verified: true,
       };
       let raw: unknown;
       if (editor.kind === "mapping")
@@ -792,12 +797,13 @@ function TaxWorkpaperEditor({
     }
   }
   return (
-    <InvoiceDialog
+    <WorkflowDialog
       form
       title={title}
-      description={`Tax year ${source.year}. Saving retains the prior version and leaves journal amounts unchanged.`}
+      description={editor.kind === "mapping" ? editor.account.name : undefined}
       busy={command.busy}
       onClose={onClose}
+      size={editor.kind === "basis" ? "md" : "sm"}
     >
       <form
         className="space-y-5"
@@ -812,7 +818,7 @@ function TaxWorkpaperEditor({
               <Select
                 label="Tax treatment"
                 required
-                placeholder="Choose reviewed treatment"
+                placeholder="Choose treatment"
                 value={concept}
                 onChange={(value) => {
                   setConcept(value);
@@ -847,17 +853,13 @@ function TaxWorkpaperEditor({
               <TextInput
                 label="Deductible percentage"
                 inputMode="decimal"
-                placeholder="Enter reviewed percentage, e.g. 100"
+                placeholder="100"
+                suffix="%"
                 required
                 value={percentage}
                 onChange={(nextValue) => setPercentage(nextValue)}
               />
             )}
-            <p className="text-xs text-muted-foreground">
-              Amounts are rounded per journal line to exact cents. Separate
-              meals from travel and confirm the treatment applicable to this
-              year.
-            </p>
           </>
         )}
         {editor.kind === "adjustment" && (
@@ -872,8 +874,10 @@ function TaxWorkpaperEditor({
                 onChange={(nextValue) => setEffectiveDate(nextValue)}
               />
               <TextInput
-                label="Signed adjustment (USD)"
+                label="Amount"
                 inputMode="decimal"
+                placeholder="0.00"
+                description="Negative reduces"
                 required
                 value={amount}
                 onChange={(nextValue) => setAmount(nextValue)}
@@ -903,88 +907,81 @@ function TaxWorkpaperEditor({
                 ]}
               />
             </div>
-            <p className="text-xs text-muted-foreground">
-              Positive adds to the concept; negative subtracts. A charitable
-              deduction is a negative contribution. Do not repeat an expense
-              already reflected in mapped income.
-            </p>
-            {editor.adjustment && (
+          </>
+        )}
+        {editor.kind === "basis" && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {basisFields.map(([key, label]) => (
+              <TextInput
+                key={key}
+                label={label}
+                inputMode="decimal"
+                placeholder="Not supplied"
+                value={basis[key]}
+                onChange={(nextValue) =>
+                  setBasis({ ...basis, [key]: nextValue })
+                }
+              />
+            ))}
+          </div>
+        )}
+        {editor.kind !== "mapping" && (
+          <EvidencePicker required value={document} onChange={setDocument} />
+        )}
+        <details className="group rounded-xl border border-border">
+          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+            Advanced
+          </summary>
+          <div className="space-y-4 border-t border-border p-4">
+            {editor.kind === "mapping" && (
+              <EvidencePicker value={document} onChange={setDocument} />
+            )}
+            {editor.kind === "adjustment" && editor.adjustment && (
               <Checkbox
                 data-form-change
                 checked={active}
                 onChange={setActive}
                 className="items-start text-left"
-                label="Include this adjustment (clear to remove, preserving history)"
+                label="Include this adjustment"
+                description="Clear it to remove the adjustment; history is kept."
               />
             )}
-          </>
-        )}
-        {editor.kind === "basis" && (
-          <>
-            <p className="text-sm text-muted-foreground">
-              Copy supported values from the reviewed worksheet through{" "}
-              {dateLabel(source.through)}. Leave unavailable amounts blank.
-              Allowable loss must include all applicable externally reviewed
-              limitations.
-            </p>
-            <div className="grid gap-4 sm:grid-cols-2">
-              {basisFields.map(([key, label]) => (
-                <TextInput
-                  key={key}
-                  label={`${label} (USD)`}
-                  inputMode="decimal"
-                  placeholder="Not supplied"
-                  value={basis[key]}
-                  onChange={(nextValue) =>
-                    setBasis({ ...basis, [key]: nextValue })
-                  }
+            {editor.kind === "basis" && (
+              <>
+                <Checkbox
+                  data-form-change
+                  checked={distributions}
+                  onChange={setDistributions}
+                  className="items-start text-left"
+                  label="Distribution consequences reviewed"
                 />
-              ))}
-            </div>
-            <Checkbox
-              data-form-change
-              checked={distributions}
-              onChange={setDistributions}
-              className="items-start text-left"
-              label="Distribution tax consequences reviewed against the supporting worksheet"
+                <Textarea
+                  label="Unresolved limitations"
+                  maxLength={2000}
+                  rows={3}
+                  value={limitations}
+                  placeholder="At-risk, passive-loss or missing opening support"
+                  onChange={(nextValue) => setLimitations(nextValue)}
+                />
+              </>
+            )}
+            <TextInput
+              label="Notes"
+              maxLength={1000}
+              placeholder="Optional"
+              value={reason}
+              onChange={(nextValue) => setReason(nextValue)}
             />
-            <Textarea
-              label="Unresolved limitations"
-              maxLength={2000}
-              value={limitations}
-              placeholder="Missing opening support, at-risk or passive-loss restrictions, or other unresolved items"
-              onChange={(nextValue) => setLimitations(nextValue)}
-            />
-          </>
-        )}
-        <InvoiceEvidence
-          required={editor.kind !== "mapping"}
-          value={document}
-          onChange={setDocument}
-        />
-        <Textarea
-          label="Review notes"
-          required
-          maxLength={1000}
-          value={reason}
-          onChange={(nextValue) => setReason(nextValue)}
-          placeholder="Describe the supported treatment and any changes from the prior version."
-        />
-        <Checkbox
-          data-form-change
-          checked={verified}
-          onChange={setVerified}
-          className="items-start text-left"
-          label="I reviewed the year, amounts, treatment and supporting evidence."
-        />
-        <InvoiceActions
+          </div>
+        </details>
+        <WorkflowActions
           busy={command.busy}
           error={command.error}
-          label="Save reviewed version"
+          label="Save"
           onClose={onClose}
         />
       </form>
-    </InvoiceDialog>
+    </WorkflowDialog>
   );
 }
 
@@ -1031,110 +1028,117 @@ function TaxWorkpaperHistory({
     return () => abort.abort();
   }, [scope.kind, scope.key, year, offset]);
   return (
-    <InvoiceDialog
+    <WorkflowDialog
       title={scope.title}
-      description={`Retained reviewed versions for ${year}.`}
+      description={scope.subject}
       onClose={onClose}
+      size="md"
     >
-      {error && (
-        <p role="alert" className="text-sm text-error">
-          {error}
-        </p>
-      )}
-      <div className="divide-y divide-border">
-        {data?.rows.map((r) => (
-          <article key={r.id} className="space-y-2 py-4">
-            <div className="flex flex-wrap justify-between gap-2 text-sm">
-              <span className="font-medium">Version {r.version}</span>
-              <time
-                dateTime={r.created_at}
-                className="text-xs text-muted-foreground"
-              >
-                {timestampLabel(r.created_at)}
-              </time>
-            </div>
-            <p className="text-sm">
-              {r.classification
-                ? classifications[
-                    r.classification as keyof typeof classifications
-                  ]
-                : r.concept
-                  ? r.concept === "ordinary_adjustment"
-                    ? "Ordinary business income adjustment"
-                    : taxConcepts[r.concept]
-                  : `Worksheet through ${dateLabel(r.through_date)}`}
-              {r.deductible_bps !== undefined
-                ? ` · ${r.deductible_bps / 100}%`
-                : ""}
-              {r.amount_cents !== undefined && (
-                <>
-                  {" "}
-                  ·{" "}
-                  <MaskedValue
-                    value={money(r.amount_cents)}
-                    className="font-mono tabular-nums"
-                  />
-                </>
-              )}
-            </p>
-            <p className="break-words text-sm text-muted-foreground">
-              {r.reason}
-            </p>
-            {r.body && (
-              <>
-                <dl className="grid gap-3 sm:grid-cols-2">
-                  {basisFields.map(([key, label]) => (
-                    <div key={key}>
-                      <dt className="text-xs text-muted-foreground">{label}</dt>
-                      <dd className="text-sm">
-                        {r.body![key] === null ? (
-                          "Not supplied"
-                        ) : (
-                          <MaskedValue
-                            value={money(r.body![key])}
-                            className="font-mono tabular-nums"
-                          />
-                        )}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-                <p className="text-sm text-muted-foreground">
-                  {r.body.distribution_reviewed
-                    ? "Distribution review recorded."
-                    : "Distribution review unresolved."}{" "}
-                  {r.body.limitations}
+      <div className="space-y-5">
+        {error && (
+          <p role="alert" className="text-sm text-error">
+            {error}
+          </p>
+        )}
+        {data && data.rows.length > 0 && (
+          <div className="divide-y divide-border rounded-xl border border-border">
+            {data.rows.map((r) => (
+              <article key={r.id} className="space-y-2 px-4 py-3">
+                <div className="flex flex-wrap justify-between gap-2 text-sm">
+                  <span className="font-medium">Version {r.version}</span>
+                  <time
+                    dateTime={r.created_at}
+                    className="text-xs text-muted-foreground"
+                  >
+                    {timestampLabel(r.created_at)}
+                  </time>
+                </div>
+                <p className="text-sm">
+                  {r.classification
+                    ? classifications[
+                        r.classification as keyof typeof classifications
+                      ]
+                    : r.concept
+                      ? r.concept === "ordinary_adjustment"
+                        ? "Ordinary business income adjustment"
+                        : taxConcepts[r.concept]
+                      : `Worksheet through ${dateLabel(r.through_date)}`}
+                  {r.deductible_bps !== undefined
+                    ? ` · ${r.deductible_bps / 100}%`
+                    : ""}
+                  {r.amount_cents !== undefined && (
+                    <>
+                      {" "}
+                      ·{" "}
+                      <MaskedValue
+                        value={money(r.amount_cents)}
+                        className="tabular-nums"
+                      />
+                    </>
+                  )}
                 </p>
-              </>
-            )}
-            {r.document_id && (
-              <a
-                className="text-xs text-teal-light"
-                href={`/api/accounting/documents?id=${r.document_id}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open supporting document
-              </a>
-            )}
-          </article>
-        ))}
+                <p className="break-words text-sm text-muted-foreground">
+                  {r.reason}
+                </p>
+                {r.body && (
+                  <>
+                    <dl className="grid gap-3 sm:grid-cols-2">
+                      {basisFields.map(([key, label]) => (
+                        <div key={key}>
+                          <dt className="text-xs text-muted-foreground">
+                            {label}
+                          </dt>
+                          <dd className="text-sm">
+                            {r.body![key] === null ? (
+                              "Not supplied"
+                            ) : (
+                              <MaskedValue
+                                value={money(r.body![key])}
+                                className="tabular-nums"
+                              />
+                            )}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <p className="text-sm text-muted-foreground">
+                      {r.body.distribution_reviewed
+                        ? "Distribution review recorded."
+                        : "Distribution review unresolved."}{" "}
+                      {r.body.limitations}
+                    </p>
+                  </>
+                )}
+                {r.document_id && (
+                  <a
+                    className="text-xs text-teal-light"
+                    href={`/api/accounting/documents?id=${r.document_id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Supporting document
+                  </a>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+        {data && data.rows.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            No reviewed versions yet.
+          </p>
+        )}
+        {data && (
+          <Pagination
+            offset={offset}
+            limit={50}
+            total={data.count}
+            onChange={setOffset}
+            noun="versions"
+            className="px-0"
+          />
+        )}
       </div>
-      {data?.count === 0 && (
-        <p className="py-5 text-sm text-muted-foreground">
-          No reviewed versions yet.
-        </p>
-      )}
-      {data && (
-        <Pagination
-          offset={offset}
-          limit={50}
-          total={data.count}
-          onChange={setOffset}
-          noun="versions"
-          className="px-0 pt-3"
-        />
-      )}
-    </InvoiceDialog>
+    </WorkflowDialog>
   );
 }

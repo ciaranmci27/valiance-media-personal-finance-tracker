@@ -3,7 +3,7 @@ import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useRef, useState } from "react";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/inputs/Checkbox";
+import { DialogClose } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/inputs/Select";
 import { MaskedValue } from "@/components/ui/masked-value";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
@@ -18,16 +18,32 @@ import {
 import type { WorkflowCommand } from "@/lib/accounting/workflows";
 import type { BooksMetadata } from "./types";
 import {
-  InvoiceDialog,
-  InvoiceEvidence,
-  InvoiceActions,
+  EvidencePicker,
+  WorkflowActions,
+  WorkflowDialog,
   usdCents,
-  invoiceLinkedEntry,
+  linkedEntry,
 } from "./accounting-dialog";
 import { AccountingPicker } from "./accounting-picker";
 import { AccountingEntryPicker } from "./accounting-entry-picker";
-import { absMoney } from "./format";
+import { absMoney, dateLabel } from "./format";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+
+const AMOUNT_LABEL: Record<RegisterAction["kind"], string> = {
+  acquisition: "Cost",
+  depreciation: "Depreciation",
+  disposal: "Net proceeds",
+  payment: "Principal repaid",
+  draw: "Principal received",
+};
+const COUNTER_LABEL: Record<RegisterAction["kind"], string> = {
+  acquisition: "Paid from",
+  depreciation: "",
+  disposal: "Proceeds to",
+  payment: "Paid from",
+  draw: "Deposited to",
+};
+
 export function AccountingRegisterAction({
   record,
   kind,
@@ -74,7 +90,6 @@ export function AccountingRegisterAction({
     [entry, setEntry] = useState(""),
     [doc, setDoc] = useState(record.record.document_id ?? ""),
     [reason, setReason] = useState(""),
-    [verified, setVerified] = useState(false),
     [preview, setPreview] = useState<RegisterPreview | null>(null),
     [reading, setReading] = useState(false),
     [error, setError] = useState("");
@@ -130,7 +145,6 @@ export function AccountingRegisterAction({
   async function review() {
     setReading(true);
     setError("");
-    setVerified(false);
     try {
       setPreview(
         await accountingGet<RegisterPreview>({
@@ -169,19 +183,16 @@ export function AccountingRegisterAction({
         await review();
         return;
       }
-      if (!verified)
-        throw new Error(
-          "Confirm the source and proposed journal before continuing.",
-        );
       if (!doc) throw new Error("Attach the source schedule or statement.");
+      // The note is optional here; the command still needs one.
+      const note = reason.trim() || "Recorded from the register";
       const b = body(),
-        signature = JSON.stringify({ b, mode, entry, doc, reason });
+        signature = JSON.stringify({ b, mode, entry, doc, note });
       if (prepared.current?.signature !== signature) {
         setReading(true);
         let linked;
         try {
-          linked =
-            mode === "historical" ? await invoiceLinkedEntry(entry) : undefined;
+          linked = mode === "historical" ? await linkedEntry(entry) : undefined;
         } finally {
           setReading(false);
         }
@@ -196,7 +207,7 @@ export function AccountingRegisterAction({
             mode,
             document_id: doc,
             verified: true,
-            reason,
+            reason: note,
             ...(linked
               ? { entry_id: linked.id, entry_version: linked.version }
               : {}),
@@ -209,159 +220,169 @@ export function AccountingRegisterAction({
     }
   }
   const isVoid = kind === "void",
-    title = isVoid
-      ? movement?.mode === "historical"
-        ? "Unlink historical entry"
-        : "Reverse register entry"
-      : registerActionLabels[kind];
+    historical = movement?.mode === "historical",
+    busy = reading || command.busy;
+  const subject = movement
+    ? registerActionLabels[movement.kind].replace("Record ", "")
+    : "";
+  const title = isVoid
+    ? historical
+      ? "Unlink entry"
+      : "Reverse entry"
+    : registerActionLabels[kind];
+  const description =
+    isVoid && movement
+      ? `${subject[0].toUpperCase()}${subject.slice(1)}, ${dateLabel(movement.effective_date)}.`
+      : undefined;
   return (
-    <InvoiceDialog
+    <WorkflowDialog
       title={title}
-      description={record.record.body.name}
+      description={description}
       onClose={onClose}
-      busy={reading || command.busy}
+      busy={busy}
+      form
+      size="sm"
     >
       <form className="space-y-5" onSubmit={save}>
-        <fieldset
-          className="space-y-4"
-          disabled={reading || command.busy}
-          onChange={() => {
-            setPreview(null);
-            setVerified(false);
-          }}
-        >
-          {isVoid ? (
-            <p className="text-sm leading-relaxed text-muted-foreground">
-              {movement?.mode === "historical"
-                ? "Remove this register allocation on its original date. The journal stays in the books."
-                : "Create an equal and opposite entry. The original journal and register history are retained. Dependent depreciation, disposals or payments must remain valid."}
-            </p>
-          ) : (
-            <Select
-              label="Entry source"
-              value={mode}
-              onChange={(v) => {
-                setMode(v as "new" | "historical");
-                setPreview(null);
-                setVerified(false);
-              }}
-              options={[
-                { value: "new", label: "Create a new reviewed journal" },
-                {
-                  value: "historical",
-                  label: "Link an existing reviewed transaction",
-                },
-              ]}
+        {isVoid ? (
+          <fieldset className="space-y-5" disabled={busy}>
+            <DateInput
+              label="Entry date"
+              required
+              maxDate={today}
+              readOnly={historical}
+              value={date}
+              onChange={(nextValue) => setDate(nextValue)}
             />
-          )}
-          <DateInput
-            label="Entry date"
-            required
-            maxDate={today}
-            readOnly={isVoid && movement?.mode === "historical"}
-            value={date}
-            onChange={(nextValue) => setDate(nextValue)}
-          />
-          {!isVoid && (
-            <>
-              <div className="grid gap-3 sm:grid-cols-2">
+            <TextInput
+              label="Reason"
+              required
+              maxLength={1000}
+              value={reason}
+              onChange={(nextValue) => setReason(nextValue)}
+            />
+          </fieldset>
+        ) : (
+          <>
+            <fieldset
+              className="space-y-5"
+              disabled={busy}
+              onChange={() => setPreview(null)}
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <DateInput
+                  label="Entry date"
+                  required
+                  maxDate={today}
+                  value={date}
+                  onChange={(nextValue) => setDate(nextValue)}
+                />
                 <TextInput
-                  label={
-                    kind === "acquisition"
-                      ? "Acquisition cost"
-                      : kind === "depreciation"
-                        ? "Book depreciation"
-                        : kind === "disposal"
-                          ? "Net disposal proceeds"
-                          : kind === "payment"
-                            ? "Principal repaid"
-                            : "Principal received"
-                  }
+                  label={AMOUNT_LABEL[kind]}
                   inputMode="decimal"
+                  placeholder="0.00"
                   required
                   value={amount}
                   onChange={(nextValue) => setAmount(nextValue)}
                 />
-                {kind === "payment" && (
-                  <>
-                    <TextInput
-                      label="Interest from lender statement"
-                      inputMode="decimal"
-                      value={interest}
-                      onChange={(nextValue) => setInterest(nextValue)}
-                    />
-                    <TextInput
-                      label="Documented loan fees"
-                      inputMode="decimal"
-                      value={fee}
-                      onChange={(nextValue) => setFee(nextValue)}
-                    />
-                  </>
-                )}
               </div>
+              {kind === "payment" && (
+                <TextInput
+                  label="Interest"
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  description="From the lender statement"
+                  value={interest}
+                  onChange={(nextValue) => setInterest(nextValue)}
+                />
+              )}
               {kind !== "depreciation" && (
                 <AccountingPicker
-                  label={
-                    kind === "acquisition"
-                      ? "Paid from or financed by"
-                      : kind === "payment"
-                        ? "Payment account"
-                        : "Proceeds account"
-                  }
+                  label={COUNTER_LABEL[kind]}
+                  visibleLabel={COUNTER_LABEL[kind]}
                   value={counter}
                   options={options(["asset", "liability", "equity"])}
                   onChange={(v) => {
                     setCounter(v);
                     setPreview(null);
-                    setVerified(false);
                   }}
-                  placeholder="Choose the offset account"
+                  placeholder="Choose an account"
                 />
               )}
               {kind === "disposal" && (
                 <AccountingPicker
-                  label="Book gain or loss account"
+                  label="Gain or loss account"
+                  visibleLabel="Gain or loss account"
                   value={gain}
                   options={options(["income", "expense"])}
                   onChange={(v) => {
                     setGain(v);
                     setPreview(null);
-                    setVerified(false);
                   }}
-                  placeholder="Choose income for a gain or expense for a loss"
+                  placeholder="Income for a gain, expense for a loss"
                 />
               )}
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                {kind === "depreciation"
-                  ? "Use the approved book schedule. This does not calculate tax depreciation or elect a deduction."
-                  : kind === "payment"
-                    ? "Enter the lender statement split. Principal reduces the loan; interest and fees are separate expenses."
-                    : kind === "disposal"
-                      ? "The preview removes recorded cost and accumulated depreciation and calculates the book gain or loss from net proceeds. Tax treatment is reviewed separately."
-                      : mode === "historical"
-                        ? "Each proposed amount must fit the existing transaction. A shared purchase can be allocated across assets without posting it again."
-                        : "Review the proposed journal against the original purchase or loan evidence."}
-              </p>
-              {mode === "historical" && (
-                <AccountingEntryPicker
-                  value={entry}
+            </fieldset>
+            <EvidencePicker value={doc} onChange={setDoc} required />
+            <details className="group rounded-xl border border-border">
+              <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+                Advanced
+              </summary>
+              <fieldset
+                className="space-y-4 border-t border-border p-4"
+                disabled={busy}
+              >
+                <Select
+                  label="Entry source"
+                  value={mode}
                   onChange={(v) => {
-                    setEntry(v);
+                    setMode(v as "new" | "historical");
                     setPreview(null);
-                    setVerified(false);
                   }}
+                  options={[
+                    { value: "new", label: "New journal entry" },
+                    {
+                      value: "historical",
+                      label: "Link an existing transaction",
+                    },
+                  ]}
                 />
-              )}
-            </>
-          )}
-        </fieldset>
-        {!isVoid && (
-          <>
-            <InvoiceEvidence value={doc} onChange={setDoc} required />
+                {mode === "historical" && (
+                  <AccountingEntryPicker
+                    value={entry}
+                    onChange={(v) => {
+                      setEntry(v);
+                      setPreview(null);
+                    }}
+                  />
+                )}
+                {kind === "payment" && (
+                  <TextInput
+                    label="Loan fees"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={fee}
+                    onChange={(nextValue) => {
+                      setFee(nextValue);
+                      setPreview(null);
+                    }}
+                  />
+                )}
+                <TextInput
+                  label="Notes"
+                  maxLength={1000}
+                  placeholder="Optional"
+                  value={reason}
+                  onChange={(nextValue) => setReason(nextValue)}
+                />
+              </fieldset>
+            </details>
             {preview && (
-              <div className="rounded-xl border border-border p-4">
-                <p className="mb-3 text-sm font-medium">Proposed journal</p>
-                <div className="divide-y divide-border">
+              <div className="space-y-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                  Proposed journal
+                </p>
+                <div className="divide-y divide-border rounded-xl border border-border">
                   {[...preview.lines]
                     .sort(
                       (a, b) =>
@@ -371,10 +392,12 @@ export function AccountingRegisterAction({
                     .map((l) => (
                       <div
                         key={l.account_id}
-                        className="flex items-center justify-between gap-4 py-2 text-sm"
+                        className="flex items-center justify-between gap-4 px-4 py-2.5 text-sm"
                       >
-                        <span>{names.get(l.account_id)}</span>
-                        <span className="flex items-center gap-2">
+                        <span className="min-w-0 truncate">
+                          {names.get(l.account_id)}
+                        </span>
+                        <span className="flex shrink-0 items-center gap-2">
                           <span className="text-xs text-muted-foreground">
                             {BigInt(l.amount_cents) > BigInt(0)
                               ? "Debit"
@@ -388,52 +411,39 @@ export function AccountingRegisterAction({
                       </div>
                     ))}
                 </div>
-                <Checkbox
-                  className="mt-4"
-                  checked={verified}
-                  onChange={setVerified}
-                  disabled={command.busy}
-                  label="I verified this journal against the source document."
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setPreview(null);
-                    setVerified(false);
-                  }}
-                  disabled={command.busy}
-                >
-                  Revise entry
-                </Button>
               </div>
             )}
           </>
         )}
-        <TextInput
-          label="Reason and verification"
-          required
-          maxLength={1000}
-          value={reason}
-          onChange={(nextValue) => setReason(nextValue)}
-          disabled={command.busy}
-        />
-        <InvoiceActions
-          busy={reading || command.busy}
-          error={error || command.error}
-          label={
-            isVoid
-              ? title
-              : preview
-                ? mode === "historical"
-                  ? "Link reviewed transaction"
-                  : "Post reviewed journal"
-                : "Preview journal"
-          }
-          onClose={onClose}
-        />
+        {isVoid ? (
+          <div className="sticky -bottom-5 z-10 -mx-6 -mb-5 space-y-3 border-t border-border bg-[var(--background-subtle)] px-6 py-4">
+            {(error || command.error) && (
+              <p role="alert" className="text-sm text-error">
+                {error || command.error}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <DialogClose asChild>
+                <Button type="button" variant="ghost" disabled={busy}>
+                  Cancel
+                </Button>
+              </DialogClose>
+              <Button type="submit" variant="destructive" disabled={busy}>
+                {command.busy ? "Saving..." : historical ? "Unlink" : "Reverse"}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <WorkflowActions
+            busy={busy}
+            error={error || command.error}
+            label={
+              preview ? (mode === "historical" ? "Link" : "Post") : "Preview"
+            }
+            onClose={onClose}
+          />
+        )}
       </form>
-    </InvoiceDialog>
+    </WorkflowDialog>
   );
 }

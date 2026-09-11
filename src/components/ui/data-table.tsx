@@ -194,7 +194,7 @@ export function DataTable<T>({
             )}
           >
             <thead>
-              <tr className="border-b border-border bg-[rgba(var(--ink),0.03)]">
+              <tr className="border-b border-border bg-[rgba(var(--ink),0.05)]">
                 {selection && (
                   <th scope="col" className="w-10 px-3 py-3">
                     <Checkbox
@@ -290,7 +290,7 @@ export function DataTable<T>({
                       className={cn(
                         "border-b border-border transition-colors last:border-0",
                         onRowClick &&
-                          "cursor-pointer hover:bg-[rgba(var(--ink),0.03)]",
+                          "cursor-pointer hover:bg-[rgba(var(--ink),0.05)]",
                         isSelected && "bg-primary/[0.06]",
                         rowClassName?.(row),
                       )}
@@ -331,7 +331,7 @@ export function DataTable<T>({
             </tbody>
             {footer && sorted.length > 0 && (
               <tfoot>
-                <tr className="border-t border-border bg-[rgba(var(--ink),0.03)] text-sm font-medium">
+                <tr className="border-t border-border bg-[rgba(var(--ink),0.05)] text-sm font-medium">
                   {footer}
                 </tr>
               </tfoot>

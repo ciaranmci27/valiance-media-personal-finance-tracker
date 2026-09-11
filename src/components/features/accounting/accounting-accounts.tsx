@@ -156,7 +156,7 @@ export function AccountingAccounts({
       align: "right",
       numeric: true,
       render: (a) => (
-        <MaskedValue className="font-mono" value={bookBalance(a)} />
+        <MaskedValue className="tabular-nums" value={bookBalance(a)} />
       ),
     },
     {
@@ -198,7 +198,7 @@ export function AccountingAccounts({
         onReconcile={setReconcile}
         onRefresh={onRefresh}
       />
-      <section className="glass-card overflow-hidden">
+      <section className="glass-card overflow-hidden rounded-xl">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-5">
           <div>
             <h2 className="font-semibold">Chart of accounts</h2>
@@ -304,7 +304,7 @@ export function AccountingAccounts({
                         {a.is_archived && <Badge size="sm">Archived</Badge>}
                       </span>
                       <MaskedValue
-                        className="font-mono tabular-nums"
+                        className="tabular-nums"
                         value={bookBalance(a)}
                       />
                     </div>
@@ -342,12 +342,11 @@ export function AccountingAccounts({
           if (!o && !command.busy) setEditing(null);
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit account</DialogTitle>
-            <DialogDescription>
-              Historical entries keep this account identity. Archiving requires
-              a zero balance and no unfinished activity.
+            <DialogDescription className="sr-only">
+              Change the name, use and grouping of {editing?.name}.
             </DialogDescription>
           </DialogHeader>
           {editing && (
@@ -359,6 +358,7 @@ export function AccountingAccounts({
               profileMap={profileMap}
               command={command}
               onSaved={() => setEditing(null)}
+              onCancel={() => setEditing(null)}
             />
           )}
         </DialogContent>
@@ -369,23 +369,24 @@ export function AccountingAccounts({
           if (!command.busy) setSeed(o);
         }}
       >
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Standard company chart</DialogTitle>
-            <DialogDescription>
-              {defaultChart.length} accounts for banks, equity, income,
-              operating costs, and payroll. This creates categories with zero
-              balances.
+            <DialogTitle>Create standard chart</DialogTitle>
+            <DialogDescription className="sr-only">
+              {defaultChart.length} standard accounts with zero balances.
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-64 overflow-y-auto glass-card rounded-xl">
+          <div className="mt-4 max-h-64 divide-y divide-border overflow-y-auto rounded-xl border border-border">
             {defaultChart.map((a) => (
               <p
                 key={a.id}
-                className="flex justify-between gap-3 border-b border-border px-3 py-2 text-sm"
+                className="flex justify-between gap-3 px-4 py-2.5 text-sm"
               >
                 <span>
-                  {a.code} {a.name}
+                  <span className="mr-3 font-mono text-xs text-muted-foreground">
+                    {a.code}
+                  </span>
+                  {a.name}
                 </span>
                 <span className="text-muted-foreground">
                   {enumLabel(a.account_type)}
@@ -394,25 +395,35 @@ export function AccountingAccounts({
             ))}
           </div>
           {command.error && (
-            <p role="alert" className="text-sm text-error">
+            <p role="alert" className="mt-4 text-sm text-error">
               {command.error}
             </p>
           )}
-          <Button
-            loading={command.busy}
-            onClick={async () => {
-              if (
-                await command.execute({
-                  type: "chart.seed",
-                  id: crypto.randomUUID(),
-                  accounts: defaultChart,
-                })
-              )
-                setSeed(false);
-            }}
-          >
-            Create {defaultChart.length} accounts
-          </Button>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={command.busy}
+              onClick={() => setSeed(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              loading={command.busy}
+              onClick={async () => {
+                if (
+                  await command.execute({
+                    type: "chart.seed",
+                    id: crypto.randomUUID(),
+                    accounts: defaultChart,
+                  })
+                )
+                  setSeed(false);
+              }}
+            >
+              Create {defaultChart.length} accounts
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
       <Dialog
@@ -421,22 +432,23 @@ export function AccountingAccounts({
           if (!o) setLedger(null);
         }}
       >
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{ledger?.name}</DialogTitle>
-            <DialogDescription>
-              Posted account activity, with an exact running debit balance.
-              Credits appear negative.
+            <DialogDescription className="sr-only">
+              Posted activity and running balance for {ledger?.name}.
             </DialogDescription>
           </DialogHeader>
           {ledger && (
-            <AccountLedger
-              account={ledger.id}
-              from={data.from}
-              to={data.to}
-              onEntry={onEntry}
-              demo={demo}
-            />
+            <div className="mt-4">
+              <AccountLedger
+                account={ledger.id}
+                from={data.from}
+                to={data.to}
+                onEntry={onEntry}
+                demo={demo}
+              />
+            </div>
           )}
         </DialogContent>
       </Dialog>
@@ -455,6 +467,7 @@ function AccountEditForm({
   profileMap,
   command,
   onSaved,
+  onCancel,
 }: {
   account: BalanceRow;
   profile: AccountProfile | undefined;
@@ -462,6 +475,7 @@ function AccountEditForm({
   profileMap: Map<string, AccountProfile>;
   command: ReturnType<typeof useAccountingCommand>;
   onSaved: () => void;
+  onCancel: () => void;
 }) {
   const [cashKind, setCashKind] = useState<AccountProfile["cash_kind"]>(
     profile?.cash_kind ?? "none",
@@ -478,9 +492,22 @@ function AccountEditForm({
     )
       ? profile.purpose
       : null;
+  // Only assets and liabilities can be a bank, cash or card account.
+  const useOptions = [
+    { value: "none", label: "General ledger account" },
+    ...(account.account_type === "asset"
+      ? [
+          { value: "bank", label: "Bank account" },
+          { value: "cash", label: "Cash / undeposited funds" },
+        ]
+      : []),
+    ...(account.account_type === "liability"
+      ? [{ value: "card", label: "Credit card" }]
+      : []),
+  ];
   return (
     <form
-      className="space-y-4"
+      className="mt-4 space-y-5"
       onSubmit={async (e) => {
         e.preventDefault();
         const values = new FormData(e.currentTarget);
@@ -502,62 +529,60 @@ function AccountEditForm({
       }}
     >
       <TextInput
-        label="Account name"
+        label="Name"
         name="name"
         defaultValue={account.name}
         required
         maxLength={120}
       />
-      <TextInput
-        label="Account code"
-        name="code"
-        defaultValue={account.code}
-        maxLength={20}
-      />
+      {/* The type is fixed once an account exists; it is shown, not edited. */}
       <Select
-        label="Account use"
-        value={cashKind}
+        label="Type"
+        value={account.account_type}
+        disabled
         options={[
-          { value: "none", label: "General ledger account" },
-          ...(account.account_type === "asset"
-            ? [
-                { value: "bank", label: "Bank account" },
-                { value: "cash", label: "Cash / undeposited funds" },
-              ]
-            : []),
-          ...(account.account_type === "liability"
-            ? [{ value: "card", label: "Credit card" }]
-            : []),
+          {
+            value: account.account_type,
+            label: enumLabel(account.account_type),
+          },
         ]}
-        onChange={(value) => setCashKind(value as AccountProfile["cash_kind"])}
       />
-      <div>
-        <AccountingPicker
-          label="Accounting purpose"
-          visibleLabel="Accounting purpose"
-          value={purpose}
-          options={[
-            { value: "", label: "General category" },
-            ...(customPurpose
-              ? [{ value: customPurpose, label: enumLabel(customPurpose) }]
-              : []),
-            ...defaultChart
-              .filter((a) => a.account_type === account.account_type)
-              .map((a) => ({ value: a.purpose!, label: a.name })),
-          ]}
-          onChange={setPurpose}
+      {useOptions.length > 1 && (
+        <Select
+          label="Account use"
+          value={cashKind}
+          options={useOptions}
+          onChange={(value) =>
+            setCashKind(value as AccountProfile["cash_kind"])
+          }
         />
-        <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-          Purpose connects this account to payroll, transfers and other
-          bookkeeping tools. Account use and purpose cannot change after
-          transactions use this account.
-        </p>
-      </div>
-      <details>
-        <summary className="cursor-pointer text-sm text-muted-foreground">
-          Report grouping
+      )}
+      <details className="group rounded-xl border border-border">
+        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+          Advanced
         </summary>
-        <div className="mt-3 space-y-3">
+        <div className="space-y-4 border-t border-border p-4">
+          <TextInput
+            label="Account code"
+            name="code"
+            defaultValue={account.code}
+            maxLength={20}
+          />
+          <AccountingPicker
+            label="Purpose"
+            visibleLabel="Purpose"
+            value={purpose}
+            options={[
+              { value: "", label: "General category" },
+              ...(customPurpose
+                ? [{ value: customPurpose, label: enumLabel(customPurpose) }]
+                : []),
+              ...defaultChart
+                .filter((a) => a.account_type === account.account_type)
+                .map((a) => ({ value: a.purpose!, label: a.name })),
+            ]}
+            onChange={setPurpose}
+          />
           <TextInput
             label="Report group"
             name="subtype"
@@ -583,21 +608,31 @@ function AccountEditForm({
             ]}
             onChange={setParent}
           />
+          <Checkbox
+            checked={archived}
+            onChange={setArchived}
+            label="Archive this account"
+          />
         </div>
       </details>
-      <Checkbox
-        checked={archived}
-        onChange={setArchived}
-        label="Archive this account"
-      />
       {command.error && (
         <p role="alert" className="text-sm text-error">
           {command.error}
         </p>
       )}
-      <Button type="submit" loading={command.busy}>
-        Save account
-      </Button>
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          disabled={command.busy}
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
+        <Button type="submit" loading={command.busy}>
+          Save
+        </Button>
+      </div>
     </form>
   );
 }

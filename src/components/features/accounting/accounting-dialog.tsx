@@ -57,13 +57,14 @@ export function WorkflowDialog({
   size = "lg",
 }: {
   title: string;
-  description: string;
+  /** One short line only when it changes what the owner will do; otherwise omit it. */
+  description?: string;
   children: ReactNode;
   busy?: boolean;
   onClose: () => void;
   /** Track edits inside the body and confirm before discarding them. */
   form?: boolean;
-  size?: "md" | "lg";
+  size?: "sm" | "md" | "lg";
 }) {
   const dirty = useRef(false);
   const { confirm, dialog } = useConfirmationDialog();
@@ -90,16 +91,22 @@ export function WorkflowDialog({
       <DialogContent
         className={cn(
           "flex max-h-[92vh] flex-col overflow-hidden p-0",
-          size === "lg" ? "max-w-4xl" : "max-w-2xl",
+          size === "lg"
+            ? "max-w-4xl"
+            : size === "md"
+              ? "max-w-2xl"
+              : "max-w-md",
         )}
       >
         <CloseContext.Provider value={() => void close()}>
-          <DialogHeader className="shrink-0 border-b border-border px-6 py-5 pr-12">
+          <DialogHeader className="shrink-0 px-6 pb-1 pt-6 pr-12">
             <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{description}</DialogDescription>
+            <DialogDescription className={cn(!description && "sr-only")}>
+              {description ?? title}
+            </DialogDescription>
           </DialogHeader>
           <div
-            className="min-h-0 overflow-y-auto px-6 pb-5 pt-5 [scrollbar-gutter:stable]"
+            className="min-h-0 overflow-y-auto px-6 pb-5 pt-4 [scrollbar-gutter:stable]"
             onClickCapture={(e) => {
               if (
                 form &&

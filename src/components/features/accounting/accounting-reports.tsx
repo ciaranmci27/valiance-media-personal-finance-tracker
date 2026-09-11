@@ -1,6 +1,6 @@
 "use client";
 import { DateInput } from "@/components/ui/inputs/DateInput";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -8,6 +8,7 @@ import {
   BarChart3,
   BookOpen,
   ChevronRight,
+  FolderOpen,
   Download,
   Landmark,
   RefreshCw,
@@ -153,6 +154,46 @@ const REPORT_GROUPS: {
   },
 ];
 
+/** The record-keeping screens Reports links to; they live under the records view. */
+const RECORDS = [
+  {
+    id: "transfers",
+    title: "Transfers and card payments",
+    description: "Money moved between your own accounts, and card payments.",
+  },
+  {
+    id: "documents",
+    title: "Receipts",
+    description:
+      "Receipts and source files, linked to the transactions they support.",
+  },
+  {
+    id: "payroll",
+    title: "Payroll",
+    description: "Each Patriot run and what it debited.",
+  },
+  {
+    id: "assets",
+    title: "Assets",
+    description: "Equipment you own and how it depreciates.",
+  },
+  {
+    id: "loans",
+    title: "Loans",
+    description: "Balances, principal and interest.",
+  },
+  {
+    id: "contractors",
+    title: "Contractors",
+    description: "Who was paid what, for year-end 1099s.",
+  },
+  {
+    id: "tax",
+    title: "Tax",
+    description: "Book-to-tax adjustments and the estimator link.",
+  },
+];
+
 export function AccountingReports({
   from,
   to,
@@ -160,6 +201,7 @@ export function AccountingReports({
   manage,
   accounts,
   onEntry,
+  onRecords,
   demo = false,
 }: {
   from: string;
@@ -168,6 +210,7 @@ export function AccountingReports({
   manage: BooksMetadata;
   accounts: AccountingAccount[];
   onEntry: (id: string) => void;
+  onRecords?: (section: string) => void;
   demo?: boolean;
 }) {
   const params = useSearchParams(),
@@ -201,7 +244,9 @@ export function AccountingReports({
   } | null>(null);
   const presets = datePresets(todayInBooks());
   const model =
-    data && report ? buildReportModel(report.id, data, showZero) : null;
+    data && report
+      ? buildReportModel(report.id, data, showZero, manage.parties)
+      : null;
   const reportId = report?.id;
   const activeFilters = draft.payee ? 1 : 0;
   useEffect(() => {
@@ -332,7 +377,7 @@ export function AccountingReports({
         <div>
           <h2 className="text-xl font-semibold tracking-tight">Reports</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            Understand the business, then follow any number back to the books.
+            Statements first. Every number opens to the transactions behind it.
           </p>
         </div>
         {REPORT_GROUPS.filter((g) => {
@@ -348,52 +393,90 @@ export function AccountingReports({
           const group = g.name;
           const Icon = g.icon;
           return (
-            <section
-              key={group}
-              className="glass-card overflow-hidden rounded-xl md:grid md:grid-cols-[240px_1fr]"
-            >
-              <div className="border-b border-border bg-secondary/20 p-6 md:border-b-0 md:border-r">
-                <Icon
-                  size={20}
-                  aria-hidden="true"
-                  className="mb-3 text-teal-light"
-                />
-                <h3 className="font-semibold">{group}</h3>
-                <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-                  {g.description}
-                </p>
-              </div>
-              <div className="divide-y divide-border">
-                {[
-                  ...reportCatalog,
-                  ...(demo
-                    ? []
-                    : [booksPackageCatalog, ...supportReportCatalog]),
-                ]
-                  .filter((r) => r.group === group)
-                  .map((r) => (
-                    <Button
-                      key={r.id}
-                      variant="ghost"
-                      onClick={() => navigate(r.id)}
-                      className="group h-auto w-full justify-between gap-5 rounded-none p-5 text-left font-normal whitespace-normal focus-visible:ring-inset focus-visible:ring-offset-0"
-                    >
-                      <span className="min-w-0">
-                        <span className="block font-medium group-hover:text-teal-light">
-                          {r.title}
+            <Fragment key={group}>
+              <section className="glass-card overflow-hidden rounded-xl md:grid md:grid-cols-[240px_1fr]">
+                <div className="border-b border-border bg-secondary/20 p-6 md:border-b-0 md:border-r">
+                  <Icon
+                    size={20}
+                    aria-hidden="true"
+                    className="mb-3 text-teal-light"
+                  />
+                  <h3 className="font-semibold">{group}</h3>
+                  <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                    {g.description}
+                  </p>
+                </div>
+                <div className="divide-y divide-border">
+                  {[
+                    ...reportCatalog,
+                    ...(demo
+                      ? []
+                      : [booksPackageCatalog, ...supportReportCatalog]),
+                  ]
+                    .filter((r) => r.group === group)
+                    .map((r) => (
+                      <Button
+                        key={r.id}
+                        variant="ghost"
+                        onClick={() => navigate(r.id)}
+                        className="group h-auto w-full justify-between gap-5 rounded-none p-5 text-left font-normal whitespace-normal focus-visible:ring-inset focus-visible:ring-offset-0"
+                      >
+                        <span className="min-w-0">
+                          <span className="block font-medium group-hover:text-teal-light">
+                            {r.title}
+                          </span>
+                          <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                            {r.description}
+                          </span>
                         </span>
-                        <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
-                          {r.description}
+                        <ChevronRight
+                          aria-hidden="true"
+                          className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-teal-light"
+                        />
+                      </Button>
+                    ))}
+                </div>
+              </section>
+              {group === "Financial statements" && onRecords && !demo && (
+                <section className="glass-card overflow-hidden rounded-xl md:grid md:grid-cols-[240px_1fr]">
+                  <div className="border-b border-border bg-secondary/20 p-6 md:border-b-0 md:border-r">
+                    <FolderOpen
+                      size={20}
+                      aria-hidden="true"
+                      className="mb-3 text-teal-light"
+                    />
+                    <h3 className="font-semibold">Records</h3>
+                    <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                      Where transfers, receipts, payroll and the registers are
+                      kept up to date.
+                    </p>
+                  </div>
+                  <div className="divide-y divide-border">
+                    {RECORDS.map((r) => (
+                      <Button
+                        key={r.id}
+                        variant="ghost"
+                        onClick={() => onRecords(r.id)}
+                        className="group h-auto w-full justify-between gap-5 rounded-none p-5 text-left font-normal whitespace-normal focus-visible:ring-inset focus-visible:ring-offset-0"
+                      >
+                        <span className="min-w-0">
+                          <span className="block font-medium group-hover:text-teal-light">
+                            {r.title}
+                          </span>
+                          <span className="mt-1 block text-xs leading-relaxed text-muted-foreground">
+                            {r.description}
+                          </span>
                         </span>
-                      </span>
-                      <ChevronRight
-                        aria-hidden="true"
-                        className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-teal-light"
-                      />
-                    </Button>
-                  ))}
-              </div>
-            </section>
+                        <ChevronRight
+                          aria-hidden="true"
+                          className="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-teal-light"
+                        />
+                      </Button>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </Fragment>
           );
         })}
       </div>

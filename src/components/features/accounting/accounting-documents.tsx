@@ -241,7 +241,13 @@ export function AccountingDocuments({
       { view: "documents", offset: String(offset) },
       controller.signal,
     )
-      .then(setData)
+      // The read returns every document and no count; the list is the count.
+      .then((list) =>
+        setData({
+          documents: list.documents ?? [],
+          total: list.total ?? (list.documents ?? []).length,
+        }),
+      )
       .catch((e) => {
         if (!controller.signal.aborted) setError(e.message);
       });
@@ -358,13 +364,13 @@ export function AccountingDocuments({
           if (!open) setLink(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Attach a document to a transaction</DialogTitle>
+            <DialogTitle>Attach to transaction</DialogTitle>
             <DialogDescription>{link?.original_name}</DialogDescription>
           </DialogHeader>
           <form
-            className="space-y-4"
+            className="space-y-5"
             onSubmit={(e) => {
               e.preventDefault();
               if (link)
@@ -381,16 +387,22 @@ export function AccountingDocuments({
               onChange={setEntryId}
               disabled={command.busy}
             />
-            <p className="text-xs text-muted-foreground">
-              Evidence can be added after a period is locked. Financial amounts
-              remain unchanged.
-            </p>
             {command.error && (
               <p role="alert" className="text-sm text-error">
                 {command.error}
               </p>
             )}
-            <Button disabled={command.busy || !entryId}>Link document</Button>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={command.busy}
+                onClick={() => setLink(null)}
+              >
+                Cancel
+              </Button>
+              <Button disabled={command.busy || !entryId}>Attach</Button>
+            </div>
           </form>
         </DialogContent>
       </Dialog>

@@ -6,6 +6,7 @@ import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Pagination } from "@/components/ui/pagination";
+import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
 import { Tooltip } from "@/components/ui/tooltip";
 import {
   Dialog,
@@ -37,7 +38,7 @@ export function ReportMoney({ value }: { value: string | bigint }) {
   return (
     <MaskedValue
       value={money(value)}
-      className="font-mono tabular-nums whitespace-nowrap"
+      className="tabular-nums whitespace-nowrap"
     />
   );
 }
@@ -247,9 +248,13 @@ export function AccountingReportDetail({
         </div>
       )}
       {loading ? (
-        <p role="status" className="p-8 text-sm text-muted-foreground">
-          Loading journal lines...
-        </p>
+        <div
+          role="status"
+          aria-label="Loading journal lines..."
+          className="p-4"
+        >
+          <TableSkeleton rows={6} />
+        </div>
       ) : (
         data &&
         !stale && (
@@ -280,14 +285,6 @@ export function AccountingReportDetail({
                 <ReportMoney value={data.total_cents} />
               </span>
             </div>
-            {!cashMode && (
-              <p className="px-5 pb-4 text-xs text-muted-foreground">
-                Running balances belong to each account and include activity
-                before the selected start date. Income, liabilities and equity
-                use credit balances, so their signs differ from statement
-                presentation.
-              </p>
-            )}
           </>
         )
       )}
@@ -307,9 +304,8 @@ export function AccountingReportDetail({
           <DialogContent className="max-h-[90dvh] max-w-6xl overflow-y-auto p-0">
             <DialogHeader className="p-5 pr-12">
               <DialogTitle>{title}</DialogTitle>
-              <DialogDescription>
-                Trace the selected report total to its journal lines and
-                supporting evidence.
+              <DialogDescription className="sr-only">
+                The journal lines behind {title}.
               </DialogDescription>
             </DialogHeader>
             {content}
@@ -416,12 +412,11 @@ function CashAllocationEditor({
         if (!o && !cmd.busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Classify cash movement</DialogTitle>
-          <DialogDescription>
-            Explain how this bank movement should appear in the cash report. The
-            journal entry stays intact.
+          <DialogDescription className="sr-only">
+            Choose the cash activity for this bank movement.
           </DialogDescription>
         </DialogHeader>
         {error && (
@@ -430,9 +425,14 @@ function CashAllocationEditor({
           </p>
         )}
         {!data && !error && (
-          <p className="mt-4 text-sm text-muted-foreground">
-            Loading cash movement...
-          </p>
+          <div
+            role="status"
+            aria-label="Loading cash movement..."
+            className="mt-4 space-y-3"
+          >
+            <Skeleton className="h-16 rounded-xl" />
+            <Skeleton className="h-4 w-2/3" />
+          </div>
         )}
         {data && (
           <form
@@ -463,80 +463,80 @@ function CashAllocationEditor({
               }
             }}
           >
-            <div className="glass-card rounded-xl p-4">
-              <p className="text-sm">{data.memo}</p>
-              <div className="mt-2 flex justify-between gap-3 text-xs text-muted-foreground">
-                <span>
+            <div className="flex items-start justify-between gap-3 text-sm">
+              <div className="min-w-0">
+                <p className="truncate font-medium">{data.memo}</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   {dateLabel(data.entry_date)} · {data.account_name}
-                </span>
-                <span className="text-sm text-foreground">
-                  <ReportMoney value={data.amount_cents} />
-                </span>
+                </p>
               </div>
+              <ReportMoney value={data.amount_cents} />
             </div>
-            {rows.map((r, i) => (
-              <div key={r.key} className="glass-card space-y-3 rounded-xl p-3">
-                <div className="grid grid-cols-[1fr_120px_28px] items-end gap-2">
-                  <AccountingPicker
-                    label={`Activity ${i + 1}`}
-                    visibleLabel="Activity"
-                    value={r.classification}
-                    options={Object.entries(cashLabels)
-                      .filter(([key]) => key !== "unclassified")
-                      .map(([value, label]) => ({ value, label }))}
-                    onChange={(v) =>
-                      setRows(
-                        rows.map((x, j) =>
-                          i === j
-                            ? {
-                                ...x,
-                                classification: v as typeof r.classification,
-                              }
-                            : x,
-                        ),
-                      )
-                    }
-                  />
+            <div className="divide-y divide-border rounded-xl border border-border">
+              {rows.map((r, i) => (
+                <div key={r.key} className="space-y-3 p-4">
+                  <div className="grid grid-cols-[1fr_120px_28px] items-end gap-2">
+                    <AccountingPicker
+                      label={`Activity ${i + 1}`}
+                      visibleLabel="Activity"
+                      value={r.classification}
+                      options={Object.entries(cashLabels)
+                        .filter(([key]) => key !== "unclassified")
+                        .map(([value, label]) => ({ value, label }))}
+                      onChange={(v) =>
+                        setRows(
+                          rows.map((x, j) =>
+                            i === j
+                              ? {
+                                  ...x,
+                                  classification: v as typeof r.classification,
+                                }
+                              : x,
+                          ),
+                        )
+                      }
+                    />
+                    <TextInput
+                      label="Amount"
+                      required
+                      value={r.amount}
+                      onChange={(nextValue) =>
+                        setRows(
+                          rows.map((x, j) =>
+                            i === j ? { ...x, amount: nextValue } : x,
+                          ),
+                        )
+                      }
+                    />
+                    <Tooltip content={`Remove allocation ${i + 1}`}>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        type="button"
+                        aria-label={`Remove allocation ${i + 1}`}
+                        disabled={rows.length === 1 || cmd.busy}
+                        onClick={() => setRows(rows.filter((_, j) => i !== j))}
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                      </Button>
+                    </Tooltip>
+                  </div>
                   <TextInput
-                    label="Signed amount"
+                    label="Note"
                     required
-                    value={r.amount}
+                    maxLength={500}
+                    value={r.note}
                     onChange={(nextValue) =>
                       setRows(
                         rows.map((x, j) =>
-                          i === j ? { ...x, amount: nextValue } : x,
+                          i === j ? { ...x, note: nextValue } : x,
                         ),
                       )
                     }
                   />
-                  <Tooltip content={`Remove allocation ${i + 1}`}>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      type="button"
-                      aria-label={`Remove allocation ${i + 1}`}
-                      disabled={rows.length === 1 || cmd.busy}
-                      onClick={() => setRows(rows.filter((_, j) => i !== j))}
-                    >
-                      <Trash2 size={14} aria-hidden="true" />
-                    </Button>
-                  </Tooltip>
                 </div>
-                <TextInput
-                  label="What this portion represents"
-                  required
-                  maxLength={500}
-                  value={r.note}
-                  onChange={(nextValue) =>
-                    setRows(
-                      rows.map((x, j) =>
-                        i === j ? { ...x, note: nextValue } : x,
-                      ),
-                    )
-                  }
-                />
-              </div>
-            ))}
+              ))}
+            </div>
             <div className="flex items-center justify-between gap-3">
               <Button
                 type="button"
@@ -556,7 +556,7 @@ function CashAllocationEditor({
                 }
               >
                 <Plus size={14} aria-hidden="true" />
-                Split allocation
+                Split
               </Button>
               <span className="text-xs text-muted-foreground">
                 Unallocated:{" "}
@@ -568,7 +568,7 @@ function CashAllocationEditor({
               </span>
             </div>
             <TextInput
-              label="Reason for this classification"
+              label="Reason"
               required
               maxLength={1000}
               value={reason}
@@ -594,7 +594,7 @@ function CashAllocationEditor({
                   cmd.busy || remainder !== "0" || data.status !== "posted"
                 }
               >
-                {cmd.busy ? "Saving..." : "Save classification"}
+                {cmd.busy ? "Saving..." : "Save"}
               </Button>
             </div>
           </form>

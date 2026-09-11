@@ -1,6 +1,6 @@
 "use client";
 import { DateInput } from "@/components/ui/inputs/DateInput";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   CheckCircle2,
   Copy,
@@ -10,6 +10,7 @@ import {
   Undo2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { DialogClose } from "@/components/ui/dialog";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Badge, type BadgeVariant } from "@/components/ui/badge";
 import { Select } from "@/components/ui/inputs/Select";
@@ -17,6 +18,7 @@ import { MaskedValue } from "@/components/ui/masked-value";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Pagination } from "@/components/ui/pagination";
 import { RowActionsMenu } from "@/components/ui/row-actions-menu";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
@@ -32,12 +34,8 @@ import {
   type PayrollRun,
 } from "@/lib/accounting/payroll";
 import { AccountingPicker, type AccountingOption } from "./accounting-picker";
-import {
-  EvidencePicker,
-  WorkflowActions,
-  WorkflowDialog,
-  usdCents,
-} from "./accounting-dialog";
+import { AccountingDocumentPicker } from "./accounting-document-picker";
+import { WorkflowActions, WorkflowDialog, usdCents } from "./accounting-dialog";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { absMoney, dateLabel, enumLabel, money } from "./format";
 
@@ -113,6 +111,47 @@ const FACT_FIELDS: [string, string][] = [
   ["social_security_wages_cents", "Social Security wages"],
   ["medicare_wages_cents", "Medicare wages"],
 ];
+
+function Caption({ children }: { children: ReactNode }) {
+  return (
+    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+      {children}
+    </p>
+  );
+}
+
+/**
+ * Sticky dialog footer for what WorkflowActions cannot express: a destructive
+ * primary, or a primary that is not a form submit. Cancel goes through
+ * DialogClose so the WorkflowDialog discard guard still runs.
+ */
+function ActionFooter({
+  busy,
+  error,
+  children,
+}: {
+  busy: boolean;
+  error?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="sticky -bottom-5 z-10 -mx-6 -mb-5 space-y-3 border-t border-border bg-[var(--background-subtle)] px-6 py-4">
+      {error && (
+        <p role="alert" className="text-sm text-error">
+          {error}
+        </p>
+      )}
+      <div className="flex justify-end gap-2">
+        <DialogClose asChild>
+          <Button type="button" variant="ghost" disabled={busy}>
+            Cancel
+          </Button>
+        </DialogClose>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 /**
  * Payroll runs from Patriot, recorded the way a one-owner S corporation
@@ -243,11 +282,11 @@ export function AccountingPayrollRuns({
       return;
     }
     const ok = await confirm({
-      title: "Record this payroll run?",
+      title: "Record payroll?",
       description: accrual
-        ? "Posts one journal entry with a liability for each component. Clear them as the Patriot debits arrive."
-        : "Posts one journal entry with the net pay and tax debits on the bank account. Match the Patriot debits to it from Transactions.",
-      confirmLabel: "Record payroll",
+        ? "Posts one entry with a liability per component."
+        : "Posts one entry against the bank account.",
+      confirmLabel: "Record",
     });
     if (!ok) return;
     // `template` and `bank_account_id` are the step 6 payroll.approve fields;
@@ -468,11 +507,15 @@ export function AccountingPayrollRuns({
           keyExtractor={(r) => r.id}
           busy={loading && !!data}
           emptyState={
-            demo
-              ? "Payroll runs appear here once the books are connected."
-              : loading
-                ? "Loading payroll..."
-                : `No payroll runs in ${year}.`
+            demo ? (
+              "Payroll runs appear here once the books are connected."
+            ) : loading ? (
+              <div role="status" aria-label="Loading payroll...">
+                <TableSkeleton rows={4} />
+              </div>
+            ) : (
+              `No payroll runs in ${year}.`
+            )
           }
           mobileCard={(r) => (
             <article className="glass-card space-y-2 rounded-xl p-4">
@@ -608,32 +651,48 @@ function RunDetail({
 }) {
   const body = detail.register.body;
   const status = STATUS[detail.status];
+  const draft = detail.status === "draft";
   const hasRegister = !!detail.register.document_id;
   const accrualOnly = needsAccrual(detail);
   const missingBank = template === "cash" && !paidFrom;
   return (
     <WorkflowDialog
       title={`Payroll ${dateLabel(body.pay_date)}`}
-      description={`Run ${detail.provider_run_id}, ${dateLabel(body.period_from)} to ${dateLabel(body.period_to)}.`}
       onClose={onClose}
       size="md"
     >
       <div className="space-y-5">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
           <Badge variant={status.variant} dot>
             {status.label}
           </Badge>
+          <span className="text-muted-foreground">
+            {detail.provider_run_id} · {dateLabel(body.period_from)} to{" "}
+            {dateLabel(body.period_to)}
+          </span>
           {detail.posting?.entry_id && onEntry && (
             <Button
               variant="link"
               size="sm"
+              className="h-auto p-0"
               onClick={() => onEntry(detail.posting!.entry_id)}
             >
               Open journal entry
             </Button>
           )}
+          {draft && (
+            <Button
+              variant="link"
+              size="sm"
+              className="h-auto p-0"
+              disabled={busy}
+              onClick={onEdit}
+            >
+              Edit register
+            </Button>
+          )}
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           {(
             [
               ["Gross", detail.preview.totals.gross_cents],
@@ -642,7 +701,7 @@ function RunDetail({
               ["Employer cost", detail.preview.totals.employer_cents],
             ] as const
           ).map(([label, value]) => (
-            <div key={label} className="glass-card rounded-xl p-3">
+            <div key={label}>
               <p className="text-xs text-muted-foreground">{label}</p>
               <p className="mt-0.5 font-medium tabular-nums">
                 <MaskedValue value={money(value)} />
@@ -657,17 +716,15 @@ function RunDetail({
             ))}
           </ul>
         )}
-        <div>
-          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            Journal lines
-          </p>
-          <div className="divide-y divide-border glass-card rounded-xl">
+        <div className="space-y-2">
+          <Caption>Journal lines</Caption>
+          <div className="divide-y divide-border rounded-xl border border-border">
             {detail.preview.lines.map((l, i) => {
               const cents = BigInt(l.amount_cents);
               return (
                 <div
                   key={i}
-                  className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                  className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm"
                 >
                   <span className="min-w-0 truncate">
                     {names.get(l.account_id) ?? "Unknown account"}
@@ -691,81 +748,80 @@ function RunDetail({
             })}
           </div>
         </div>
-        {detail.status === "draft" && (
-          <div className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Select
-                label="Posting"
-                value={template}
-                onChange={(v) => {
-                  // A register with accrual-only components cannot post as cash.
-                  if (v === "cash" && accrualOnly) return;
-                  onTemplate(v as PostingTemplate);
-                }}
-                options={[
-                  {
-                    value: "cash",
-                    label: "Cash: net pay and taxes leave the bank",
-                  },
-                  {
-                    value: "accrual",
-                    label: "Accrual: a liability per component",
-                  },
-                ]}
-              />
-              <AccountingPicker
-                label="Paid from"
-                visibleLabel="Paid from"
-                value={paidFrom}
-                options={bankOptions}
-                onChange={onPaidFrom}
-                placeholder="Choose the bank account"
-                disabled={template === "accrual"}
-                required={template === "cash"}
-              />
-            </div>
-            {accrualOnly && (
-              <p className="text-xs text-muted-foreground">
-                This register carries deductions, reimbursements or fees, which
-                post through the accrual template.
+        {draft && (
+          <>
+            <AccountingPicker
+              label="Paid from"
+              visibleLabel="Paid from"
+              value={paidFrom}
+              options={bankOptions}
+              onChange={onPaidFrom}
+              placeholder="Choose the bank account"
+              disabled={template === "accrual"}
+              required={template === "cash"}
+              helperText={
+                template === "accrual"
+                  ? "Not used for accrual posting."
+                  : undefined
+              }
+            />
+            <details className="group rounded-xl border border-border">
+              <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+                Advanced
+              </summary>
+              <div className="space-y-4 border-t border-border p-4">
+                <Select
+                  label="Posting"
+                  value={template}
+                  onChange={(v) => {
+                    // A register with accrual-only components cannot post as cash.
+                    if (v === "cash" && accrualOnly) return;
+                    onTemplate(v as PostingTemplate);
+                  }}
+                  options={[
+                    { value: "cash", label: "Cash", disabled: accrualOnly },
+                    { value: "accrual", label: "Accrual" },
+                  ]}
+                  helperText={
+                    accrualOnly
+                      ? "This register needs accrual posting."
+                      : "Cash credits the bank now; accrual books a liability per component."
+                  }
+                />
+              </div>
+            </details>
+            {!hasRegister && (
+              <p className="text-sm text-muted-foreground">
+                Attach the Patriot register to record this run.
               </p>
             )}
-          </div>
+          </>
         )}
-        {error && (
-          <p role="alert" className="text-sm text-error">
-            {error}
-          </p>
-        )}
-        {detail.status === "draft" && !hasRegister && (
-          <p className="text-xs text-muted-foreground">
-            Attach the Patriot register to record this run.
-          </p>
-        )}
-        <div className="flex flex-wrap justify-end gap-2">
-          {detail.status === "draft" && (
-            <>
-              <Button variant="outline" disabled={busy} onClick={onEdit}>
-                Edit register
-              </Button>
-              <Button
-                disabled={
-                  busy || !detail.preview.ready || !hasRegister || missingBank
-                }
-                onClick={onApprove}
-              >
-                <CheckCircle2 size={15} aria-hidden="true" />
-                Record payroll
-              </Button>
-            </>
-          )}
-          {(detail.status === "posted" || detail.status === "linked") && (
-            <Button variant="outline" disabled={busy} onClick={onVoid}>
-              <Undo2 size={15} aria-hidden="true" />
-              Void run
+        <ActionFooter busy={busy} error={error}>
+          {draft && (
+            <Button
+              type="button"
+              disabled={
+                busy || !detail.preview.ready || !hasRegister || missingBank
+              }
+              onClick={onApprove}
+            >
+              <CheckCircle2 size={15} aria-hidden="true" />
+              Record
             </Button>
           )}
-        </div>
+          {(detail.status === "posted" || detail.status === "linked") && (
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={busy}
+              onClick={onVoid}
+            >
+              <Undo2 size={15} aria-hidden="true" />
+              Void
+            </Button>
+          )}
+        </ActionFooter>
       </div>
     </WorkflowDialog>
   );
@@ -879,8 +935,6 @@ function RunForm({
       }),
     ),
   }));
-  const [showAccounts, setShowAccounts] = useState(false);
-  const [showFacts, setShowFacts] = useState(false);
   const [error, setError] = useState("");
   const command = useAccountingCommand();
 
@@ -890,19 +944,26 @@ function RunForm({
     setState((s) => ({ ...s, accounts: { ...s.accounts, [key]: value } }));
 
   // Register identity: gross + reimbursements = net + everything withheld.
-  let difference: bigint | null = null;
+  // A blank employee tax field takes the residual, so the usual run needs
+  // only gross and net; an explicit amount is checked against it.
+  let balance: { withholding: bigint; difference: bigint } | null = null;
   try {
     const cents = (v: string) => usdCents(v || "0");
-    difference =
+    const residual =
       cents(state.gross) +
       cents(state.reimbursement) -
-      (cents(state.net) +
-        cents(state.withholding) +
-        cents(state.retirement) +
-        cents(state.deduction));
+      (cents(state.net) + cents(state.retirement) + cents(state.deduction));
+    const withholding = state.withholding.trim()
+      ? cents(state.withholding)
+      : residual;
+    balance = { withholding, difference: residual - withholding };
   } catch {
-    difference = null;
+    balance = null;
   }
+  const derivedWithholding =
+    balance && !state.withholding.trim() && balance.withholding >= BigInt(0)
+      ? centsToDecimal(balance.withholding)
+      : "0.00";
 
   // Reimbursements may post to expense, asset or liability accounts; the
   // preview rejects income and equity.
@@ -929,7 +990,16 @@ function RunForm({
         throw new Error("Enter the employee name.");
       const gross = usdCents(state.gross, true);
       const net = usdCents(state.net, true);
-      const withholding = usdCents(state.withholding);
+      if (!balance) throw new Error("Enter amounts in dollars and cents.");
+      if (balance.withholding < BigInt(0))
+        throw new Error(
+          "Net pay plus deductions cannot exceed gross wages plus reimbursements.",
+        );
+      if (balance.difference !== BigInt(0))
+        throw new Error(
+          "The register does not balance: gross plus reimbursements must equal net pay plus everything withheld.",
+        );
+      const withholding = balance.withholding;
       const employer = usdCents(state.employer);
       const optional: [string, bigint][] = [
         ["retirement_deferral", usdCents(state.retirement)],
@@ -937,10 +1007,6 @@ function RunForm({
         ["reimbursement", usdCents(state.reimbursement)],
         ["provider_fee", usdCents(state.fee)],
       ];
-      if (difference !== BigInt(0))
-        throw new Error(
-          "The register does not balance: gross plus reimbursements must equal net pay plus everything withheld.",
-        );
       const component = (
         kind: string,
         amount: bigint,
@@ -1058,11 +1124,16 @@ function RunForm({
     }
   }
 
-  const moneyField = (label: string, key: keyof FormState) => (
+  const moneyField = (
+    label: string,
+    key: keyof FormState,
+    extra?: { placeholder?: string; description?: string },
+  ) => (
     <TextInput
       label={label}
       inputMode="decimal"
-      placeholder="0.00"
+      placeholder={extra?.placeholder ?? "0.00"}
+      description={extra?.description}
       value={String(state[key])}
       onChange={(nextValue) => set({ [key]: nextValue } as Partial<FormState>)}
     />
@@ -1070,8 +1141,7 @@ function RunForm({
 
   return (
     <WorkflowDialog
-      title={record ? "Edit payroll register" : "Record payroll run"}
-      description="Copy the totals from the Patriot register. One entry is posted when you record it."
+      title={record ? "Edit payroll" : "Record payroll"}
       busy={command.busy}
       onClose={onClose}
       form
@@ -1085,229 +1155,193 @@ function RunForm({
         }}
       >
         <div className="grid gap-4 sm:grid-cols-2">
-          <div>
-            <TextInput
-              label="Patriot payroll number"
-              required
-              disabled={!!record}
-              aria-describedby={record ? "provider-run-help" : undefined}
-              value={state.providerId}
-              onChange={(nextValue) => set({ providerId: nextValue })}
-              placeholder="For example, 2026-09 monthly"
-            />
-            {record && (
-              <p
-                id="provider-run-help"
-                className="mt-1.5 text-xs text-muted-foreground"
-              >
-                The run number identifies this register and cannot change. Copy
-                the run to record it under a new number.
-              </p>
-            )}
-          </div>
+          <TextInput
+            label="Patriot run"
+            required
+            disabled={!!record}
+            value={state.providerId}
+            onChange={(nextValue) => set({ providerId: nextValue })}
+            placeholder="2026-09 monthly"
+          />
           <DateInput
             label="Pay date"
             required
             value={state.payDate}
             onChange={(nextValue) => set({ payDate: nextValue })}
           />
-          <DateInput
-            label="Period from"
-            required
-            value={state.from}
-            onChange={(nextValue) => set({ from: nextValue })}
-          />
-          <DateInput
-            label="Period to"
-            required
-            value={state.to}
-            onChange={(nextValue) => set({ to: nextValue })}
-          />
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           {moneyField("Gross wages", "gross")}
-          {moneyField("Net pay deposited", "net")}
-          {moneyField("Employee taxes withheld", "withholding")}
-          {moneyField("Employer payroll taxes", "employer")}
+          {moneyField("Net pay", "net")}
         </div>
 
-        <details className="glass-card rounded-xl">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-medium">
-            Other register lines
+        <TextInput
+          label="Employee"
+          required
+          value={state.employeeName}
+          onChange={(nextValue) => set({ employeeName: nextValue })}
+          placeholder="Owner name"
+        />
+
+        <AccountingDocumentPicker
+          label="Patriot register"
+          required={false}
+          value={state.document}
+          onChange={(v) => set({ document: v })}
+        />
+
+        {balance && balance.difference !== BigInt(0) && (
+          <p role="status" className="text-sm text-warning">
+            Register is <MaskedValue value={absMoney(balance.difference)} />{" "}
+            off: gross plus reimbursements must equal net plus withholdings.
+          </p>
+        )}
+
+        <details className="group rounded-xl border border-border">
+          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+            Advanced
           </summary>
-          <div className="grid gap-4 border-t border-border p-4 sm:grid-cols-2">
-            {moneyField("Retirement deferral", "retirement")}
-            {moneyField("Other deductions", "deduction")}
-            {moneyField("Reimbursements paid", "reimbursement")}
-            {moneyField("Patriot service fee", "fee")}
+          <div className="space-y-4 border-t border-border p-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <DateInput
+                label="Period from"
+                required
+                value={state.from}
+                onChange={(nextValue) => set({ from: nextValue })}
+              />
+              <DateInput
+                label="Period to"
+                required
+                value={state.to}
+                onChange={(nextValue) => set({ to: nextValue })}
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {moneyField("Employee taxes withheld", "withholding", {
+                placeholder: derivedWithholding,
+                description: "Blank uses gross minus net",
+              })}
+              {moneyField("Employer payroll taxes", "employer")}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {moneyField("Retirement deferral", "retirement")}
+              {moneyField("Other deductions", "deduction")}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {moneyField("Reimbursements paid", "reimbursement")}
+              {moneyField("Patriot service fee", "fee")}
+            </div>
+
+            <Caption>Posting accounts</Caption>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <AccountingPicker
+                label="Wages expense"
+                visibleLabel="Wages expense"
+                value={state.accounts.officer_wages}
+                options={optionsFor("expense")}
+                onChange={(v) => setAccount("officer_wages", v)}
+              />
+              <AccountingPicker
+                label="Net pay liability"
+                visibleLabel="Net pay"
+                value={state.accounts.net_pay}
+                options={optionsFor("liability")}
+                onChange={(v) => setAccount("net_pay", v)}
+              />
+              <AccountingPicker
+                label="Employee tax liability"
+                visibleLabel="Taxes withheld"
+                value={state.accounts.employee_tax}
+                options={optionsFor("liability")}
+                onChange={(v) => setAccount("employee_tax", v)}
+              />
+              <AccountingPicker
+                label="Employer tax expense"
+                visibleLabel="Employer tax expense"
+                value={state.accounts.employer_tax}
+                options={optionsFor("expense")}
+                onChange={(v) => setAccount("employer_tax", v)}
+              />
+              <AccountingPicker
+                label="Employer tax liability"
+                visibleLabel="Employer tax payable"
+                value={state.accounts.employer_tax_offset}
+                options={optionsFor("liability")}
+                onChange={(v) => setAccount("employer_tax_offset", v)}
+              />
+              {state.retirement && (
+                <AccountingPicker
+                  label="Retirement liability"
+                  visibleLabel="Retirement payable"
+                  value={state.accounts.retirement_deferral}
+                  options={optionsFor("liability")}
+                  onChange={(v) => setAccount("retirement_deferral", v)}
+                />
+              )}
+              {state.deduction && (
+                <AccountingPicker
+                  label="Other deduction liability"
+                  visibleLabel="Other deductions payable"
+                  value={state.accounts.other_deduction}
+                  options={optionsFor("liability")}
+                  onChange={(v) => setAccount("other_deduction", v)}
+                />
+              )}
+              {state.reimbursement && (
+                <AccountingPicker
+                  label="Reimbursement account"
+                  visibleLabel="Reimbursements"
+                  value={state.accounts.reimbursement}
+                  options={optionsFor("reimbursement")}
+                  onChange={(v) => setAccount("reimbursement", v)}
+                />
+              )}
+              {state.fee && (
+                <>
+                  <AccountingPicker
+                    label="Payroll fee expense"
+                    visibleLabel="Payroll fee expense"
+                    value={state.accounts.provider_fee}
+                    options={optionsFor("expense")}
+                    onChange={(v) => setAccount("provider_fee", v)}
+                  />
+                  <AccountingPicker
+                    label="Payroll fee liability"
+                    visibleLabel="Payroll fee payable"
+                    value={state.accounts.provider_fee_offset}
+                    options={optionsFor("liability")}
+                    onChange={(v) => setAccount("provider_fee_offset", v)}
+                  />
+                </>
+              )}
+            </div>
+
+            <Caption>W-2 details</Caption>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {FACT_FIELDS.map(([key, label]) => (
+                <TextInput
+                  key={key}
+                  label={label}
+                  inputMode="decimal"
+                  placeholder="0.00"
+                  value={state.facts[key]}
+                  onChange={(nextValue) =>
+                    setState((s) => ({
+                      ...s,
+                      facts: { ...s.facts, [key]: nextValue },
+                    }))
+                  }
+                />
+              ))}
+            </div>
           </div>
         </details>
-
-        <div
-          className={cn(
-            "flex items-center justify-between rounded-lg border px-4 py-3 text-sm",
-            difference === BigInt(0)
-              ? "border-teal-light/30 bg-primary/5"
-              : "border-warning/30 bg-warning/10",
-          )}
-        >
-          <span>
-            {difference === BigInt(0)
-              ? "Register balances"
-              : difference === null
-                ? "Enter amounts in dollars and cents"
-                : "Gross plus reimbursements should equal net plus withholdings"}
-          </span>
-          {difference !== null && difference !== BigInt(0) && (
-            <span className="tabular-nums text-warning">
-              <MaskedValue value={money(difference)} /> off
-            </span>
-          )}
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
-          <TextInput
-            label="Employee"
-            required
-            value={state.employeeName}
-            onChange={(nextValue) => set({ employeeName: nextValue })}
-            placeholder="Owner name"
-          />
-          <EvidencePicker
-            value={state.document}
-            onChange={(v) => set({ document: v })}
-          />
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowAccounts((v) => !v)}
-          >
-            {showAccounts ? "Hide accounts" : "Accounts this posts to"}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowFacts((v) => !v)}
-          >
-            {showFacts ? "Hide W-2 details" : "W-2 details (optional)"}
-          </Button>
-        </div>
-
-        {showAccounts && (
-          <div className="grid gap-4 glass-card rounded-xl p-4 sm:grid-cols-2">
-            <AccountingPicker
-              label="Wages expense"
-              visibleLabel="Wages expense"
-              value={state.accounts.officer_wages}
-              options={optionsFor("expense")}
-              onChange={(v) => setAccount("officer_wages", v)}
-            />
-            <AccountingPicker
-              label="Net pay liability"
-              visibleLabel="Net pay"
-              value={state.accounts.net_pay}
-              options={optionsFor("liability")}
-              onChange={(v) => setAccount("net_pay", v)}
-            />
-            <AccountingPicker
-              label="Employee tax liability"
-              visibleLabel="Taxes withheld"
-              value={state.accounts.employee_tax}
-              options={optionsFor("liability")}
-              onChange={(v) => setAccount("employee_tax", v)}
-            />
-            <AccountingPicker
-              label="Employer tax expense"
-              visibleLabel="Employer tax expense"
-              value={state.accounts.employer_tax}
-              options={optionsFor("expense")}
-              onChange={(v) => setAccount("employer_tax", v)}
-            />
-            <AccountingPicker
-              label="Employer tax liability"
-              visibleLabel="Employer tax payable"
-              value={state.accounts.employer_tax_offset}
-              options={optionsFor("liability")}
-              onChange={(v) => setAccount("employer_tax_offset", v)}
-            />
-            {state.retirement && (
-              <AccountingPicker
-                label="Retirement liability"
-                visibleLabel="Retirement payable"
-                value={state.accounts.retirement_deferral}
-                options={optionsFor("liability")}
-                onChange={(v) => setAccount("retirement_deferral", v)}
-              />
-            )}
-            {state.deduction && (
-              <AccountingPicker
-                label="Other deduction liability"
-                visibleLabel="Other deductions payable"
-                value={state.accounts.other_deduction}
-                options={optionsFor("liability")}
-                onChange={(v) => setAccount("other_deduction", v)}
-              />
-            )}
-            {state.reimbursement && (
-              <AccountingPicker
-                label="Reimbursement account"
-                visibleLabel="Reimbursements"
-                value={state.accounts.reimbursement}
-                options={optionsFor("reimbursement")}
-                onChange={(v) => setAccount("reimbursement", v)}
-              />
-            )}
-            {state.fee && (
-              <>
-                <AccountingPicker
-                  label="Payroll fee expense"
-                  visibleLabel="Payroll fee expense"
-                  value={state.accounts.provider_fee}
-                  options={optionsFor("expense")}
-                  onChange={(v) => setAccount("provider_fee", v)}
-                />
-                <AccountingPicker
-                  label="Payroll fee liability"
-                  visibleLabel="Payroll fee payable"
-                  value={state.accounts.provider_fee_offset}
-                  options={optionsFor("liability")}
-                  onChange={(v) => setAccount("provider_fee_offset", v)}
-                />
-              </>
-            )}
-          </div>
-        )}
-
-        {showFacts && (
-          <div className="grid gap-4 glass-card rounded-xl p-4 sm:grid-cols-2">
-            {FACT_FIELDS.map(([key, label]) => (
-              <TextInput
-                key={key}
-                label={label}
-                inputMode="decimal"
-                placeholder="0.00"
-                value={state.facts[key]}
-                onChange={(nextValue) =>
-                  setState((s) => ({
-                    ...s,
-                    facts: { ...s.facts, [key]: nextValue },
-                  }))
-                }
-              />
-            ))}
-          </div>
-        )}
 
         <WorkflowActions
           busy={command.busy}
           error={error || command.error}
-          label={record ? "Save register" : "Save as draft"}
+          label="Save"
           onClose={onClose}
         />
       </form>
@@ -1331,15 +1365,15 @@ function VoidDialog({
   const command = useAccountingCommand(onSaved);
   return (
     <WorkflowDialog
-      title="Void this payroll run?"
-      description="Posts a dated reversal of the payroll entry. The original stays in your history."
+      title="Void payroll run"
+      description={`Run ${run.provider_run_id}, paid ${dateLabel(run.pay_date)}.`}
       busy={command.busy}
       onClose={onClose}
       form
-      size="md"
+      size="sm"
     >
       <form
-        className="space-y-4"
+        className="space-y-5"
         onSubmit={(e) => {
           e.preventDefault();
           void command.execute({
@@ -1364,15 +1398,11 @@ function VoidDialog({
           value={reason}
           onChange={(nextValue) => setReason(nextValue)}
         />
-        <p className="text-xs text-muted-foreground">
-          Run {run.provider_run_id}, pay date {dateLabel(run.pay_date)}.
-        </p>
-        <WorkflowActions
-          busy={command.busy}
-          error={command.error}
-          label="Void run"
-          onClose={onClose}
-        />
+        <ActionFooter busy={command.busy} error={command.error}>
+          <Button type="submit" variant="destructive" disabled={command.busy}>
+            {command.busy ? "Voiding..." : "Void"}
+          </Button>
+        </ActionFooter>
       </form>
     </WorkflowDialog>
   );

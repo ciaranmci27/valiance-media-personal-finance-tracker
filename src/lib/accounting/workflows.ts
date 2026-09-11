@@ -46,16 +46,10 @@ const taxClassification = z.enum([
   "unreviewed",
   "individual",
   "corporation",
-  "partnership",
   "foreign",
   "other",
 ]);
-const documentation = z.enum([
-  "missing",
-  "requested",
-  "received",
-  "not_required",
-]);
+const documentation = z.enum(["missing", "received", "not_required"]);
 const contextFields = {
   kind: z
     .enum([
@@ -367,6 +361,8 @@ export const extendedCommandSchema = z.union([
         documentation: documentation.default("missing"),
         notes: z.string().max(3000).default(""),
         is_archived: z.boolean().default(false),
+        /** Anyone with a contractor status is a contractor for year-end reporting. */
+        is_contractor: z.boolean().default(false),
       })
       .strict(),
 

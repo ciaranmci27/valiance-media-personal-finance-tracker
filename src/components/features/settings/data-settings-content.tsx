@@ -1,151 +1,124 @@
 "use client";
 
 import * as React from "react";
-import { MobileMenuButton, HeaderControls } from "@/components/layout/page-header";
+import {
+  MobileMenuButton,
+  HeaderControls,
+} from "@/components/layout/page-header";
 import Link from "next/link";
 import {
   ArrowLeft,
   Database,
   Download,
-  FileJson,
-  FileSpreadsheet,
-  Loader2,
   HardDrive,
   CheckCircle2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/inputs/Checkbox";
+import { RadioGroup } from "@/components/ui/inputs/RadioGroup";
+import { DateInput } from "@/components/ui/inputs/DateInput";
 import { cn } from "@/lib/utils";
-import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
+import { ACCOUNTING_ENABLED } from "@/lib/env";
+import {
+  EXPORT_GROUPS,
+  exportUrl,
+  type ExportDataset,
+  type ExportFormat,
+} from "@/lib/export-datasets";
+
+const GROUPS = EXPORT_GROUPS.filter(
+  (g) => g.id !== "books" || ACCOUNTING_ENABLED,
+);
+const EVERYTHING = GROUPS.flatMap((g) => g.datasets.map((d) => d.id));
 
 export function DataSettingsContent() {
-  const [isExporting, setIsExporting] = React.useState<"json" | "csv" | null>(null);
+  const demo = isDemoMode();
+  const [selected, setSelected] = React.useState<Set<ExportDataset>>(
+    () => new Set(EVERYTHING),
+  );
+  const [format, setFormat] = React.useState<ExportFormat>("json");
+  const [limitRange, setLimitRange] = React.useState(false);
+  const [from, setFrom] = React.useState("");
+  const [to, setTo] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState("");
   const [exportSuccess, setExportSuccess] = React.useState<string | null>(null);
 
   // Auto-clear success message
   React.useEffect(() => {
     if (exportSuccess) {
-      const timer = setTimeout(() => setExportSuccess(null), 3000);
+      const timer = setTimeout(() => setExportSuccess(null), 4000);
       return () => clearTimeout(timer);
     }
   }, [exportSuccess]);
 
-  const handleExportJSON = async () => {
-    setIsExporting("json");
-    const supabase = createClient();
+  const ranged = GROUPS.some((g) =>
+    g.datasets.some((d) => d.ranged && selected.has(d.id)),
+  );
 
+  function toggle(id: ExportDataset, on: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function toggleGroup(ids: ExportDataset[], on: boolean) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) {
+        if (on) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  async function download() {
+    if (selected.size === 0 || busy) return;
+    setBusy(true);
+    setError("");
     try {
-      const [
-        { data: incomeSources },
-        { data: incomeEntries },
-        { data: incomeAmounts },
-        { data: incomeLineItems },
-        { data: expenses },
-        { data: netWorth },
-      ] = await Promise.all([
-        supabase.from("income_sources").select("*").is("deleted_at", null),
-        supabase.from("income_entries").select("*").is("deleted_at", null),
-        supabase.from("income_amounts").select("*"),
-        supabase.from("income_line_items").select("*").is("deleted_at", null),
-        supabase.from("expenses").select("*").is("deleted_at", null),
-        supabase.from("net_worth").select("*").is("deleted_at", null),
-      ]);
-
-      const activeIncomeEntryIds = new Set(
-        (incomeEntries || []).map((entry) => entry.id),
+      const url = exportUrl({
+        datasets: EVERYTHING.filter((id) => selected.has(id)),
+        format,
+        from: limitRange && from ? from : undefined,
+        to: limitRange && to ? to : undefined,
+      });
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(body.error ?? "The export could not be prepared.");
+      }
+      const blob = await response.blob();
+      const name =
+        /filename="([^"]+)"/.exec(
+          response.headers.get("Content-Disposition") ?? "",
+        )?.[1] ?? `valiance-export.${format === "json" ? "json" : "zip"}`;
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(href);
+      setExportSuccess(
+        `${name} is downloading with ${selected.size} ${selected.size === 1 ? "dataset" : "datasets"}.`,
       );
-
-      const exportData = {
-        exportedAt: new Date().toISOString(),
-        incomeSources,
-        incomeEntries,
-        incomeAmounts: (incomeAmounts || []).filter((amount) =>
-          activeIncomeEntryIds.has(amount.entry_id),
-        ),
-        incomeLineItems: (incomeLineItems || []).filter((item) =>
-          activeIncomeEntryIds.has(item.entry_id),
-        ),
-        expenses,
-        netWorth,
-      };
-
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-        type: "application/json",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `valiance-finance-export-${new Date().toISOString().split("T")[0]}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setExportSuccess("JSON export completed");
-    } catch (error) {
-      console.error("Error exporting:", error);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "The export could not be prepared.",
+      );
     } finally {
-      setIsExporting(null);
+      setBusy(false);
     }
-  };
-
-  const handleExportCSV = async () => {
-    setIsExporting("csv");
-    const supabase = createClient();
-
-    try {
-      const { data: lineItems } = await supabase
-        .from("income_line_items")
-        .select(`
-          received_date,
-          amount,
-          notes,
-          income_sources (name),
-          income_entries!inner (month, deleted_at)
-        `)
-        .is("deleted_at", null)
-        .is("income_entries.deleted_at", null)
-        .order("received_date", { ascending: false });
-
-      if (!lineItems) return;
-
-      const headers = ["Date", "Month", "Source", "Amount", "Notes"];
-      const escapeCsv = (value: string | number | null | undefined) => {
-        const stringValue = String(value ?? "");
-        return `"${stringValue.replace(/"/g, '""')}"`;
-      };
-
-      const rows = lineItems.map((item) => {
-        const source =
-          (item.income_sources as unknown as { name: string } | null)?.name || "";
-        const month =
-          (item.income_entries as unknown as { month: string } | null)?.month || "";
-        return [
-          item.received_date,
-          month,
-          source,
-          Number(item.amount).toFixed(2),
-          item.notes || "",
-        ].map(escapeCsv).join(",");
-      });
-
-      const csv = [headers.join(","), ...rows].join("\n");
-
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `valiance-income-export-${new Date().toISOString().split("T")[0]}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setExportSuccess("CSV export completed");
-    } catch (error) {
-      console.error("Error exporting:", error);
-    } finally {
-      setIsExporting(null);
-    }
-  };
+  }
 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
@@ -196,60 +169,137 @@ export function DataSettingsContent() {
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 shrink-0">
               <Download className="h-5 w-5 text-teal-light" />
             </div>
-            <div className="flex-1 space-y-4">
+            <div className="flex-1 min-w-0 space-y-6">
               <div>
                 <h3 className="font-medium mb-1">Download Your Data</h3>
                 <p className="text-sm text-muted-foreground">
-                  Export your financial data for backup or analysis in other tools.
+                  Choose what to include. JSON keeps every field for a full
+                  backup; CSV gives you one spreadsheet per table in a zip.
                 </p>
               </div>
 
-              <div className="grid sm:grid-cols-2 gap-3">
-                {/* JSON Export */}
-                <button
-                  onClick={handleExportJSON}
-                  disabled={isExporting !== null}
-                  className={cn(
-                    "group flex items-center gap-3 rounded-xl border border-border p-4 text-left transition-all",
-                    "hover:border-primary/30 hover:bg-primary/5",
-                    "disabled:opacity-50 disabled:cursor-not-allowed"
-                  )}
-                >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-copper/10 group-hover:bg-copper/20 transition-colors">
-                    {isExporting === "json" ? (
-                      <Loader2 className="h-5 w-5 text-copper animate-spin" />
-                    ) : (
-                      <FileJson className="h-5 w-5 text-copper" />
-                    )}
-                  </div>
-                  <div>
-                    <p className="font-medium text-sm">JSON Format</p>
-                    <p className="text-xs text-muted-foreground">Complete backup</p>
-                  </div>
-                </button>
+              {GROUPS.map((group) => {
+                const ids = group.datasets.map((d) => d.id);
+                const count = ids.filter((id) => selected.has(id)).length;
+                const all = count === ids.length;
+                return (
+                  <section
+                    key={group.id}
+                    aria-labelledby={`export-${group.id}`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h4
+                          id={`export-${group.id}`}
+                          className="text-sm font-medium"
+                        >
+                          {group.title}
+                        </h4>
+                        <p className="text-xs text-muted-foreground">
+                          {group.description}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleGroup(ids, !all)}
+                        className="shrink-0 rounded px-1 text-xs font-medium text-teal-light hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        {all ? "Clear" : "Select all"}
+                      </button>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {group.datasets.map((d) => {
+                        const on = selected.has(d.id);
+                        return (
+                          <div
+                            key={d.id}
+                            className={cn(
+                              "rounded-xl border p-3 transition-colors",
+                              on
+                                ? "border-primary/40 bg-primary/5"
+                                : "border-border hover:border-primary/30",
+                            )}
+                          >
+                            <Checkbox
+                              checked={on}
+                              onChange={(next) => toggle(d.id, next)}
+                              label={d.label}
+                              description={d.description}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })}
 
-                {/* CSV Export */}
-                <button
-                  onClick={handleExportCSV}
-                  disabled={isExporting !== null}
-                  className={cn(
-                    "group flex items-center gap-3 rounded-xl border border-border p-4 text-left transition-all",
-                    "hover:border-primary/30 hover:bg-primary/5",
-                    "disabled:opacity-50 disabled:cursor-not-allowed"
-                  )}
-                >
-                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success/10 group-hover:bg-success/20 transition-colors">
-                    {isExporting === "csv" ? (
-                      <Loader2 className="h-5 w-5 text-success animate-spin" />
-                    ) : (
-                      <FileSpreadsheet className="h-5 w-5 text-success" />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <RadioGroup
+                  label="Format"
+                  orientation="horizontal"
+                  value={format}
+                  onChange={setFormat}
+                  options={[
+                    { value: "json", label: "JSON" },
+                    { value: "csv", label: "CSV" },
+                  ]}
+                />
+                {ranged && (
+                  <div className="space-y-3">
+                    <Checkbox
+                      checked={limitRange}
+                      onChange={setLimitRange}
+                      label="Limit the books to a date range"
+                      description="Applies to transactions, balances, statements and payroll."
+                    />
+                    {limitRange && (
+                      <div className="grid grid-cols-2 gap-2">
+                        <DateInput
+                          label="From"
+                          value={from}
+                          onChange={setFrom}
+                          minDate="1900-01-01"
+                          maxDate="2100-12-31"
+                        />
+                        <DateInput
+                          label="Through"
+                          value={to}
+                          onChange={setTo}
+                          minDate="1900-01-01"
+                          maxDate="2100-12-31"
+                        />
+                      </div>
                     )}
                   </div>
-                  <div>
-                    <p className="font-medium text-sm">CSV Format</p>
-                    <p className="text-xs text-muted-foreground">For spreadsheets</p>
-                  </div>
-                </button>
+                )}
+              </div>
+
+              {error && (
+                <p
+                  role="alert"
+                  className="rounded-lg border border-error/20 bg-error/5 p-3 text-sm text-error"
+                >
+                  {error}
+                </p>
+              )}
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  {demo
+                    ? "Exports are available in your own account."
+                    : selected.size === 0
+                      ? "Pick at least one dataset."
+                      : `${selected.size} of ${EVERYTHING.length} datasets as ${format.toUpperCase()}.`}
+                </p>
+                <Button
+                  onClick={() => void download()}
+                  disabled={demo || selected.size === 0}
+                  loading={busy}
+                >
+                  <Download className="h-4 w-4" />
+                  {busy ? "Preparing" : "Download"}
+                </Button>
               </div>
             </div>
           </div>
@@ -267,7 +317,7 @@ export function DataSettingsContent() {
 
         <div className="glass-card rounded-xl p-6">
           <div className="flex items-start gap-4">
-            {isDemoMode() ? (
+            {demo ? (
               <>
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-secondary shrink-0">
                   <HardDrive className="h-5 w-5 text-muted-foreground" />
@@ -275,7 +325,8 @@ export function DataSettingsContent() {
                 <div className="flex-1">
                   <h3 className="font-medium mb-1">Local Storage</h3>
                   <p className="text-sm text-muted-foreground mb-1">
-                    Demo mode — using static sample data. No real data is stored or persisted.
+                    Demo mode: using static sample data. No real data is stored
+                    or persisted.
                   </p>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <div className="h-1.5 w-1.5 rounded-full bg-copper" />
@@ -286,16 +337,45 @@ export function DataSettingsContent() {
             ) : (
               <>
                 <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#3ECF8E]/10 shrink-0">
-                  <svg className="h-5 w-5" viewBox="0 0 109 113" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M63.7076 110.284C60.8481 113.885 55.0502 111.912 54.9813 107.314L53.9738 40.0627L99.1935 40.0627C107.384 40.0627 111.952 49.5228 106.859 55.9374L63.7076 110.284Z" fill="url(#supabase-a)" />
-                    <path d="M63.7076 110.284C60.8481 113.885 55.0502 111.912 54.9813 107.314L53.9738 40.0627L99.1935 40.0627C107.384 40.0627 111.952 49.5228 106.859 55.9374L63.7076 110.284Z" fill="url(#supabase-b)" fillOpacity="0.2" />
-                    <path d="M45.317 2.07103C48.1765 -1.53037 53.9745 0.442937 54.0434 5.041L54.4849 72.2922H9.83113C1.64038 72.2922 -2.92775 62.8321 2.16513 56.4175L45.317 2.07103Z" fill="#3ECF8E" />
+                  <svg
+                    className="h-5 w-5"
+                    viewBox="0 0 109 113"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M63.7076 110.284C60.8481 113.885 55.0502 111.912 54.9813 107.314L53.9738 40.0627L99.1935 40.0627C107.384 40.0627 111.952 49.5228 106.859 55.9374L63.7076 110.284Z"
+                      fill="url(#supabase-a)"
+                    />
+                    <path
+                      d="M63.7076 110.284C60.8481 113.885 55.0502 111.912 54.9813 107.314L53.9738 40.0627L99.1935 40.0627C107.384 40.0627 111.952 49.5228 106.859 55.9374L63.7076 110.284Z"
+                      fill="url(#supabase-b)"
+                      fillOpacity="0.2"
+                    />
+                    <path
+                      d="M45.317 2.07103C48.1765 -1.53037 53.9745 0.442937 54.0434 5.041L54.4849 72.2922H9.83113C1.64038 72.2922 -2.92775 62.8321 2.16513 56.4175L45.317 2.07103Z"
+                      fill="#3ECF8E"
+                    />
                     <defs>
-                      <linearGradient id="supabase-a" x1="53.9738" y1="54.974" x2="94.1635" y2="71.8295" gradientUnits="userSpaceOnUse">
+                      <linearGradient
+                        id="supabase-a"
+                        x1="53.9738"
+                        y1="54.974"
+                        x2="94.1635"
+                        y2="71.8295"
+                        gradientUnits="userSpaceOnUse"
+                      >
                         <stop stopColor="#249361" />
                         <stop offset="1" stopColor="#3ECF8E" />
                       </linearGradient>
-                      <linearGradient id="supabase-b" x1="36.1558" y1="30.578" x2="54.4844" y2="65.0806" gradientUnits="userSpaceOnUse">
+                      <linearGradient
+                        id="supabase-b"
+                        x1="36.1558"
+                        y1="30.578"
+                        x2="54.4844"
+                        y2="65.0806"
+                        gradientUnits="userSpaceOnUse"
+                      >
                         <stop />
                         <stop offset="1" stopOpacity="0" />
                       </linearGradient>
@@ -305,7 +385,8 @@ export function DataSettingsContent() {
                 <div className="flex-1">
                   <h3 className="font-medium mb-1">Supabase Cloud</h3>
                   <p className="text-sm text-muted-foreground mb-1">
-                    Your data is securely stored in Supabase with automatic backups and row-level security.
+                    Your data is securely stored in Supabase with automatic
+                    backups and row-level security.
                   </p>
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <div className="h-1.5 w-1.5 rounded-full bg-success" />

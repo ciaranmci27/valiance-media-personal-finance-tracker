@@ -10,6 +10,7 @@ import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Pagination } from "@/components/ui/pagination";
 import { SectionHeader } from "@/components/ui/section-header";
+import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
 import type { BooksMetadata } from "./types";
@@ -22,7 +23,7 @@ import {
   type RegisterMovement,
   type RegisterRow,
 } from "@/lib/accounting/registers";
-import { InvoiceDialog } from "./accounting-dialog";
+import { WorkflowDialog } from "./accounting-dialog";
 import { dateLabel, money, timestampLabel, todayInBooks } from "./format";
 import { accountingGet } from "./use-accounting-command";
 import { AccountingRegisterForm } from "./accounting-register-form";
@@ -179,6 +180,18 @@ export function AccountingManualRegisters({
       render: (r) => <MaskedValue value={money(balance(r))} />,
     },
   ];
+  // The most common next step is the one primary button; the rest stay ghost.
+  const [primaryAction, ...secondaryActions] = (
+    record
+      ? kind === "asset"
+        ? !record.state.initialized
+          ? ["acquisition"]
+          : record.state.disposed
+            ? []
+            : ["depreciation", "disposal"]
+        : ["payment", "draw"]
+      : []
+  ) as RegisterAction["kind"][];
   return (
     <div className="space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -227,13 +240,16 @@ export function AccountingManualRegisters({
           </Button>
         </Tooltip>
       </div>
-      {(error || opening) && (
-        <p
-          role={error ? "alert" : "status"}
-          className={`text-sm ${error ? "text-error" : "text-muted-foreground"}`}
-        >
-          {error || "Opening register..."}
+      {error ? (
+        <p role="alert" className="text-sm text-error">
+          {error}
         </p>
+      ) : (
+        opening && (
+          <div role="status" aria-label="Opening register...">
+            <Skeleton className="h-4 w-40" />
+          </div>
+        )
       )}
       <DataTable
         columns={columns}
@@ -242,11 +258,15 @@ export function AccountingManualRegisters({
         onRowClick={(r) => open(r.id)}
         busy={loading}
         emptyState={
-          loading
-            ? "Loading registers..."
-            : demo
-              ? "Registers are available in your owner books."
-              : `No ${kind === "asset" ? "assets" : "loans"} in this view. Create a register to connect its entries and evidence.`
+          loading ? (
+            <div role="status" aria-label="Loading registers...">
+              <TableSkeleton rows={4} />
+            </div>
+          ) : demo ? (
+            "Registers are available in your owner books."
+          ) : (
+            `No ${kind === "asset" ? "assets" : "loans"} in this view. Create a register to connect its entries and evidence.`
+          )
         }
         mobileCard={(r) => (
           <button
@@ -295,61 +315,43 @@ export function AccountingManualRegisters({
         }
       />
       {record && (
-        <InvoiceDialog
+        <WorkflowDialog
           title={record.record.body.name}
-          description={`${kind === "asset" ? "Asset" : "Loan"} register · balances as of ${dateLabel(date)}`}
           onClose={close}
           busy={opening}
+          size="md"
         >
           <div className="space-y-5">
-            <div className="flex flex-wrap gap-2">
-              <Button variant="outline" onClick={() => setForm({ record })}>
-                Edit details
-              </Button>
-              {(kind === "asset"
-                ? !record.state.initialized
-                  ? ["acquisition"]
-                  : record.state.disposed
-                    ? []
-                    : ["depreciation", "disposal"]
-                : ["draw", "payment"]
-              ).map((k) => (
-                <Button
-                  key={k}
-                  variant="outline"
-                  onClick={() =>
-                    setAction({ kind: k as RegisterAction["kind"] })
-                  }
-                >
-                  {registerActionLabels[k as RegisterAction["kind"]]}
-                </Button>
-              ))}
+            <div className="space-y-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                Balances as of {dateLabel(date)}
+              </p>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                {(kind === "asset"
+                  ? [
+                      ["Recorded cost", record.state.cost_cents],
+                      [
+                        "Accumulated depreciation",
+                        record.state.depreciation_cents,
+                      ],
+                      ["Book value", record.state.carrying_cents],
+                    ]
+                  : [
+                      ["Original principal", record.record.body.initial_cents],
+                      ["Principal outstanding", record.state.principal_cents],
+                    ]
+                ).map(([label, value]) => (
+                  <div key={label}>
+                    <p className="text-xs text-muted-foreground">{label}</p>
+                    <MaskedValue
+                      value={money(value)}
+                      className="mt-0.5 block font-medium tabular-nums"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-4 border-y border-border py-4 sm:grid-cols-3">
-              {(kind === "asset"
-                ? [
-                    ["Recorded cost", record.state.cost_cents],
-                    [
-                      "Accumulated depreciation",
-                      record.state.depreciation_cents,
-                    ],
-                    ["Book value", record.state.carrying_cents],
-                  ]
-                : [
-                    [
-                      "Original schedule principal",
-                      record.record.body.initial_cents,
-                    ],
-                    ["Principal outstanding", record.state.principal_cents],
-                  ]
-              ).map(([label, value]) => (
-                <div key={label}>
-                  <p className="mb-2 text-xs text-muted-foreground">{label}</p>
-                  <MaskedValue value={money(value)} className="tabular-nums" />
-                </div>
-              ))}
-            </div>
-            <div className="space-y-2 text-sm">
+            <div className="space-y-1 text-sm">
               <p>{names.get(record.record.body.account_id)}</p>
               <p className="text-muted-foreground">
                 {"method" in record.record.body
@@ -368,105 +370,101 @@ export function AccountingManualRegisters({
                   target="_blank"
                   rel="noreferrer"
                 >
-                  Open register source schedule
+                  Source document
                 </a>
               )}
             </div>
-            <section className="space-y-3">
-              <SectionHeader
-                label="Entries and evidence"
-                count={record.movement_count}
-              />
-              {record.movements.map((m) => (
-                <div
-                  key={m.id}
-                  className="space-y-3 rounded-xl border border-border p-4"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <Button
-                        type="button"
-                        variant="link"
-                        className="h-auto p-0 text-sm font-medium"
-                        onClick={() => onEntry(m.entry_id)}
-                      >
-                        {registerActionLabels[m.kind].replace("Record ", "")} ·{" "}
-                        {dateLabel(m.effective_date)}
-                      </Button>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        {m.mode === "historical"
-                          ? "Linked existing transaction"
-                          : "Posted from this register"}
-                        {m.void
-                          ? ` · ${m.mode === "historical" ? "Unlinked" : "Reversed"} ${dateLabel(m.void.effective_date)}`
-                          : ""}
-                      </p>
-                    </div>
-                    {!m.void && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setAction({ kind: "void", movement: m })}
-                      >
-                        {m.mode === "historical" ? "Unlink" : "Reverse"}
-                      </Button>
-                    )}
-                  </div>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    {m.reason}
-                  </p>
-                  <details>
-                    <summary className="cursor-pointer text-xs text-teal-light">
-                      Journal amounts
-                    </summary>
-                    <div className="mt-2 space-y-2">
-                      {m.lines.map((l) => (
-                        <div
-                          key={l.account_id}
-                          className="flex justify-between gap-3 text-xs"
-                        >
-                          <span>{names.get(l.account_id)}</span>
-                          <MaskedValue
-                            value={money(l.amount_cents)}
-                            className="tabular-nums"
-                          />
+            <section className="space-y-2">
+              <SectionHeader label="Entries" count={record.movement_count} />
+              {record.movements.length > 0 && (
+                <div className="divide-y divide-border rounded-xl border border-border">
+                  {record.movements.map((m) => (
+                    <div key={m.id} className="space-y-2 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <Button
+                            type="button"
+                            variant="link"
+                            className="h-auto p-0 text-sm font-medium"
+                            onClick={() => onEntry(m.entry_id)}
+                          >
+                            {registerActionLabels[m.kind].replace(
+                              "Record ",
+                              "",
+                            )}{" "}
+                            · {dateLabel(m.effective_date)}
+                          </Button>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {m.mode === "historical"
+                              ? "Linked existing transaction"
+                              : "Posted from this register"}
+                            {m.void
+                              ? ` · ${m.mode === "historical" ? "Unlinked" : "Reversed"} ${dateLabel(m.void.effective_date)}`
+                              : ""}
+                          </p>
                         </div>
-                      ))}
+                        {!m.void && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              setAction({ kind: "void", movement: m })
+                            }
+                          >
+                            {m.mode === "historical" ? "Unlink" : "Reverse"}
+                          </Button>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {m.reason}
+                      </p>
+                      <details>
+                        <summary className="cursor-pointer text-xs text-teal-light">
+                          Journal amounts
+                        </summary>
+                        <div className="mt-2 space-y-1.5">
+                          {m.lines.map((l) => (
+                            <div
+                              key={l.account_id}
+                              className="flex justify-between gap-3 text-xs"
+                            >
+                              <span>{names.get(l.account_id)}</span>
+                              <MaskedValue
+                                value={money(l.amount_cents)}
+                                className="tabular-nums"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </details>
+                      <a
+                        className="inline-block text-xs text-teal-light hover:underline"
+                        href={`/api/accounting/documents?id=${m.document_id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Supporting document
+                      </a>
+                      {m.void && (
+                        <p className="text-xs text-muted-foreground">
+                          {m.void.reason}
+                        </p>
+                      )}
                     </div>
-                  </details>
-                  <a
-                    className="inline-block text-xs text-teal-light hover:underline"
-                    href={`/api/accounting/documents?id=${m.document_id}`}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    Supporting document
-                  </a>
-                  {m.void && (
-                    <p className="text-xs text-muted-foreground">
-                      {m.void.reason}
-                    </p>
-                  )}
+                  ))}
                 </div>
-              ))}
+              )}
               {!record.movement_count && (
-                <p className="text-sm text-muted-foreground">
-                  No journal is linked yet. Record the{" "}
-                  {kind === "asset" ? "acquisition" : "loan proceeds"} or link
-                  the original transaction.
-                </p>
+                <p className="text-sm text-muted-foreground">No entries yet.</p>
               )}
             </section>
-            <details className="rounded-xl border border-border p-4">
-              <summary className="cursor-pointer text-sm">
-                Register revision history ({record.revision_count})
+            <details className="group">
+              <summary className="cursor-pointer select-none text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
+                Revision history ({record.revision_count})
               </summary>
-              <div className="mt-3 space-y-3">
+              <div className="mt-3 divide-y divide-border rounded-xl border border-border">
                 {record.revisions.map((v) => (
-                  <div
-                    key={v.revision}
-                    className="border-t border-border pt-3 text-xs"
-                  >
+                  <div key={v.revision} className="px-4 py-3 text-xs">
                     <p>
                       Revision {v.revision} · {timestampLabel(v.created_at)}
                     </p>
@@ -498,8 +496,35 @@ export function AccountingManualRegisters({
               total={Math.max(record.movement_count, record.revision_count)}
               onChange={setHistoryOffset}
             />
+            <div className="sticky -bottom-5 z-10 -mx-6 -mb-5 flex flex-wrap justify-end gap-2 border-t border-border bg-[var(--background-subtle)] px-6 py-4">
+              <Button
+                variant="ghost"
+                disabled={opening}
+                onClick={() => setForm({ record })}
+              >
+                Edit details
+              </Button>
+              {secondaryActions.map((k) => (
+                <Button
+                  key={k}
+                  variant="ghost"
+                  disabled={opening}
+                  onClick={() => setAction({ kind: k })}
+                >
+                  {registerActionLabels[k]}
+                </Button>
+              ))}
+              {primaryAction && (
+                <Button
+                  disabled={opening}
+                  onClick={() => setAction({ kind: primaryAction })}
+                >
+                  {registerActionLabels[primaryAction]}
+                </Button>
+              )}
+            </div>
           </div>
-        </InvoiceDialog>
+        </WorkflowDialog>
       )}
       {form && (
         <AccountingRegisterForm

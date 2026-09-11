@@ -221,6 +221,17 @@ async function main() {
     });
     assert.equal(linked.version, 3);
     n++;
+    const listed = (
+      await db.query<{ r: any }>("SELECT accounting.documents('{}') r")
+    ).rows[0].r;
+    const shown = listed.documents.find((d: any) => d.id === doc.id);
+    assert.deepEqual(
+      shown.entries.map((x: any) => x.id),
+      [e.id],
+    );
+    assert.equal(typeof shown.entries[0].memo, "string");
+    assert.equal(typeof shown.entries[0].entry_date, "string");
+    n++;
 
     const rule = await cmd({
       type: "rule.save",

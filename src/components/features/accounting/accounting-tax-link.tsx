@@ -4,17 +4,15 @@ import { ArrowUpRight, History, Link2, RefreshCw, Unlink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
-import { Pagination } from "@/components/ui/pagination";
-import { SectionHeader } from "@/components/ui/section-header";
+import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
 import { useAccountingTaxLink } from "../tax/use-accounting-tax-link";
 import {
   taxLinkCommandSchema,
   type TaxLinkView,
-  type TaxLinkSnapshot,
 } from "@/lib/accounting/tax-links";
 import type { TaxSource } from "@/lib/accounting/tax-workpapers";
 import { useAccountingCommand } from "./use-accounting-command";
-import { InvoiceActions, InvoiceDialog } from "./accounting-dialog";
+import { WorkflowActions, WorkflowDialog } from "./accounting-dialog";
 import { AccountingTaxLinkEditor } from "./accounting-tax-link-editor";
 import { dateLabel, money, timestampLabel } from "./format";
 
@@ -64,9 +62,17 @@ export function AccountingTaxLink({
         </p>
       )}
       {!view && !state.error && (
-        <p className="text-sm text-muted-foreground">
-          Loading the personal estimate...
-        </p>
+        <div
+          role="status"
+          aria-label="Loading the personal estimate..."
+          className="glass-card flex flex-wrap items-center justify-between gap-4 rounded-xl p-5"
+        >
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-56" />
+            <Skeleton className="h-3 w-72" />
+          </div>
+          <Skeleton className="h-9 w-40 rounded-lg" />
+        </div>
       )}
       {view && !view.estimate && (
         <div className="glass-card rounded-xl p-5">
@@ -162,7 +168,7 @@ export function AccountingTaxLink({
                       <p className="text-xs text-muted-foreground">{label}</p>
                       <MaskedValue
                         value={money(value)}
-                        className="mt-2 block font-mono text-lg tabular-nums"
+                        className="mt-2 block text-lg tabular-nums"
                       />
                     </div>
                   ))}
@@ -231,12 +237,12 @@ function UnlinkDialog({
   const command = useAccountingCommand(onSaved),
     [reason, setReason] = useState("");
   return (
-    <InvoiceDialog
-      title="Return to manual tax inputs"
-      description="The estimator will use the original manual target values again. Retained calculations and link history remain available."
+    <WorkflowDialog
+      title="Use manual inputs"
       form
       onClose={onClose}
       busy={command.busy}
+      size="sm"
     >
       <form
         onSubmit={async (e) => {
@@ -254,25 +260,66 @@ function UnlinkDialog({
             }),
           );
         }}
-        className="space-y-4"
+        className="space-y-5"
       >
         <TextInput
-          label="Reason for unlinking"
+          label="Reason"
           value={reason}
           onChange={(nextValue) => setReason(nextValue)}
           required
           maxLength={1000}
         />
-        <InvoiceActions
+        <WorkflowActions
           busy={command.busy}
           error={command.error}
-          label="Unlink inputs"
+          label="Unlink"
           onClose={onClose}
         />
       </form>
-    </InvoiceDialog>
+    </WorkflowDialog>
   );
 }
+/**
+ * The books link's own audit trail. The server returns audit rows for the
+ * tax tables, so this lists what changed and when rather than inventing a
+ * snapshot history the schema does not keep. The current calculation is
+ * downloadable from the link card itself.
+ */
+type TaxHistoryRow = {
+  id: string;
+  table_name: string;
+  action: string;
+  actor_kind: string | null;
+  recorded_at: string;
+};
+
+/** Plain-English subject for an audited tax table. */
+function historySubject(table: string) {
+  if (table === "tax_links") return "Books link";
+  if (table === "tax_mappings") return "Account mapping";
+  if (table === "tax_adjustments") return "Adjustment";
+  return table.replace(/_/g, " ");
+}
+
+/** Plain-English verb for an audited action, falling back to the raw name. */
+function historyAction(action: string) {
+  const known: Record<string, string> = {
+    tax_refresh: "Recalculated",
+    "tax.link.save": "Link settings saved",
+    "tax.link.unlink": "Unlinked",
+    "tax.mapping.save": "Treatment saved",
+    "tax.adjustment.save": "Adjustment saved",
+    insert: "Created",
+    update: "Updated",
+    delete: "Removed",
+  };
+  if (known[action]) return known[action];
+  const words = action.replace(/[._]/g, " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : "Changed";
+}
+
+const HISTORY_LIMIT = 100;
+
 function LinkHistory({
   linkId,
   onClose,
@@ -280,105 +327,64 @@ function LinkHistory({
   linkId: string;
   onClose: () => void;
 }) {
-  const [offset, setOffset] = useState(0),
-    [data, setData] = useState<{
-      count: number;
-      version_count: number;
-      snapshots: Pick<
-        TaxLinkSnapshot,
-        | "id"
-        | "link_version"
-        | "financial_revision"
-        | "through_date"
-        | "created_at"
-      >[];
-      versions: {
-        version: number;
-        enabled: boolean;
-        reason: string;
-        created_at: string;
-      }[];
-    } | null>(null),
+  const [rows, setRows] = useState<TaxHistoryRow[] | null>(null),
     [error, setError] = useState("");
   useEffect(() => {
     const abort = new AbortController();
-    setData(null);
+    setRows(null);
     setError("");
-    fetch(`/api/accounting/tax?history=${linkId}&offset=${offset}`, {
+    fetch(`/api/accounting/tax?history=${linkId}&offset=0`, {
       cache: "no-store",
     })
       .then(async (r) => {
         const value = await r.json();
         if (!r.ok) throw new Error(value.error);
-        return value;
+        return value as { rows?: TaxHistoryRow[] };
       })
       .then((value) => {
         // A superseded request is dropped rather than aborted.
-        if (!abort.signal.aborted) setData(value);
+        if (!abort.signal.aborted) setRows(value.rows ?? []);
       })
       .catch((e) => {
         if (!abort.signal.aborted) setError(e.message);
       });
     return () => abort.abort();
-  }, [linkId, offset]);
+  }, [linkId]);
   return (
-    <InvoiceDialog
-      title="Tax calculation history"
-      description="Every retained calculation contains its exact source inputs and personal assumptions. Earlier calculations do not change when the books change."
-      onClose={onClose}
-    >
+    <WorkflowDialog title="Change history" onClose={onClose} size="md">
       <div className="space-y-5">
         {error && (
           <p role="alert" className="text-sm text-error">
             {error}
           </p>
         )}
-        {!data && !error && (
-          <p className="text-sm text-muted-foreground">Loading history...</p>
+        {!rows && !error && (
+          <div role="status" aria-label="Loading history...">
+            <TableSkeleton rows={4} />
+          </div>
         )}
-        {data && (
-          <>
-            <SectionHeader label="Calculations" count={data.count} />
-            <div className="divide-y divide-border">
-              {data.snapshots.map((s) => (
-                <a
-                  key={s.id}
-                  href={`/api/accounting/tax?snapshot=${s.id}`}
-                  download={`tax-calculation-${s.id}.json`}
-                  className="flex flex-wrap justify-between gap-2 py-3 text-sm hover:text-teal-light"
-                >
-                  <span>
-                    {timestampLabel(s.created_at)}
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      Through {dateLabel(s.through_date)}, books revision{" "}
-                      {s.financial_revision}, link version {s.link_version}
-                    </span>
-                  </span>
-                  <span>Download inputs & results</span>
-                </a>
-              ))}
-            </div>
-            <SectionHeader label="Link changes" count={data.version_count} />
-            <div className="divide-y divide-border">
-              {data.versions.map((v) => (
-                <div key={v.version} className="py-3 text-sm">
-                  <p>
-                    Version {v.version}: {v.enabled ? "Linked" : "Unlinked"}
-                  </p>
-                  <p className="mt-1 text-muted-foreground">{v.reason}</p>
-                </div>
-              ))}
-            </div>
-            <Pagination
-              offset={offset}
-              limit={50}
-              total={Math.max(data.count, data.version_count)}
-              onChange={setOffset}
-              className="px-0"
-            />
-          </>
+        {rows && rows.length > 0 && (
+          <div className="divide-y divide-border rounded-xl border border-border">
+            {rows.map((row) => (
+              <div key={row.id} className="px-4 py-3 text-sm">
+                <p>{historySubject(row.table_name)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {timestampLabel(row.recorded_at)} ·{" "}
+                  {historyAction(row.action)}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+        {rows && rows.length === 0 && (
+          <p className="text-sm text-muted-foreground">No changes yet.</p>
+        )}
+        {rows && rows.length === HISTORY_LIMIT && (
+          <p className="text-xs text-muted-foreground">
+            Showing the {HISTORY_LIMIT} most recent changes.
+          </p>
         )}
       </div>
-    </InvoiceDialog>
+    </WorkflowDialog>
   );
 }

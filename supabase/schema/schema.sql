@@ -2457,6 +2457,14 @@ BEGIN
    END IF;
   END IF;
  END IF;
+ -- Still uncategorized after aliases, rules and prior treatment: fall back to the payee's default category.
+ IF party IS NOT NULL AND EXISTS(SELECT 1 FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=entry AND a.system_purpose IN ('uncategorized_income','uncategorized_expense')) THEN
+  SELECT p.default_account_id INTO category FROM accounting.parties p WHERE p.id=party AND p.default_account_id IS NOT NULL;
+  IF category IS NOT NULL AND EXISTS(SELECT 1 FROM accounting.accounts WHERE id=category AND NOT is_archived) THEN
+   result:=accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',entry,'expected_version',e.version,'account_id',category,'payee_id',party::text,'memo',e.memo));
+   SELECT * INTO e FROM accounting.journal_entries WHERE id=entry;
+  END IF;
+ END IF;
  RETURN jsonb_build_object('id',entry,'version',e.version);
 END $function$
 ;
@@ -3137,7 +3145,8 @@ DECLARE result jsonb;
 BEGIN
  PERFORM accounting.require_owner();
  SELECT jsonb_build_object('documents',coalesce(jsonb_agg(to_jsonb(d)||jsonb_build_object('original_name',d.name,'mime_type',d.mime,'content_hash',d.sha256,'size_bytes',d.size_bytes::text,'created_at',d.uploaded_at,'storage_key',d.storage_path,'state',CASE WHEN d.status='archived' THEN 'archived' WHEN EXISTS(SELECT 1 FROM storage.objects o WHERE o.bucket_id='accounting-private' AND o.name=d.storage_path) THEN 'available' ELSE 'uploading' END,
-  'links',(SELECT coalesce(jsonb_agg(to_jsonb(l)),'[]') FROM accounting.document_links l WHERE document_id=d.id)) ORDER BY uploaded_at DESC),'[]')) INTO result
+  'links',(SELECT coalesce(jsonb_agg(to_jsonb(l)),'[]') FROM accounting.document_links l WHERE document_id=d.id),
+  'entries',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',e.id,'memo',e.memo,'entry_date',e.entry_date) ORDER BY e.entry_date DESC,e.id),'[]') FROM accounting.document_links l JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE l.document_id=d.id)) ORDER BY uploaded_at DESC),'[]')) INTO result
  FROM accounting.documents d WHERE (filter->>'id' IS NULL OR d.id=(filter->>'id')::uuid) AND (filter->>'status' IS NULL OR d.status=filter->>'status');
  RETURN result;
 END $function$

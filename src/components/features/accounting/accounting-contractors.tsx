@@ -10,6 +10,7 @@ import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Pagination } from "@/components/ui/pagination";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import type { BooksMetadata } from "./types";
 import {
   contractorFilterSchema,
@@ -341,9 +342,13 @@ export function AccountingContractors({
           keyExtractor={(row) => row.id}
           busy={loading}
           emptyState={
-            loading && !data
-              ? "Loading contractors..."
-              : "No contractors in this scope."
+            loading && !data ? (
+              <div role="status" aria-label="Loading contractors...">
+                <TableSkeleton rows={4} />
+              </div>
+            ) : (
+              "No contractors in this scope."
+            )
           }
           mobileCard={(row) => (
             <div className="glass-card space-y-3 rounded-xl p-4">
