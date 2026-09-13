@@ -1,4 +1,5 @@
 "use client";
+import { Disclosure } from "@/components/ui/disclosure";
 import { NumberInput } from "@/components/ui/inputs/NumberInput";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useState } from "react";
@@ -29,7 +30,6 @@ import {
   type TaxSource,
   type TaxConcept,
   type TaxAdjustment,
-  type TaxWorkpaperRevision,
 } from "@/lib/accounting/tax-workpapers";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { TreatmentReview } from "./tax-treatment-review";
@@ -249,40 +249,40 @@ export function AccountingTaxWorkpapers({
             </div>
           </nav>
           <>
-              <div className="grid gap-4 sm:grid-cols-3">
-                {[
-                  ["Book profit", data.book_profit_cents],
-                  ["Book-to-tax difference", data.book_to_tax_cents],
-                  ["Ordinary business income", data.adjusted_ordinary_cents],
-                ].map(([label, cents]) => (
-                  <div key={label} className="glass-card rounded-xl p-4">
-                    <p className="text-xs text-muted-foreground">{label}</p>
-                    {label !== "Book profit" &&
-                    (data.unmapped_accounts > 0 ||
-                      data.unavailable_adjustments > 0) ? (
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        Review incomplete
-                      </p>
-                    ) : (
-                      <MaskedValue
-                        value={money(cents)}
-                        className="mt-2 block text-xl tabular-nums"
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Recorded amounts through {dateLabel(data.through)}.{" "}
-                {data.unmapped_accounts} active accounts need treatment review;{" "}
-                {data.drafts} transactions still to review and {data.incomplete_imports}{" "}
-                incomplete imports remain.{" "}
-                {data.unavailable_adjustments > 0
-                  ? `${data.unavailable_adjustments} active adjustments have unavailable evidence. `
-                  : ""}
-                Amounts remain provisional until coverage and source reviews are
-                complete.
-              </p>
+            <div className="grid gap-4 sm:grid-cols-3">
+              {[
+                ["Book profit", data.book_profit_cents],
+                ["Book-to-tax difference", data.book_to_tax_cents],
+                ["Ordinary business income", data.adjusted_ordinary_cents],
+              ].map(([label, cents]) => (
+                <div key={label} className="glass-card rounded-xl p-4">
+                  <p className="text-xs text-muted-foreground">{label}</p>
+                  {label !== "Book profit" &&
+                  (data.unmapped_accounts > 0 ||
+                    data.unavailable_adjustments > 0) ? (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Review incomplete
+                    </p>
+                  ) : (
+                    <MaskedValue
+                      value={money(cents)}
+                      className="mt-2 block text-xl tabular-nums"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              Recorded amounts through {dateLabel(data.through)}.{" "}
+              {data.unmapped_accounts} active accounts need treatment review;{" "}
+              {data.drafts} transactions still to review and{" "}
+              {data.incomplete_imports} incomplete imports remain.{" "}
+              {data.unavailable_adjustments > 0
+                ? `${data.unavailable_adjustments} active adjustments have unavailable evidence. `
+                : ""}
+              Amounts remain provisional until coverage and source reviews are
+              complete.
+            </p>
           </>
 
           {tab === "accounts" && (
@@ -301,7 +301,9 @@ export function AccountingTaxWorkpapers({
                     onChange={setOnlyMissing}
                     label="Needs review only"
                   />
-                  {data.accounts.some((a) => !a.current && a.line_count > 0) && (
+                  {data.accounts.some(
+                    (a) => !a.current && a.line_count > 0,
+                  ) && (
                     <Button
                       size="sm"
                       variant="outline"
@@ -951,52 +953,47 @@ function TaxWorkpaperEditor({
         {editor.kind !== "mapping" && (
           <EvidencePicker required value={document} onChange={setDocument} />
         )}
-        <details className="group rounded-xl border border-border">
-          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-            Advanced
-          </summary>
-          <div className="space-y-4 border-t border-border p-4">
-            {editor.kind === "mapping" && (
-              <EvidencePicker value={document} onChange={setDocument} />
-            )}
-            {editor.kind === "adjustment" && editor.adjustment && (
+        <Disclosure summary="Advanced" contentClassName="space-y-4">
+          {editor.kind === "mapping" && (
+            <EvidencePicker value={document} onChange={setDocument} />
+          )}
+          {editor.kind === "adjustment" && editor.adjustment && (
+            <Checkbox
+              data-form-change
+              checked={active}
+              onChange={setActive}
+              className="items-start text-left"
+              label="Include this adjustment"
+              description="Clear it to remove the adjustment; history is kept."
+            />
+          )}
+          {editor.kind === "basis" && (
+            <>
               <Checkbox
                 data-form-change
-                checked={active}
-                onChange={setActive}
+                checked={distributions}
+                onChange={setDistributions}
                 className="items-start text-left"
-                label="Include this adjustment"
-                description="Clear it to remove the adjustment; history is kept."
+                label="Distribution consequences reviewed"
               />
-            )}
-            {editor.kind === "basis" && (
-              <>
-                <Checkbox
-                  data-form-change
-                  checked={distributions}
-                  onChange={setDistributions}
-                  className="items-start text-left"
-                  label="Distribution consequences reviewed"
-                />
-                <Textarea
-                  label="Unresolved limitations"
-                  maxLength={2000}
-                  rows={3}
-                  value={limitations}
-                  placeholder="At-risk, passive-loss or missing opening support"
-                  onChange={(nextValue) => setLimitations(nextValue)}
-                />
-              </>
-            )}
-            <TextInput
-              label="Notes"
-              maxLength={1000}
-              placeholder="Optional"
-              value={reason}
-              onChange={(nextValue) => setReason(nextValue)}
-            />
-          </div>
-        </details>
+              <Textarea
+                label="Unresolved limitations"
+                maxLength={2000}
+                rows={3}
+                value={limitations}
+                placeholder="At-risk, passive-loss or missing opening support"
+                onChange={(nextValue) => setLimitations(nextValue)}
+              />
+            </>
+          )}
+          <TextInput
+            label="Notes"
+            maxLength={1000}
+            placeholder="Optional"
+            value={reason}
+            onChange={(nextValue) => setReason(nextValue)}
+          />
+        </Disclosure>
         <WorkflowActions
           busy={command.busy}
           error={command.error}
@@ -1017,17 +1014,23 @@ function TaxWorkpaperHistory({
   year: number;
   onClose: () => void;
 }) {
+  // One audit row per saved version, projected server-side from the row as it was after the save.
   const [data, setData] = useState<{
       count: number;
-      rows: (TaxWorkpaperRevision & {
-        concept?: TaxConcept | "ordinary_adjustment";
-        classification?: string;
-        amount_cents?: string;
-        through_date?: string;
-        effective_date?: string;
-        deductible_bps?: number;
-        body?: NonNullable<TaxSource["basis"]>["body"];
-      })[];
+      rows: {
+        id: string;
+        version: number;
+        created_at: string;
+        reason: string;
+        document_id: string | null;
+        concept?: TaxConcept | "ordinary_adjustment" | null;
+        classification?: string | null;
+        amount_cents?: string | null;
+        through_date?: string | null;
+        effective_date?: string | null;
+        deductible_bps?: number | null;
+        body?: NonNullable<TaxSource["basis"]>["body"] | null;
+      }[];
     } | null>(null),
     [offset, setOffset] = useState(0),
     [error, setError] = useState("");
@@ -1086,7 +1089,7 @@ function TaxWorkpaperHistory({
                         ? "Ordinary business income adjustment"
                         : taxConcepts[r.concept]
                       : `Worksheet through ${dateLabel(r.through_date)}`}
-                  {r.deductible_bps !== undefined
+                  {r.deductible_bps != null
                     ? ` · ${r.deductible_bps / 100}%`
                     : ""}
                   {r.amount_cents !== undefined && (

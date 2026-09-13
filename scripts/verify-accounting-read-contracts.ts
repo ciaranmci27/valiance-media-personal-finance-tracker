@@ -142,7 +142,6 @@ async function main() {
       "manage",
       "feeds",
       "rules",
-      "history",
       "close-history",
       "documents",
       "imports",

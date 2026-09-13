@@ -1,11 +1,9 @@
 "use client";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useState } from "react";
-import { ArrowRight, ArrowLeftRight, Plus, Link2, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { TextInput } from "@/components/ui/inputs/TextInput";
-import { Pagination } from "@/components/ui/pagination";
 import {
   Dialog,
   DialogContent,
@@ -14,231 +12,36 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { MaskedValue } from "@/components/ui/masked-value";
-import { Skeleton, TableSkeleton } from "@/components/ui/skeleton";
+import { Skeleton } from "@/components/ui/skeleton";
 import type {
   AccountingAccount,
   JournalEntry,
 } from "@/lib/accounting/contracts";
-import type { AccountProfile } from "@/lib/accounting/workflows";
-import type { TransferGroup, TransfersView } from "@/lib/accounting/transfers";
+import type { TransferGroup } from "@/lib/accounting/transfers";
 import { parseUsd } from "@/lib/accounting/money";
 import { AccountingPicker } from "./accounting-picker";
 import { dateLabel, money } from "./format";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 
-const TRANSFERS_PAGE = 50;
-
-export function AccountingTransfers({
-  from,
-  to,
-  accounts,
-  profiles,
-  demo,
-  onRefresh,
-  onEntry,
-}: {
-  from: string;
-  to: string;
-  accounts: AccountingAccount[];
-  profiles: AccountProfile[];
-  demo: boolean;
-  onRefresh: () => Promise<void>;
-  onEntry: (id: string) => void;
-}) {
-  const [data, setData] = useState<TransfersView | null>(null),
-    [offset, setOffset] = useState(0),
-    [tick, setTick] = useState(0),
-    [error, setError] = useState(""),
-    [form, setForm] = useState<"create" | "link" | null>(null),
-    [reverse, setReverse] = useState<TransferGroup | null>(null);
-  useEffect(() => {
-    if (demo) return;
-    const abort = new AbortController();
-    setData(null);
-    accountingGet<TransfersView>(
-      { view: "transfers", from, to, offset: String(offset) },
-      abort.signal,
-    )
-      .then((r) => {
-        setData(r);
-        setError("");
-      })
-      .catch((e) => {
-        if (!abort.signal.aborted) setError(e.message);
-      });
-    return () => abort.abort();
-  }, [from, to, offset, tick, demo]);
-  const refresh = async () => {
-    setTick((t) => t + 1);
-    await onRefresh();
-  };
-  const available = accounts.filter((a) =>
-    profiles.some(
-      (p) =>
-        p.account_id === a.id && ["bank", "cash", "card"].includes(p.cash_kind),
-    ),
-  );
-  return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold">Transfers & card payments</h2>
-          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-            Keep both sides together, with the date each account actually
-            posted. Card payments reduce card debt.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            disabled={demo || !data}
-            onClick={() => setForm("link")}
-          >
-            <Link2 size={15} aria-hidden="true" />
-            Link existing
-          </Button>
-          <Button disabled={demo || !data} onClick={() => setForm("create")}>
-            <Plus size={15} aria-hidden="true" />
-            Record transfer
-          </Button>
-        </div>
-      </div>
-      {error && (
-        <p role="alert" className="text-sm text-error">
-          {error}
-        </p>
-      )}
-      <section className="glass-card overflow-hidden rounded-xl">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
-          <span className="text-sm font-medium">
-            Transfers touching this date range
-          </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={demo}
-            onClick={() => setTick((t) => t + 1)}
-          >
-            Refresh
-          </Button>
-        </div>
-        {!data && !demo && !error ? (
-          <div role="status" aria-label="Loading transfers…" className="p-5">
-            <TableSkeleton rows={4} />
-          </div>
-        ) : !data?.groups.length ? (
-          <div className="p-10 text-center">
-            <ArrowLeftRight
-              size={24}
-              aria-hidden="true"
-              className="mx-auto mb-3 text-muted-foreground"
-            />
-            <h3 className="font-medium">No linked transfers in this range</h3>
-            <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-              Record a new movement or link matching entries already in your
-              books. Existing income and expense entries need a reviewed
-              correction first.
-            </p>
-          </div>
-        ) : (
-          data.groups.map((g) => (
-            <div
-              key={g.id}
-              className="border-b border-border p-5 last:border-0"
-            >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="break-words font-medium">{g.memo}</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                    <span>{g.from_name}</span>
-                    <ArrowRight size={14} aria-hidden="true" />
-                    <span>{g.to_name}</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <MaskedValue
-                    value={money(g.amount_cents)}
-                    className="tabular-nums"
-                  />
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {g.status === "corrected"
-                      ? "Reversed, history retained"
-                      : g.in_transit
-                        ? "In transit at range end"
-                        : "Posted transfer"}
-                  </p>
-                </div>
-              </div>
-              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
-                <Button
-                  variant="link"
-                  className="h-auto p-0 text-xs"
-                  onClick={() => onEntry(g.outgoing_entry_id)}
-                >
-                  Out {dateLabel(g.outgoing_date)}
-                </Button>
-                {g.outgoing_entry_id !== g.incoming_entry_id && (
-                  <Button
-                    variant="link"
-                    className="h-auto p-0 text-xs"
-                    onClick={() => onEntry(g.incoming_entry_id)}
-                  >
-                    In {dateLabel(g.incoming_date)}
-                  </Button>
-                )}
-                {g.status === "posted" && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="ml-auto"
-                    onClick={() => setReverse(g)}
-                  >
-                    <Undo2 size={14} aria-hidden="true" />
-                    Reverse transfer
-                  </Button>
-                )}
-              </div>
-            </div>
-          ))
-        )}
-        {data && (
-          <Pagination
-            className="border-t border-border"
-            offset={offset}
-            limit={TRANSFERS_PAGE}
-            total={data.total}
-            onChange={setOffset}
-          />
-        )}
-      </section>
-      {form && data && (
-        <TransferForm
-          mode={form}
-          from={from}
-          to={to}
-          accounts={available}
-          revision={data.revision}
-          onClose={() => setForm(null)}
-          onSaved={refresh}
-        />
-      )}
-      {reverse && data && (
-        <ReverseTransfer
-          group={reverse}
-          revision={data.revision}
-          onClose={() => setReverse(null)}
-          onSaved={refresh}
-        />
-      )}
-    </div>
-  );
+/**
+ * The transfer dialogs. Record a transfer between two of your own accounts,
+ * link two posted entries that already describe one, or reverse a transfer
+ * group as a unit. Opened from the Transactions ledger and its add menu; the
+ * transfer list itself is the ledger.
+ */
+/** A ledger row that opens the link dialog already fills one side of the pair. */
+export interface TransferLeg {
+  entry: JournalEntry;
+  account: string;
+  side: "out" | "in";
 }
-function TransferForm({
+export function TransferForm({
   mode,
   from,
   to,
   accounts,
   revision,
+  initial,
   onClose,
   onSaved,
 }: {
@@ -247,18 +50,27 @@ function TransferForm({
   to: string;
   accounts: AccountingAccount[];
   revision: string;
+  initial?: TransferLeg;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
   const [id] = useState(() => crypto.randomUUID()),
-    [fromAccount, setFromAccount] = useState(""),
-    [toAccount, setToAccount] = useState(""),
+    [fromAccount, setFromAccount] = useState(
+      initial?.side === "out" ? initial.account : "",
+    ),
+    [toAccount, setToAccount] = useState(
+      initial?.side === "in" ? initial.account : "",
+    ),
     [outDate, setOutDate] = useState(to),
     [inDate, setInDate] = useState(to),
     [amount, setAmount] = useState(""),
-    [memo, setMemo] = useState(""),
-    [outEntry, setOutEntry] = useState<JournalEntry | null>(null),
-    [inEntry, setInEntry] = useState<JournalEntry | null>(null),
+    [memo, setMemo] = useState(initial?.entry.memo ?? ""),
+    [outEntry, setOutEntry] = useState<JournalEntry | null>(
+      initial?.side === "out" ? initial.entry : null,
+    ),
+    [inEntry, setInEntry] = useState<JournalEntry | null>(
+      initial?.side === "in" ? initial.entry : null,
+    ),
     [dirty, setDirty] = useState(false);
   const command = useAccountingCommand();
   const { confirm, dialog } = useConfirmationDialog();
@@ -471,7 +283,7 @@ function TransferForm({
     </Dialog>
   );
 }
-function TransferEntryPicker({
+export function TransferEntryPicker({
   label,
   account,
   direction,
@@ -615,7 +427,7 @@ function TransferEntryPicker({
     </div>
   );
 }
-function ReverseTransfer({
+export function ReverseTransfer({
   group,
   revision,
   onClose,

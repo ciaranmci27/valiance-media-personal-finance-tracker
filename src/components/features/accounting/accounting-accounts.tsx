@@ -1,4 +1,5 @@
 "use client";
+import { Disclosure } from "@/components/ui/disclosure";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
@@ -326,8 +327,7 @@ export function AccountingAccounts({
             <h3 className="text-lg font-semibold">Set up your company chart</h3>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               Start with the standard company accounts, or create accounts
-              individually. When bringing in Wave history, map its original
-              chart before posting.
+              individually.
             </p>
             <Button
               className="mt-6"
@@ -560,64 +560,59 @@ function AccountEditForm({
           }
         />
       )}
-      <details className="group rounded-xl border border-border">
-        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-          Advanced
-        </summary>
-        <div className="space-y-4 border-t border-border p-4">
-          <TextInput
-            label="Account code"
-            name="code"
-            defaultValue={account.code}
-            maxLength={20}
-          />
-          <AccountingPicker
-            label="Purpose"
-            visibleLabel="Purpose"
-            value={purpose}
-            options={[
-              { value: "", label: "General category" },
-              ...(customPurpose
-                ? [{ value: customPurpose, label: enumLabel(customPurpose) }]
-                : []),
-              ...defaultChart
-                .filter((a) => a.account_type === account.account_type)
-                .map((a) => ({ value: a.purpose!, label: a.name })),
-            ]}
-            onChange={setPurpose}
-          />
-          <TextInput
-            label="Report group"
-            name="subtype"
-            maxLength={100}
-            defaultValue={profile?.subtype ?? ""}
-            placeholder="For example: Operating expenses"
-          />
-          <AccountingPicker
-            label="Parent account"
-            visibleLabel="Parent account"
-            value={parent}
-            options={[
-              { value: "", label: "No parent" },
-              ...accounts
-                .filter(
-                  (a) =>
-                    a.id !== account.id &&
-                    a.account_type === account.account_type &&
-                    !a.is_archived &&
-                    !profileMap.get(a.id)?.parent_account_id,
-                )
-                .map((a) => ({ value: a.id, label: a.name })),
-            ]}
-            onChange={setParent}
-          />
-          <Checkbox
-            checked={archived}
-            onChange={setArchived}
-            label="Archive this account"
-          />
-        </div>
-      </details>
+      <Disclosure summary="Advanced" contentClassName="space-y-4">
+        <TextInput
+          label="Account code"
+          name="code"
+          defaultValue={account.code}
+          maxLength={20}
+        />
+        <AccountingPicker
+          label="Purpose"
+          visibleLabel="Purpose"
+          value={purpose}
+          options={[
+            { value: "", label: "General category" },
+            ...(customPurpose
+              ? [{ value: customPurpose, label: enumLabel(customPurpose) }]
+              : []),
+            ...defaultChart
+              .filter((a) => a.account_type === account.account_type)
+              .map((a) => ({ value: a.purpose!, label: a.name })),
+          ]}
+          onChange={setPurpose}
+        />
+        <TextInput
+          label="Report group"
+          name="subtype"
+          maxLength={100}
+          defaultValue={profile?.subtype ?? ""}
+          placeholder="For example: Operating expenses"
+        />
+        <AccountingPicker
+          label="Parent account"
+          visibleLabel="Parent account"
+          value={parent}
+          options={[
+            { value: "", label: "No parent" },
+            ...accounts
+              .filter(
+                (a) =>
+                  a.id !== account.id &&
+                  a.account_type === account.account_type &&
+                  !a.is_archived &&
+                  !profileMap.get(a.id)?.parent_account_id,
+              )
+              .map((a) => ({ value: a.id, label: a.name })),
+          ]}
+          onChange={setParent}
+        />
+        <Checkbox
+          checked={archived}
+          onChange={setArchived}
+          label="Archive this account"
+        />
+      </Disclosure>
       {command.error && (
         <p role="alert" className="text-sm text-error">
           {command.error}

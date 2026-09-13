@@ -70,9 +70,19 @@ import {
   type AccountingReadCache,
 } from "@/lib/accounting/read-cache";
 import { useAccountingRowCommand } from "./use-accounting-row-command";
-import { Toggle } from "@/components/ui/inputs/Toggle";
 import { AccountingPicker } from "./accounting-picker";
+import {
+  AccountingCategoryPicker,
+  type TransferMatch,
+} from "./accounting-category-picker";
+import {
+  categoryGroups,
+  categoryKind,
+  categoryMenu,
+  type CategoryKind,
+} from "@/lib/accounting/categories";
 import { AccountingTransferFromDraft } from "./accounting-transfer-from-draft";
+import { TransferForm, type TransferLeg } from "./accounting-transfer-dialogs";
 import { commandContext, useAccountingCommand } from "./use-accounting-command";
 import {
   absMoney,
@@ -184,32 +194,13 @@ export function AccountingTransactions({
   const [bulkCategory, setBulkCategory] = useState<{
     entries: JournalEntry[];
     account: string;
-    review: boolean;
   } | null>(null);
   const [transfer, setTransfer] = useState<{
     entry: JournalEntry;
     counterpart: JournalEntry | null;
   } | null>(null);
-  // Picking a category can also mark the draft reviewed, the routine case
-  // for bank activity. Remembered per browser.
-  const [reviewOnCategorize, setReviewOnCategorize] = useState(false);
-  useEffect(() => {
-    try {
-      setReviewOnCategorize(
-        localStorage.getItem("accounting.review-on-categorize") === "1",
-      );
-    } catch {
-      /* Private mode keeps the default. */
-    }
-  }, []);
-  function rememberReviewChoice(next: boolean) {
-    setReviewOnCategorize(next);
-    try {
-      localStorage.setItem("accounting.review-on-categorize", next ? "1" : "0");
-    } catch {
-      /* Private mode keeps the choice for this page only. */
-    }
-  }
+  // A posted bank movement that is really one leg of a transfer.
+  const [link, setLink] = useState<TransferLeg | null>(null);
   const cmd = useAccountingCommand(onRefresh);
   const { feeds } = useAccountingBankIdentity();
   const balances = useMemo(
@@ -423,24 +414,20 @@ export function AccountingTransactions({
         ? "Bank balances + unconnected book balances"
         : "Book balances (no bank balances)";
 
-  const categoryOptions = useMemo(
-    () =>
-      data.accounts
-        .filter((a) => !a.is_archived && !bankIds.has(a.id))
-        .map((a) => ({
-          value: a.id,
-          label: a.name,
-          keywords: a.code,
-          group: a.account_type[0].toUpperCase() + a.account_type.slice(1),
-        }))
-        .sort(
-          (a, b) =>
-            a.group.localeCompare(b.group) || a.label.localeCompare(b.label),
-        ),
-    // bankIds derives from profiles, which change with data.accounts.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // One base menu per direction; each row adds its own suggestions on top.
+  const menus = useMemo(
+    () => ({
+      in: categoryGroups(data.accounts, profiles, "in"),
+      out: categoryGroups(data.accounts, profiles, "out"),
+      any: categoryGroups(data.accounts, profiles, "any"),
+    }),
     [data.accounts, profiles],
   );
+  const directionOf = (p: ReturnType<typeof presentTransaction>) =>
+    p.amount < BigInt(0) ? "out" : "in";
+  const payeeDefault = (entry: JournalEntry) =>
+    manage.parties.find((party) => party.id === entry.context?.payee_id)
+      ?.default_account_id;
 
   const rows = (result?.entries ?? [])
     .map((entry) => overrides[entry.id]?.entry ?? entry)
@@ -542,18 +529,32 @@ export function AccountingTransactions({
     entry: JournalEntry,
     accountId: string,
     payeeId?: string | null,
-    review = false,
-  ): WorkflowCommand | null {
+    // The schema keeps save and review on one member, so the narrow type names both.
+  ): Extract<
+    WorkflowCommand,
+    { type: "transaction.save" | "transaction.review" }
+  > | null {
     const p = presentTransaction(entry, profiles);
     if (!p.editable || p.categoryLines.length !== 1) return null;
     const context = commandContext(entry.context ?? defaultEntryContext);
+    // The category decides the kind: an expense on money in is a refund.
+    const kind: CategoryKind | null = categoryKind(
+      accountId,
+      data.accounts,
+      profiles,
+      directionOf(p),
+    );
     return {
-      type: review ? "transaction.review" : "transaction.save",
+      type: "transaction.save",
       id: entry.id,
       expected_version: entry.version,
       entry_date: entry.entry_date,
       memo: entry.memo,
-      context: payeeId ? { ...context, payee_id: payeeId } : context,
+      context: {
+        ...context,
+        ...(kind ? { kind } : {}),
+        ...(payeeId ? { payee_id: payeeId } : {}),
+      },
       lines: entry.lines.map((l) => ({
         account_id: l.id === p.categoryLines[0].id ? accountId : l.account_id,
         amount_cents: l.amount_cents,
@@ -567,40 +568,23 @@ export function AccountingTransactions({
     accountId: string,
     payeeId?: string | null,
   ) {
-    const command = saveCommand(
-      entry,
-      accountId,
-      payeeId,
-      reviewOnCategorize && entry.status === "draft",
-    );
+    const command = saveCommand(entry, accountId, payeeId);
     if (!command) return;
-    const optimistic =
-      command.type === "transaction.save" ||
-      command.type === "transaction.review"
-        ? {
-            ...entry,
-            context: {
-              ...defaultEntryContext,
-              ...entry.context,
-              ...command.context,
-            },
-            status:
-              command.type === "transaction.review"
-                ? ("posted" as const)
-                : entry.status,
-            lines: command.lines.map((line, index) => ({
-              ...entry.lines[index],
-              ...line,
-            })),
-          }
-        : entry;
+    // Categorizing never reviews: the checkmark is its own, deliberate step.
+    const optimistic = {
+      ...entry,
+      context: {
+        ...defaultEntryContext,
+        ...entry.context,
+        ...command.context,
+      },
+      lines: command.lines.map((line, index) => ({
+        ...entry.lines[index],
+        ...line,
+      })),
+    };
     if (await saveRow(entry, command, optimistic))
-      toast(
-        "success",
-        reviewOnCategorize && entry.status === "draft"
-          ? "Categorized and reviewed."
-          : "Category saved. Review it when you are ready.",
-      );
+      toast("success", "Category saved. Review it when you are ready.");
   }
 
   /** The bank's own wording for this movement, or the memo until the data layer reports it. */
@@ -630,19 +614,16 @@ export function AccountingTransactions({
   async function applyBulkCategory() {
     if (!bulkCategory?.account) return;
     const commands = bulkCategory.entries
-      .map((e) =>
-        saveCommand(e, bulkCategory.account, undefined, bulkCategory.review),
-      )
-      .filter((c): c is WorkflowCommand => c !== null);
+      .map((e) => saveCommand(e, bulkCategory.account))
+      .filter((c) => c !== null);
     const { done, failed, saved } = await cmd.executeMany(commands);
     if (done > 0 && !failed) {
       setBulkCategory(null);
-      // Reviewed rows leave the queue; categorized ones stay selected so
-      // Review selected is one more click, not a fresh selection.
-      if (bulkCategory.review) setSelection({});
+      // The rows stay selected so Review selected is one more click, not a
+      // fresh selection.
       toast(
         "success",
-        `${done} ${done === 1 ? "transaction" : "transactions"} ${bulkCategory.review ? "categorized and reviewed" : "categorized"}.`,
+        `${done} ${done === 1 ? "transaction" : "transactions"} categorized. Review them when you are ready.`,
       );
     } else if (done > 0) {
       // Keep only the rows that did not land so a retry does not resend saved ones.
@@ -667,17 +648,6 @@ export function AccountingTransactions({
     maximum,
     missing,
   ].filter(Boolean).length;
-
-  const originLabel = (entry: JournalEntry) =>
-    entry.primary_origin === "simplefin"
-      ? "Bank feed"
-      : entry.primary_origin === "wave"
-        ? "Imported from Wave"
-        : entry.primary_origin === "csv"
-          ? "Imported file"
-          : entry.primary_origin === "manual"
-            ? "Manual transaction"
-            : entry.primary_origin;
 
   function rowActions(entry: JournalEntry): RowAction[] {
     const row = entry as TransactionRow;
@@ -717,15 +687,33 @@ export function AccountingTransactions({
         icon: <Tag />,
         onSelect: () => void rememberPayee(row),
       });
-    if (entry.status === "draft") {
-      const p = presentTransaction(entry, profiles);
-      if (p.bankLine && p.editable && !demo)
-        actions.push({
-          label: "Record as transfer",
-          icon: <ArrowLeftRight />,
-          onSelect: () =>
-            setTransfer({ entry, counterpart: transferCounterpart(row) }),
-        });
+    const p = presentTransaction(entry, profiles);
+    if (entry.status === "draft" && p.bankLine && p.editable && !demo)
+      actions.push({
+        label: "Record as transfer",
+        icon: <ArrowLeftRight />,
+        onSelect: () =>
+          setTransfer({ entry, counterpart: transferCounterpart(row) }),
+      });
+    if (
+      entry.status === "posted" &&
+      p.bankLine &&
+      !entry.transfer_group_id &&
+      !entry.payroll_run_id &&
+      !isTransactionReversed(entry) &&
+      !demo
+    ) {
+      const bankLine = p.bankLine;
+      actions.push({
+        label: "Link as transfer",
+        icon: <ArrowLeftRight />,
+        onSelect: () =>
+          setLink({
+            entry,
+            account: bankLine.account_id,
+            side: p.amount < BigInt(0) ? "out" : "in",
+          }),
+      });
     }
     if (entry.status === "draft")
       actions.push({
@@ -740,7 +728,9 @@ export function AccountingTransactions({
       actions.push({
         label: entry.payroll_run_id
           ? "Open payroll to undo"
-          : "Reverse transaction",
+          : entry.transfer_group_id
+            ? "Reverse transfer"
+            : "Reverse transaction",
         icon: <Undo2 />,
         variant: "danger",
         separator: true,
@@ -779,37 +769,19 @@ export function AccountingTransactions({
     );
   }
 
-  function transferHint(
-    row: TransactionRow,
-    p: ReturnType<typeof presentTransaction>,
-  ) {
-    if (row.status !== "draft" || !p.editable || p.categorized || !p.bankLine)
-      return null;
-    const other = transferCounterpart(row);
-    if (!other) return null;
-    const otherAccount = accounts.get(
-      presentTransaction(other, profiles).bankLine!.account_id,
-    )?.name;
-    return (
-      <span className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <ArrowLeftRight
-          size={11}
-          aria-hidden="true"
-          className="text-teal-light"
-        />
-        <span className="truncate">
-          Matches the opposite movement on {otherAccount}
-        </span>
-        <button
-          type="button"
-          disabled={rowBusy(row.id) || demo}
-          onClick={() => setTransfer({ entry: row, counterpart: other })}
-          className="rounded px-1 font-medium text-teal-light hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-        >
-          Record transfer
-        </button>
-      </span>
-    );
+  /** The picker leads with a transfer only when the books hold the other leg. */
+  function transferSuggestion(row: TransactionRow): TransferMatch | undefined {
+    if (demo || row.status !== "draft") return undefined;
+    const counterpart = transferCounterpart(row);
+    if (!counterpart) return undefined;
+    const otherLine = presentTransaction(counterpart, profiles).bankLine;
+    return {
+      account: otherLine
+        ? (accounts.get(otherLine.account_id)?.name ?? "another account")
+        : "another account",
+      date: counterpart.entry_date,
+      onSelect: () => setTransfer({ entry: row, counterpart }),
+    };
   }
 
   function priorHint(
@@ -917,12 +889,20 @@ export function AccountingTransactions({
       !demo
     )
       return (
-        <AccountingPicker
+        <AccountingCategoryPicker
           label={`Category for ${entry.memo}`}
           compact
           disabled={rowBusy(entry.id)}
           value={p.categoryLines[0].account_id}
-          options={categoryOptions}
+          groups={categoryMenu(menus[directionOf(p)], data.accounts, {
+            current: p.categoryLines[0].account_id,
+            prior: entry.prior_treatment,
+            payeeDefault: payeeDefault(entry),
+          })}
+          direction={directionOf(p)}
+          // A placeholder category (Uncategorized) is named on the trigger, not listed.
+          placeholder={categories[0] ?? "Choose a category"}
+          transfer={transferSuggestion(entry as TransactionRow)}
           onChange={(id) => void categorize(entry, id)}
           className={cn("w-full", !p.categorized && "text-warning")}
         />
@@ -966,13 +946,18 @@ export function AccountingTransactions({
             >
               {e.memo}
             </button>
-            <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-              {party?.name ?? originLabel(e)}
-              {e.reversed_by_entry_id ? ", corrected or reversed" : ""}
-              {e.reverses_entry_id ? ", reversal" : ""}
-            </p>
+            {(party || e.reversed_by_entry_id || e.reverses_entry_id) && (
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                {party?.name}
+                {e.reversed_by_entry_id
+                  ? party
+                    ? ", corrected or reversed"
+                    : "Corrected or reversed"
+                  : ""}
+                {e.reverses_entry_id ? (party ? ", reversal" : "Reversal") : ""}
+              </p>
+            )}
             {priorHint(e, p)}
-            {transferHint(e, p)}
           </div>
         );
       },
@@ -1085,8 +1070,7 @@ export function AccountingTransactions({
               </button>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {dateLabel(e.entry_date)}
-                {" · "}
-                {party?.name ?? originLabel(e)}
+                {party ? ` · ${party.name}` : ""}
               </p>
             </div>
           </div>
@@ -1102,7 +1086,6 @@ export function AccountingTransactions({
           </span>
         </div>
         {priorHint(e, p)}
-        {transferHint(e, p)}
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 flex-1">{categoryCell(e, p)}</div>
           <div className="flex shrink-0 items-center gap-1">
@@ -1293,14 +1276,6 @@ export function AccountingTransactions({
                 </button>
               ))}
             </div>
-            {status === "draft" && !demo && (
-              <Toggle
-                size="sm"
-                checked={reviewOnCategorize}
-                onChange={rememberReviewChoice}
-                label="Review as I categorize"
-              />
-            )}
           </div>
           <div className="flex w-full items-center gap-2 sm:w-auto">
             <TextInput
@@ -1453,7 +1428,6 @@ export function AccountingTransactions({
                       return p.editable && p.categoryLines.length === 1;
                     }),
                     account: "",
-                    review: reviewOnCategorize,
                   })
                 }
               >
@@ -1649,11 +1623,21 @@ export function AccountingTransactions({
           </DialogHeader>
           {bulkCategory && (
             <div className="mt-4 space-y-4">
-              <AccountingPicker
+              <AccountingCategoryPicker
                 label="Category"
                 visibleLabel="Category"
                 value={bulkCategory.account}
-                options={categoryOptions}
+                groups={(() => {
+                  // One direction gets its own menu; a mix opens both sides.
+                  const directions = new Set(
+                    bulkCategory.entries.map((e) =>
+                      directionOf(presentTransaction(e, profiles)),
+                    ),
+                  );
+                  return directions.size === 1
+                    ? menus[[...directions][0]]
+                    : menus.any;
+                })()}
                 placeholder="Choose a category"
                 onChange={(v) =>
                   setBulkCategory({ ...bulkCategory, account: v })
@@ -1678,14 +1662,6 @@ export function AccountingTransactions({
                   </p>
                 )}
               </div>
-              <Checkbox
-                checked={bulkCategory.review}
-                onChange={(v) =>
-                  setBulkCategory({ ...bulkCategory, review: v })
-                }
-                label="Mark them reviewed too"
-                description="Otherwise they stay selected for Review selected."
-              />
               {chosen.length > bulkCategory.entries.length &&
                 bulkCategory.entries.length > 0 && (
                   <p className="text-xs text-muted-foreground">
@@ -1708,10 +1684,7 @@ export function AccountingTransactions({
                 onClick={() => void applyBulkCategory()}
               >
                 <Tag size={15} aria-hidden="true" />
-                {bulkCategory.review
-                  ? "Categorize and review"
-                  : "Categorize"}{" "}
-                {bulkCategory.entries.length} transactions
+                Categorize {bulkCategory.entries.length} transactions
               </Button>
             </div>
           )}
@@ -1728,6 +1701,27 @@ export function AccountingTransactions({
           onClose={() => setTransfer(null)}
           onSaved={async () => {
             setTransfer(null);
+            await onRefresh();
+          }}
+        />
+      )}
+      {link && (
+        <TransferForm
+          mode="link"
+          from={data.from}
+          to={data.to}
+          accounts={data.accounts.filter((a) =>
+            profiles.some(
+              (p) =>
+                p.account_id === a.id &&
+                ["bank", "cash", "card"].includes(p.cash_kind),
+            ),
+          )}
+          revision={data.revision}
+          initial={link}
+          onClose={() => setLink(null)}
+          onSaved={async () => {
+            setLink(null);
             await onRefresh();
           }}
         />

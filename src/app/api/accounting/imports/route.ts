@@ -13,7 +13,6 @@ import {
   bankMappingSchema,
 } from "@/lib/accounting/imports/contracts";
 import { boundedForm } from "@/lib/accounting/server/request-body";
-import {isWaveLedger, readWaveCsv, waveAccountProposals, waveJournalRows, type WaveAccount} from "@/lib/accounting/imports/wave";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,9 +22,8 @@ export async function POST(req: NextRequest) {
       { error: "Invalid request origin." },
       { status: 403 },
     );
-  let client;
   try {
-    client = await accountingClient();
+    await accountingClient();
   } catch {
     return NextResponse.json(
       { error: "Accounting is unavailable for this session." },
@@ -56,8 +54,7 @@ export async function POST(req: NextRequest) {
       fatal: true,
       ignoreBOM: true,
     }).decode(bytes);
-    const wave = form.get("adapter") === "wave" || isWaveLedger(text);
-    const table = wave ? readWaveCsv(text) : readCsv(text, options);
+    const table = readCsv(text, options);
     if (form.get("phase") === "inspect")
       return NextResponse.json(
         {
@@ -65,7 +62,6 @@ export async function POST(req: NextRequest) {
           samples: table.rows.slice(0, 8),
           rowCount: table.rows.length,
           fileHash: table.fileHash,
-          ...(wave ? {adapter: "wave", accountProposals: waveAccountProposals(text)} : {}),
           values: Object.fromEntries(
             table.headers.map((header, index) => [
               header,
@@ -87,20 +83,7 @@ export async function POST(req: NextRequest) {
           ? bankMappingSchema.parse(rawMapping)
           : null;
     if (!mapping) throw new Error("Choose journal or bank import.");
-    if (wave && mode !== "journal") throw new Error("Import a Wave ledger as journal entries.");
-    let waveAccounts: WaveAccount[] = [];
-    let historyStart = "2022-12-31";
-    if (wave) {
-      const {data, error} = await client.rpc("context", {view: "manage", params: {}});
-      if (error) throw new Error("Unable to load the books account mappings.");
-      waveAccounts = data.profiles.map((p: {account_id: string; type: string; subtype: string; external_names: {wave?: string}}) => ({...p, id: p.account_id}));
-      historyStart = data.preferences.business_profile.earliest_history_date;
-      const selected = journalMappingSchema.parse(mapping).accounts;
-      for (const [name, id] of Object.entries(selected)) {
-        if (!waveAccounts.some(a => a.id === id && a.external_names.wave === name)) throw new Error("Save each Wave account name on its mapped book account before parsing the import.");
-      }
-    }
-    const groups = wave ? waveJournalRows(text, waveAccounts, historyStart) :
+    const groups =
       mode === "journal"
         ? journalGroups(table, options, journalMappingSchema.parse(mapping))
         : bankGroups(table, options, bankMappingSchema.parse(mapping));
@@ -108,7 +91,7 @@ export async function POST(req: NextRequest) {
       {
         fileHash: table.fileHash,
         mappingHash: createHash("sha256")
-          .update(JSON.stringify({ options, mapping, parserVersion: wave ? "wave-1" : 1, ...(wave ? {accounts: waveAccounts.map(a => ({id:a.id,type:a.type,subtype:a.subtype,external_names:a.external_names})), historyStart} : {}) }))
+          .update(JSON.stringify({ options, mapping, parserVersion: 1 }))
           .digest("hex"),
         groups,
         errorCount: groups.filter((g) => g.errors.length).length,

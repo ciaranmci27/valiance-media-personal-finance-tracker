@@ -112,7 +112,9 @@ export const importCommandSchema = z.discriminatedUnion("type", [
   z
     .object({ type: z.literal("import.finish"), id, expected_version: version })
     .strict(),
-  z.object({type: z.literal("import.resume"), id, expected_version: version}).strict(),
+  z
+    .object({ type: z.literal("import.resume"), id, expected_version: version })
+    .strict(),
   z
     .object({
       type: z.literal("import.cancel"),
@@ -160,6 +162,8 @@ export interface ImportGroup {
   reason: string;
   entry_id: string | null;
   candidate_entry_id: string | null;
+  /** A journal row that repeats a posted entry can replace it with its figures. */
+  duplicate_of_entry_id?: string | null;
   bank_amount_cents: string | null;
   lines: { account_id: string; amount_cents: string; memo: string }[];
 }

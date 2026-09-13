@@ -1,4 +1,5 @@
 "use client";
+import { Disclosure } from "@/components/ui/disclosure";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useState } from "react";
 import { TextInput } from "@/components/ui/inputs/TextInput";
@@ -230,33 +231,28 @@ export function AccountingRegisterForm({
               onChange={(nextValue) => set("method", nextValue)}
             />
           )}
-          <details className="group rounded-xl border border-border">
-            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-              Advanced
-            </summary>
-            <div className="space-y-4 border-t border-border p-4">
-              <Textarea
-                label={asset ? "Details" : "Terms"}
-                maxLength={4000}
-                rows={3}
-                value={values.terms}
-                onChange={(nextValue) => set("terms", nextValue)}
-                placeholder={
-                  asset
-                    ? "Location, serial number or disposal notes"
-                    : "Maturity, payment schedule and statement used for splits"
-                }
-              />
-              <EvidencePicker value={doc} onChange={setDoc} />
-              <TextInput
-                label="Revision note"
-                maxLength={1000}
-                placeholder="Optional"
-                value={reason}
-                onChange={(nextValue) => setReason(nextValue)}
-              />
-            </div>
-          </details>
+          <Disclosure summary="Advanced" contentClassName="space-y-4">
+            <Textarea
+              label={asset ? "Details" : "Terms"}
+              maxLength={4000}
+              rows={3}
+              value={values.terms}
+              onChange={(nextValue) => set("terms", nextValue)}
+              placeholder={
+                asset
+                  ? "Location, serial number or disposal notes"
+                  : "Maturity, payment schedule and statement used for splits"
+              }
+            />
+            <EvidencePicker value={doc} onChange={setDoc} />
+            <TextInput
+              label="Revision note"
+              maxLength={1000}
+              placeholder="Optional"
+              value={reason}
+              onChange={(nextValue) => setReason(nextValue)}
+            />
+          </Disclosure>
         </fieldset>
         <WorkflowActions
           busy={command.busy}

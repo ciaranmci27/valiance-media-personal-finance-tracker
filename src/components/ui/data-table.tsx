@@ -75,7 +75,7 @@ const numeric = (v: unknown): number | null =>
 /** A row click that started on a control belongs to that control, not the row. */
 const fromControl = (e: React.MouseEvent<HTMLElement>) =>
   !!(e.target as HTMLElement).closest(
-    "button, a, input, select, textarea, label, [role='menu'], [role='dialog']",
+    "button, a, input, select, textarea, label, [role='menu'], [role='dialog'], [role='listbox']",
   );
 
 const alignClass = (align?: "left" | "right" | "center") =>

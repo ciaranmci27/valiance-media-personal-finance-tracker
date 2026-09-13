@@ -25,6 +25,10 @@ export interface SelectOption {
   keywords?: string;
   disabled?: boolean;
   isGroupHeader?: boolean;
+  /** On a group header, with `collapsibleGroups`: the group starts closed. */
+  collapsed?: boolean;
+  /** Rich content for the row. `label` stays the text for search, typeahead and the closed field. */
+  render?: ReactNode;
 }
 /** Accessible, token-based Select configuration. */
 export interface SelectProps {
@@ -51,7 +55,11 @@ export interface SelectProps {
   compact?: boolean;
   children?: ReactNode;
   showChevron?: boolean;
+  /** Group headers become toggles; a search expands every group while it lasts. */
+  collapsibleGroups?: boolean;
 }
+/** A navigable line in the popup: a group toggle or a selectable option. */
+type SelectRow = { header: string } | { option: SelectOption };
 export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select(
   {
     label,
@@ -77,6 +85,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
     compact,
     children,
     showChevron = true,
+    collapsibleGroups,
   },
   forwardedRef,
 ) {
@@ -85,7 +94,8 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
     listId = `${inputId}-list`;
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState(''),
-    [active, setActive] = useState(0);
+    [active, setActive] = useState(0),
+    [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const [position, setPosition] = useState({
     top: 0,
     left: 0,
@@ -102,10 +112,13 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
   const fieldLabel = visibleLabel ?? (searchable ? undefined : label),
     accessibleLabel = ariaLabel || label || visibleLabel;
   const normalized: SelectOption[] = [];
+  const startCollapsed = new Set<string>();
   let group: string | undefined;
   for (const option of options) {
-    if (option.isGroupHeader) group = option.label;
-    else normalized.push({ ...option, group: option.group ?? group });
+    if (option.isGroupHeader) {
+      group = option.label;
+      if (option.collapsed) startCollapsed.add(option.label);
+    } else normalized.push({ ...option, group: option.group ?? group });
   }
   const ordered = [...new Set(normalized.map((option) => option.group))].flatMap((group) =>
     normalized.filter((option) => option.group === group),
@@ -120,8 +133,26 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
   );
   const groups = [...new Set(matches.map((option) => option.group))];
   const filtered = groups.flatMap((group) => matches.filter((option) => option.group === group));
-  const available = filtered.filter((option) => !option.disabled),
-    activeOption = available[active];
+  // Collapsing only applies to named groups and never while a search narrows the list.
+  const collapsing = !!collapsibleGroups && !needle;
+  const rowsFor = (open: Set<string>): SelectRow[] =>
+    groups.flatMap((group) => [
+      ...(collapsing && group ? [{ header: group }] : []),
+      ...(!collapsing || !group || open.has(group)
+        ? filtered
+            .filter((option) => option.group === group && !option.disabled)
+            .map((option) => ({ option }))
+        : []),
+    ]);
+  const rows = rowsFor(expanded),
+    activeRow = rows[active],
+    activeOption = activeRow && 'option' in activeRow ? activeRow.option : undefined;
+  // The same value may appear in two groups (a suggestion and its home), so rows key on both.
+  const rowKey = (row: SelectRow) =>
+    'option' in row ? `option:${row.option.group ?? ''}:${row.option.value}` : `header:${row.header}`;
+  const rowIndex = new Map<string, number>();
+  rows.forEach((row, index) => rowIndex.set(rowKey(row), index));
+  const isExpanded = (group: string) => !collapsing || expanded.has(group);
   const help = description || helperText;
   const describedBy =
     [help && `${inputId}-help`, error && `${inputId}-error`].filter(Boolean).join(' ') || undefined;
@@ -138,15 +169,39 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
       close();
     }
   };
+  const toggleGroup = (group: string) =>
+    setExpanded((previous) => {
+      const next = new Set(previous);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
   const show = () => {
     preparePopup();
     if (disabled) return;
     setQuery('');
-    setActive(
-      Math.max(
-        0,
-        ordered.filter((option) => !option.disabled).findIndex((option) => option.value === value),
+    // Every group opens except those marked closed; the chosen value's group always opens.
+    const initial = new Set(
+      [...new Set(ordered.map((option) => option.group))].filter(
+        (group): group is string =>
+          !!group && (!startCollapsed.has(group) || group === selected?.group),
       ),
+    );
+    if (selected?.group) initial.add(selected.group);
+    setExpanded(initial);
+    const initialRows = collapsibleGroups
+      ? [...new Set(ordered.map((option) => option.group))].flatMap((group) => [
+          ...(group ? [{ header: group } as SelectRow] : []),
+          ...(!group || initial.has(group)
+            ? ordered
+                .filter((option) => option.group === group && !option.disabled)
+                .map((option) => ({ option }) as SelectRow)
+            : []),
+        ])
+      : ordered.filter((option) => !option.disabled).map((option) => ({ option }) as SelectRow);
+    // Nothing is highlighted until the pointer or keyboard moves when the value is not listed.
+    setActive(
+      initialRows.findIndex((row) => 'option' in row && row.option.value === value),
     );
     updatePosition();
     setOpen(true);
@@ -171,7 +226,8 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
     };
   }, [open, popupHost, updatePosition]);
   useEffect(() => {
-    if (open) document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: 'nearest' });
+    if (open && active >= 0)
+      document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: 'nearest' });
   }, [active, open, listId]);
   const navigate = (event: KeyboardEvent) => {
     if (event.key === 'Escape') {
@@ -187,17 +243,29 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
       setActive((index) =>
         event.key === 'Home'
           ? 0
-          : event.key === 'End'
-            ? Math.max(0, available.length - 1)
-            : (index + (event.key === 'ArrowDown' ? 1 : -1) + available.length) %
-              Math.max(1, available.length),
+          : event.key === 'End' || (event.key === 'ArrowUp' && index < 0)
+            ? Math.max(0, rows.length - 1)
+            : (index + (event.key === 'ArrowDown' ? 1 : -1) + rows.length) %
+              Math.max(1, rows.length),
       );
+    } else if (
+      activeRow &&
+      'header' in activeRow &&
+      !needle &&
+      (event.key === 'ArrowRight' || event.key === 'ArrowLeft')
+    ) {
+      event.preventDefault();
+      if ((event.key === 'ArrowRight') !== expanded.has(activeRow.header))
+        toggleGroup(activeRow.header);
     } else if (event.key === 'Enter' || (!searchable && event.key === ' ')) {
       event.preventDefault();
-      if (activeOption) choose(activeOption);
+      if (activeRow && 'header' in activeRow) toggleGroup(activeRow.header);
+      else if (activeOption) choose(activeOption);
     } else if (!searchable && event.key.length === 1 && !event.ctrlKey && !event.metaKey) {
-      const index = available.findIndex((option) =>
-        option.label.toLocaleLowerCase().startsWith(event.key.toLocaleLowerCase()),
+      const index = rows.findIndex((row) =>
+        ('option' in row ? row.option.label : row.header)
+          .toLocaleLowerCase()
+          .startsWith(event.key.toLocaleLowerCase()),
       );
       if (index >= 0) setActive(index);
     }
@@ -282,6 +350,9 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
             popover="manual"
             tabIndex={-1}
             onKeyDown={navigate}
+            // The popup is portaled, but React still bubbles its clicks to the
+            // trigger's ancestors (a table row, a card); a choice is not a row click.
+            onClick={(event) => event.stopPropagation()}
             className={`${popupChrome} ${searchable ? 'px-1 pb-1' : 'p-1'}`}
             style={{
               top: position.top,
@@ -301,7 +372,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
                   aria-expanded={true}
                   aria-controls={listId}
                   aria-autocomplete="list"
-                  aria-activedescendant={activeOption ? `${listId}-${active}` : undefined}
+                  aria-activedescendant={activeRow ? `${listId}-${active}` : undefined}
                   placeholder="Search..."
                   value={query}
                   onChange={(value) => {
@@ -317,49 +388,93 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
               role="listbox"
               aria-label={accessibleLabel}
               tabIndex={searchable ? undefined : 0}
-              aria-activedescendant={
-                !searchable && activeOption ? `${listId}-${active}` : undefined
-              }
+              aria-activedescendant={!searchable && activeRow ? `${listId}-${active}` : undefined}
             >
-              {groups.map((group) => (
-                <div key={group || 'ungrouped'} role="group" aria-label={group}>
-                  {group && (
-                    <div className="px-3 pb-1 pt-2 text-xs font-semibold text-input-text-subtle">
-                      {group}
-                    </div>
-                  )}
-                  {filtered
-                    .filter((option) => option.group === group)
-                    .map((option) => {
-                      const index = available.indexOf(option);
-                      return (
-                        <div
-                          key={option.value}
-                          id={index >= 0 ? `${listId}-${index}` : undefined}
-                          role="option"
-                          aria-selected={option.value === value}
-                          aria-disabled={option.disabled || undefined}
-                          onPointerMove={() => {
-                            if (!option.disabled) setActive(index);
-                          }}
-                          onClick={() => choose(option)}
-                          className={`flex items-center gap-2 rounded-input-sm px-3 py-2 text-sm ${option.disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'} ${index === active ? 'bg-input-bg-active' : ''} ${option.value === value ? 'text-input-accent-subtle-fg bg-input-accent-subtle' : 'text-input-text'}`}
-                        >
-                          {option.icon}
-                          <span className="min-w-0 flex-1">
-                            <span className="block break-words">{option.label}</span>
-                            {option.detail && (
-                              <span className="block text-xs text-input-text-subtle">
-                                {option.detail}
-                              </span>
-                            )}
-                          </span>
-                          {option.value === value && <Check size={14} className="shrink-0" />}
+              {groups.map((group, groupIndex) => {
+                const headerIndex = group ? rowIndex.get(`header:${group}`) : undefined;
+                const groupOpen = !group || isExpanded(group);
+                const count = filtered.filter((option) => option.group === group).length;
+                return (
+                  <div
+                    key={group || 'ungrouped'}
+                    role="group"
+                    aria-labelledby={
+                      group && headerIndex !== undefined ? `${listId}-${headerIndex}` : undefined
+                    }
+                    aria-label={group && headerIndex === undefined ? group : undefined}
+                    className={
+                      groupIndex > 0 ? 'mt-1 border-t border-input-border-divider pt-1' : ''
+                    }
+                  >
+                    {group && headerIndex !== undefined ? (
+                      <button
+                        type="button"
+                        id={`${listId}-${headerIndex}`}
+                        tabIndex={-1}
+                        aria-expanded={groupOpen}
+                        aria-controls={`${listId}-group-${groupIndex}`}
+                        onMouseDown={(event) => event.preventDefault()}
+                        onPointerMove={() => setActive(headerIndex)}
+                        onClick={() => toggleGroup(group)}
+                        className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-input-sm px-3 py-1.5 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-input-text-subtle transition-colors motion-reduce:transition-none hover:text-input-text ${headerIndex === active ? 'bg-input-bg-active text-input-text' : ''}`}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{group}</span>
+                        <span className="flex shrink-0 items-center gap-1.5 font-normal normal-case tracking-normal tabular-nums">
+                          {count}
+                          <ChevronDown
+                            size={12}
+                            aria-hidden="true"
+                            className={`transition-transform motion-reduce:transition-none ${groupOpen ? 'rotate-180' : ''}`}
+                          />
+                        </span>
+                      </button>
+                    ) : (
+                      group && (
+                        <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-input-text-subtle">
+                          {group}
                         </div>
-                      );
-                    })}
-                </div>
-              ))}
+                      )
+                    )}
+                    <div id={`${listId}-group-${groupIndex}`}>
+                      {groupOpen &&
+                        filtered
+                          .filter((option) => option.group === group)
+                          .map((option) => {
+                            const index = rowIndex.get(rowKey({ option })) ?? -1;
+                            return (
+                              <div
+                                key={option.value}
+                                id={index >= 0 ? `${listId}-${index}` : undefined}
+                                role="option"
+                                aria-selected={option.value === value}
+                                aria-disabled={option.disabled || undefined}
+                                onPointerMove={() => {
+                                  if (!option.disabled) setActive(index);
+                                }}
+                                onClick={() => choose(option)}
+                                className={`flex items-center gap-2 rounded-input-sm px-3 py-1.5 text-sm ${option.disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'} ${index === active ? 'bg-input-bg-active' : ''} ${option.value === value ? 'text-input-accent-subtle-fg bg-input-accent-subtle' : 'text-input-text'}`}
+                              >
+                                {option.icon}
+                                <span className="min-w-0 flex-1">
+                                  {option.render ? (
+                                    <span className="block min-w-0">{option.render}</span>
+                                  ) : (
+                                    <span className="block break-words">{option.label}</span>
+                                  )}
+                                  {option.detail && (
+                                    <span className="block text-xs text-input-text-subtle">
+                                      {option.detail}
+                                    </span>
+                                  )}
+                                </span>
+                                {option.value === value && <Check size={14} className="shrink-0" />}
+                              </div>
+                            );
+                          })}
+                    </div>
+                  </div>
+                );
+              })}
               {!filtered.length && (
                 <p className="px-3 py-4 text-sm text-input-text-subtle">{emptyText}</p>
               )}

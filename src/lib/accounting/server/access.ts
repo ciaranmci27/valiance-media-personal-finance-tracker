@@ -38,10 +38,8 @@ export function accountingError(message: string): string {
       "Finish staging both files before comparing them. Posting is not required.",
     ACCT_TAX_RANGE:
       "Choose a cutoff inside the tax year that is not in the future.",
-    ACCT_TAX_CONCEPT:
-      "Choose a treatment that fits this account type.",
-    ACCT_ACCOUNT_NOT_FOUND:
-      "That account no longer exists.",
+    ACCT_TAX_CONCEPT: "Choose a treatment that fits this account type.",
+    ACCT_ACCOUNT_NOT_FOUND: "That account no longer exists.",
     ACCT_TAX_MAPPING:
       "Choose a tax concept and deductible percentage appropriate for this income or expense account.",
     ACCT_PAYROLL_EVIDENCE:
@@ -77,7 +75,7 @@ export function accountingError(message: string): string {
     ACCT_TRANSFER_ALREADY_LINKED:
       "A selected entry already belongs to a transfer group.",
     ACCT_TRANSFER_REVERSE_TOGETHER:
-      "Reverse both legs together from Manage > Transfers to preserve the transfer history.",
+      "Reverse the transfer from either leg in Transactions. Both legs reverse together.",
     ACCT_ACCOUNT_KIND:
       "Bank and cash accounts must be assets. Credit cards must be liabilities.",
     ACCT_ACCOUNT_IN_USE:

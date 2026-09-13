@@ -1,3 +1,50 @@
+# Manage page, Payroll page, ledger transfers, grouped category picker, bug sweep (2026-09-13)
+
+Owner: Records and Settings are bloat; Transfers belongs in the ledger like Wave; Contractors duplicates Payees; drop all Wave migration UI ("strip down as much BS as possible"); Payroll gets its own page; Reports should not link into Records; the category picker offers impossible categories and needs per-type accordions. Plan: `~/.claude/plans/ancient-knitting-wave.md`.
+
+## WP1 Navigation + deletions
+- [x] `views.ts`: manage + payroll views, legacy resolution (records/settings/manage sections)
+- [x] Shell: Payroll top-level view, Manage view, every setView repointed, create menu opens TransferForm in place
+- [x] `accounting-more.tsx`: single Manage rail (8 sections, 5 groups), registers section with kind toggle, Books form shrunk
+- [x] Reports: Records card removed; support-report drill links via accountingHref
+- [x] Setup guide hrefs + primary step copy; verify-accounting-setup asserts
+- [x] Evidence / journal-dialogs / close / setup / access.ts copy and links
+- [x] Delete contractors, history (component, lib, 2 API routes), Wave import adapter (lib, route branch, wizard path, 2 verify scripts)
+
+## WP2 Transfers in the ledger
+- [x] `transfer_group_id` on JournalEntry; presentTransaction uses it (linked legs no longer editable)
+- [x] `accounting-transfer-dialogs.tsx` (TransferForm create/link with initial leg, TransferEntryPicker, ReverseTransfer); delete `accounting-transfers.tsx`
+- [x] Migration: transfers branch accepts id + limit
+- [x] Ledger row actions: Reverse transfer, Link as transfer; shell intercepts transfer reverse
+
+## WP3 Category picker
+- [x] Select: collapsibleGroups + collapsed headers, keyboard, aria; mirrored to app
+- [x] `lib/accounting/categories.ts` + `verify-accounting-categories.ts`
+- [x] `accounting-category-picker.tsx`; editor, inline cell, bulk dialog wired; kind refund/owner saved; direction flip clears
+
+## WP4 Bug fixes
+- [x] Page sizes 50 -> 100 (registers, payroll)
+- [x] SQL tax-history rewrite + client type
+- [x] Register detail pager removed; dead proposal prop + loan-schedule.ts removed; document link guard
+- [x] Receipts: pager removed, Archive action, `document.unlink` (SQL) + Unlink control
+- [x] Payroll: run param, detail error, cast removed, mobile import_undone
+- [x] Feeds: feed.prepare removed, expected_feed_version dropped, timezone select removed, Ignore payload
+- [x] Rules copy + conflict badge; contractor year rules 2022-2024; imports apply() + correct resolution
+- [x] schema.sql mirrored by hand (generator diverges from the committed snapshot), schema parity green, verify-accounting-manage-cleanup.ts covers unlink, transfers by id, tax history
+
+## Verify
+- [x] test:accounting:all 49/51 (verify-accounting-db and verify-accounting-drop are the same pre-existing migration-shape failures), tsc clean, lint:accounting clean
+- [x] Browser (demo server, real clicks): sidebar, Manage rail with 5 groups, Assets & loans toggle, legacy records/settings URLs, Payroll page, Reports without the Records card, 375px without sideways scroll
+- [ ] Browser on the signed-in server: category picker (groups, keyboard, refund kind), Link as transfer, Reverse transfer, Receipts archive and unlink, tax history rows
+- [x] lessons.md + review section
+
+
+Review 2026-09-13: Records and Settings are one Manage view (Money in and out, Registers, Year end, Reference, Books); Payroll is a sidebar entry; the Reports page no longer links into records. Transfers, Contractors, the Wave history screen and the Wave import adapter are deleted (about 4,700 lines); old `records`, `settings` and `manage` links resolve to the new homes. Transfer link and reverse are ledger row actions; a linked leg is no longer editable. The category picker is direction-aware with collapsible groups on the shared Select (mirrored to app), a Suggested group from the row, and refund or owner kinds saved from the choice. Bugs fixed: page sizes, register detail pager (was raising ACCT_NOT_FOUND), dead register proposal prop and loan-schedule module, document link guard, Receipts pager plus Archive and Unlink, payroll run deep link, detail error placement, stale cast, mobile badge, dead feed.prepare and expected_feed_version, rules copy and alias conflict notice, contractor year rules 2022 to 2024, imports apply() (compared a status that never occurs), correct resolution option, tax history rows (SQL). Migration `20260913190134_accounting_manage_cleanup.sql` (context, banking_command, banking_guard) mirrored into schema.sql; parity green; new suites categories (27) and manage cleanup (29). Not built: the Shareholder basis tab has no server command at all (tax.basis raises ACCT_UNKNOWN_COMMAND) and the read never returns a basis; reported to the owner as a separate gap.
+
+Round 2 (2026-09-13, same session): category picker restyled (uppercase section labels, hairlines, denser rows, nothing pre-highlighted, placeholder categories not listed, transfer row only with a matching counterpart and named for the account, one line with the number kept); Select gained collapsibleGroups, a rich row `render`, and stops click bubbling (row-click regression fixed, DataTable ignores listbox clicks); transfer-from-draft dialog rebuilt with two matching fields and dates in money order; ledger rows lost the source subtitle (modal names it in plain words); journal editor is a full-page sheet with a Wave-style line table, one side per line, Edit/Notes segmented control and `EntryNotes` (pending note sent after save; `entry.annotate`); add menu is Deposit, Withdrawal, Journal entry; simple editor rebuilt (segmented type, headline amount, aligned rows); shared `ui/disclosure.tsx` replaced 17 modal accordions (no shadows, one padding); evidence panel rebuilt as Receipts, Source, Rules, History, Notes with a plain "Raw data" toggle. Temporary `app/accounting-picker-preview/page.tsx` (with a fetch stub for evidence) still in the tree for visual checks; delete before commit.
+
+---
+
 # Next payment: tax so far beside the annualized requirement (2026-09-12)
 
 Owner: pays the tax on what was actually earned each quarter; wants no forecasting; agreed to show the IRS annualized instalment next to it; manual rows spread evenly. Plan: `~/.claude/plans/twinkly-whistling-creek.md`. No SQL.

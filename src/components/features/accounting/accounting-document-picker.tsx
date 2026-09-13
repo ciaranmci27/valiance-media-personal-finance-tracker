@@ -1,4 +1,5 @@
 "use client";
+import { Disclosure } from "@/components/ui/disclosure";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/inputs/Select";
@@ -72,19 +73,14 @@ export function AccountingDocumentPicker({
           Load more documents
         </Button>
       )}
-      <details className="glass-card rounded-xl p-3 text-sm">
-        <summary className="cursor-pointer text-muted-foreground">
-          Upload a new document
-        </summary>
-        <div className="mt-3">
-          <EvidenceUpload
-            onSaved={async () => {
-              setOffset(0);
-              setTick((v) => v + 1);
-            }}
-          />
-        </div>
-      </details>
+      <Disclosure summary="Upload a new document">
+        <EvidenceUpload
+          onSaved={async () => {
+            setOffset(0);
+            setTick((v) => v + 1);
+          }}
+        />
+      </Disclosure>
       {error && (
         <p role="alert" className="text-sm text-error">
           {error}

@@ -1,4 +1,5 @@
 "use client";
+import { Disclosure } from "@/components/ui/disclosure";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useRef, useState } from "react";
 import { TextInput } from "@/components/ui/inputs/TextInput";
@@ -49,7 +50,6 @@ export function AccountingRegisterAction({
   record,
   kind,
   movement,
-  proposal,
   accounts,
   manage,
   today,
@@ -59,7 +59,6 @@ export function AccountingRegisterAction({
   record: RegisterDetail;
   kind: RegisterAction["kind"] | "void";
   movement?: RegisterMovement;
-  proposal?: RegisterAction;
   accounts: AccountingAccount[];
   manage: BooksMetadata;
   today: string;
@@ -68,23 +67,15 @@ export function AccountingRegisterAction({
 }) {
   const [id] = useState(() => crypto.randomUUID()),
     [date, setDate] = useState(
-      movement?.mode === "historical"
-        ? movement.effective_date
-        : (proposal?.date ?? today),
+      movement?.mode === "historical" ? movement.effective_date : today,
     ),
     [amount, setAmount] = useState(
-      proposal
-        ? centsToDecimal(proposal.amount_cents)
-        : kind === "acquisition"
-          ? centsToDecimal(record.record.body.initial_cents)
-          : "",
+      kind === "acquisition"
+        ? centsToDecimal(record.record.body.initial_cents)
+        : "",
     ),
-    [interest, setInterest] = useState(
-      proposal?.interest_cents ? centsToDecimal(proposal.interest_cents) : "",
-    ),
-    [fee, setFee] = useState(
-      proposal?.fee_cents ? centsToDecimal(proposal.fee_cents) : "",
-    ),
+    [interest, setInterest] = useState(""),
+    [fee, setFee] = useState(""),
     [counter, setCounter] = useState(""),
     [gain, setGain] = useState(""),
     [mode, setMode] = useState<"new" | "historical">("new"),
@@ -129,9 +120,6 @@ export function AccountingRegisterAction({
     return {
       kind,
       date,
-      ...(proposal?.schedule_row_key
-        ? { schedule_row_key: proposal.schedule_row_key }
-        : {}),
       amount_cents: usdCents(amount).toString(),
       ...(kind === "payment"
         ? {
@@ -325,14 +313,8 @@ export function AccountingRegisterAction({
               )}
             </fieldset>
             <EvidencePicker value={doc} onChange={setDoc} required />
-            <details className="group rounded-xl border border-border">
-              <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-                Advanced
-              </summary>
-              <fieldset
-                className="space-y-4 border-t border-border p-4"
-                disabled={busy}
-              >
+            <Disclosure summary="Advanced">
+              <fieldset className="space-y-4" disabled={busy}>
                 <Select
                   label="Entry source"
                   value={mode}
@@ -377,7 +359,7 @@ export function AccountingRegisterAction({
                   onChange={(nextValue) => setReason(nextValue)}
                 />
               </fieldset>
-            </details>
+            </Disclosure>
             {preview && (
               <div className="space-y-2">
                 <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">

@@ -1,17 +1,92 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ArrowRight, FileText, Paperclip, History, Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { TextInput } from "@/components/ui/inputs/TextInput";
+import { ArrowRight, Paperclip } from "lucide-react";
 import { MaskedValue } from "@/components/ui/masked-value";
-import { SectionHeader } from "@/components/ui/section-header";
-import { Tooltip } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import type { EntryEvidence, Party } from "@/lib/accounting/workflows";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
-import { dateLabel, enumLabel, timestampLabel } from "./format";
-import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+import { dateLabel, enumLabel, originLabel, timestampLabel } from "./format";
+import { accountingGet } from "./use-accounting-command";
 import { EvidenceUpload } from "./accounting-documents";
+import { EntryNotes } from "./accounting-entry-notes";
+
+/** What the books recorded, in the owner's words. Anything unlisted falls back to its own name. */
+const ACTIONS: Record<string, string> = {
+  sync: "Synced from the bank",
+  "transaction.save": "Saved",
+  "transaction.review": "Saved and reviewed",
+  "entry.review": "Reviewed",
+  "entry.post": "Posted",
+  "entry.reverse": "Reversed",
+  "entry.restore": "Restored",
+  "entry.correct": "Corrected",
+  "entry.categorize": "Categorized",
+  "entry.split": "Split",
+  "entry.context": "Payee changed",
+  "entry.annotate": "Note added",
+  "draft.discard": "Discarded",
+  "document.link": "Receipt attached",
+  "document.unlink": "Receipt detached",
+  "transfer.create": "Recorded as a transfer",
+  "transfer.link": "Linked as a transfer",
+  "rule.applied": "Filled by a rule",
+  insert: "Created",
+  update: "Updated",
+};
+const actionLabel = (action: string) =>
+  ACTIONS[action.toLowerCase()] ?? enumLabel(action.toLowerCase());
+
+/** One quiet block: a small caption, an optional right-hand note, then the content. */
+function Section({
+  label,
+  meta,
+  children,
+}: {
+  label: string;
+  meta?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section className="space-y-3">
+      <div className="flex items-baseline justify-between gap-3">
+        <h4 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+          {label}
+        </h4>
+        {meta}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** The stored record, behind a plain text toggle rather than a card inside a card. */
+function RawData({ value }: { value: unknown }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="rounded text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {open ? "Hide raw data" : "Raw data"}
+      </button>
+      {open && (
+        <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-secondary/40 p-3 text-xs text-muted-foreground">
+          <MaskedValue value={JSON.stringify(value, null, 2)} />
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Everything the books hold about one entry besides its lines: receipts,
+ * where it came from, what rules did to it, what happened to it since, and
+ * notes. Four or five short sections with one caption each, no nesting.
+ */
 export function AccountingEvidence({
   entryId,
   accounts,
@@ -22,15 +97,12 @@ export function AccountingEvidence({
   parties: Party[];
 }) {
   const [data, setData] = useState<EntryEvidence | null>(null);
-  const [note, setNote] = useState("");
   const [error, setError] = useState("");
-  const noteId = useRef<string | null>(null);
   async function refresh() {
     setData(
       await accountingGet<EntryEvidence>({ view: "evidence", entry: entryId }),
     );
   }
-  const command = useAccountingCommand(refresh);
   useEffect(() => {
     const controller = new AbortController();
     accountingGet<EntryEvidence>(
@@ -43,9 +115,9 @@ export function AccountingEvidence({
       });
     return () => controller.abort();
   }, [entryId]);
+  const chain = data?.history?.entries ?? [];
   return (
-    <div className="space-y-4 border-t border-border pt-4">
-      <SectionHeader label="Evidence & history" />
+    <div className="space-y-6">
       {error && (
         <p role="alert" className="text-sm text-error">
           {error}
@@ -53,50 +125,144 @@ export function AccountingEvidence({
       )}
       {data && (
         <>
-          {data.history && (
-            <section aria-label="Transaction history" className="space-y-3">
-              <div>
-                <h4 className="text-sm font-semibold">Transaction history</h4>
+          <Section
+            label="Receipts"
+            meta={
+              data.documents.length > 0 ? (
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {data.documents.length}
+                </span>
+              ) : null
+            }
+          >
+            {data.documents.length > 0 ? (
+              <ul className="space-y-1.5">
+                {data.documents.map((d) => (
+                  <li key={d.id} className="flex items-center gap-2 text-sm">
+                    <Paperclip
+                      size={14}
+                      aria-hidden="true"
+                      className="shrink-0 text-muted-foreground"
+                    />
+                    <a
+                      className="min-w-0 truncate text-teal-light hover:underline"
+                      href={`/api/accounting/documents?id=${d.id}`}
+                    >
+                      {d.original_name}
+                    </a>
+                    <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                      {Math.ceil(Number(d.size_bytes) / 1024)} KB
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                No receipts attached.
+              </p>
+            )}
+            <EvidenceUpload entryId={entryId} onSaved={refresh} />
+          </Section>
+
+          {data.sources.length > 0 && (
+            <Section label="Source">
+              <ul className="space-y-3">
+                {data.sources.map((s) => (
+                  <li key={s.id} className="space-y-1 text-sm">
+                    <p className="flex flex-wrap items-baseline gap-x-2">
+                      <span>{originLabel(s.source_system)}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {timestampLabel(s.observed_at)}
+                      </span>
+                    </p>
+                    <p
+                      className="truncate font-mono text-xs text-muted-foreground"
+                      title={s.external_id}
+                    >
+                      {s.external_id}
+                    </p>
+                    <RawData value={s.raw_payload} />
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          {!!data.rules?.length && (
+            <Section label="Rules">
+              <ul className="space-y-3">
+                {data.rules.map((r) => (
+                  <li key={r.id} className="space-y-1 text-sm">
+                    <p>
+                      Filled by {r.rule_name}{" "}
+                      <span className="text-xs text-muted-foreground">
+                        version {r.rule_version} ·{" "}
+                        {timestampLabel(r.created_at)}
+                      </span>
+                    </p>
+                    <p className="flex flex-wrap items-center gap-1 text-xs text-muted-foreground">
+                      {accounts.find(
+                        (a) => a.id === r.before_value.category_account_id,
+                      )?.name ?? "Previous category"}
+                      <ArrowRight size={12} aria-hidden="true" />
+                      {r.before_value.winner?.category_name ??
+                        "Reviewed category"}
+                      {r.after_value.payee_id && (
+                        <>
+                          {" · "}
+                          {parties.find((p) => p.id === r.after_value.payee_id)
+                            ?.name ?? "Payee"}
+                        </>
+                      )}
+                    </p>
+                    <RawData
+                      value={{ before: r.before_value, after: r.after_value }}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </Section>
+          )}
+
+          <Section
+            label="History"
+            meta={
+              data.history ? (
                 <Link
                   href={`/accounting?view=journal&entry=${data.history.reference}`}
                   title={data.history.reference}
-                  className="text-xs text-primary underline"
+                  className="font-mono text-xs text-muted-foreground hover:text-foreground hover:underline"
                 >
-                  Reference TX-
-                  {data.history.reference.slice(0, 8).toUpperCase()}
+                  TX-{data.history.reference.slice(0, 8).toUpperCase()}
                 </Link>
-              </div>
-              <ol className="ml-1 space-y-4 border-l border-border pl-4">
-                {data.history.entries.map((event) => (
-                  <li key={event.id} className="relative space-y-1 text-sm">
-                    <span
-                      className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-primary"
-                      aria-hidden="true"
-                    />
-                    <Link
-                      className="font-medium underline-offset-4 hover:underline"
-                      href={`/accounting?view=journal&entry=${event.id}`}
-                    >
-                      {event.action}
-                      {event.id === entryId ? " (viewing)" : ""}
-                    </Link>
-                    <p>{event.memo}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Effective {dateLabel(event.entry_date)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Recorded {timestampLabel(event.created_at)} ·{" "}
-                      {event.actor}
-                    </p>
-                    {event.reason && (
-                      <p className="text-xs text-muted-foreground">
-                        {event.reason}
-                      </p>
+              ) : null
+            }
+          >
+            {chain.length > 1 && (
+              <ol className="space-y-1.5">
+                {chain.map((event) => (
+                  <li
+                    key={event.id}
+                    className="flex flex-wrap items-baseline gap-x-2 text-sm"
+                  >
+                    {event.id === entryId ? (
+                      <span className="font-medium">{event.action}</span>
+                    ) : (
+                      <Link
+                        className="font-medium underline-offset-4 hover:underline"
+                        href={`/accounting?view=journal&entry=${event.id}`}
+                      >
+                        {event.action}
+                      </Link>
                     )}
+                    <span className="text-xs text-muted-foreground">
+                      {dateLabel(event.entry_date)}
+                      {event.reason ? ` · ${event.reason}` : ""}
+                    </span>
                     {event.payroll_run_id && (
                       <Link
                         className="text-xs text-primary underline"
-                        href="/accounting?view=records&section=payroll"
+                        href="/accounting?view=payroll"
                       >
                         Payroll record
                       </Link>
@@ -104,174 +270,39 @@ export function AccountingEvidence({
                   </li>
                 ))}
               </ol>
-            </section>
-          )}
-          {!!data.rules?.length && (
-            <div className="space-y-2">
-              {data.rules.map((r) => (
-                <details
-                  key={r.id}
-                  className="glass-card rounded-xl p-3 text-xs"
-                >
-                  <summary className="cursor-pointer">
-                    Draft filled by {r.rule_name} · version {r.rule_version}
-                  </summary>
-                  <p className="mt-2 text-muted-foreground">
-                    {timestampLabel(r.created_at)}
-                  </p>
-                  <div className="mt-3 space-y-2">
-                    <p>
-                      Category:{" "}
-                      {accounts.find(
-                        (a) => a.id === r.before_value.category_account_id,
-                      )?.name ?? "Previous category"}{" "}
-                      <ArrowRight
-                        size={12}
-                        className="inline align-middle"
-                        aria-hidden="true"
-                      />{" "}
-                      {r.before_value.winner?.category_name ??
-                        "Reviewed category"}
-                    </p>
-                    <p>
-                      Payee:{" "}
-                      {parties.find((p) => p.id === r.after_value.payee_id)
-                        ?.name ?? "Unassigned"}
-                    </p>
-                    <p className="text-muted-foreground">
-                      Matched {r.before_value.winner?.description_mode}:{" "}
-                      {r.before_value.winner?.description}
-                    </p>
-                    <p className="text-muted-foreground">
-                      The bank movement and entry date were preserved.
-                    </p>
-                  </div>
-                  <details className="mt-3">
-                    <summary className="cursor-pointer text-muted-foreground">
-                      Stored audit record
-                    </summary>
-                    <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap break-all">
-                      <MaskedValue
-                        value={JSON.stringify(
-                          { before: r.before_value, after: r.after_value },
-                          null,
-                          2,
-                        )}
-                      />
-                    </pre>
-                  </details>
-                </details>
-              ))}
-            </div>
-          )}
-          <div className="space-y-2">
-            {data.documents.map((d) => (
-              <p key={d.id} className="flex items-center gap-2 text-sm">
-                <Paperclip size={14} aria-hidden="true" />
-                <a
-                  className="text-teal-light hover:underline"
-                  href={`/api/accounting/documents?id=${d.id}`}
-                >
-                  {d.original_name}
-                </a>
-              </p>
-            ))}
-            {!data.documents.length && (
-              <p className="text-xs text-muted-foreground">
-                No documents linked.
-              </p>
             )}
-          </div>
-          {data.sources.map((s) => (
-            <details key={s.id} className="glass-card rounded-xl p-3">
-              <summary className="cursor-pointer text-sm">
-                <FileText
-                  className="mr-2 inline"
-                  size={14}
-                  aria-hidden="true"
-                />
-                {s.source_system} · {s.external_id}
-              </summary>
-              <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs text-muted-foreground">
-                <MaskedValue value={JSON.stringify(s.raw_payload, null, 2)} />
-              </pre>
-            </details>
-          ))}
-          {data.notes.map((n) => (
-            <div key={n.id} className="rounded-lg bg-secondary/50 p-3 text-sm">
-              <p className="whitespace-pre-wrap">{n.note}</p>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {timestampLabel(n.created_at)}
-              </p>
-            </div>
-          ))}
-          <details>
-            <summary className="cursor-pointer text-xs text-muted-foreground">
-              <History size={13} className="mr-1 inline" aria-hidden="true" />
-              {data.audit.length} recorded changes
-            </summary>
-            <div className="mt-2 max-h-56 overflow-auto">
+            <ol
+              className={cn(
+                "divide-y divide-border",
+                data.audit.length > 6 && "max-h-56 overflow-auto pr-1",
+              )}
+            >
               {data.audit.map((a) => (
-                <div key={a.id} className="border-b border-border py-2 text-xs">
-                  <p>
-                    {enumLabel(a.action.toLowerCase())} ·{" "}
-                    {enumLabel(a.table_name.replace("acct_", ""))}
-                  </p>
+                <li
+                  key={a.id}
+                  className="flex flex-wrap items-baseline justify-between gap-x-3 py-1.5 text-sm"
+                >
+                  <span>{actionLabel(a.action)}</span>
                   <time
                     dateTime={a.recorded_at}
-                    className="text-muted-foreground"
+                    className="text-xs text-muted-foreground"
                   >
                     {timestampLabel(a.recorded_at)}
                   </time>
-                </div>
+                </li>
               ))}
-            </div>
-          </details>
+              {data.audit.length === 0 && (
+                <li className="py-1.5 text-sm text-muted-foreground">
+                  Nothing recorded yet.
+                </li>
+              )}
+            </ol>
+          </Section>
+
+          <Section label="Notes">
+            <EntryNotes entryId={entryId} pending="" onPending={() => {}} />
+          </Section>
         </>
-      )}
-      <form
-        className="flex gap-2"
-        onSubmit={async (e) => {
-          e.preventDefault();
-          noteId.current ??= crypto.randomUUID();
-          if (
-            await command.execute({
-              type: "entry.annotate",
-              id: noteId.current,
-              entry_id: entryId,
-              note,
-            })
-          ) {
-            setNote("");
-            noteId.current = null;
-          }
-        }}
-      >
-        <TextInput
-          aria-label="Add an evidence note"
-          placeholder="Add a note without changing the books"
-          value={note}
-          onChange={(nextValue) => setNote(nextValue)}
-          maxLength={3000}
-          required
-        />
-        <Tooltip content="Save note">
-          <Button
-            type="submit"
-            variant="outline"
-            aria-label="Save note"
-            size="icon"
-            disabled={!note.trim() || command.busy}
-          >
-            <Plus size={16} aria-hidden="true" />
-          </Button>
-        </Tooltip>
-      </form>
-      <EvidenceUpload entryId={entryId} onSaved={refresh} />
-      {command.error && (
-        <p role="alert" className="text-xs text-error">
-          {command.error}
-        </p>
       )}
     </div>
   );

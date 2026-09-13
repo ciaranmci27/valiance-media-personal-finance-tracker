@@ -1,4 +1,5 @@
 "use client";
+import { Disclosure } from "@/components/ui/disclosure";
 import { useState } from "react";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Select } from "@/components/ui/inputs/Select";
@@ -122,68 +123,63 @@ export function AccountingAccountCreate({
             />
           </div>
         )}
-        <details className="group rounded-xl border border-border">
-          <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-            Advanced
-          </summary>
-          <div className="space-y-4 border-t border-border p-4">
-            <TextInput label="Account code" name="code" maxLength={20} />
-            <AccountingPicker
-              label="Purpose"
-              visibleLabel="Purpose"
-              value={purpose}
+        <Disclosure summary="Advanced" contentClassName="space-y-4">
+          <TextInput label="Account code" name="code" maxLength={20} />
+          <AccountingPicker
+            label="Purpose"
+            visibleLabel="Purpose"
+            value={purpose}
+            options={[
+              { value: "", label: "General category" },
+              ...purposes.map((a) => ({ value: a.purpose!, label: a.name })),
+            ]}
+            onChange={(value) => {
+              setPurpose(value);
+              const definition = purposes.find((a) => a.purpose === value);
+              if (definition) {
+                setCash(definition.cash_kind);
+                setSide(definition.normal_side);
+              }
+            }}
+          />
+          <TextInput
+            label="Report group"
+            name="subtype"
+            maxLength={100}
+            placeholder="For example: Operating expenses"
+          />
+          <AccountingPicker
+            label="Parent account"
+            visibleLabel="Parent account"
+            value={parent}
+            options={[
+              { value: "", label: "No parent" },
+              ...accounts
+                .filter(
+                  (a) =>
+                    a.account_type === type &&
+                    !a.is_archived &&
+                    !profiles.find((p) => p.account_id === a.id)
+                      ?.parent_account_id,
+                )
+                .map((a) => ({ value: a.id, label: a.name })),
+            ]}
+            onChange={setParent}
+          />
+          <div data-form-change>
+            <Select
+              label="Normal balance"
+              value={side}
+              disabled={cash !== "none"}
+              helperText="Change only for a contra account."
               options={[
-                { value: "", label: "General category" },
-                ...purposes.map((a) => ({ value: a.purpose!, label: a.name })),
+                { value: "debit", label: "Debit" },
+                { value: "credit", label: "Credit" },
               ]}
-              onChange={(value) => {
-                setPurpose(value);
-                const definition = purposes.find((a) => a.purpose === value);
-                if (definition) {
-                  setCash(definition.cash_kind);
-                  setSide(definition.normal_side);
-                }
-              }}
+              onChange={(value) => setSide(value as "debit" | "credit")}
             />
-            <TextInput
-              label="Report group"
-              name="subtype"
-              maxLength={100}
-              placeholder="For example: Operating expenses"
-            />
-            <AccountingPicker
-              label="Parent account"
-              visibleLabel="Parent account"
-              value={parent}
-              options={[
-                { value: "", label: "No parent" },
-                ...accounts
-                  .filter(
-                    (a) =>
-                      a.account_type === type &&
-                      !a.is_archived &&
-                      !profiles.find((p) => p.account_id === a.id)
-                        ?.parent_account_id,
-                  )
-                  .map((a) => ({ value: a.id, label: a.name })),
-              ]}
-              onChange={setParent}
-            />
-            <div data-form-change>
-              <Select
-                label="Normal balance"
-                value={side}
-                disabled={cash !== "none"}
-                helperText="Change only for a contra account."
-                options={[
-                  { value: "debit", label: "Debit" },
-                  { value: "credit", label: "Credit" },
-                ]}
-                onChange={(value) => setSide(value as "debit" | "credit")}
-              />
-            </div>
           </div>
-        </details>
+        </Disclosure>
         <WorkflowActions
           busy={cmd.busy}
           error={cmd.error}

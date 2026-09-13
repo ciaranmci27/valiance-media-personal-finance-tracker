@@ -6,13 +6,11 @@ import { useSearchParams } from "next/navigation";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import {
   ArrowDownLeft,
-  ArrowLeftRight,
   ArrowUpRight,
   BookOpen,
   ChevronDown,
   Plus,
   RefreshCw,
-  Wallet,
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
@@ -57,6 +55,9 @@ import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { SetupGuide } from "./setup-guide";
 import type { BooksMetadata } from "./types";
 import { AccountingBankIdentityProvider } from "./accounting-bank-identity";
+import { ReverseTransfer } from "./accounting-transfer-dialogs";
+import type { TransferGroup, TransfersView } from "@/lib/accounting/transfers";
+import { todayInBooks } from "./format";
 import { createAccountingReadCache } from "@/lib/accounting/read-cache";
 
 const ZERO = BigInt(0);
@@ -96,6 +97,10 @@ const AccountingMore = dynamic(
   () => import("./accounting-more").then((m) => m.AccountingMore),
   { loading: loadingView },
 );
+const AccountingPayrollRuns = dynamic(
+  () => import("./accounting-payroll-run").then((m) => m.AccountingPayrollRuns),
+  { loading: loadingView },
+);
 
 type View = AccountingView;
 
@@ -133,7 +138,7 @@ function demoManage(workspace: AccountingWorkspace): BooksMetadata {
 
 /**
  * The accounting workspace. The sidebar links to its screens (Overview,
- * Transactions, Accounts, Reports, Records, Settings); this shell renders
+ * Transactions, Accounts, Payroll, Reports, Manage); this shell renders
  * the one the URL names, owns the add menu and the shared entry dialogs.
  * State lives in the URL (`view`, `section`, `entry`, `report`) so links
  * and the back button keep working.
@@ -197,6 +202,9 @@ export function AccountingBooks({
   > | null>(null);
   const [approval, setApproval] = useState<Approval | null>(null);
   const [addAccount, setAddAccount] = useState(false);
+  const [reverseTransfer, setReverseTransfer] = useState<TransferGroup | null>(
+    null,
+  );
   const [syncing, setSyncing] = useState(false);
   const syncRequested = useRef(false);
   // Bank feed state drives the notices under the header and the Overview.
@@ -416,6 +424,30 @@ export function AccountingBooks({
     }
   }
 
+  /** A posted entry is never edited in place: the journal editor opens a replacement that reverses it. */
+  function openCorrection(entry: JournalEntry) {
+    setEditor({
+      ...makeEditor(data.to, entry, true),
+      corrects: entry,
+      correctionReason: "",
+      date: entry.entry_date,
+      reversalDate: entry.entry_date,
+    });
+    setSelected(null);
+  }
+
+  /** A note typed before the entry existed goes in right after the save gives it an id. */
+  async function saveEditorNote(current: Editor) {
+    const note = current.note?.trim();
+    if (!note) return;
+    await mutate({
+      type: "entry.annotate",
+      id: crypto.randomUUID(),
+      entry_id: current.id,
+      note,
+    });
+  }
+
   async function saveDraft() {
     if (!editor) return;
     try {
@@ -463,12 +495,31 @@ export function AccountingBooks({
           context: editor.context,
         })
       ) {
+        await saveEditorNote(editor);
         setEditor(null);
         setView("journal");
         toast("success", "Draft saved.");
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Check the journal entry.");
+    }
+  }
+
+  /** Both legs of a transfer reverse together, so the row opens the group's dialog. */
+  async function openReverseTransfer(groupId: string) {
+    try {
+      const view = await accountingGet<TransfersView>({
+        view: "transfers",
+        from: data.from,
+        to: data.to,
+        id: groupId,
+      });
+      const group = view.groups[0];
+      if (!group) throw new Error("This transfer is no longer in the books.");
+      setError("");
+      setReverseTransfer(group);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to open transfer.");
     }
   }
 
@@ -482,7 +533,12 @@ export function AccountingBooks({
     }
     if (action === "reverse" && entry.payroll_run_id) {
       setSelected(null);
-      setView("records", "payroll");
+      setView("payroll");
+      return;
+    }
+    if (action === "reverse" && entry.transfer_group_id) {
+      setSelected(null);
+      await openReverseTransfer(entry.transfer_group_id);
       return;
     }
     if (action === "copy") {
@@ -530,25 +586,16 @@ export function AccountingBooks({
         >
           {[
             {
-              label: "Money out",
-              icon: ArrowUpRight,
-              run: () => setSimpleEditor({ direction: "out" }),
-            },
-            {
-              label: "Money in",
+              label: "Deposit",
               icon: ArrowDownLeft,
               run: () => setSimpleEditor({ direction: "in" }),
             },
             {
-              label: "Transfer or card payment",
-              icon: ArrowLeftRight,
-              run: () => setView("records", "transfers"),
+              label: "Withdrawal",
+              icon: ArrowUpRight,
+              run: () => setSimpleEditor({ direction: "out" }),
             },
-            {
-              label: "Payroll records",
-              icon: Wallet,
-              run: () => setView("records", "payroll"),
-            },
+            // Transfers and payroll have their own homes: the ledger row and the Payroll page.
             {
               label: "Journal entry",
               icon: BookOpen,
@@ -629,7 +676,7 @@ export function AccountingBooks({
           }}
           onTransactions={() => setView("journal")}
           onAccounts={() => setView("accounts")}
-          onFeeds={() => setView("settings", "feeds")}
+          onFeeds={() => setView("manage", "feeds")}
           onMonthEnd={() => setView("close")}
           onReport={(id) => setView("reports", undefined, { report: id })}
           onEntry={(entry) =>
@@ -667,7 +714,7 @@ export function AccountingBooks({
           demo={demo}
           onRefresh={refreshBooks}
           onAdd={() => setAddAccount(true)}
-          onFeeds={() => setView("settings", "feeds")}
+          onFeeds={() => setView("manage", "feeds")}
           onEntry={(id) => void openEntry(id)}
         />
       )}
@@ -678,13 +725,21 @@ export function AccountingBooks({
           onEntry={openEntry}
           onAccounts={() => setView("accounts")}
           onTransactions={() => setView("journal")}
-          onImports={() => setView("settings", "imports")}
+          onImports={() => setView("manage", "imports")}
         />
       )}
-      {(view === "settings" || view === "records") && (
+      {view === "payroll" && (
+        <AccountingPayrollRuns
+          accounts={data.accounts}
+          manage={manage}
+          today={todayInBooks()}
+          demo={demo}
+          onRefresh={refreshBooks}
+          onEntry={(id) => void openEntry(id)}
+        />
+      )}
+      {view === "manage" && (
         <AccountingMore
-          key={view}
-          scope={view}
           initialSection={params.get("section") ?? undefined}
           data={data}
           manage={manage}
@@ -707,7 +762,6 @@ export function AccountingBooks({
           revision={data.revision}
           manage={manage}
           onEntry={openEntry}
-          onRecords={(section) => setView("records", section)}
           demo={demo}
         />
       )}
@@ -724,7 +778,9 @@ export function AccountingBooks({
           onJournal={() => {
             const e = simpleEditor.entry;
             setSimpleEditor(null);
-            void openEditor(e);
+            // The same escape hatch for every state: a posted entry lands in the correction mode.
+            if (e?.status === "posted") openCorrection(e);
+            else void openEditor(e);
           }}
         />
       )}
@@ -786,23 +842,19 @@ export function AccountingBooks({
         onReverse={(e) => {
           if (e.payroll_run_id) {
             setSelected(null);
-            setView("records", "payroll");
+            setView("payroll");
+            return;
+          }
+          if (e.transfer_group_id) {
+            setSelected(null);
+            void openReverseTransfer(e.transfer_group_id);
             return;
           }
           setApproval({ entry: e, type: "entry.reverse" });
           setSelected(null);
         }}
         onCopy={(e) => void openEditor(e, true)}
-        onCorrect={(e) => {
-          setEditor({
-            ...makeEditor(data.to, e, true),
-            corrects: e,
-            correctionReason: "",
-            date: e.entry_date,
-            reversalDate: e.entry_date,
-          });
-          setSelected(null);
-        }}
+        onCorrect={openCorrection}
       />
 
       <JournalEditorDialog
@@ -825,6 +877,7 @@ export function AccountingBooks({
         onBack={() => setReplacementReview(null)}
         onApply={async () => {
           if (replacementReview && (await mutate(replacementReview))) {
+            if (editor) await saveEditorNote(editor);
             setReplacementReview(null);
             setEditor(null);
             toast("success", "Correction applied.");
@@ -847,6 +900,14 @@ export function AccountingBooks({
           accounts={data.accounts}
           profiles={manage.profiles}
           onClose={() => setAddAccount(false)}
+          onSaved={refreshBooks}
+        />
+      )}
+      {reverseTransfer && (
+        <ReverseTransfer
+          group={reverseTransfer}
+          revision={data.revision}
+          onClose={() => setReverseTransfer(null)}
           onSaved={refreshBooks}
         />
       )}

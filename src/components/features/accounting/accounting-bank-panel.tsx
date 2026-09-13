@@ -155,7 +155,7 @@ export function AccountingBankPanel({
         action={
           !demo && (
             <Button variant="ghost" size="sm" onClick={onFeeds}>
-              Bank feeds
+              Bank connections
               <ArrowUpRight size={14} aria-hidden="true" />
             </Button>
           )
@@ -233,7 +233,7 @@ export function AccountingBankPanel({
                       className="inline-flex items-center gap-1 rounded text-warning hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <CircleAlert size={12} aria-hidden="true" />
-                      Connected, not mapped yet. Map it in Bank feeds
+                      Connected, not mapped yet. Map it in Bank connections
                     </button>
                   ) : r.status === "none" ? (
                     <span className="inline-flex items-center gap-1">

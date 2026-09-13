@@ -141,7 +141,26 @@ export function entryStateLabel(entry: {
   primary_origin: string;
 }): "Draft" | "Unreviewed" | null {
   if (entry.status !== "draft") return null;
-  return entry.primary_origin === "manual" || entry.primary_origin === "internal"
+  return entry.primary_origin === "manual" ||
+    entry.primary_origin === "internal"
     ? "Draft"
     : "Unreviewed";
+}
+
+/** Where an entry came from, in the owner's words. */
+export function originLabel(origin: string | null | undefined): string {
+  switch (origin) {
+    case "simplefin":
+      return "Bank feed";
+    case "wave":
+      return "Imported from Wave";
+    case "csv":
+      return "Imported file";
+    case "manual":
+      return "Manual transaction";
+    case "internal":
+      return "Recorded by the books";
+    default:
+      return enumLabel(origin ?? "");
+  }
 }

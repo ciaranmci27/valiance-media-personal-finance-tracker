@@ -36,6 +36,7 @@ import type { Party, WorkflowCommand } from "@/lib/accounting/workflows";
 import type { BooksMetadata } from "./types";
 import { AccountingContextEditor } from "./accounting-context-editor";
 import { EntryEvidenceDisclosure } from "./accounting-entry-evidence";
+import { EntryNotes } from "./accounting-entry-notes";
 import { commandContext, type CommandContext } from "./use-accounting-command";
 import {
   absMoney,
@@ -43,6 +44,7 @@ import {
   dateLabel,
   enumLabel,
   money,
+  originLabel,
   signedMoney,
 } from "./format";
 import {
@@ -73,6 +75,8 @@ export type Editor = {
     credit: string;
     memo: string;
   }[];
+  /** A note typed before the entry exists; the save sends it once there is an id. */
+  note?: string;
 };
 
 export type Approval = {
@@ -241,7 +245,7 @@ export function EntryDetailDialog({
                       : enumLabel(entry.status)}
                 </Badge>
               )}
-              <span>{enumLabel(entry?.primary_origin)}</span>
+              <span>{originLabel(entry?.primary_origin)}</span>
             </div>
           </DialogDescription>
         </DialogHeader>
@@ -330,16 +334,29 @@ export function EntryDetailDialog({
               )}
               {entry.restore_workflow && isTransactionReversed(entry) && (
                 <p className="text-sm text-muted-foreground">
-                  This entry belongs to a {entry.restore_workflow} record.{" "}
-                  <Link
-                    className="underline"
-                    href={`/accounting?view=records&section=${entry.restore_workflow === "payroll" ? "payroll" : entry.restore_workflow === "transfer" ? "transfers" : "assets"}`}
-                  >
-                    Open records
-                  </Link>
-                  {entry.restore_workflow === "payroll"
-                    ? " to import the payroll report again."
-                    : " to manage the linked activity."}
+                  This entry belongs to a {entry.restore_workflow} record.
+                  {entry.restore_workflow === "transfer" ? (
+                    " Record the transfer again from Transactions."
+                  ) : (
+                    <>
+                      {" "}
+                      <Link
+                        className="underline"
+                        href={
+                          entry.restore_workflow === "payroll"
+                            ? "/accounting?view=payroll"
+                            : "/accounting?view=manage&section=registers"
+                        }
+                      >
+                        {entry.restore_workflow === "payroll"
+                          ? "Open Payroll"
+                          : "Open Assets & loans"}
+                      </Link>
+                      {entry.restore_workflow === "payroll"
+                        ? " to import the payroll report again."
+                        : " to manage the linked activity."}
+                    </>
+                  )}
                 </p>
               )}
               {!demo && (
@@ -468,6 +485,10 @@ export function JournalEditorDialog({
     }
     s.open = editor !== null;
   }, [editor]);
+  // Edit the lines, or read and add notes. Every new session opens on the lines.
+  const [tab, setTab] = useState<"edit" | "notes">("edit");
+  const editorId = editor?.id;
+  useEffect(() => setTab("edit"), [editorId]);
   const options = accounts
     .filter((a) => !a.is_archived)
     .map((a) => ({
@@ -507,9 +528,15 @@ export function JournalEditorDialog({
     if (!editor) return;
     setEditor({
       ...editor,
-      lines: editor.lines.map((l) =>
-        l.key === key ? { ...l, [field]: value } : l,
-      ),
+      lines: editor.lines.map((l) => {
+        if (l.key !== key) return l;
+        // A line is one side or the other: typing a debit clears the credit, and the reverse.
+        if (field === "debit" && value.trim())
+          return { ...l, debit: value, credit: "" };
+        if (field === "credit" && value.trim())
+          return { ...l, credit: value, debit: "" };
+        return { ...l, [field]: value };
+      }),
     });
   }
 
@@ -529,6 +556,10 @@ export function JournalEditorDialog({
       onClose();
   }
 
+  // One row per line: what it was for, the account, and either a debit or a credit.
+  const columns =
+    "md:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_8.5rem_8.5rem_2.25rem]";
+
   return (
     <Dialog
       open={editor !== null}
@@ -536,8 +567,14 @@ export function JournalEditorDialog({
         if (!open) void close();
       }}
     >
-      <DialogContent className="max-h-[90dvh] max-w-3xl overflow-y-auto">
-        <DialogHeader>
+      <DialogContent
+        className={cn(
+          // The whole viewport: a working surface, not a prompt.
+          "inset-0 left-0 top-0 flex h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none border-0 p-0",
+          "data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100 data-[state=open]:slide-in-from-left-0 data-[state=open]:slide-in-from-top-0 data-[state=closed]:slide-out-to-left-0 data-[state=closed]:slide-out-to-top-0",
+        )}
+      >
+        <DialogHeader className="border-b border-border px-6 py-4 text-left sm:px-8">
           <DialogTitle>
             {editor?.corrects
               ? "Correct entry"
@@ -546,7 +583,8 @@ export function JournalEditorDialog({
                 : "New journal entry"}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Date, memo and balanced lines for this entry.
+            Date, description and one line per debit or credit, with notes
+            beside them.
           </DialogDescription>
         </DialogHeader>
         {editor && (
@@ -555,162 +593,233 @@ export function JournalEditorDialog({
               e.preventDefault();
               onSave();
             }}
-            className="space-y-4"
+            className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="grid gap-4 sm:grid-cols-[160px_1fr]">
-              <DateInput
-                label="Date"
-                required
-                value={editor.date}
-                onChange={(nextValue) =>
-                  setEditor({ ...editor, date: nextValue })
-                }
-              />
-              <TextInput
-                label="Memo"
-                required
-                maxLength={1000}
-                placeholder="What does this entry record?"
-                value={editor.memo}
-                onChange={(nextValue) =>
-                  setEditor({ ...editor, memo: nextValue })
-                }
-              />
-            </div>
-            {editor.corrects && (
-              <div className="grid gap-4 sm:grid-cols-[160px_1fr]">
-                <DateInput
-                  label="Reverse original on"
-                  required
-                  value={editor.reversalDate ?? editor.corrects.entry_date}
-                  onChange={(nextValue) =>
-                    setEditor({ ...editor, reversalDate: nextValue })
-                  }
-                />
-                <TextInput
-                  label="Correction reason"
-                  required
-                  maxLength={1000}
-                  value={editor.correctionReason ?? ""}
-                  onChange={(nextValue) =>
-                    setEditor({ ...editor, correctionReason: nextValue })
-                  }
-                />
-              </div>
-            )}
-            {!editor.corrects && (
-              <AccountingContextEditor
-                value={editor.context}
-                manage={manage}
-                onChange={(context) => setEditor({ ...editor, context })}
-              />
-            )}
-            <div className="space-y-3">
-              {editor.lines.map((l, index) => (
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-6 sm:px-8">
+              <div className="mx-auto max-w-5xl space-y-6">
                 <div
-                  key={l.key}
-                  className="grid grid-cols-[1fr_1fr_auto] gap-2 border-b border-border pb-3 sm:grid-cols-[2fr_1fr_1fr_auto]"
+                  role="group"
+                  aria-label="Editor section"
+                  className="seg-track seg-sm mx-auto w-fit"
                 >
-                  <div className="col-span-3 sm:col-span-1">
-                    <Select
-                      searchable
-                      label={`Account ${index + 1}`}
-                      visibleLabel={`Account ${index + 1}`}
-                      value={l.account}
-                      options={options}
-                      placeholder="Choose account"
-                      onChange={(v) => updateLine(l.key, "account", v)}
-                    />
-                  </div>
-                  <TextInput
-                    label="Debit"
-                    inputMode="decimal"
-                    placeholder="0.00"
-                    className="tabular-nums"
-                    value={l.debit}
-                    onChange={(nextValue) =>
-                      updateLine(l.key, "debit", nextValue)
-                    }
-                  />
-                  <TextInput
-                    label="Credit"
-                    inputMode="decimal"
-                    placeholder="0.00"
-                    className="tabular-nums"
-                    value={l.credit}
-                    onChange={(nextValue) =>
-                      updateLine(l.key, "credit", nextValue)
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="self-end"
-                    aria-label={`Remove line ${index + 1}`}
-                    onClick={() =>
-                      setEditor({
-                        ...editor,
-                        lines: editor.lines.filter((row) => row.key !== l.key),
-                      })
-                    }
-                  >
-                    <X size={15} aria-hidden="true" />
-                  </Button>
-                  <TextInput
-                    aria-label={`Line ${index + 1} memo`}
-                    placeholder="Line memo (optional)"
-                    maxLength={500}
-                    className="col-span-3 sm:col-span-4"
-                    value={l.memo}
-                    onChange={(nextValue) =>
-                      updateLine(l.key, "memo", nextValue)
-                    }
-                  />
+                  {(["edit", "notes"] as const).map((section) => (
+                    <button
+                      key={section}
+                      type="button"
+                      aria-pressed={tab === section}
+                      onClick={() => setTab(section)}
+                      className={cn(
+                        "seg-item focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        tab === section && "is-active",
+                      )}
+                    >
+                      {section === "edit" ? "Edit" : "Notes"}
+                    </button>
+                  ))}
                 </div>
-              ))}
+                {tab === "notes" && (
+                  <EntryNotes
+                    entryId={editor.version > 0 ? editor.id : null}
+                    pending={editor.note ?? ""}
+                    onPending={(note) => setEditor({ ...editor, note })}
+                  />
+                )}
+                {tab === "edit" && (
+                  <>
+                    <div className="grid gap-4 md:grid-cols-[11rem_minmax(0,1fr)_18rem]">
+                      <DateInput
+                        label="Date"
+                        required
+                        value={editor.date}
+                        onChange={(nextValue) =>
+                          setEditor({ ...editor, date: nextValue })
+                        }
+                      />
+                      <TextInput
+                        label="Description"
+                        required
+                        maxLength={1000}
+                        placeholder="What does this entry record?"
+                        value={editor.memo}
+                        onChange={(nextValue) =>
+                          setEditor({ ...editor, memo: nextValue })
+                        }
+                      />
+                      {!editor.corrects && (
+                        <AccountingContextEditor
+                          className="min-w-0"
+                          value={editor.context}
+                          manage={manage}
+                          onChange={(context) =>
+                            setEditor({ ...editor, context })
+                          }
+                        />
+                      )}
+                    </div>
+                    {editor.corrects && (
+                      <div className="grid gap-4 md:grid-cols-[11rem_minmax(0,1fr)]">
+                        <DateInput
+                          label="Reverse original on"
+                          required
+                          value={
+                            editor.reversalDate ?? editor.corrects.entry_date
+                          }
+                          onChange={(nextValue) =>
+                            setEditor({ ...editor, reversalDate: nextValue })
+                          }
+                        />
+                        <TextInput
+                          label="Correction reason"
+                          required
+                          maxLength={1000}
+                          value={editor.correctionReason ?? ""}
+                          onChange={(nextValue) =>
+                            setEditor({
+                              ...editor,
+                              correctionReason: nextValue,
+                            })
+                          }
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <div
+                        aria-hidden="true"
+                        className={cn(
+                          "hidden gap-3 px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:grid",
+                          columns,
+                        )}
+                      >
+                        <span>Description</span>
+                        <span>Account</span>
+                        <span className="text-right">Debit</span>
+                        <span className="text-right">Credit</span>
+                        <span />
+                      </div>
+                      <div className="divide-y divide-border border-y border-border">
+                        {editor.lines.map((l, index) => (
+                          <div
+                            key={l.key}
+                            className={cn(
+                              "grid gap-3 py-3 md:items-center md:px-3",
+                              columns,
+                            )}
+                          >
+                            <TextInput
+                              aria-label={`Line ${index + 1} description`}
+                              placeholder="Description"
+                              maxLength={500}
+                              value={l.memo}
+                              onChange={(nextValue) =>
+                                updateLine(l.key, "memo", nextValue)
+                              }
+                            />
+                            <Select
+                              searchable
+                              label={`Line ${index + 1} account`}
+                              value={l.account}
+                              options={options}
+                              placeholder="Choose account"
+                              onChange={(v) => updateLine(l.key, "account", v)}
+                            />
+                            {/* Side by side on a phone, with their own captions; the table header names them on wide screens. */}
+                            <div className="grid grid-cols-2 gap-3 md:contents">
+                              {(["debit", "credit"] as const).map(
+                                (sideName) => (
+                                  <div key={sideName} className="min-w-0">
+                                    <span
+                                      aria-hidden="true"
+                                      className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground md:hidden"
+                                    >
+                                      {sideName}
+                                    </span>
+                                    <TextInput
+                                      aria-label={`Line ${index + 1} ${sideName}`}
+                                      inputMode="decimal"
+                                      placeholder="0.00"
+                                      inputClassName="text-right tabular-nums"
+                                      value={l[sideName]}
+                                      onChange={(nextValue) =>
+                                        updateLine(l.key, sideName, nextValue)
+                                      }
+                                    />
+                                  </div>
+                                ),
+                              )}
+                            </div>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="justify-self-end md:justify-self-center"
+                              aria-label={`Remove line ${index + 1}`}
+                              disabled={editor.lines.length <= 2}
+                              onClick={() =>
+                                setEditor({
+                                  ...editor,
+                                  lines: editor.lines.filter(
+                                    (row) => row.key !== l.key,
+                                  ),
+                                })
+                              }
+                            >
+                              <X size={15} aria-hidden="true" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={editor.lines.length >= 100}
+                        onClick={() =>
+                          setEditor({
+                            ...editor,
+                            lines: [
+                              ...editor.lines,
+                              {
+                                key: crypto.randomUUID(),
+                                account: "",
+                                debit: "",
+                                credit: "",
+                                memo: "",
+                              },
+                            ],
+                          })
+                        }
+                      >
+                        <Plus size={15} aria-hidden="true" />
+                        Add line
+                      </Button>
+                      <div className="w-full md:w-80">
+                        {amountError ? (
+                          <p role="alert" className="text-sm text-error">
+                            {amountError}
+                          </p>
+                        ) : (
+                          <JournalTotals
+                            compact
+                            debit={debit}
+                            credit={credit}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+                {error && (
+                  <p role="alert" className="text-sm text-error">
+                    {error}
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex justify-end gap-2 border-t border-border px-6 py-4 sm:px-8">
               <Button
                 type="button"
-                variant="ghost"
-                disabled={editor.lines.length >= 100}
-                onClick={() =>
-                  setEditor({
-                    ...editor,
-                    lines: [
-                      ...editor.lines,
-                      {
-                        key: crypto.randomUUID(),
-                        account: "",
-                        debit: "",
-                        credit: "",
-                        memo: "",
-                      },
-                    ],
-                  })
-                }
-              >
-                <Plus size={15} aria-hidden="true" />
-                Add line
-              </Button>
-            </div>
-            {amountError ? (
-              <p role="alert" className="text-sm text-error">
-                {amountError}
-              </p>
-            ) : (
-              <JournalTotals debit={debit} credit={credit} />
-            )}
-            {error && (
-              <p role="alert" className="text-sm text-error">
-                {error}
-              </p>
-            )}
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="ghost"
+                variant="outline"
                 disabled={busy}
                 onClick={() => void close()}
               >

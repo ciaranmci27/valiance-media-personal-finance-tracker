@@ -88,6 +88,11 @@ export function labelSizeClass(size: 'sm' | 'default' | 'lg'): string {
   return 'text-sm';
 }
 
+/** The full label treatment, for a caption above a control that is not a bank field. */
+export function fieldLabelClass(size: 'sm' | 'default' | 'lg' = 'default'): string {
+  return `block ${labelSizeClass(size)} font-medium text-input-text-label`;
+}
+
 /**
  * Inject shared keyframe animations into the document head.
  * Safe to call multiple times; only injects once.

@@ -48,13 +48,13 @@ export function AccountingSetup({ ownerId }: { ownerId: string }) {
       {error && <p className="text-sm text-muted-foreground">{error}</p>}
       <p className="text-xs text-muted-foreground">
         After setup, review the seeded chart under Accounts, fill in Business
-        settings, then More{" "}
+        settings, then Manage{" "}
         <ArrowRight
           size={12}
           className="inline align-middle"
           aria-hidden="true"
         />{" "}
-        Imports to bring in your Wave history.
+        Imports to bring in your history.
       </p>
     </div>
   );

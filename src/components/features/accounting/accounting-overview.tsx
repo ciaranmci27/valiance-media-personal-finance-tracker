@@ -638,7 +638,7 @@ export function AccountingOverview({
           action={
             needsMapping || feedAttention ? (
               <Button variant="outline" size="sm" onClick={onFeeds}>
-                {needsMapping ? "Map accounts" : "Bank feeds"}
+                {needsMapping ? "Map accounts" : "Bank connections"}
                 <ArrowRight size={14} aria-hidden="true" />
               </Button>
             ) : (
@@ -727,7 +727,7 @@ export function AccountingOverview({
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-teal-light">
                 <Plus size={17} aria-hidden="true" />
               </span>
-              {connections.length ? "Bank feeds" : "Connect a bank"}
+              {connections.length ? "Bank connections" : "Connect a bank"}
             </button>
           )}
         </div>

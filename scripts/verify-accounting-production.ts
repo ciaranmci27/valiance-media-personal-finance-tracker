@@ -87,7 +87,6 @@ async function main() {
       "/api/accounting?export=true",
       "/api/accounting/documents",
       "/api/accounting/feeds",
-      "/api/accounting/history",
       "/api/accounting/tax",
       "/api/accounting/reports/10000000-0000-4000-8000-000000000001?format=pdf",
       "/api/accounting/packages/10000000-0000-4000-8000-000000000001?format=zip",

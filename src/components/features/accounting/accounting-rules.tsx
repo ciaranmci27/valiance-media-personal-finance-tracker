@@ -1,4 +1,5 @@
 "use client";
+import { Disclosure } from "@/components/ui/disclosure";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { NumberInput } from "@/components/ui/inputs/NumberInput";
 import { useEffect, useState } from "react";
@@ -161,7 +162,7 @@ export function AccountingRules({
     <div className="space-y-6">
       <div className="flex flex-wrap justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold">Rules & payee aliases</h2>
+          <h2 className="text-xl font-semibold">Rules</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Use consistent treatment for recurring bank movements. Review the
             proposed categories before filling drafts.
@@ -470,6 +471,12 @@ export function AccountingRules({
                               {m.version} · {m.category_name}
                             </p>
                           ))}
+                          {row.aliases.conflict && (
+                            <p className="text-error">
+                              Two payee aliases match this movement. Choose the
+                              payee by hand.
+                            </p>
+                          )}
                           {row.aliases.aliases.map((a) => (
                             <p key={a.id}>
                               Payee alias: {a.description} → {a.name}
@@ -631,7 +638,7 @@ export function AccountingRules({
             data={state?.aliases ?? []}
             keyExtractor={(a) => a.id}
             onRowClick={(a) => setAlias(a)}
-            emptyState="No aliases yet. Add a payee in Payees & customers first."
+            emptyState="No aliases yet. Add a payee under Payees first."
             mobileCard={(a) => (
               <div className="text-sm">
                 <div className="flex items-start justify-between gap-3">
@@ -847,68 +854,63 @@ function RuleEditor({
             value={reason}
             onChange={(nextValue) => setReason(nextValue)}
           />
-          <details className="group rounded-xl border border-border">
-            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-              Advanced
-            </summary>
-            <div className="space-y-4 border-t border-border p-4">
-              {banks.length <= 1 && bankPicker}
-              <Select
-                label="Direction"
-                value={value.direction}
-                options={[
-                  { value: "decrease", label: "Withdrawal or card charge" },
-                  { value: "increase", label: "Deposit or card payment" },
-                ]}
-                onChange={(v) => set("direction", v)}
-              />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <TextInput
-                  label="Minimum amount"
-                  required
-                  inputMode="decimal"
-                  value={min}
-                  onChange={(nextValue) => setMin(nextValue)}
-                />
-                <TextInput
-                  label="Maximum amount"
-                  required
-                  inputMode="decimal"
-                  value={max}
-                  onChange={(nextValue) => setMax(nextValue)}
-                />
-              </div>
-              <NumberInput
-                step={1}
-                label="Priority"
-                description="Lower wins."
-                min={1}
-                max={10000}
+          <Disclosure summary="Advanced" contentClassName="space-y-4">
+            {banks.length <= 1 && bankPicker}
+            <Select
+              label="Direction"
+              value={value.direction}
+              options={[
+                { value: "decrease", label: "Withdrawal or card charge" },
+                { value: "increase", label: "Deposit or card payment" },
+              ]}
+              onChange={(v) => set("direction", v)}
+            />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <TextInput
+                label="Minimum amount"
                 required
-                value={value.priority}
-                onChange={(nextValue) =>
-                  set("priority", Number(String(nextValue)))
-                }
+                inputMode="decimal"
+                value={min}
+                onChange={(nextValue) => setMin(nextValue)}
               />
-              <AccountingPicker
-                label="Only this payee"
-                visibleLabel="Only this payee"
-                value={value.match_payee_id ?? ""}
-                options={[{ value: "", label: "Any payee" }, ...payees]}
-                onChange={(v) => set("match_payee_id", v || null)}
-              />
-              <AccountingPicker
-                label="Assign payee"
-                visibleLabel="Assign payee"
-                value={value.assign_payee_id ?? ""}
-                options={[
-                  { value: "", label: "Keep current or resolved alias" },
-                  ...payees,
-                ]}
-                onChange={(v) => set("assign_payee_id", v || null)}
+              <TextInput
+                label="Maximum amount"
+                required
+                inputMode="decimal"
+                value={max}
+                onChange={(nextValue) => setMax(nextValue)}
               />
             </div>
-          </details>
+            <NumberInput
+              step={1}
+              label="Priority"
+              description="Lower wins."
+              min={1}
+              max={10000}
+              required
+              value={value.priority}
+              onChange={(nextValue) =>
+                set("priority", Number(String(nextValue)))
+              }
+            />
+            <AccountingPicker
+              label="Only this payee"
+              visibleLabel="Only this payee"
+              value={value.match_payee_id ?? ""}
+              options={[{ value: "", label: "Any payee" }, ...payees]}
+              onChange={(v) => set("match_payee_id", v || null)}
+            />
+            <AccountingPicker
+              label="Assign payee"
+              visibleLabel="Assign payee"
+              value={value.assign_payee_id ?? ""}
+              options={[
+                { value: "", label: "Keep current or resolved alias" },
+                ...payees,
+              ]}
+              onChange={(v) => set("assign_payee_id", v || null)}
+            />
+          </Disclosure>
           {cmd.error && (
             <p role="alert" className="text-sm text-error">
               {cmd.error}
@@ -1003,32 +1005,27 @@ function AliasEditor({
               setValue((v) => ({ ...v, description: nextValue }))
             }
           />
-          <details className="group rounded-xl border border-border">
-            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-              Advanced
-            </summary>
-            <div className="space-y-4 border-t border-border p-4">
-              <Select
-                label="Match"
-                value={value.match_mode}
-                options={[
-                  { value: "exact", label: "Is exactly" },
-                  { value: "prefix", label: "Starts with" },
-                ]}
-                onChange={(mode) =>
-                  setValue((v) => ({
-                    ...v,
-                    match_mode: mode as PayeeAlias["match_mode"],
-                  }))
-                }
-              />
-              <Toggle
-                checked={value.enabled}
-                onChange={(enabled) => setValue((v) => ({ ...v, enabled }))}
-                label="Enabled"
-              />
-            </div>
-          </details>
+          <Disclosure summary="Advanced" contentClassName="space-y-4">
+            <Select
+              label="Match"
+              value={value.match_mode}
+              options={[
+                { value: "exact", label: "Is exactly" },
+                { value: "prefix", label: "Starts with" },
+              ]}
+              onChange={(mode) =>
+                setValue((v) => ({
+                  ...v,
+                  match_mode: mode as PayeeAlias["match_mode"],
+                }))
+              }
+            />
+            <Toggle
+              checked={value.enabled}
+              onChange={(enabled) => setValue((v) => ({ ...v, enabled }))}
+              label="Enabled"
+            />
+          </Disclosure>
           {cmd.error && (
             <p role="alert" className="text-sm text-error">
               {cmd.error}

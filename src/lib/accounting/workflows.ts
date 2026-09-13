@@ -3,7 +3,6 @@ import { commandSchema, dateSchema, type AccountType } from "./contracts";
 import { readCents } from "./money";
 import { importCommandSchema } from "./imports/contracts";
 import { closeCommandSchema } from "./close";
-import { historyCommandSchema } from "./history";
 import { transferCommandSchema } from "./transfers";
 import { bankCommandSchema } from "./bank-matching";
 import { rulesCommandSchema } from "./rules";
@@ -117,7 +116,6 @@ export const extendedCommandSchema = z.union([
   commandSchema,
   importCommandSchema,
   closeCommandSchema,
-  historyCommandSchema,
   transferCommandSchema,
   bankCommandSchema,
   rulesCommandSchema,
@@ -232,6 +230,15 @@ export const extendedCommandSchema = z.union([
         type: z.literal("document.archive"),
         id,
         expected_version: version,
+        reason: memo,
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("document.unlink"),
+        id,
+        expected_version: version,
+        entry_id: id,
         reason: memo,
       })
       .strict(),

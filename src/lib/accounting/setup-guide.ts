@@ -132,7 +132,10 @@ export function claimGuide(year: number): SetupGuideData {
         title: "Set up your books",
         detail:
           "Accounting needs a one-time owner setup. Open Accounting and follow the two steps shown there.",
-        action: { label: "Accounting", target: { kind: "link", href: "/accounting" } },
+        action: {
+          label: "Accounting",
+          target: { kind: "link", href: "/accounting" },
+        },
       },
     ],
   };
@@ -148,13 +151,15 @@ export function buildSetupGuide({
   status: SetupStatus;
 }): SetupGuideData {
   const steps: SetupStep[] = [];
-  const feedsHref = accountingHref("settings", "feeds");
+  const feedsHref = accountingHref("manage", "feeds");
   const accountsHref = accountingHref("accounts");
   const yearKey = (key: string) => `${key}:${year}`;
   const acknowledged = status.acknowledged ?? {};
   // An earlier answer for the same step, given about a different state.
   const changedSince = (prefix: string, key: string) =>
-    Object.keys(acknowledged).some((k) => k.startsWith(`${prefix}:`) && k !== key);
+    Object.keys(acknowledged).some(
+      (k) => k.startsWith(`${prefix}:`) && k !== key,
+    );
 
   if (status.accounts_total === 0)
     steps.push({
@@ -163,7 +168,10 @@ export function buildSetupGuide({
       title: "Set up your chart of accounts",
       detail:
         "The books have no accounts yet. Accounts can seed the standard chart in one click, or bring yours in from Wave under Settings, Data.",
-      action: { label: "Accounts", target: { kind: "link", href: accountsHref } },
+      action: {
+        label: "Accounts",
+        target: { kind: "link", href: accountsHref },
+      },
     });
   else if ((status.missing_purposes ?? []).length > 0)
     steps.push({
@@ -171,7 +179,10 @@ export function buildSetupGuide({
       level: "critical",
       title: "Assign the accounts the books rely on",
       detail: `Bank syncing and transfers need ${list(status.missing_purposes.map((p) => PURPOSE_NAMES[p] ?? p.replace(/_/g, " ")))}. On Accounts, open the account, expand Advanced and pick its purpose.`,
-      action: { label: "Accounts", target: { kind: "link", href: accountsHref } },
+      action: {
+        label: "Accounts",
+        target: { kind: "link", href: accountsHref },
+      },
     });
 
   if (status.profile) {
@@ -183,7 +194,8 @@ export function buildSetupGuide({
       p.since !== null && p.since > year
         ? ` Business settings says the ${elected} election starts in ${p.since}, after ${year}.`
         : p.since === null &&
-            p.classification !== defaultClassification(p.entity_type as EntityType)
+            p.classification !==
+              defaultClassification(p.entity_type as EntityType)
           ? ` Set the year the ${elected} election took effect; until then every year is taxed that way.`
           : "";
     const profileKey = `profile:${fingerprint([p.legal_name, p.entity_type, p.classification, p.since, p.timezone, p.history_start])}`;
@@ -195,7 +207,10 @@ export function buildSetupGuide({
       level: "warning",
       title: "Check your business details",
       detail: `${p.legal_name}, ${ENTITY_WORDS[p.entity_type] ?? p.entity_type} taxed as ${CLASSIFICATION_WORDS[p.classification] ?? p.classification.replace(/_/g, " ")}, books in ${p.timezone.replace(/_/g, " ")} from ${longDate(p.history_start)}.${election} Change anything in Business settings, or confirm it here.${changed}`,
-      action: { label: "Business settings", target: { kind: "link", href: "/settings/business" } },
+      action: {
+        label: "Business settings",
+        target: { kind: "link", href: "/settings/business" },
+      },
       acknowledge: { key: profileKey, label: "Looks right" },
     });
   }
@@ -206,8 +221,11 @@ export function buildSetupGuide({
       level: "warning",
       title: "Connect your bank",
       detail:
-        "Nothing is pulled in until a bank feed is connected. Bank feeds takes a SimpleFIN setup token, discovers your accounts, and you map each one to a book account.",
-      action: { label: "Bank feeds", target: { kind: "link", href: feedsHref } },
+        "Nothing is pulled in until a bank feed is connected. Bank connections takes a SimpleFIN setup token, discovers your accounts, and you map each one to a book account.",
+      action: {
+        label: "Bank connections",
+        target: { kind: "link", href: feedsHref },
+      },
       acknowledge: { key: "connect", label: "Not using bank feeds" },
     });
 
@@ -231,7 +249,10 @@ export function buildSetupGuide({
         title: `Reconnect ${connection.name}`,
         detail:
           "The bank feed lost its access and nothing syncs until it is connected again with a new SimpleFIN token.",
-        action: { label: "Bank feeds", target: { kind: "link", href: feedsHref } },
+        action: {
+          label: "Bank connections",
+          target: { kind: "link", href: feedsHref },
+        },
       });
 
     if (unreviewed.length > 0 && mapped === 0) {
@@ -243,7 +264,10 @@ export function buildSetupGuide({
         level: "critical",
         title: "Map your bank accounts to start syncing",
         detail: `${plural(unreviewed.length, "account was", "accounts were")} discovered${institutions.length ? ` from ${institutions.join(" and ")}` : ""}. Nothing is pulled in until each one is mapped to a book account, or marked personal or ignored.`,
-        action: { label: "Map accounts", target: { kind: "link", href: feedsHref } },
+        action: {
+          label: "Map accounts",
+          target: { kind: "link", href: feedsHref },
+        },
       });
     } else if (unreviewed.length > 0) {
       const partialKey = `mapping-partial:${fingerprint(unreviewed.map((i) => i.id).sort())}`;
@@ -255,7 +279,10 @@ export function buildSetupGuide({
         level: "warning",
         title: `${plural(unreviewed.length, "discovered account still needs", "discovered accounts still need")} a decision`,
         detail: `They are not syncing. Map each one to a book account, or mark it personal or ignored.${changed}`,
-        action: { label: "Review accounts", target: { kind: "link", href: feedsHref } },
+        action: {
+          label: "Review accounts",
+          target: { kind: "link", href: feedsHref },
+        },
         acknowledge: { key: partialKey, label: "Leave them" },
       });
     }
@@ -272,7 +299,10 @@ export function buildSetupGuide({
         level: "warning",
         title: `${connection.name} could not finish its last sync`,
         detail: `${error}${changed}`,
-        action: { label: "Bank feeds", target: { kind: "link", href: feedsHref } },
+        action: {
+          label: "Bank connections",
+          target: { kind: "link", href: feedsHref },
+        },
         acknowledge: { key: syncKey, label: "Dismiss" },
       });
     }
@@ -282,15 +312,15 @@ export function buildSetupGuide({
     steps.push({
       key: "primary",
       level: "info",
-      title: "Wave is still the system of record",
+      title: "Another system is still the system of record",
       detail:
         "Rules only fill drafts and never post while another system is primary. Switch when these books are ready to take over.",
       action: {
         label: "Book settings",
-        target: { kind: "link", href: accountingHref("settings", "settings") },
+        target: { kind: "link", href: accountingHref("manage", "settings") },
       },
       // "For now" is a year, not forever.
-      acknowledge: { key: yearKey("primary"), label: "Keep Wave for now" },
+      acknowledge: { key: yearKey("primary"), label: "Keep it for now" },
     });
 
   if (status.unmapped_accounts > 0)
@@ -312,9 +342,12 @@ export function buildSetupGuide({
         "Runs without their register cannot be checked against the provider. Open each run on the Payroll screen and attach it.",
       action: {
         label: "Payroll",
-        target: { kind: "link", href: accountingHref("records", "payroll") },
+        target: { kind: "link", href: accountingHref("payroll") },
       },
-      acknowledge: { key: yearKey("payroll-registers"), label: "Skip this year" },
+      acknowledge: {
+        key: yearKey("payroll-registers"),
+        label: "Skip this year",
+      },
     });
 
   for (const step of steps) {

@@ -1,4 +1,5 @@
 "use client";
+import { Disclosure } from "@/components/ui/disclosure";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -55,7 +56,6 @@ export function AccountingManualRegisters({
     [loading, setLoading] = useState(false),
     [opening, setOpening] = useState(false),
     [error, setError] = useState(""),
-    [historyOffset, setHistoryOffset] = useState(0),
     [form, setForm] = useState<{ record?: RegisterDetail } | null>(null),
     [action, setAction] = useState<{
       kind: RegisterAction["kind"] | "void";
@@ -93,7 +93,6 @@ export function AccountingManualRegisters({
         view: "register-detail",
         id: linked,
         date,
-        offset: String(historyOffset),
       },
       abort.signal,
     )
@@ -111,19 +110,17 @@ export function AccountingManualRegisters({
         if (!abort.signal.aborted) setOpening(false);
       });
     return () => abort.abort();
-  }, [linked, kind, date, historyOffset, tick, demo]);
+  }, [linked, kind, date, tick, demo]);
   function open(id: string) {
     const url = new URL(window.location.href);
     url.searchParams.set("register", id);
     window.history.pushState(null, "", url);
-    setHistoryOffset(0);
   }
   function close() {
     const url = new URL(window.location.href);
     url.searchParams.delete("register");
     window.history.replaceState(null, "", url);
     setRecord(null);
-    setHistoryOffset(0);
   }
   async function refresh() {
     await onRefresh();
@@ -306,7 +303,7 @@ export function AccountingManualRegisters({
           data ? (
             <Pagination
               offset={offset}
-              limit={50}
+              limit={100}
               total={data.count}
               onChange={setOffset}
               noun="records"
@@ -437,14 +434,16 @@ export function AccountingManualRegisters({
                           ))}
                         </div>
                       </details>
-                      <a
-                        className="inline-block text-xs text-teal-light hover:underline"
-                        href={`/api/accounting/documents?id=${m.document_id}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Supporting document
-                      </a>
+                      {m.document_id && (
+                        <a
+                          className="inline-block text-xs text-teal-light hover:underline"
+                          href={`/api/accounting/documents?id=${m.document_id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Supporting document
+                        </a>
+                      )}
                       {m.void && (
                         <p className="text-xs text-muted-foreground">
                           {m.void.reason}
@@ -458,11 +457,12 @@ export function AccountingManualRegisters({
                 <p className="text-sm text-muted-foreground">No entries yet.</p>
               )}
             </section>
-            <details className="group">
-              <summary className="cursor-pointer select-none text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-                Revision history ({record.revision_count})
-              </summary>
-              <div className="mt-3 divide-y divide-border rounded-xl border border-border">
+            <Disclosure
+              summary="Revision history"
+              meta={record.revision_count}
+              contentClassName="divide-y divide-border p-0"
+            >
+              <div>
                 {record.revisions.map((v) => (
                   <div key={v.revision} className="px-4 py-3 text-xs">
                     <p>
@@ -489,13 +489,7 @@ export function AccountingManualRegisters({
                   </div>
                 ))}
               </div>
-            </details>
-            <Pagination
-              offset={historyOffset}
-              limit={50}
-              total={Math.max(record.movement_count, record.revision_count)}
-              onChange={setHistoryOffset}
-            />
+            </Disclosure>
             <div className="sticky -bottom-5 z-10 -mx-6 -mb-5 flex flex-wrap justify-end gap-2 border-t border-border bg-[var(--background-subtle)] px-6 py-4">
               <Button
                 variant="ghost"

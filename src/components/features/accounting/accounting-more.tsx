@@ -1,4 +1,5 @@
 "use client";
+import { Disclosure } from "@/components/ui/disclosure";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { NumberInput } from "@/components/ui/inputs/NumberInput";
 import { useState } from "react";
@@ -10,7 +11,6 @@ import {
   ArrowUpRight,
   Building2,
   FileSpreadsheet,
-  Landmark,
   Layers,
   Pencil,
   Plus,
@@ -19,7 +19,6 @@ import {
   Search,
   Settings2,
   Users,
-  Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/ui/inputs/TextInput";
@@ -43,9 +42,14 @@ import type {
   RegisterFilter,
   WorkflowCommand,
 } from "@/lib/accounting/workflows";
+import type { RegisterKind } from "@/lib/accounting/registers";
+import {
+  resolveManageSection,
+  type ManageSection,
+} from "@/lib/accounting/views";
 import type { BooksMetadata } from "./types";
 import { useAccountingCommand } from "./use-accounting-command";
-import { enumLabel, todayInBooks } from "./format";
+import { enumLabel } from "./format";
 
 const loading = () => (
   <p role="status" className="p-6 text-sm text-muted-foreground">
@@ -60,20 +64,8 @@ const AccountingDocuments = dynamic(
   () => import("./accounting-documents").then((m) => m.AccountingDocuments),
   { loading },
 );
-const AccountingHistory = dynamic(
-  () => import("./accounting-history").then((m) => m.AccountingHistory),
-  { loading },
-);
-const AccountingTransfers = dynamic(
-  () => import("./accounting-transfers").then((m) => m.AccountingTransfers),
-  { loading },
-);
 const AccountingRules = dynamic(
   () => import("./accounting-rules").then((m) => m.AccountingRules),
-  { loading },
-);
-const AccountingContractors = dynamic(
-  () => import("./accounting-contractors").then((m) => m.AccountingContractors),
   { loading },
 );
 const AccountingTaxWorkpapers = dynamic(
@@ -81,10 +73,6 @@ const AccountingTaxWorkpapers = dynamic(
     import("./accounting-tax-workpapers").then(
       (m) => m.AccountingTaxWorkpapers,
     ),
-  { loading },
-);
-const AccountingPayrollRuns = dynamic(
-  () => import("./accounting-payroll-run").then((m) => m.AccountingPayrollRuns),
   { loading },
 );
 const AccountingManualRegisters = dynamic(
@@ -99,20 +87,7 @@ const AccountingFeeds = dynamic(
   { loading },
 );
 
-export type MoreSection =
-  | "feeds"
-  | "imports"
-  | "transfers"
-  | "documents"
-  | "rules"
-  | "payees"
-  | "payroll"
-  | "assets"
-  | "loans"
-  | "contractors"
-  | "tax"
-  | "history"
-  | "settings";
+export type MoreSection = ManageSection;
 
 const SECTIONS: {
   id: MoreSection;
@@ -122,7 +97,7 @@ const SECTIONS: {
 }[] = [
   {
     id: "feeds",
-    name: "Bank feeds",
+    name: "Bank connections",
     description: "Connections and sync",
     icon: Repeat2,
   },
@@ -133,52 +108,16 @@ const SECTIONS: {
     icon: FileSpreadsheet,
   },
   {
-    id: "transfers",
-    name: "Transfers",
-    description: "Bank moves and card payments",
-    icon: Repeat2,
-  },
-  {
     id: "documents",
     name: "Receipts",
     description: "Receipts and source files",
     icon: Receipt,
   },
   {
-    id: "rules",
-    name: "Rules & aliases",
-    description: "Automatic categorization",
-    icon: Settings2,
-  },
-  {
-    id: "payees",
-    name: "Payees",
-    description: "Vendors, customers, contractors",
-    icon: Users,
-  },
-  {
-    id: "payroll",
-    name: "Payroll",
-    description: "Patriot registers",
-    icon: Wallet,
-  },
-  {
-    id: "assets",
-    name: "Assets",
-    description: "Equipment and depreciation",
+    id: "registers",
+    name: "Assets & loans",
+    description: "Equipment, depreciation and loan balances",
     icon: Layers,
-  },
-  {
-    id: "loans",
-    name: "Loans",
-    description: "Principal and interest",
-    icon: Landmark,
-  },
-  {
-    id: "contractors",
-    name: "Contractors",
-    description: "Year-end 1099 review",
-    icon: Users,
   },
   {
     id: "tax",
@@ -187,57 +126,38 @@ const SECTIONS: {
     icon: FileSpreadsheet,
   },
   {
-    id: "history",
-    name: "Wave migration",
-    description: "Imported history checks",
-    icon: FileSpreadsheet,
+    id: "payees",
+    name: "Payees",
+    description: "Vendors, customers, contractors",
+    icon: Users,
+  },
+  {
+    id: "rules",
+    name: "Rules",
+    description: "Automatic categorization",
+    icon: Settings2,
   },
   {
     id: "settings",
-    name: "Settings",
-    description: "Company and books",
+    name: "Books",
+    description: "System of record and matching",
     icon: Building2,
   },
 ];
-export type MoreScope = "settings" | "records";
-const SCOPES: Record<
-  MoreScope,
-  {
-    title: string;
-    description: string;
-    groups: { name: string; ids: MoreSection[] }[];
-  }
-> = {
-  settings: {
-    title: "Settings",
-    description:
-      "Bank connections, automatic categorization, imports and the books themselves.",
-    groups: [
-      { name: "Connections", ids: ["feeds"] },
-      { name: "Automation", ids: ["rules", "payees"] },
-      { name: "Data", ids: ["imports", "history"] },
-      { name: "Books", ids: ["settings"] },
-    ],
-  },
-  records: {
-    title: "Records",
-    description:
-      "Transfers, receipts, payroll and the registers behind year end.",
-    groups: [
-      { name: "Money movement", ids: ["transfers", "documents"] },
-      { name: "Payroll and registers", ids: ["payroll", "assets", "loans"] },
-      { name: "Year end", ids: ["contractors", "tax"] },
-    ],
-  },
-};
+const GROUPS: { name: string; ids: MoreSection[] }[] = [
+  { name: "Money in and out", ids: ["feeds", "imports", "documents"] },
+  { name: "Registers", ids: ["registers"] },
+  { name: "Year end", ids: ["tax"] },
+  { name: "Reference", ids: ["payees", "rules"] },
+  { name: "Books", ids: ["settings"] },
+];
 
 /**
- * The screens behind the four tabs. Settings holds connections, automation
- * and setup; Records holds transfers, receipts, payroll and the registers.
- * One rail on wide screens, one select on narrow ones.
+ * The Manage screen: everything that is not the ledger, the chart, payroll
+ * or a report. One rail on wide screens, one select on narrow ones. Old
+ * Records and Settings section ids still resolve to their new homes.
  */
 export function AccountingMore({
-  scope,
   data,
   manage,
   demo,
@@ -246,7 +166,6 @@ export function AccountingMore({
   onFilter,
   initialSection,
 }: {
-  scope: MoreScope;
   initialSection?: string;
   data: AccountingWorkspace;
   manage: BooksMetadata;
@@ -256,29 +175,40 @@ export function AccountingMore({
   onFilter: (filter: Partial<RegisterFilter>) => void;
 }) {
   const params = useSearchParams();
-  const { title, description, groups: GROUPS } = SCOPES[scope];
-  const inScope = new Set(GROUPS.flatMap((g) => g.ids));
-  const candidate = params.get("section") ?? initialSection;
-  const section: MoreSection = inScope.has(candidate as MoreSection)
-    ? (candidate as MoreSection)
-    : GROUPS[0].ids[0];
+  const candidate = params.get("section") ?? initialSection ?? null;
+  const section: MoreSection =
+    resolveManageSection(candidate) ?? GROUPS[0].ids[0];
+  // The register kind rides in the URL; the retired assets and loans ids still name one.
+  const registerKind: RegisterKind =
+    params.get("kind") === "loan" || candidate === "loans" ? "loan" : "asset";
   function setSection(next: MoreSection) {
     const url = new URL(window.location.href);
     url.searchParams.set("section", next);
+    url.searchParams.delete("kind");
+    url.searchParams.delete("register");
+    window.history.pushState(null, "", url);
+  }
+  function setRegisterKind(next: RegisterKind) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("section", "registers");
+    url.searchParams.set("kind", next);
+    url.searchParams.delete("register");
     window.history.pushState(null, "", url);
   }
   const [party, setParty] = useState<Party | null>(null);
   const [query, setQuery] = useState("");
-  const today = todayInBooks();
 
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
-        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+        <h2 className="text-xl font-semibold tracking-tight">Manage</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Bank connections, imports, receipts, registers, year end and the books
+          themselves.
+        </p>
       </div>
       <div className="grid items-start gap-6 xl:grid-cols-[208px_1fr]">
-        <nav aria-label={`${title} sections`} className="min-w-0">
+        <nav aria-label="Manage sections" className="min-w-0">
           <div className="xl:hidden">
             <Select
               label="Section"
@@ -341,34 +271,38 @@ export function AccountingMore({
           {section === "tax" && (
             <AccountingTaxWorkpapers demo={demo} onRefresh={onRefresh} />
           )}
-          {section === "contractors" && (
-            <AccountingContractors
-              manage={manage}
-              demo={demo}
-              onRefresh={onRefresh}
-              onEntry={onEntry}
-            />
-          )}
-          {(section === "assets" || section === "loans") && (
-            <AccountingManualRegisters
-              key={section}
-              kind={section === "assets" ? "asset" : "loan"}
-              accounts={data.accounts}
-              manage={manage}
-              demo={demo}
-              onRefresh={onRefresh}
-              onEntry={onEntry}
-            />
-          )}
-          {section === "payroll" && (
-            <AccountingPayrollRuns
-              accounts={data.accounts}
-              manage={manage}
-              today={today}
-              demo={demo}
-              onRefresh={onRefresh}
-              onEntry={onEntry}
-            />
+          {section === "registers" && (
+            <div className="space-y-5">
+              <div
+                role="group"
+                aria-label="Register"
+                className="seg-track seg-sm w-fit"
+              >
+                {(["asset", "loan"] as const).map((kind) => (
+                  <button
+                    key={kind}
+                    type="button"
+                    aria-pressed={registerKind === kind}
+                    className={cn(
+                      "seg-item focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      registerKind === kind && "is-active",
+                    )}
+                    onClick={() => setRegisterKind(kind)}
+                  >
+                    {kind === "asset" ? "Assets" : "Loans"}
+                  </button>
+                ))}
+              </div>
+              <AccountingManualRegisters
+                key={registerKind}
+                kind={registerKind}
+                accounts={data.accounts}
+                manage={manage}
+                demo={demo}
+                onRefresh={onRefresh}
+                onEntry={onEntry}
+              />
+            </div>
           )}
           {section === "feeds" && (
             <AccountingFeeds
@@ -388,17 +322,6 @@ export function AccountingMore({
               onEntry={onEntry}
             />
           )}
-          {section === "transfers" && (
-            <AccountingTransfers
-              from={data.from}
-              to={data.to}
-              accounts={data.accounts}
-              profiles={manage.profiles}
-              demo={demo}
-              onRefresh={onRefresh}
-              onEntry={onEntry}
-            />
-          )}
           {section === "imports" && (
             <AccountingImports
               accounts={data.accounts}
@@ -410,13 +333,6 @@ export function AccountingMore({
           )}
           {section === "documents" && (
             <AccountingDocuments demo={demo} onEntry={onEntry} />
-          )}
-          {section === "history" && (
-            <AccountingHistory
-              date={data.to}
-              demo={demo}
-              onRefresh={onRefresh}
-            />
           )}
 
           {section === "payees" && (
@@ -623,56 +539,51 @@ function PartyForm({
         onChange={(v) => setValue({ ...value, default_account_id: v || null })}
         helperText="Fills new bank activity from this payee."
       />
-      <details className="group rounded-xl border border-border">
-        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-          Advanced
-        </summary>
-        <div className="space-y-4 border-t border-border p-4">
-          <Select
-            label="Contractor status"
-            value={value.tax_classification}
-            onChange={(v) =>
-              setValue({
-                ...value,
-                tax_classification: v as Party["tax_classification"],
-              })
-            }
-            options={[
-              { value: "unreviewed", label: "Not a contractor / unreviewed" },
-              { value: "individual", label: "Individual contractor" },
-              { value: "corporation", label: "Corporation" },
-              { value: "foreign", label: "Foreign" },
-              { value: "other", label: "Other" },
-            ]}
-          />
-          <Select
-            label="W-9 on file"
-            value={value.documentation}
-            onChange={(v) =>
-              setValue({
-                ...value,
-                documentation: v as Party["documentation"],
-              })
-            }
-            options={[
-              { value: "missing", label: "Missing" },
-              { value: "received", label: "Received" },
-              { value: "not_required", label: "Not required" },
-            ]}
-          />
-          <Textarea
-            label="Notes"
-            maxLength={3000}
-            value={value.notes}
-            onChange={(nextValue) => setValue({ ...value, notes: nextValue })}
-          />
-          <Checkbox
-            checked={value.is_archived}
-            onChange={(v) => setValue({ ...value, is_archived: v })}
-            label="Archive from new selections"
-          />
-        </div>
-      </details>
+      <Disclosure summary="Advanced" contentClassName="space-y-4">
+        <Select
+          label="Contractor status"
+          value={value.tax_classification}
+          onChange={(v) =>
+            setValue({
+              ...value,
+              tax_classification: v as Party["tax_classification"],
+            })
+          }
+          options={[
+            { value: "unreviewed", label: "Not a contractor / unreviewed" },
+            { value: "individual", label: "Individual contractor" },
+            { value: "corporation", label: "Corporation" },
+            { value: "foreign", label: "Foreign" },
+            { value: "other", label: "Other" },
+          ]}
+        />
+        <Select
+          label="W-9 on file"
+          value={value.documentation}
+          onChange={(v) =>
+            setValue({
+              ...value,
+              documentation: v as Party["documentation"],
+            })
+          }
+          options={[
+            { value: "missing", label: "Missing" },
+            { value: "received", label: "Received" },
+            { value: "not_required", label: "Not required" },
+          ]}
+        />
+        <Textarea
+          label="Notes"
+          maxLength={3000}
+          value={value.notes}
+          onChange={(nextValue) => setValue({ ...value, notes: nextValue })}
+        />
+        <Checkbox
+          checked={value.is_archived}
+          onChange={(v) => setValue({ ...value, is_archived: v })}
+          label="Archive from new selections"
+        />
+      </Disclosure>
       {command.error && (
         <p className="text-sm text-error" role="alert">
           {command.error}
@@ -749,16 +660,10 @@ function BookSettings({
         <div>
           <h2 className="font-semibold">Books</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            USD, cash basis, one company.
+            USD, cash basis, one company. The name on reports and the first day
+            of history live in Business settings.
           </p>
         </div>
-        <TextInput
-          label="Name on reports"
-          value={form.legal_name}
-          onChange={(nextValue) => setForm({ ...form, legal_name: nextValue })}
-          required
-          maxLength={200}
-        />
         <Select
           label="System of record"
           value={form.primary_system ?? "wave"}
@@ -772,13 +677,13 @@ function BookSettings({
             })
           }
           options={[
-            { value: "wave", label: "Wave stays primary" },
+            { value: "wave", label: "Another system stays primary" },
             { value: "admin", label: "These books are primary" },
           ]}
           helperText={
             primary
               ? `These books have been primary since ${manage.preferences?.primary_system_since ?? "the recorded date"}.`
-              : "Switch to these books after the parallel months tie out. Nothing here creates a cutover entry."
+              : "Rules only fill drafts until these books are primary. Nothing here creates a cutover entry."
           }
         />
         {form.primary_system === "admin" && !primary && (
@@ -794,14 +699,6 @@ function BookSettings({
             }
           />
         )}
-        <DateInput
-          label="Books start on"
-          value={form.history_start ?? ""}
-          disabled={primary}
-          onChange={(nextValue) =>
-            setForm({ ...form, history_start: nextValue || null })
-          }
-        />
         <NumberInput
           step={1}
           label="Transfer matching window (days)"

@@ -1,9 +1,9 @@
 "use client";
 import { useState } from "react";
 import dynamic from "next/dynamic";
+import { Disclosure } from "@/components/ui/disclosure";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
 import type { Party } from "@/lib/accounting/workflows";
-import { cn } from "@/lib/utils";
 
 const AccountingEvidence = dynamic(
   () =>
@@ -29,20 +29,14 @@ export function EntryEvidenceDisclosure({
 }) {
   const [opened, setOpened] = useState(false);
   return (
-    <details
-      className={cn("group rounded-xl border border-border", className)}
+    <Disclosure
+      summary="Receipts and history"
+      className={className}
       onToggle={(event) => {
         if (event.currentTarget.open) setOpened(true);
       }}
     >
-      <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-        Receipts and history
-      </summary>
-      {opened && (
-        <div className="border-t border-border p-4">
-          <AccountingEvidence key={props.entryId} {...props} />
-        </div>
-      )}
-    </details>
+      {opened && <AccountingEvidence key={props.entryId} {...props} />}
+    </Disclosure>
   );
 }

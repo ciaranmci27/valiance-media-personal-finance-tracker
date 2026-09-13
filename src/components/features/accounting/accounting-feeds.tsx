@@ -1,4 +1,5 @@
 "use client";
+import { Disclosure } from "@/components/ui/disclosure";
 import { PasswordInput } from "@/components/ui/inputs/PasswordInput";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useRef, useState } from "react";
@@ -161,7 +162,7 @@ export function AccountingFeeds({
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold">Bank feeds</h2>
+          <h2 className="text-xl font-semibold">Bank connections</h2>
           <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
             Bring company bank activity into your review queue. Each movement
             keeps its source, date, and original evidence.
@@ -420,7 +421,7 @@ export function AccountingFeeds({
                     movement_sign: 1,
                     balance_sign: 1,
                     reviewed: true,
-                    reason: "Ignored from Bank feeds",
+                    reason: "Ignored from Bank connections",
                   });
                 return (
                   <div key={identity.id} className="p-5">
@@ -664,34 +665,32 @@ export function AccountingFeeds({
         </Button>
       </div>
       {!!state?.runs.length && (
-        <details className="glass-card rounded-xl p-5">
-          <summary className="cursor-pointer text-sm font-medium">
-            Recent sync activity
-          </summary>
-          <div className="mt-4 divide-y divide-border">
-            {/* The view lists one row per audit update of a run; show each run once, latest first. */}
-            {state.runs
-              .filter(
-                (run, i, all) => all.findIndex((r) => r.id === run.id) === i,
-              )
-              .map((run) => (
-                <div key={run.id} className="py-3 text-xs">
-                  <div className="flex flex-wrap justify-between gap-2">
-                    <span>
-                      {timestampLabel(run.started_at)} ·{" "}
-                      {run.actor_kind === "worker"
-                        ? "Background worker"
-                        : "Owner request"}
-                    </span>
-                    <span>{enumLabel(run.status)}</span>
-                  </div>
-                  {run.error && (
-                    <p className="mt-1 text-muted-foreground">{run.error}</p>
-                  )}
+        <Disclosure
+          summary="Recent sync activity"
+          contentClassName="divide-y divide-border"
+        >
+          {/* The view lists one row per audit update of a run; show each run once, latest first. */}
+          {state.runs
+            .filter(
+              (run, i, all) => all.findIndex((r) => r.id === run.id) === i,
+            )
+            .map((run) => (
+              <div key={run.id} className="py-3 text-xs">
+                <div className="flex flex-wrap justify-between gap-2">
+                  <span>
+                    {timestampLabel(run.started_at)} ·{" "}
+                    {run.actor_kind === "worker"
+                      ? "Background worker"
+                      : "Owner request"}
+                  </span>
+                  <span>{enumLabel(run.status)}</span>
                 </div>
-              ))}
-          </div>
-        </details>
+                {run.error && (
+                  <p className="mt-1 text-muted-foreground">{run.error}</p>
+                )}
+              </div>
+            ))}
+        </Disclosure>
       )}
       {connect && (
         <ConnectFeed
@@ -849,21 +848,16 @@ function ConnectFeed({
               <ArrowRight size={12} aria-hidden="true" />
             </a>
           </div>
-          <details className="group rounded-xl border border-border">
-            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-              Advanced
-            </summary>
-            <div className="space-y-4 border-t border-border p-4">
-              <TextInput
-                label="Connection name"
-                value={name}
-                onChange={(nextValue) => setName(nextValue)}
-                maxLength={120}
-                required
-                disabled={busy || attempted}
-              />
-            </div>
-          </details>
+          <Disclosure summary="Advanced" contentClassName="space-y-4">
+            <TextInput
+              label="Connection name"
+              value={name}
+              onChange={(nextValue) => setName(nextValue)}
+              maxLength={120}
+              required
+              disabled={busy || attempted}
+            />
+          </Disclosure>
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}
@@ -980,7 +974,6 @@ function MapFeed({
               type: "feed.map",
               id: identity.id,
               expected_version: identity.version,
-              expected_feed_version: existing?.version,
               ownership,
               account_id: ownership === "company" ? accountId : null,
               history_start: historyStart,
@@ -988,7 +981,7 @@ function MapFeed({
               movement_sign: movement,
               balance_sign: balance,
               reviewed: true,
-              reason: "Mapped from Bank feeds",
+              reason: "Mapped from Bank connections",
             });
           }}
         >
@@ -1033,46 +1026,41 @@ function MapFeed({
                       : undefined
                 }
               />
-              <details className="group rounded-xl border border-border">
-                <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-                  Advanced
-                </summary>
-                <div className="space-y-4 border-t border-border p-4">
-                  <Select
-                    label="Transaction sign"
-                    value={String(movement)}
-                    onChange={(value) => {
-                      setMovement(Number(value) as 1 | -1);
-                    }}
-                    disabled={locked}
-                    options={[
-                      {
-                        value: "1",
-                        label: "Keep source sign (deposit +, charge -)",
-                      },
-                      { value: "-1", label: "Reverse source sign" },
-                    ]}
-                  />
-                  <Select
-                    label="Balance sign"
-                    value={String(balance)}
-                    onChange={(value) => {
-                      setBalance(Number(value) as 1 | -1);
-                    }}
-                    disabled={locked}
-                    options={[
-                      {
-                        value: "1",
-                        label: "Keep source sign (cash +, card debt -)",
-                      },
-                      {
-                        value: "-1",
-                        label: "Reverse source sign (card debt +)",
-                      },
-                    ]}
-                  />
-                </div>
-              </details>
+              <Disclosure summary="Advanced" contentClassName="space-y-4">
+                <Select
+                  label="Transaction sign"
+                  value={String(movement)}
+                  onChange={(value) => {
+                    setMovement(Number(value) as 1 | -1);
+                  }}
+                  disabled={locked}
+                  options={[
+                    {
+                      value: "1",
+                      label: "Keep source sign (deposit +, charge -)",
+                    },
+                    { value: "-1", label: "Reverse source sign" },
+                  ]}
+                />
+                <Select
+                  label="Balance sign"
+                  value={String(balance)}
+                  onChange={(value) => {
+                    setBalance(Number(value) as 1 | -1);
+                  }}
+                  disabled={locked}
+                  options={[
+                    {
+                      value: "1",
+                      label: "Keep source sign (cash +, card debt -)",
+                    },
+                    {
+                      value: "-1",
+                      label: "Reverse source sign (card debt +)",
+                    },
+                  ]}
+                />
+              </Disclosure>
             </>
           )}
           {cmd.error && (

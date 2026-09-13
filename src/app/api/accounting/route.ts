@@ -20,7 +20,11 @@ import { reportFilterSchema } from "@/lib/accounting/reports";
 import { sameOrigin } from "@/lib/accounting/server/request-origin";
 import { boundedBytes } from "@/lib/accounting/server/request-body";
 import { importComparisonFilterSchema } from "@/lib/accounting/imports/comparison";
-import { buildSetupGuide, claimGuide, type SetupStatus } from "@/lib/accounting/setup-guide";
+import {
+  buildSetupGuide,
+  claimGuide,
+  type SetupStatus,
+} from "@/lib/accounting/setup-guide";
 import type { FeedData } from "@/lib/accounting/feeds";
 
 export const runtime = "nodejs";
@@ -33,10 +37,15 @@ export async function GET(req: NextRequest) {
     client = await accountingClient();
   } catch (e) {
     // Before the owner row exists the guide still has one thing to say.
-    if (view === "setup" && e instanceof Error && /not configured/.test(e.message))
+    if (
+      view === "setup" &&
+      e instanceof Error &&
+      /not configured/.test(e.message)
+    )
       return NextResponse.json(
         claimGuide(
-          Number(req.nextUrl.searchParams.get("year")) || new Date().getFullYear(),
+          Number(req.nextUrl.searchParams.get("year")) ||
+            new Date().getFullYear(),
         ),
         { headers: { "Cache-Control": "no-store" } },
       );
@@ -103,8 +112,6 @@ export async function GET(req: NextRequest) {
       result = await readAccounting(client, "manage");
     else if (view === "feeds") result = await readAccounting(client, "feeds");
     else if (view === "rules") result = await readAccounting(client, "rules");
-    else if (view === "history")
-      result = await readAccounting(client, "history");
     else if (view === "close-history")
       result = await readAccounting(client, "close-history");
     else if (view === "tax-workpapers") {
@@ -367,6 +374,9 @@ export async function GET(req: NextRequest) {
           from: dateSchema,
           to: dateSchema,
           offset: z.coerce.number().int().min(0).max(10000000).default(0),
+          limit: z.coerce.number().int().min(1).max(200).default(100),
+          // One group by id, for the ledger row that reverses it.
+          id: z.uuid().optional(),
         })
         .refine((v) => v.from <= v.to)
         .safeParse(Object.fromEntries(req.nextUrl.searchParams));
@@ -379,6 +389,8 @@ export async function GET(req: NextRequest) {
         p_from: parsed.data.from,
         p_to: parsed.data.to,
         p_offset: parsed.data.offset,
+        p_limit: parsed.data.limit,
+        ...(parsed.data.id ? { p_id: parsed.data.id } : {}),
       });
     } else if (view === "rules-preview") {
       const parsed = z

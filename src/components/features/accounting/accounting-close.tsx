@@ -4,7 +4,6 @@ import { useSearchParams } from "next/navigation";
 import {
   ArrowUpRight,
   CheckCircle2,
-  ChevronDown,
   Circle,
   LockKeyhole,
   RotateCcw,
@@ -32,14 +31,6 @@ import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { absMoney, countLabel, monthLabel } from "./format";
 
 type Action = "close" | "reopen";
-
-type Check = {
-  key: string;
-  label: string;
-  detail: string;
-  count: number;
-  action?: () => void;
-};
 
 /**
  * Month end. Three things matter: nothing is left to review, the book
@@ -71,7 +62,6 @@ export function AccountingClose({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [tick, setTick] = useState(0);
-  const [showMore, setShowMore] = useState(false);
   const [action, setAction] = useState<{
     kind: Action;
     id: string;
@@ -151,24 +141,6 @@ export function AccountingClose({
   const balancesKnown = data
     ? data.accounts.some((a) => a.difference_cents !== null)
     : false;
-
-  const moreChecks: Check[] = data
-    ? [
-        {
-          key: "history",
-          label: "Historical checks agree",
-          detail:
-            data.history_mismatches === 0
-              ? "Every recorded source comparison still matches the books."
-              : `${countLabel(data.history_mismatches, "source comparison")} no longer match the books.`,
-          count: data.history_mismatches,
-          action: () => {
-            window.location.href = "/accounting?view=manage&section=history";
-          },
-        },
-      ]
-    : [];
-  const moreOpen = moreChecks.filter((c) => c.count > 0);
 
   const status = closed
     ? { label: "Locked", variant: "success" as const }
@@ -332,92 +304,6 @@ export function AccountingClose({
               )}
             </div>
           </div>
-
-          <section className="glass-card overflow-hidden rounded-xl">
-            <button
-              type="button"
-              onClick={() => setShowMore((v) => !v)}
-              aria-expanded={showMore}
-              className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition-colors hover:bg-[rgba(var(--ink),0.03)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">More checks</span>
-                {moreOpen.length > 0 ? (
-                  <Badge variant="warning" size="sm">
-                    {moreOpen.length} open
-                  </Badge>
-                ) : (
-                  <Badge variant="success" size="sm">
-                    All clear
-                  </Badge>
-                )}
-              </div>
-              <ChevronDown
-                size={16}
-                aria-hidden="true"
-                className={cn(
-                  "text-muted-foreground transition-transform",
-                  showMore && "rotate-180",
-                )}
-              />
-            </button>
-            {showMore && (
-              <div className="border-t border-border">
-                {moreChecks.map((c) => {
-                  const row =
-                    "flex w-full items-start gap-3 border-b border-border px-5 py-4 text-left last:border-0";
-                  const body = (
-                    <>
-                      {c.count === 0 ? (
-                        <CheckCircle2
-                          size={18}
-                          aria-hidden="true"
-                          className="mt-0.5 shrink-0 text-teal-light"
-                        />
-                      ) : (
-                        <Circle
-                          size={18}
-                          aria-hidden="true"
-                          className="mt-0.5 shrink-0 text-warning"
-                        />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium">{c.label}</p>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
-                          {c.detail}
-                        </p>
-                      </div>
-                      {c.action && (
-                        <ArrowUpRight
-                          size={14}
-                          aria-hidden="true"
-                          className="mt-1 text-muted-foreground"
-                        />
-                      )}
-                    </>
-                  );
-                  // Checks with nowhere to go are plain rows, not dead buttons.
-                  return c.action ? (
-                    <button
-                      key={c.key}
-                      type="button"
-                      onClick={c.action}
-                      className={cn(
-                        row,
-                        "transition-colors hover:bg-[rgba(var(--ink),0.03)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                      )}
-                    >
-                      {body}
-                    </button>
-                  ) : (
-                    <div key={c.key} className={row}>
-                      {body}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </section>
 
           <section className="glass-card rounded-xl p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">

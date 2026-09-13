@@ -40,7 +40,6 @@ export const feedCommandSchema = z.discriminatedUnion("type", [
       type: z.literal("feed.map"),
       id: discovered,
       expected_version: version,
-      expected_feed_version: version.optional(),
       ownership: z.enum(["company", "personal", "ignored"]),
       account_id: id.nullable(),
       history_start: stamp,
@@ -60,7 +59,6 @@ export const feedCommandSchema = z.discriminatedUnion("type", [
       reason,
     })
     .strict(),
-  z.object({ type: z.literal("feed.prepare"), id: discovered }).strict(),
 ]);
 export type FeedCommand = z.infer<typeof feedCommandSchema>;
 export interface FeedConnection {

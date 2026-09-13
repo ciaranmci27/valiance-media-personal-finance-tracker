@@ -1,7 +1,7 @@
 "use client";
-import { RadioGroup } from "@/components/ui/inputs/RadioGroup";
 import { DateInput } from "@/components/ui/inputs/DateInput";
-import { useRef, useState } from "react";
+import { fieldLabelClass } from "@/components/ui/inputs/_shared";
+import { useMemo, useRef, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Checkbox } from "@/components/ui/inputs/Checkbox";
+import { Toggle } from "@/components/ui/inputs/Toggle";
 import { AccountingAccountLogo } from "./accounting-bank-identity";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import {
@@ -37,6 +38,12 @@ import {
   simpleTransactionLines,
 } from "@/lib/accounting/transactions";
 import { AccountingPicker } from "./accounting-picker";
+import { AccountingCategoryPicker } from "./accounting-category-picker";
+import {
+  categoryGroups,
+  categoryKind,
+  categoryMenu,
+} from "@/lib/accounting/categories";
 import { AccountingContextEditor } from "./accounting-context-editor";
 import { EntryEvidenceDisclosure } from "./accounting-entry-evidence";
 import {
@@ -141,18 +148,26 @@ export function AccountingTransactionEditor({
       icon: <AccountingAccountLogo accountId={a.id} name={a.name} size={20} />,
       group: a.account_type === "liability" ? "Credit cards" : "Cash & bank",
     }));
-  const categoryOptions = accounts
-    .filter((a) => !a.is_archived && !bankIds.has(a.id))
-    .map((a) => ({
-      value: a.id,
-      label: a.name,
-      group: a.account_type[0].toUpperCase() + a.account_type.slice(1),
-      keywords: a.code,
-    }))
-    .sort(
-      (a, b) =>
-        a.group.localeCompare(b.group) || a.label.localeCompare(b.label),
-    );
+  // The category menu follows the direction; the entry's own category stays
+  // visible only while the direction it was saved with is still selected.
+  const baseGroups = useMemo(
+    () => categoryGroups(accounts, manage.profiles, direction),
+    [accounts, manage.profiles, direction],
+  );
+  const savedDirection = presentation?.bankLine
+    ? presentation.amount < BigInt(0)
+      ? "out"
+      : "in"
+    : null;
+  const menu = categoryMenu(baseGroups, accounts, {
+    current:
+      direction === savedDirection
+        ? presentation?.categoryLines[0]?.account_id
+        : null,
+    prior: entry?.prior_treatment,
+    payeeDefault: manage.parties.find((p) => p.id === context.payee_id)
+      ?.default_account_id,
+  });
 
   let remaining: bigint | null = null;
   try {
@@ -186,9 +201,9 @@ export function AccountingTransactionEditor({
     if (
       !dirty.current ||
       (await confirm({
-        title: "Open the journal view?",
+        title: "Edit as a journal entry?",
         description: "Unsaved changes here will be discarded.",
-        confirmLabel: "Open journal view",
+        confirmLabel: "Open journal editor",
         variant: "warning",
       }))
     )
@@ -234,10 +249,25 @@ export function AccountingTransactionEditor({
             memo,
             context: commandContext({
               ...context,
-              kind: ["manual", "income", "expense"].includes(context.kind)
-                ? direction === "in"
-                  ? "income"
-                  : "expense"
+              // The chosen category decides the kind (a refund, an owner
+              // movement); a split falls back to the direction.
+              kind: [
+                "manual",
+                "income",
+                "expense",
+                "refund",
+                "owner",
+                "loan",
+                "asset",
+              ].includes(context.kind)
+                ? ((splits.length === 1
+                    ? categoryKind(
+                        splits[0].account,
+                        accounts,
+                        manage.profiles,
+                        direction,
+                      )
+                    : null) ?? (direction === "in" ? "income" : "expense"))
                 : context.kind,
             }),
             lines,
@@ -268,8 +298,24 @@ export function AccountingTransactionEditor({
     : entry
       ? "Edit transaction"
       : direction === "in"
-        ? "Money in"
-        : "Money out";
+        ? "Deposit"
+        : "Withdrawal";
+
+  function chooseDirection(next: "in" | "out") {
+    if (next === direction) return;
+    change(() => {
+      setDirection(next);
+      // A category the new direction does not offer is cleared, not guessed.
+      const offered = new Set(
+        categoryGroups(accounts, manage.profiles, next).flatMap((g) =>
+          g.options.map((o) => o.value),
+        ),
+      );
+      setSplits(
+        splits.map((s) => (offered.has(s.account) ? s : { ...s, account: "" })),
+      );
+    });
+  }
 
   return (
     <Dialog
@@ -279,12 +325,12 @@ export function AccountingTransactionEditor({
       }}
     >
       <DialogContent
-        className="flex max-h-[90dvh] max-w-xl flex-col overflow-hidden p-0"
+        className="flex max-h-[90dvh] max-w-2xl flex-col overflow-hidden p-0"
         onEscapeKeyDown={(e) => {
           if (command.busy) e.preventDefault();
         }}
       >
-        <DialogHeader className="shrink-0 pb-1 pl-4 pr-12 pt-6 sm:pl-6">
+        <DialogHeader className="shrink-0 border-b border-border px-6 py-4 pr-14 text-left">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className={cn(!posted && "sr-only")}>
             {posted
@@ -292,60 +338,77 @@ export function AccountingTransactionEditor({
               : "Amount, description, account and category."}
           </DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 overflow-y-auto px-4 pb-6 pt-4 [scrollbar-gutter:stable] sm:px-6">
+        <div className="min-h-0 overflow-y-auto px-6 py-6 [scrollbar-gutter:stable]">
           <form
             id="accounting-transaction-form"
             onSubmit={(e) => {
               e.preventDefault();
               void save();
             }}
-            className="space-y-6"
+            className="space-y-5"
           >
-            <div className="grid gap-3 sm:grid-cols-[auto_1fr] sm:items-end">
-              <RadioGroup
-                ariaLabel="Direction"
-                orientation="horizontal"
-                value={direction}
-                onChange={(next) => change(() => setDirection(next))}
-                options={[
-                  {
-                    value: "out",
-                    label: (
-                      <span className="flex items-center gap-2">
-                        <ArrowUpRight size={14} aria-hidden="true" />
-                        Money out
-                      </span>
-                    ),
-                  },
-                  {
-                    value: "in",
-                    label: (
-                      <span className="flex items-center gap-2">
+            {/* Which way the money went and when, then how much, large. */}
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              {/* Same shape as the field beside it: a caption, then the control. */}
+              <div className="space-y-1.5">
+                <p
+                  id="accounting-transaction-type"
+                  className={fieldLabelClass()}
+                >
+                  Type
+                </p>
+                <div
+                  role="group"
+                  aria-labelledby="accounting-transaction-type"
+                  className="seg-track"
+                >
+                  {(["in", "out"] as const).map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      aria-pressed={direction === d}
+                      onClick={() => chooseDirection(d)}
+                      className={cn(
+                        "seg-item gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        direction === d && "is-active",
+                      )}
+                    >
+                      {d === "in" ? (
                         <ArrowDownLeft size={14} aria-hidden="true" />
-                        Money in
-                      </span>
-                    ),
-                  },
-                ]}
-              />
-              <TextInput
-                label="Amount"
-                size="lg"
-                prefix="$"
-                inputMode="decimal"
-                value={amount}
-                placeholder="0.00"
+                      ) : (
+                        <ArrowUpRight size={14} aria-hidden="true" />
+                      )}
+                      {d === "in" ? "Deposit" : "Withdrawal"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <DateInput
+                label="Date"
+                className="w-44"
+                value={entryDate}
                 required
-                inputClassName="font-semibold tabular-nums"
-                onChange={(nextValue) =>
-                  change(() => {
-                    setAmount(nextValue);
-                    if (splits.length === 1)
-                      setSplits([{ ...splits[0], amount: nextValue }]);
-                  })
-                }
+                onChange={(nextValue) => change(() => setDate(nextValue))}
               />
             </div>
+            <TextInput
+              label="Amount"
+              size="lg"
+              prefix="$"
+              inputMode="decimal"
+              value={amount}
+              placeholder="0.00"
+              required
+              // The number itself is the headline; the field's own size class sits on the input, so the override targets it.
+              className="[&_input]:text-2xl [&_input]:font-semibold [&_input]:tabular-nums"
+              onChange={(nextValue) =>
+                change(() => {
+                  setAmount(nextValue);
+                  if (splits.length === 1)
+                    setSplits([{ ...splits[0], amount: nextValue }]);
+                })
+              }
+            />
             <TextInput
               label="Description"
               placeholder="What was this for?"
@@ -366,51 +429,44 @@ export function AccountingTransactionEditor({
                 placeholder="Choose a bank or card"
               />
               {splits.length === 1 ? (
-                <AccountingPicker
+                <AccountingCategoryPicker
                   label="Category"
                   visibleLabel="Category"
                   value={splits[0].account}
-                  options={categoryOptions}
+                  groups={menu}
+                  direction={direction}
                   onChange={(v) =>
                     change(() => setSplits([{ ...splits[0], account: v }]))
                   }
                   placeholder="Choose a category"
                 />
               ) : (
-                <div>
-                  <p className="mb-1.5 text-sm font-medium text-foreground">
-                    Category
-                  </p>
-                  <div className="flex h-10 items-center rounded-xl border border-border px-3 text-sm text-muted-foreground">
-                    Split across {splits.length} categories
-                  </div>
-                </div>
+                <TextInput
+                  label="Category"
+                  value={`Split across ${splits.length} categories`}
+                  readOnly
+                  onChange={() => {}}
+                />
               )}
             </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <DateInput
-                label="Date"
-                value={entryDate}
+            {posted ? (
+              <TextInput
+                label="Reason for the correction"
+                value={reason}
                 required
-                onChange={(nextValue) => change(() => setDate(nextValue))}
+                placeholder="What changed and why"
+                onChange={(nextValue) => change(() => setReason(nextValue))}
               />
-              {posted ? (
-                <TextInput
-                  label="Reason for the correction"
-                  value={reason}
-                  required
-                  placeholder="What changed and why"
-                  onChange={(nextValue) => change(() => setReason(nextValue))}
-                />
-              ) : (
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
                 <AccountingContextEditor
                   className="min-w-0"
                   value={context}
                   manage={manage}
                   onChange={(v) => change(() => setContext(v))}
                 />
-              )}
-            </div>
+              </div>
+            )}
             {!posted && context.payee_id && descriptor && (
               <Checkbox
                 checked={remember}
@@ -420,12 +476,14 @@ export function AccountingTransactionEditor({
               />
             )}
             {splits.length > 1 && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-medium">Split</h3>
+              <section className="space-y-2" aria-label="Split">
+                <div className="flex items-center justify-between px-1">
+                  <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                    Split
+                  </h3>
                   <span
                     className={cn(
-                      "text-xs",
+                      "text-xs tabular-nums",
                       remaining === BigInt(0)
                         ? "text-teal-light"
                         : "text-warning",
@@ -444,12 +502,15 @@ export function AccountingTransactionEditor({
                   {splits.map((s, i) => (
                     <div
                       key={s.key}
-                      className="grid grid-cols-[1fr_110px_32px] items-center gap-2 p-3"
+                      className="grid grid-cols-[minmax(0,1fr)_7rem_2rem] items-center gap-2 p-3"
                     >
-                      <AccountingPicker
+                      <AccountingCategoryPicker
                         label={`Split ${i + 1} category`}
                         value={s.account}
-                        options={categoryOptions}
+                        groups={categoryMenu(baseGroups, accounts, {
+                          current: s.account,
+                        })}
+                        direction={direction}
                         placeholder="Category"
                         onChange={(v) =>
                           change(() =>
@@ -465,7 +526,7 @@ export function AccountingTransactionEditor({
                         aria-label={`Split ${i + 1} amount`}
                         inputMode="decimal"
                         placeholder="0.00"
-                        inputClassName="tabular-nums"
+                        inputClassName="text-right tabular-nums"
                         value={s.amount}
                         onChange={(nextValue) =>
                           change(() =>
@@ -511,7 +572,7 @@ export function AccountingTransactionEditor({
                     </div>
                   ))}
                 </div>
-              </div>
+              </section>
             )}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               <Button
@@ -545,18 +606,16 @@ export function AccountingTransactionEditor({
                   ? "Split across categories"
                   : "Add category"}
               </Button>
-              {!posted && (
-                <Button
-                  type="button"
-                  variant="link"
-                  size="sm"
-                  className="text-muted-foreground"
-                  disabled={command.busy}
-                  onClick={() => void openJournal()}
-                >
-                  Journal view
-                </Button>
-              )}
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="text-muted-foreground"
+                disabled={command.busy}
+                onClick={() => void openJournal()}
+              >
+                Edit as journal entry
+              </Button>
             </div>
           </form>
           {entry && (
@@ -579,7 +638,7 @@ export function AccountingTransactionEditor({
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-[rgba(var(--ink),0.04)] px-6 py-4">
           {!posted ? (
-            <Checkbox
+            <Toggle
               checked={review}
               onChange={setReview}
               label="Mark as reviewed"
@@ -592,7 +651,7 @@ export function AccountingTransactionEditor({
           <div className="flex items-center gap-2">
             <Button
               type="button"
-              variant="ghost"
+              variant="outline"
               disabled={command.busy}
               onClick={() => void close()}
             >

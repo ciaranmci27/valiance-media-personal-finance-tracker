@@ -101,3 +101,43 @@ Admin's convention (as of `20260319_create_tax_estimates.sql`) is one file per f
 **Do not:** conclude "cannot reproduce" from a synthetic click; blame caches or stale tabs before reproducing the owner's exact gesture; treat console errors from an earlier build as the current cause.
 
 **Do:** click the element the owner clicks, then inspect `document.activeElement`, every ancestor's `scrollTop` and the element's computed position; when a fix lands, repeat the same real click.
+
+## A screen that only views data edited elsewhere is bloat
+
+**Rule:** Before adding a section or tab, name the command it dispatches. A screen with no command of its own (Contractors over Payees, a Transfers list over the ledger) is a report or a row action, not a page. Money movements the owner categorizes live in the ledger; link and reverse are row actions there.
+
+**Why this matters:** On 2026-09-13 the owner found Records and Settings "so random and so useless": 13 sections, several read-only views over data edited on another screen, a Transfers page that duplicated the ledger, and Wave migration scaffolding they no longer wanted. Wave has no Transfers page; a transfer is a category on the row.
+
+**Do not:** give a read-only projection its own rail entry; link a Reports page into record-keeping screens; keep migration-era screens after the migration.
+
+**Do:** one Manage page with a group per job; row actions for link and reverse; a report for year-end views; delete what the owner will rebuild more precisely later.
+
+## The category picker follows the direction
+
+**Rule:** A money-in row offers income first; money out offers expenses first. The other side stays reachable under a closed group named for what choosing it means (Refund of an expense, Refund to a customer, Owner contribution, Owner draw), and system or suspense accounts never appear. The account chosen decides the entry kind; the kind never contradicts the group it was picked from.
+
+**Why this matters:** The flat picker offered expense accounts for income and Uncategorized income as a category. The owner: "it shows expense options for an income transaction" and asked for an accordion per type, like Wave.
+
+**Do not:** rebuild the list per picker; guess a new category when the direction flips (clear it); hide the entry's current category when the filter would exclude it.
+
+**Do:** one pure builder in lib with a test; opt-in collapsible groups on the shared Select, mirrored byte for byte to the app workspace.
+
+## Mirror the canonical schema by hand
+
+**Rule:** `supabase/schema/schema.sql` is edited in place to match the migration. The regenerate script is not the source of truth for the committed file: it appends a seed block that collides with the test harness and drops hand-kept functions, so a regenerated snapshot fails parity.
+
+**Why this matters:** On 2026-09-13 a regenerated snapshot changed 269 lines for a 3-branch edit and the parity suite failed on a duplicate system purpose. Restoring the committed file and applying the same replacements passed 16 catalog comparisons.
+
+**Do not:** run `regenerate-accounting-schema.ts` over the committed snapshot; hand-edit the `-- ACCOUNTING` region in a way the migration does not.
+
+**Do:** apply identical string replacements to the migration and the snapshot, then run `verify-accounting-schema.ts`.
+
+## Keep shell heredocs ASCII on this machine
+
+**Rule:** Anything non-ASCII (arrows, middle dots, em dashes) in a Bash tool command is mangled before bash parses it, and one stray byte reads as an unmatched quote that silently skips the whole command. Put such text in a file with the Write or Edit tool instead.
+
+**Why this matters:** On 2026-09-13 a Python heredoc carrying a right arrow failed to parse, so none of its seven file edits ran while the output looked like a syntax error unrelated to the content.
+
+**Do not:** assume a heredoc body is literal on Windows Git Bash.
+
+**Do:** ASCII-only shell scripts; the Edit tool for lines that need other characters; check the echo at the end of a script actually printed.

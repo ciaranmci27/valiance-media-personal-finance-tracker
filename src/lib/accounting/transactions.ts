@@ -66,8 +66,10 @@ export function presentTransaction(
     (s, l) => s + readCents(l.amount_cents),
     BigInt(0),
   );
+  // A linked transfer keeps its original lines and kind; the group id is the durable marker.
   const transfer =
-    accounts.length > 1 && bankLines.length === entry.lines.length;
+    !!entry.transfer_group_id ||
+    (accounts.length > 1 && bankLines.length === entry.lines.length);
   const sameDirection = categoryLines.every((l) =>
     raw > BigInt(0)
       ? readCents(l.amount_cents) < BigInt(0)
@@ -109,6 +111,7 @@ export function presentTransaction(
       sameDirection &&
       !entry.reverses_entry_id &&
       !entry.reversed_by_entry_id &&
+      !entry.transfer_group_id &&
       !["transfer", "payroll", "opening", "invoice_receipt"].includes(
         entry.context?.kind ?? "",
       ),

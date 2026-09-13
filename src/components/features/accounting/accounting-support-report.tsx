@@ -15,6 +15,7 @@ import {
   type SupportReportFilter,
   type SupportReportId,
 } from "@/lib/accounting/support-reports";
+import { accountingHref } from "@/lib/accounting/views";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { ReportMoney } from "./accounting-report-detail";
 import { countLabel, dateLabel } from "./format";
@@ -25,22 +26,30 @@ type ControlRow = NonNullable<SupportReportData["controls"]>["rows"][number];
 const PAGE_SIZE = 100;
 /** Link target for a first-column cell, or null when the row has no drill target. */
 function rowHref(r: SupportRow, to: string): string | null {
-  if (r.run_id)
-    return `/accounting?view=manage&section=payroll&run=${r.run_id}`;
+  if (r.run_id) return accountingHref("payroll", undefined, { run: r.run_id });
   if (r.tax_kind)
-    return `/accounting?view=manage&section=tax&tax_year=${to.slice(0, 4)}&tax_through=${to}&tax_tab=${r.tax_kind === "account" ? "accounts" : "adjustments"}`;
-  if ("contractor_party_id" in r)
-    return `/accounting?view=manage&section=contractors&contractor_filter=${encodeURIComponent(
-      JSON.stringify({
-        year: Number(to.slice(0, 4)),
-        through: to,
+    return accountingHref("manage", "tax", {
+      tax_year: to.slice(0, 4),
+      tax_through: to,
+      tax_tab: r.tax_kind === "account" ? "accounts" : "adjustments",
+    });
+  // A contractor row drills into that payee's payments for the year.
+  if ("contractor_party_id" in r && r.contractor_party_id)
+    return accountingHref("reports", undefined, {
+      report: "vendor-expenses",
+      report_filter: JSON.stringify({
+        from: `${to.slice(0, 4)}-01-01`,
+        to,
+        mode: "posted",
         offset: 0,
-        query: "",
-        ...(r.contractor_party_id ? { party: r.contractor_party_id } : {}),
+        payee: r.contractor_party_id,
       }),
-    )}`;
+    });
   if (r.register_id)
-    return `/accounting?view=manage&section=${r.register_kind === "asset" ? "assets" : "loans"}&register=${r.register_id}`;
+    return accountingHref("manage", "registers", {
+      kind: r.register_kind === "asset" ? "asset" : "loan",
+      register: r.register_id,
+    });
   return null;
 }
 const controlColumns: DataTableColumn<ControlRow>[] = [

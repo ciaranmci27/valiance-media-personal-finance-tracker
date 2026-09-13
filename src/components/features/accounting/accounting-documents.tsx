@@ -1,10 +1,18 @@
 "use client";
 import { FileInput } from "@/components/ui/inputs/FileInput";
 import { useEffect, useRef, useState } from "react";
-import { Paperclip, Download, Link2, Camera, Upload, X } from "lucide-react";
+import {
+  Archive,
+  Paperclip,
+  Download,
+  Link2,
+  Camera,
+  Upload,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
-import { Pagination } from "@/components/ui/pagination";
+import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Tooltip } from "@/components/ui/tooltip";
 import { AccountingEntryPicker } from "./accounting-entry-picker";
 import {
@@ -217,56 +225,76 @@ export function AccountingDocuments({
   demo: boolean;
   onEntry: (id: string) => void;
 }) {
+  // The read returns every document at once; there is no server paging.
   const [data, setData] = useState<DocumentList>({ documents: [], total: 0 }),
-    [offset, setOffset] = useState(0),
     [error, setError] = useState(""),
     [link, setLink] = useState<AccountingDocument | null>(null),
-    [entryId, setEntryId] = useState("");
+    [entryId, setEntryId] = useState(""),
+    // Archiving a document or detaching one transaction both ask why.
+    [reasoned, setReasoned] = useState<{
+      kind: "archive" | "unlink";
+      document: AccountingDocument;
+      entry?: AccountingDocument["entries"][number];
+    } | null>(null),
+    [reason, setReason] = useState("");
   async function refresh() {
-    setData(
-      await accountingGet<DocumentList>({
-        view: "documents",
-        offset: String(offset),
-      }),
-    );
+    const list = await accountingGet<DocumentList>({ view: "documents" });
+    setData({
+      documents: list.documents ?? [],
+      total: (list.documents ?? []).length,
+    });
   }
   const command = useAccountingCommand(async () => {
     await refresh();
     setLink(null);
+    setReasoned(null);
+    setReason("");
   });
   useEffect(() => {
     if (demo) return;
     const controller = new AbortController();
-    accountingGet<DocumentList>(
-      { view: "documents", offset: String(offset) },
-      controller.signal,
-    )
-      // The read returns every document and no count; the list is the count.
+    accountingGet<DocumentList>({ view: "documents" }, controller.signal)
       .then((list) =>
         setData({
           documents: list.documents ?? [],
-          total: list.total ?? (list.documents ?? []).length,
+          total: (list.documents ?? []).length,
         }),
       )
       .catch((e) => {
         if (!controller.signal.aborted) setError(e.message);
       });
     return () => controller.abort();
-  }, [demo, offset]);
+  }, [demo]);
   const meta = (d: AccountingDocument) =>
     `${Math.ceil(Number(d.size_bytes) / 1024)} KB · ${documentStatus(d)}`;
   const entryLinks = (d: AccountingDocument) =>
     d.entries.length ? (
       <div className="flex flex-wrap gap-2">
         {d.entries.map((e) => (
-          <button
-            key={e.id}
-            type="button"
-            className="text-xs text-teal-light hover:underline"
-            onClick={() => onEntry(e.id)}
-          >
-            {dateLabel(e.entry_date)} · {e.memo}
-          </button>
+          <span key={e.id} className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              className="text-xs text-teal-light hover:underline"
+              onClick={() => onEntry(e.id)}
+            >
+              {dateLabel(e.entry_date)} · {e.memo}
+            </button>
+            {!demo && d.state !== "archived" && (
+              <Tooltip content="Unlink from this transaction">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Unlink ${d.original_name} from ${e.memo}`}
+                  onClick={() => {
+                    setReasoned({ kind: "unlink", document: d, entry: e });
+                    setReason("");
+                  }}
+                >
+                  <X size={14} aria-hidden="true" />
+                </Button>
+              </Tooltip>
+            )}
+          </span>
         ))}
       </div>
     ) : null;
@@ -283,6 +311,21 @@ export function AccountingDocuments({
             </a>
           </Button>
         </Tooltip>
+        {!demo && (
+          <Tooltip content="Archive">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`Archive ${d.original_name}`}
+              onClick={() => {
+                setReasoned({ kind: "archive", document: d });
+                setReason("");
+              }}
+            >
+              <Archive size={16} aria-hidden="true" />
+            </Button>
+          </Tooltip>
+        )}
         <Button
           size="sm"
           variant="outline"
@@ -348,16 +391,88 @@ export function AccountingDocuments({
             {actions(d)}
           </div>
         )}
-        after={
-          <Pagination
-            offset={offset}
-            limit={100}
-            total={data.total}
-            onChange={setOffset}
-            noun="documents"
-          />
-        }
       />
+      <Dialog
+        open={!!reasoned}
+        onOpenChange={(open) => {
+          if (!open && !command.busy) setReasoned(null);
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {reasoned?.kind === "archive"
+                ? "Archive receipt"
+                : "Unlink receipt"}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              {reasoned?.kind === "archive"
+                ? "The file stays on record but leaves the inbox and the pickers."
+                : "The transaction keeps its ledger lines; only the attachment goes."}
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-5"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!reasoned || !reason.trim()) return;
+              void command.execute(
+                reasoned.kind === "archive"
+                  ? {
+                      type: "document.archive",
+                      id: reasoned.document.id,
+                      expected_version: reasoned.document.version,
+                      reason: reason.trim(),
+                    }
+                  : {
+                      type: "document.unlink",
+                      id: reasoned.document.id,
+                      expected_version: reasoned.document.version,
+                      entry_id: reasoned.entry!.id,
+                      reason: reason.trim(),
+                    },
+              );
+            }}
+          >
+            <p className="text-sm text-muted-foreground">
+              {reasoned?.kind === "unlink" && reasoned.entry
+                ? `${reasoned.document.original_name} from ${dateLabel(reasoned.entry.entry_date)} · ${reasoned.entry.memo}`
+                : reasoned?.document.original_name}
+            </p>
+            <TextInput
+              label="Reason"
+              value={reason}
+              onChange={setReason}
+              required
+              maxLength={1000}
+            />
+            {command.error && (
+              <p role="alert" className="text-sm text-error">
+                {command.error}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={command.busy}
+                onClick={() => setReasoned(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant={
+                  reasoned?.kind === "archive" ? "destructive" : "default"
+                }
+                disabled={command.busy || !reason.trim()}
+                loading={command.busy}
+              >
+                {reasoned?.kind === "archive" ? "Archive" : "Unlink"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog
         open={!!link}
         onOpenChange={(open) => {

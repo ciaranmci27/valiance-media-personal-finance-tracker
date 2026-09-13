@@ -1,4 +1,5 @@
 "use client";
+import { Disclosure } from "@/components/ui/disclosure";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { Radio } from "@/components/ui/inputs/RadioGroup";
 import { useEffect, useState, useDeferredValue } from "react";
@@ -762,18 +763,13 @@ function StatementCreate({
               onChange={(nextValue) => setEnding(nextValue)}
             />
           </div>
-          <details className="group rounded-xl border border-border">
-            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-              Advanced
-            </summary>
-            <div className="space-y-4 border-t border-border p-4">
-              <AccountingDocumentPicker
-                value={doc}
-                onChange={setDoc}
-                label="Statement file (optional)"
-              />
-            </div>
-          </details>
+          <Disclosure summary="Advanced" contentClassName="space-y-4">
+            <AccountingDocumentPicker
+              value={doc}
+              onChange={setDoc}
+              label="Statement file (optional)"
+            />
+          </Disclosure>
           <ErrorText value={cmd.error} />
           <div className="flex justify-end gap-2">
             <Button

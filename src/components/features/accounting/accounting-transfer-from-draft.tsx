@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { ArrowLeftRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { TextInput } from "@/components/ui/inputs/TextInput";
@@ -28,7 +28,8 @@ import { absMoney, dateLabel } from "./format";
  * accounts (a card payment, a transfer to savings). Records the transfer
  * with the drafts' own dates so the books claim both bank movements and
  * retire the drafts, instead of counting one side as income and the other
- * as an expense.
+ * as an expense. The draft's own account is fixed; the other side is chosen,
+ * pre-filled from the matching movement when the books hold one.
  */
 export function AccountingTransferFromDraft({
   entry,
@@ -51,14 +52,14 @@ export function AccountingTransferFromDraft({
   const q = counterpart ? presentTransaction(counterpart, profiles) : null;
   const outgoing = p.amount < BigInt(0);
   const own = p.bankLine?.account_id ?? "";
-  const otherDefault = q?.bankLine?.account_id ?? "";
-  const [other, setOther] = useState(otherDefault);
-  const [ownDate, setOwnDate] = useState(entry.entry_date);
-  const [otherDate, setOtherDate] = useState(
-    counterpart?.entry_date ?? entry.entry_date,
+  const [other, setOther] = useState(q?.bankLine?.account_id ?? "");
+  // Dates read in the money's order: it left one account, then arrived in the other.
+  const otherDate = counterpart?.entry_date ?? entry.entry_date;
+  const [outDate, setOutDate] = useState(
+    outgoing ? entry.entry_date : otherDate,
   );
+  const [inDate, setInDate] = useState(outgoing ? otherDate : entry.entry_date);
   const cashKind = new Map(profiles.map((x) => [x.account_id, x.cash_kind]));
-  const name = (id: string) => accounts.find((a) => a.id === id)?.name ?? "";
   const toIsCard = cashKind.get(outgoing ? other : own) === "card";
   const [memo, setMemo] = useState(() =>
     toIsCard ? "Card payment" : "Transfer between accounts",
@@ -67,18 +68,20 @@ export function AccountingTransferFromDraft({
   const amount = p.amount < BigInt(0) ? -p.amount : p.amount;
   const fromId = outgoing ? own : other;
   const toId = outgoing ? other : own;
-  const options = accounts
+  const option = (a: AccountingAccount) => ({
+    value: a.id,
+    label: a.name,
+    icon: <AccountingAccountLogo accountId={a.id} name={a.name} size={20} />,
+  });
+  const ownOptions = accounts.filter((a) => a.id === own).map(option);
+  const otherOptions = accounts
     .filter(
       (a) =>
         a.id !== own &&
         !a.is_archived &&
         ["bank", "cash", "card"].includes(cashKind.get(a.id) ?? "none"),
     )
-    .map((a) => ({
-      value: a.id,
-      label: a.name,
-      icon: <AccountingAccountLogo accountId={a.id} name={a.name} size={20} />,
-    }));
+    .map(option);
 
   async function save() {
     if (!fromId || !toId || fromId === toId) return;
@@ -90,30 +93,23 @@ export function AccountingTransferFromDraft({
       to_account_id: toId,
       amount_cents: amount.toString(),
       memo: memo.trim() || "Transfer between accounts",
-      outgoing_date: outgoing ? ownDate : otherDate,
-      incoming_date: outgoing ? otherDate : ownDate,
+      outgoing_date: outDate,
+      incoming_date: inDate,
     });
     if (ok) onClose();
   }
 
-  const side = (label: string, id: string, fixed: boolean) => (
-    <div>
-      <p className="mb-1.5 text-sm font-medium">{label}</p>
-      {fixed ? (
-        <div className="flex h-10 items-center gap-2 rounded-xl border border-border px-3 text-sm">
-          <AccountingAccountLogo accountId={id} name={name(id)} size={20} />
-          <span className="truncate">{name(id)}</span>
-        </div>
-      ) : (
-        <AccountingPicker
-          label={label}
-          value={other}
-          options={options}
-          placeholder="Choose the other account"
-          onChange={setOther}
-        />
-      )}
-    </div>
+  // Both sides are the same field; the draft's own side is simply fixed.
+  const side = (label: string, fixed: boolean) => (
+    <AccountingPicker
+      label={label}
+      visibleLabel={label}
+      value={fixed ? own : other}
+      options={fixed ? ownOptions : otherOptions}
+      disabled={fixed}
+      placeholder="Choose the other account"
+      onChange={setOther}
+    />
   );
 
   return (
@@ -126,7 +122,7 @@ export function AccountingTransferFromDraft({
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>Record transfer</DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="sr-only">
             {counterpart
               ? "Both bank movements become one transfer."
               : "The other side is claimed when its movement arrives."}
@@ -142,27 +138,27 @@ export function AccountingTransferFromDraft({
           <p className="text-3xl font-semibold tracking-tight tabular-nums">
             <MaskedValue value={absMoney(amount)} />
           </p>
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto_1fr] sm:items-end">
-            {side("From", fromId, outgoing)}
-            <ArrowLeftRight
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] sm:items-end">
+            <div className="min-w-0">{side("From", outgoing)}</div>
+            <ArrowRight
               size={16}
               aria-hidden="true"
-              className="hidden self-center justify-self-center text-muted-foreground sm:block sm:pb-3"
+              className="hidden justify-self-center text-muted-foreground sm:block sm:pb-3"
             />
-            {side("To", toId, !outgoing)}
+            <div className="min-w-0">{side("To", !outgoing)}</div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <DateInput
-              label={outgoing ? "Left the account on" : "Arrived on"}
-              value={ownDate}
+              label="Left the account on"
+              value={outDate}
               required
-              onChange={setOwnDate}
+              onChange={setOutDate}
             />
             <DateInput
-              label={outgoing ? "Arrived on" : "Left the account on"}
-              value={otherDate}
+              label="Arrived on"
+              value={inDate}
               required
-              onChange={setOtherDate}
+              onChange={setInDate}
             />
           </div>
           <TextInput
