@@ -7,7 +7,8 @@ import { DialogClose } from "@/components/ui/dialog";
 import { Select } from "@/components/ui/inputs/Select";
 import { MaskedValue } from "@/components/ui/masked-value";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
-import { centsToDecimal } from "@/lib/accounting/money";
+import { centsToDecimal, journalTotals } from "@/lib/accounting/money";
+import { JournalTotals } from "./accounting-journal-totals";
 import {
   registerActionLabels,
   type RegisterDetail,
@@ -411,6 +412,7 @@ export function AccountingRegisterAction({
                       </div>
                     ))}
                 </div>
+                <JournalTotals {...journalTotals(preview.lines)} />
               </div>
             )}
           </>

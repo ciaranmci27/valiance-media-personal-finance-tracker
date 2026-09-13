@@ -32,7 +32,7 @@ import {
   type TaxWorkpaperRevision,
 } from "@/lib/accounting/tax-workpapers";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
-import { AccountingTaxLink } from "./accounting-tax-link";
+import { TreatmentReview } from "./tax-treatment-review";
 import {
   EvidencePicker,
   WorkflowActions,
@@ -92,8 +92,9 @@ export function AccountingTaxWorkpapers({
   const [query, setQuery] = useState(""),
     [onlyMissing, setOnlyMissing] = useState(false),
     [editor, setEditor] = useState<Editor | null>(null),
-    [history, setHistory] = useState<HistoryScope | null>(null);
-  const tab = ["accounts", "adjustments", "basis", "estimator"].includes(
+    [history, setHistory] = useState<HistoryScope | null>(null),
+    [suggesting, setSuggesting] = useState(false);
+  const tab = ["accounts", "adjustments", "basis"].includes(
     params.get("tax_tab") ?? "",
   )
     ? params.get("tax_tab")!
@@ -231,7 +232,6 @@ export function AccountingTaxWorkpapers({
                 ["accounts", "Account treatment"],
                 ["adjustments", "Adjustments"],
                 ["basis", "Shareholder basis"],
-                ["estimator", "Estimator link"],
               ].map(([id, label]) => (
                 <button
                   key={id}
@@ -248,8 +248,7 @@ export function AccountingTaxWorkpapers({
               ))}
             </div>
           </nav>
-          {tab !== "estimator" && (
-            <>
+          <>
               <div className="grid gap-4 sm:grid-cols-3">
                 {[
                   ["Book profit", data.book_profit_cents],
@@ -276,7 +275,7 @@ export function AccountingTaxWorkpapers({
               <p className="text-xs leading-relaxed text-muted-foreground">
                 Recorded amounts through {dateLabel(data.through)}.{" "}
                 {data.unmapped_accounts} active accounts need treatment review;{" "}
-                {data.drafts} draft transactions and {data.incomplete_imports}{" "}
+                {data.drafts} transactions still to review and {data.incomplete_imports}{" "}
                 incomplete imports remain.{" "}
                 {data.unavailable_adjustments > 0
                   ? `${data.unavailable_adjustments} active adjustments have unavailable evidence. `
@@ -284,12 +283,8 @@ export function AccountingTaxWorkpapers({
                 Amounts remain provisional until coverage and source reviews are
                 complete.
               </p>
-            </>
-          )}
+          </>
 
-          {tab === "estimator" && (
-            <AccountingTaxLink source={data} onRefresh={refresh} />
-          )}
           {tab === "accounts" && (
             <>
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -300,12 +295,40 @@ export function AccountingTaxWorkpapers({
                   value={query}
                   onChange={(nextValue) => setQuery(nextValue)}
                 />
-                <Checkbox
-                  checked={onlyMissing}
-                  onChange={setOnlyMissing}
-                  label="Needs review only"
-                />
+                <div className="flex flex-wrap items-center gap-3">
+                  <Checkbox
+                    checked={onlyMissing}
+                    onChange={setOnlyMissing}
+                    label="Needs review only"
+                  />
+                  {data.accounts.some((a) => !a.current && a.line_count > 0) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setSuggesting(true)}
+                    >
+                      Suggest treatments
+                    </Button>
+                  )}
+                </div>
               </div>
+              {suggesting && (
+                <WorkflowDialog
+                  title="Suggest treatments"
+                  size="md"
+                  onClose={() => setSuggesting(false)}
+                >
+                  <TreatmentReview
+                    year={data.year}
+                    through={data.through}
+                    onApplied={() => {
+                      setSuggesting(false);
+                      void refresh();
+                    }}
+                    onCancel={() => setSuggesting(false)}
+                  />
+                </WorkflowDialog>
+              )}
               <AccountTreatmentTable
                 source={data}
                 rows={rows}

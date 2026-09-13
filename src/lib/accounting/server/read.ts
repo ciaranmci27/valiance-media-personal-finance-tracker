@@ -1,7 +1,5 @@
 import type { AccountingWorkspace } from '../contracts';
 import type {ContractorView} from '../contractors';
-import type {TaxLinkView} from '../tax-links';
-import {taxLinkSafeHarbor} from '../tax-payment-plan';
 export interface AccountingRpc {
  rpc(name:string,args?:Record<string,unknown>): PromiseLike<{data:unknown;error:{message:string}|null}>;
 }
@@ -17,12 +15,6 @@ export async function readAccounting(client:AccountingRpc,view:string,args:Recor
   return result as {data:AccountingWorkspace|null;error:{message:string}|null};
  }
  case 'manage':case 'feeds':case 'rules':case 'history':case 'close-history':case 'tax-history':return client.rpc('context',{view,params:p});
- case 'tax': {
-  const result = await client.rpc('context',{view,params:p});
-  if(result.error || !result.data) return result;
-  const {_safe_harbor_context, ...tax} = result.data as TaxLinkView & {_safe_harbor_context:{as_of:string;financial_revision:string;available_documents:string[]}};
-  return {data:{...tax,safe_harbor:taxLinkSafeHarbor(tax,_safe_harbor_context)},error:null};
- }
  case 'documents':return client.rpc('documents',{filter:p});
  case 'imports':return client.rpc('imports',{batch:p.batch});
  case 'import-comparison':return client.rpc('import_compare',{batch_a:filter.earlier,batch_b:filter.later,filter:p.filter});
@@ -30,11 +22,20 @@ export async function readAccounting(client:AccountingRpc,view:string,args:Recor
  case 'books-package':case 'books-package-history':return client.rpc('books_package',{params:{...p,view:view==='books-package-history'?'history':'preview'}});
  case 'snapshot':return client.rpc('snapshot_read',{id:p.id});
  case 'register':return client.rpc('transactions',{filter:p.filter,page:{offset:filter.offset??0,limit:filter.limit??50}});
- case 'evidence':return client.rpc('context',{view:'evidence',params:{id:p.entry}});
+ case 'evidence': {
+  const [result, history] = await Promise.all([
+   client.rpc('context',{view:'evidence',params:{id:p.entry}}),
+   client.rpc('entry_history',{entry:p.entry}),
+  ]);
+  if(result.error || !result.data) return result;
+  if(history.error) return history;
+  const related = history.data as {reference:string;entries:unknown[];documents:unknown[]};
+  return {data:{...result.data as object,history:related,documents:related.documents},error:null};
+ }
  case 'bank-review':return client.rpc('bank_review',{filter:{id:p.group,query:p.query,offset:p.offset}});
  case 'rules-preview':return client.rpc('rules_preview',{filter:{...p,rule_id:p.rule}});
  case 'tax-source':return client.rpc('tax_source',{year:p.year,cutoff:p.through});
- case 'tax-snapshot':return client.rpc('context',{view:'tax-snapshot',params:p});
+ case 'setup-status':return client.rpc('setup_status',{year:p.year});
  case 'contractors': {
   const result=await client.rpc('contractor_report',{year:filter.year??p.year,cutoff:filter.through??null});
   if(result.error||!result.data)return result;

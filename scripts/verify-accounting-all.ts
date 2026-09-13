@@ -10,6 +10,7 @@ const scripts = new URL(".", import.meta.url);
 const integration = new Set([
   "verify-accounting-concurrency.ts",
   "verify-accounting-http.ts",
+  "verify-accounting-patriot-http.ts",
   "verify-accounting-production.ts",
 ]);
 
@@ -25,6 +26,7 @@ async function main() {
     )
     .sort();
   files.push("verify-tax.ts");
+  files.push("verify-tax-schedule.ts");
   const results: {
     file: string;
     passed: boolean;

@@ -550,7 +550,7 @@ export function AccountingImports({
       ) : (
         batch && (
           <>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <Button
                 variant="ghost"
                 onClick={() => {
@@ -562,8 +562,8 @@ export function AccountingImports({
                 <ArrowLeft size={16} aria-hidden="true" />
                 All imports
               </Button>
-              <div>
-                <h3 className="font-semibold">{batch.file_name}</h3>
+              <div className="min-w-0 flex-1">
+                <h3 className="truncate font-semibold">{batch.file_name}</h3>
                 <p className="text-xs text-muted-foreground">
                   {batch.mode === "journal"
                     ? "Historical journals"
@@ -734,7 +734,7 @@ export function AccountingImports({
                   {progress ||
                     `${data.counts.duplicate ?? 0} linked duplicates · ${data.counts.excluded ?? 0} excluded with a reason`}
                 </p>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button
                     disabled={
                       working ||
@@ -1406,7 +1406,7 @@ function ImportWizard({
       },
     ];
     const previewCard = ({ group }: PreviewRow) => (
-      <div className="glass-card rounded-xl p-4 text-sm">
+      <div className="text-sm">
         <div className="flex items-start justify-between gap-3">
           <span className="whitespace-nowrap">
             {dateLabel(group.entry_date) || "Invalid date"}
@@ -1431,7 +1431,7 @@ function ImportWizard({
           <ArrowLeft size={16} aria-hidden="true" />
           Adjust mapping
         </Button>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           {[
             ["Groups", String(preview.groups.length)],
             ["Invalid groups", String(preview.errorCount)],
@@ -1454,7 +1454,6 @@ function ImportWizard({
             data={previewRows}
             keyExtractor={(row) => String(row.index)}
             framed={false}
-            className="max-lg:p-3"
             mobileCard={previewCard}
           />
         </div>
@@ -1473,7 +1472,7 @@ function ImportWizard({
             {error || command.error}
           </p>
         )}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <span role="status" className="text-sm text-muted-foreground">
             {progress}
           </span>
@@ -1552,7 +1551,7 @@ function ImportWizard({
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             />
           </label>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <Select
               id="csv-delimiter"
               label="Delimiter"

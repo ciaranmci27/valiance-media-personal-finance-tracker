@@ -503,6 +503,17 @@ check(`${N} randomized scenarios hold all invariants`, invariantFails === 0,
   `${invariantFails} failed, first: ${firstFail}`);
 
 // ---------------------------------------------------------------------------
+// Annualizing income for an instalment (Form 2210 Schedule AI) scales income
+// only; the standard deduction and the household stay whole.
+{
+  const base = calc({ income: [src("k1", 40000, "k1", false)], cfg: c26 });
+  const scaled = calc({ income: [src("k1", 60000, "k1", false)], cfg: c26 });
+  check("scaling income by 1.5 leaves the standard deduction unchanged", near(scaled.standardDeduction, base.standardDeduction));
+  check("taxable income moves by the scaled income less the QBI change only",
+    near(scaled.taxableIncome - base.taxableIncome, 20000 - (scaled.qbiDeduction - base.qbiDeduction)));
+}
+
+// ---------------------------------------------------------------------------
 console.log("");
 if (failures.length === 0) {
   console.log(`  tax engine: ${passed} checks passed`);

@@ -145,6 +145,36 @@ export type IncomeType = "1099" | "w2" | "k1" | "qualified_dividend" | "retireme
 export type BusinessType = "none" | "sole_prop" | "llc" | "s_corp" | "c_corp" | "partnership";
 export type TaxClassification = "sole_prop" | "disregarded" | "s_corp" | "c_corp" | "partnership";
 
+/**
+ * A figure the accounting books supply for the year. The estimator row keeps
+ * the actual so far plus the owner's rest-of-year amount; `amount` is the sum.
+ * Keys are minted by the figures endpoint and only ever compared for equality.
+ */
+export type BooksFigureKey =
+  | "business_profit"
+  | "interest"
+  | "qualified_dividend"
+  | "short_gain"
+  | "long_gain"
+  | `payroll:wages:${string}`
+  | `payroll:federal_withheld:${string}`
+  | `payroll:state_withheld:${string}`;
+
+export interface BooksLink {
+  key: BooksFigureKey;
+  /** Dollars the books report so far. */
+  actual: number;
+  /** YYYY-MM-DD the actual covers. */
+  through: string;
+  /** Dollars the owner expects for the rest of the year. */
+  rest: number;
+  /** Payroll register document, payroll rows only. */
+  document_id?: string | null;
+  refreshed_at?: string;
+  /** Payroll wages only: per-base actual dollars, so wage bases rebuild as base + rest. */
+  bases?: { social_security: number; medicare: number; state?: number };
+}
+
 // Tax estimator JSONB shape types
 export interface TaxIncomeSource {
   id: string;
@@ -178,6 +208,8 @@ export interface TaxIncomeSource {
     state?: number;
     state_code?: string;
   };
+  /** Present when the amount comes from the accounting books. */
+  books?: BooksLink;
 }
 
 export interface TaxCapitalGainEntry {
@@ -185,6 +217,7 @@ export interface TaxCapitalGainEntry {
   description: string;
   amount: number;
   term: "short" | "long";
+  books?: BooksLink;
 }
 
 export interface TaxPaymentEntry {
@@ -196,12 +229,10 @@ export interface TaxPaymentEntry {
   amount: number;
   /** Links this withholding to an income source */
   linked_income_id?: string;
-  /** Forecast entries belong to calculation overlays and are not actual paid tax. */
-  timing?: "actual" | "forecast";
-  paid_on?: string;
   document_id?: string;
   /** Cutoff of a verified YTD withholding report, not an individual payment date. */
   verified_through?: string;
+  books?: BooksLink;
 }
 
 // Expense category types

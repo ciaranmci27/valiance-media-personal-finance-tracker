@@ -505,7 +505,7 @@ export function AccountingRules({
               onChange={(offset) => void inspect(ruleId, offset / PREVIEW_PAGE)}
             />
             {currentRule && !currentRule.enabled && (
-              <div className="space-y-3 glass-card rounded-xl p-4">
+              <div className="space-y-3 rounded-xl border border-border p-4">
                 <p className="text-sm">
                   Enable “{currentRule.name}” for draft suggestions after
                   reviewing its conditions and matches.
@@ -624,7 +624,7 @@ export function AccountingRules({
             Add alias
           </Button>
         </div>
-        <div className="p-4 lg:p-0">
+        <div>
           <DataTable<PayeeAlias>
             framed={false}
             columns={aliasColumns}
@@ -633,11 +633,11 @@ export function AccountingRules({
             onRowClick={(a) => setAlias(a)}
             emptyState="No aliases yet. Add a payee in Payees & customers first."
             mobileCard={(a) => (
-              <div className="glass-card rounded-xl p-4 text-sm">
+              <div className="text-sm">
                 <div className="flex items-start justify-between gap-3">
                   <button
                     type="button"
-                    className={`${linkClass} min-w-0 font-medium`}
+                    className={`${linkClass} min-w-0 truncate font-medium`}
                     onClick={(e) => {
                       e.stopPropagation();
                       setAlias(a);
@@ -758,7 +758,7 @@ function RuleEditor({
         if (!open && !cmd.busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{rule.version ? "Edit rule" : "New rule"}</DialogTitle>
           <DialogDescription className="sr-only">

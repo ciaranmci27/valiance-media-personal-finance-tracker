@@ -72,7 +72,7 @@ const controlColumns: DataTableColumn<ControlRow>[] = [
   },
 ];
 const controlCard = (r: ControlRow) => (
-  <div className="glass-card rounded-xl p-4">
+  <div>
     <p className="text-sm font-medium">{r.name}</p>
     <dl className="mt-2 space-y-1">
       {(

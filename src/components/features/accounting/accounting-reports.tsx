@@ -190,7 +190,7 @@ const RECORDS = [
   {
     id: "tax",
     title: "Tax",
-    description: "Book-to-tax adjustments and the estimator link.",
+    description: "Book-to-tax adjustments and workpapers.",
   },
 ];
 
@@ -501,7 +501,7 @@ export function AccountingReports({
             {report.description}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             onClick={() => void exportReport("csv")}
@@ -749,7 +749,7 @@ export function AccountingReports({
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <Checkbox
                 size="sm"
                 checked={showZero}
@@ -1049,7 +1049,9 @@ function ReportHighlights({ id, data }: { id: ReportId; data: ReportData }) {
     <div
       className={cn(
         "grid gap-3 lg:gap-4",
-        values.length === 4 ? "grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3",
+        values.length === 4
+          ? "grid-cols-1 min-[360px]:grid-cols-2 lg:grid-cols-4"
+          : "grid-cols-1 sm:grid-cols-3",
       )}
     >
       {values.map(([label, value], i) => (

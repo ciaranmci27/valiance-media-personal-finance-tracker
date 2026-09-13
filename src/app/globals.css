@@ -415,6 +415,15 @@ html {
   scrollbar-gutter: stable;
 }
 
+@supports (scrollbar-gutter: stable) {
+  /* The root already reserves scrollbar space. Radix scroll locking adds a
+     body margin for the same space, so suppress that duplicate compensation. */
+  html body[data-scroll-locked] {
+    margin-right: 0 !important;
+    --removed-body-scroll-bar-size: 0px;
+  }
+}
+
 /* Tailwind v3+ removed the default button cursor rule that v2 shipped, so
    native <button> elements show the arrow cursor even when interactive.
    Restore the pointer globally. Disabled buttons keep the default cursor
@@ -722,6 +731,17 @@ a.bg-teal {
     0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
+/* Provisional meter segment (projected credits): hatched so it reads as not
+   yet in hand. Theme-aware through the --ink triplet. */
+.meter-hatch {
+  background-color: rgba(var(--ink), 0.06);
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(var(--ink), 0.35) 0 3px,
+    transparent 3px 7px
+  );
+}
+
 /* Divider color for stacked children (app verbatim) */
 .divide-app > * + * {
   border-color: var(--border);
@@ -734,7 +754,6 @@ a.bg-teal {
   background-color: var(--background);
   background-image: linear-gradient(var(--glass-bg), var(--glass-bg));
   border-right: 1px solid var(--border);
-  box-shadow: 10px 0 34px -22px rgba(0, 0, 0, 0.6);
 }
 
 /* Soft inset brand ring for active sidebar items */

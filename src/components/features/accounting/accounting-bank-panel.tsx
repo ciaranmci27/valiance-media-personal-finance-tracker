@@ -16,6 +16,7 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import type { BalanceRow } from "@/lib/accounting/contracts";
 import type { FeedData } from "@/lib/accounting/feeds";
+import { bankIdentitiesByAccount } from "@/lib/accounting/bank-identity";
 import { accountingGet } from "./use-accounting-command";
 import { money, timestampLabel } from "./format";
 
@@ -107,27 +108,13 @@ export function AccountingBankPanel({
 
   if (accounts.length === 0) return null;
 
+  const identities = bankIdentitiesByAccount(feeds);
   const rows = accounts.map((a) => {
     const feedAccount =
       feeds?.accounts.find((f) => f.account_id === a.id) ?? null;
-    // A bank account can keep identities from earlier connections; the one on
-    // a live connection is the one to show.
-    const candidates = feedAccount
-      ? (feeds?.identities ?? [])
-          .filter((i) => i.feed_account_id === feedAccount.id)
-          .map((i) => ({
-            identity: i,
-            connection:
-              feeds?.connections.find((c) => c.id === i.connection_id) ?? null,
-          }))
-      : [];
-    const best =
-      candidates.find((c) => c.connection?.status === "active") ??
-      candidates.find((c) => c.connection?.status === "reconnect_required") ??
-      candidates[0] ??
-      null;
-    const identity = best?.identity ?? null;
-    const connection = best?.connection ?? null;
+    const identity = identities.get(a.id) ?? null;
+    const connection =
+      feeds?.connections.find((c) => c.id === identity?.connection_id) ?? null;
     const status: Status = !connection
       ? feeds?.connections.some((c) => c.status === "active")
         ? "unmapped"
@@ -144,7 +131,15 @@ export function AccountingBankPanel({
           BigInt(feedAccount.balance_sign)
         : null;
     const difference = observed !== null ? book - observed : null;
-    return { account: a, connection, identity, status, book, difference };
+    return {
+      account: a,
+      connection,
+      identity,
+      status,
+      book,
+      difference,
+      observed,
+    };
   });
 
   return (
@@ -154,8 +149,8 @@ export function AccountingBankPanel({
         count={accounts.length}
         description={
           demo
-            ? "Book balances from reviewed transactions."
-            : "Book balance beside what the bank last reported."
+            ? "Book balances from posted transactions."
+            : "Latest bank-reported balances, independent of transaction review."
         }
         action={
           !demo && (
@@ -208,19 +203,23 @@ export function AccountingBankPanel({
               </div>
               <div className="min-w-0">
                 <p className="text-2xl font-semibold tracking-tight tabular-nums">
-                  <MaskedValue value={money(r.book)} />
+                  <MaskedValue value={money(r.observed ?? r.book)} />
                 </p>
-                <p className="mt-1 truncate text-xs text-muted-foreground">
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {r.observed !== null
+                    ? `Bank reported${r.identity?.balance?.balance_at ? ` · ${timestampLabel(new Date(r.identity.balance.balance_at * 1000).toISOString())}` : ""}`
+                    : "Book balance (no bank balance available)"}
+                </p>
+                <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
                   {off ? (
                     <span className="inline-flex items-center gap-1 text-warning">
                       <CircleAlert size={12} aria-hidden="true" />
-                      Bank shows{" "}
-                      <MaskedValue value={money(r.book - r.difference!)} />
+                      Reviewed books: <MaskedValue value={money(r.book)} />
                     </span>
                   ) : r.difference !== null ? (
                     <span className="inline-flex items-center gap-1 text-teal-light">
                       <CheckCircle2 size={12} aria-hidden="true" />
-                      Matches the bank
+                      Books match
                       {r.connection?.last_success_at
                         ? ` · synced ${timestampLabel(r.connection.last_success_at)}`
                         : ""}

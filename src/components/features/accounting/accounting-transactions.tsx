@@ -1,11 +1,12 @@
 "use client";
 import { DateInput } from "@/components/ui/inputs/DateInput";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ArrowLeftRight,
   ArrowUpDown,
   Check,
   CheckCheck,
+  Loader2,
   Copy,
   FileText,
   Filter,
@@ -53,18 +54,34 @@ import type {
 import type { BooksMetadata } from "./types";
 import {
   defaultEntryContext,
+  isTransactionReviewed,
+  isTransactionReversed,
+  canRestoreTransaction,
   presentTransaction,
 } from "@/lib/accounting/transactions";
-import { InstitutionLogo } from "@/components/ui/institution-logo";
+import {
+  AccountingAccountLabel,
+  AccountingAccountLogo,
+  useAccountingBankIdentity,
+} from "./accounting-bank-identity";
+import { accountBalances } from "@/lib/accounting/account-balances";
+import {
+  createAccountingReadCache,
+  type AccountingReadCache,
+} from "@/lib/accounting/read-cache";
+import { useAccountingRowCommand } from "./use-accounting-row-command";
 import { Toggle } from "@/components/ui/inputs/Toggle";
 import { AccountingPicker } from "./accounting-picker";
 import { AccountingTransferFromDraft } from "./accounting-transfer-from-draft";
+import { commandContext, useAccountingCommand } from "./use-accounting-command";
 import {
-  accountingGet,
-  commandContext,
-  useAccountingCommand,
-} from "./use-accounting-command";
-import { absMoney, dateLabel, money, signedMoney } from "./format";
+  absMoney,
+  dateLabel,
+  money,
+  signedMoney,
+  timestampLabel,
+  entryStateLabel,
+} from "./format";
 
 type Result = {
   entries: JournalEntry[];
@@ -81,6 +98,7 @@ export type TransactionAction =
   | "edit"
   | "journal"
   | "copy"
+  | "restore"
   | "reverse"
   | "discard"
   | "detail";
@@ -95,6 +113,10 @@ export function AccountingTransactions({
   initialFilter = {},
   onAction,
   onRefresh,
+  onTransactionSaved = onRefresh,
+  registerCache: sharedCache,
+  registerEpoch = 0,
+  actions,
 }: {
   data: AccountingWorkspace;
   manage: BooksMetadata;
@@ -103,6 +125,10 @@ export function AccountingTransactions({
   initialFilter?: Partial<RegisterFilter>;
   onAction: (action: TransactionAction, entry: JournalEntry) => void;
   onRefresh: () => Promise<void>;
+  onTransactionSaved?: () => Promise<void>;
+  registerCache?: AccountingReadCache;
+  registerEpoch?: number;
+  actions?: ReactNode;
 }) {
   // The inbox count: drafts plus anything else the books flag for review.
   const reviewCount = data.needs_review_count ?? data.draft_count;
@@ -110,7 +136,11 @@ export function AccountingTransactions({
   const inboxStatus: RegisterFilter["status"] =
     reviewCount > 0 ? "draft" : "all";
   const defaultStatus: RegisterFilter["status"] =
-    initialFilter.status ?? inboxStatus;
+    initialFilter.review === "needs_review"
+      ? "draft"
+      : initialFilter.review === "reviewed" || initialFilter.status === "posted"
+        ? "all"
+        : (initialFilter.status ?? inboxStatus);
   const [query, setQuery] = useState(initialFilter.query ?? "");
   const [search, setSearch] = useState(initialFilter.query ?? "");
   const [account, setAccount] = useState(initialFilter.account ?? "");
@@ -134,6 +164,15 @@ export function AccountingTransactions({
   const [filters, setFilters] = useState(false);
   const [offset, setOffset] = useState(initialFilter.offset ?? 0);
   const [result, setResult] = useState<Result | null>(null);
+  const [localCache] = useState(() => createAccountingReadCache());
+  const registerCache = sharedCache ?? localCache;
+  const [loadedSignature, setLoadedSignature] = useState("");
+  const [focusEpoch, setFocusEpoch] = useState(0);
+  const [overrides, setOverrides] = useState<
+    Record<string, { entry: JournalEntry; pending: boolean }>
+  >({});
+  const rowCommand = useAccountingRowCommand();
+  const clearRowErrors = rowCommand.clearResolved;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   // Selected draft ids with the version seen at selection time, so a stale row never posts.
@@ -172,6 +211,20 @@ export function AccountingTransactions({
     }
   }
   const cmd = useAccountingCommand(onRefresh);
+  const { feeds } = useAccountingBankIdentity();
+  const balances = useMemo(
+    () => accountBalances(data.balances, manage.profiles, feeds),
+    [data.balances, manage.profiles, feeds],
+  );
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      setFocusEpoch((value) => value + 1);
+    };
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [registerCache]);
 
   const profiles = manage.profiles;
   const accounts = useMemo(
@@ -205,7 +258,13 @@ export function AccountingTransactions({
     from: from || undefined,
     to: to || undefined,
     account: account || undefined,
-    status,
+    status: status === "discarded" || status === "reversed" ? status : "all",
+    review:
+      status === "draft"
+        ? "needs_review"
+        : status === "posted"
+          ? "reviewed"
+          : undefined,
     query: search || undefined,
     source: (source || undefined) as RegisterFilter["source"],
     payee: payee || undefined,
@@ -266,10 +325,19 @@ export function AccountingTransactions({
     setError("");
     const f: Partial<RegisterFilter> = JSON.parse(signature);
     if (demo) {
-      const { status, account, query: search, offset = 0 } = f;
+      const { status, review, account, query: search, offset = 0 } = f;
       const list = data.entries.filter(
         (e) =>
-          (status === "all" ? e.status !== "discarded" : e.status === status) &&
+          (status === "reversed"
+            ? !e.reverses_entry_id && Boolean(e.reversed_by_entry_id)
+            : !isTransactionReversed(e) &&
+              (status === "all"
+                ? e.status !== "discarded"
+                : e.status === status)) &&
+          (!review ||
+            (review === "reviewed"
+              ? isTransactionReviewed(e)
+              : !isTransactionReviewed(e))) &&
           (!account || e.lines.some((l) => l.account_id === account)) &&
           (!search || e.memo.toLowerCase().includes(search.toLowerCase())),
       );
@@ -283,19 +351,50 @@ export function AccountingTransactions({
       setLoading(false);
       return;
     }
-    accountingGet<Result>(
-      { view: "register", filter: signature },
-      controller.signal,
-    )
-      .then(setResult)
+    const query = { view: "register", filter: signature };
+    const cached = registerCache.peek<Result>(query);
+    if (cached) {
+      setResult(cached);
+      setLoadedSignature(signature);
+      setLoading(false);
+    }
+    registerCache
+      .read<Result>(query, controller.signal)
+      .then((next) => {
+        if (controller.signal.aborted) return;
+        setResult(next);
+        setLoadedSignature(signature);
+        clearRowErrors(next.entries);
+        setOverrides((previous) =>
+          Object.fromEntries(
+            Object.entries(previous).filter(([id, value]) => {
+              const fresh = next.entries.find((e) => e.id === id);
+              return (
+                value.pending || (fresh && fresh.version < value.entry.version)
+              );
+            }),
+          ),
+        );
+      })
       .catch((e) => {
-        if (!controller.signal.aborted) setError(e.message);
+        if (!controller.signal.aborted && e.name !== "AbortError")
+          setError(e.message);
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [signature, data.revision, data.entries, demo, invalid]);
+  }, [
+    signature,
+    data.revision,
+    data.entries,
+    demo,
+    invalid,
+    registerCache,
+    registerEpoch,
+    focusEpoch,
+    clearRowErrors,
+  ]);
 
   const bankProfiles = profiles.filter((p) => p.cash_kind !== "none");
   const bankIds = new Set(bankProfiles.map((p) => p.account_id));
@@ -303,18 +402,26 @@ export function AccountingTransactions({
     .filter((a) =>
       bankProfiles.some((p) => p.account_id === a.id && p.cash_kind !== "card"),
     )
-    .reduce((s, a) => s + BigInt(a.ending_cents), BigInt(0));
-  const cardBalance = -data.balances
-    .filter((a) =>
-      bankProfiles.some((p) => p.account_id === a.id && p.cash_kind === "card"),
-    )
-    .reduce((s, a) => s + BigInt(a.ending_cents), BigInt(0));
+    .reduce((s, a) => s + balances.get(a.id)!.amount, BigInt(0));
   const selectedBalance = data.balances.find((a) => a.id === account);
-  const selectedProfile = profiles.find((p) => p.account_id === account);
   const displayedBalance = selectedBalance
-    ? BigInt(selectedBalance.ending_cents) *
-      (selectedProfile?.cash_kind === "card" ? BigInt(-1) : BigInt(1))
+    ? balances.get(selectedBalance.id)!.amount
     : cashBalance;
+  const cashAccounts = data.balances.filter((a) =>
+    bankProfiles.some((p) => p.account_id === a.id && p.cash_kind !== "card"),
+  );
+  const bankBalanceCount = cashAccounts.filter(
+    (a) => balances.get(a.id)?.bank !== null,
+  ).length;
+  const balanceLabel = account
+    ? balances.get(account)?.bank != null
+      ? "Bank-reported balance"
+      : "Book balance (no bank balance)"
+    : bankBalanceCount === cashAccounts.length && bankBalanceCount > 0
+      ? "Latest bank balances"
+      : bankBalanceCount > 0
+        ? "Bank balances + unconnected book balances"
+        : "Book balances (no bank balances)";
 
   const categoryOptions = useMemo(
     () =>
@@ -335,11 +442,59 @@ export function AccountingTransactions({
     [data.accounts, profiles],
   );
 
-  const rows = (result?.entries ?? []) as TransactionRow[];
+  const rows = (result?.entries ?? [])
+    .map((entry) => overrides[entry.id]?.entry ?? entry)
+    .filter((entry) =>
+      status === "reversed"
+        ? !entry.reverses_entry_id && Boolean(entry.reversed_by_entry_id)
+        : !isTransactionReversed(entry) &&
+          (status === "all" ||
+            (status === "discarded"
+              ? entry.status === "discarded"
+              : entry.status !== "discarded" &&
+                isTransactionReviewed(entry) === (status === "posted"))),
+    ) as TransactionRow[];
   const visibleDrafts = rows.filter((e) => e.status === "draft");
   const chosen = visibleDrafts.filter((e) => selection[e.id] === e.version);
   const chosenSet = new Set(chosen.map((e) => e.id));
-  const busy = cmd.busy || loading;
+  const busy = cmd.busy || (loading && loadedSignature !== signature);
+  const rowBusy = (id: string) => busy || rowCommand.pending.has(id);
+
+  function openAction(action: TransactionAction, entry: JournalEntry) {
+    if (!rowCommand.isPending(entry.id)) onAction(action, entry);
+  }
+
+  async function saveRow(
+    entry: JournalEntry,
+    command: WorkflowCommand,
+    optimistic: JournalEntry,
+  ) {
+    if (rowCommand.isPending(entry.id)) return false;
+    setOverrides((previous) => ({
+      ...previous,
+      [entry.id]: { entry: optimistic, pending: true },
+    }));
+    const saved = await rowCommand.execute(entry.id, command);
+    setOverrides((previous) => {
+      const next = { ...previous };
+      if (saved)
+        next[entry.id] = {
+          entry: { ...optimistic, version: saved.version ?? entry.version + 1 },
+          pending: false,
+        };
+      else delete next[entry.id];
+      return next;
+    });
+    // Also re-read after an uncertain response, without retrying a mutation automatically.
+    try {
+      await onTransactionSaved();
+    } catch {
+      setError(
+        "The transaction list could not refresh. Reload to check the latest saved state.",
+      );
+    }
+    return !!saved;
+  }
 
   function changed(fn: () => void) {
     fn();
@@ -364,14 +519,23 @@ export function AccountingTransactions({
   }
 
   async function review(entry: JournalEntry) {
+    const reviewed = !isTransactionReviewed(entry);
     if (
-      await cmd.execute({
-        type: "entry.post",
-        id: entry.id,
-        expected_version: entry.version,
-      })
+      await saveRow(
+        entry,
+        {
+          type: "entry.review",
+          id: entry.id,
+          expected_version: entry.version,
+          reviewed,
+        },
+        { ...entry, status: "posted", review_pending: !reviewed },
+      )
     )
-      toast("success", "Reviewed and included in your books.");
+      toast(
+        "success",
+        reviewed ? "Transaction reviewed." : "Marked as unreviewed.",
+      );
   }
 
   function saveCommand(
@@ -410,7 +574,27 @@ export function AccountingTransactions({
       reviewOnCategorize && entry.status === "draft",
     );
     if (!command) return;
-    if (await cmd.execute(command))
+    const optimistic =
+      command.type === "transaction.save" ||
+      command.type === "transaction.review"
+        ? {
+            ...entry,
+            context: {
+              ...defaultEntryContext,
+              ...entry.context,
+              ...command.context,
+            },
+            status:
+              command.type === "transaction.review"
+                ? ("posted" as const)
+                : entry.status,
+            lines: command.lines.map((line, index) => ({
+              ...entry.lines[index],
+              ...line,
+            })),
+          }
+        : entry;
+    if (await saveRow(entry, command, optimistic))
       toast(
         "success",
         reviewOnCategorize && entry.status === "draft"
@@ -498,7 +682,8 @@ export function AccountingTransactions({
   function rowActions(entry: JournalEntry): RowAction[] {
     const row = entry as TransactionRow;
     const readOnly = (action: TransactionAction) =>
-      demo && action !== "detail" && action !== "journal";
+      rowBusy(entry.id) ||
+      (demo && action !== "detail" && action !== "journal");
     const actions: RowAction[] = [
       {
         label:
@@ -506,23 +691,23 @@ export function AccountingTransactions({
             ? "Edit with correction"
             : "Edit transaction",
         icon: <Pencil />,
-        onSelect: () => onAction("edit", entry),
-        disabled: readOnly("edit"),
+        onSelect: () => openAction("edit", entry),
+        disabled: isTransactionReversed(entry) || readOnly("edit"),
       },
       {
         label: "Details & receipts",
         icon: <FileText />,
-        onSelect: () => onAction("detail", entry),
+        onSelect: () => openAction("detail", entry),
       },
       {
         label: "View journal",
         icon: <SlidersHorizontal />,
-        onSelect: () => onAction("journal", entry),
+        onSelect: () => openAction("journal", entry),
       },
       {
         label: "Duplicate as draft",
         icon: <Copy />,
-        onSelect: () => onAction("copy", entry),
+        onSelect: () => openAction("copy", entry),
         disabled: readOnly("copy"),
       },
     ];
@@ -544,21 +729,30 @@ export function AccountingTransactions({
     }
     if (entry.status === "draft")
       actions.push({
-        label: "Discard draft",
+        label: entryStateLabel(entry) === "Draft" ? "Discard draft" : "Discard",
         icon: <Trash2 />,
         variant: "danger",
         separator: true,
-        onSelect: () => onAction("discard", entry),
+        onSelect: () => openAction("discard", entry),
         disabled: readOnly("discard"),
       });
     else if (!entry.reversed_by_entry_id && !entry.reverses_entry_id)
       actions.push({
-        label: "Reverse transaction",
+        label: entry.payroll_run_id
+          ? "Open payroll to undo"
+          : "Reverse transaction",
         icon: <Undo2 />,
         variant: "danger",
         separator: true,
-        onSelect: () => onAction("reverse", entry),
+        onSelect: () => openAction("reverse", entry),
         disabled: readOnly("reverse"),
+      });
+    if (canRestoreTransaction(entry))
+      actions.push({
+        label: "Restore transaction",
+        icon: <Undo2 />,
+        onSelect: () => openAction("restore", entry),
+        disabled: demo,
       });
     return actions;
   }
@@ -608,7 +802,7 @@ export function AccountingTransactions({
         </span>
         <button
           type="button"
-          disabled={busy || demo}
+          disabled={rowBusy(row.id) || demo}
           onClick={() => setTransfer({ entry: row, counterpart: other })}
           className="rounded px-1 font-medium text-teal-light hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
@@ -637,7 +831,7 @@ export function AccountingTransactions({
         </span>
         <button
           type="button"
-          disabled={busy || demo}
+          disabled={rowBusy(row.id) || demo}
           onClick={() => void categorize(row, category, prior.payee_id)}
           className="rounded px-1 font-medium text-teal-light hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
@@ -651,9 +845,15 @@ export function AccountingTransactions({
     entry: JournalEntry,
     p: ReturnType<typeof presentTransaction>,
   ) {
-    const posted = entry.status === "posted";
-    const hint = posted
-      ? "Reviewed"
+    if (isTransactionReversed(entry))
+      return (
+        <Badge size="sm">
+          {entry.restored_by_entry_id ? "Restored" : "Reversed"}
+        </Badge>
+      );
+    const reviewed = isTransactionReviewed(entry);
+    const hint = reviewed
+      ? "Mark as unreviewed"
       : p.categorized
         ? "Mark as reviewed"
         : "Choose a category first";
@@ -661,24 +861,38 @@ export function AccountingTransactions({
       <Tooltip content={hint}>
         <button
           type="button"
-          disabled={demo || busy || !p.categorized || posted}
+          disabled={
+            demo ||
+            rowBusy(entry.id) ||
+            entry.status === "discarded" ||
+            (!reviewed && !p.categorized)
+          }
           onClick={() => void review(entry)}
           aria-label={
-            posted
-              ? `${entry.memo}: reviewed`
+            reviewed
+              ? `Mark ${entry.memo} as unreviewed`
               : `Mark ${entry.memo} as reviewed`
           }
+          aria-pressed={reviewed}
           className={cn(
             "flex h-8 w-8 items-center justify-center rounded-full border transition-colors",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
             "disabled:cursor-default",
-            posted
-              ? "border-primary/20 bg-primary/15 text-teal-light"
+            reviewed
+              ? "border-primary/20 bg-primary/15 text-teal-light enabled:hover:bg-primary/25"
               : "border-border text-muted-foreground enabled:hover:border-primary enabled:hover:bg-primary/10 enabled:hover:text-teal-light",
-            !p.categorized && !posted && "opacity-40",
+            !p.categorized && !reviewed && "opacity-40",
           )}
         >
-          <Check size={15} aria-hidden="true" />
+          {rowCommand.pending.has(entry.id) ? (
+            <Loader2
+              size={15}
+              aria-label="Saving transaction"
+              className="animate-spin"
+            />
+          ) : (
+            <Check size={15} aria-hidden="true" />
+          )}
         </button>
       </Tooltip>
     );
@@ -706,7 +920,7 @@ export function AccountingTransactions({
         <AccountingPicker
           label={`Category for ${entry.memo}`}
           compact
-          disabled={busy}
+          disabled={rowBusy(entry.id)}
           value={p.categoryLines[0].account_id}
           options={categoryOptions}
           onChange={(id) => void categorize(entry, id)}
@@ -716,8 +930,8 @@ export function AccountingTransactions({
     return (
       <button
         type="button"
-        onClick={() => onAction("edit", entry)}
-        className="flex max-w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        onClick={() => openAction("edit", entry)}
+        className="flex max-w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {p.categoryLines.length > 1 && <Split size={12} aria-hidden="true" />}
         <span className="truncate">{label}</span>
@@ -747,7 +961,7 @@ export function AccountingTransactions({
           <div className="min-w-0">
             <button
               type="button"
-              onClick={() => onAction("edit", e)}
+              onClick={() => openAction("edit", e)}
               className="block w-full truncate text-left font-medium transition-colors hover:text-teal-light focus-visible:outline-none focus-visible:underline"
             >
               {e.memo}
@@ -769,17 +983,17 @@ export function AccountingTransactions({
       className: "hidden w-[15%] xl:table-cell",
       render: (e) => {
         const p = presentTransaction(e, profiles, account);
-        const first = p.accountIds[0]
-          ? accounts.get(p.accountIds[0])
-          : undefined;
         return (
-          <span className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-            {first && <InstitutionLogo name={first.name} size={22} />}
-            <span className="truncate">
-              {p.accountIds
-                .map((id) => accounts.get(id)?.name ?? "Unknown account")
-                .join(" / ") || "Multiple accounts"}
-            </span>
+          <span className="flex min-w-0 flex-col gap-1.5 text-xs text-muted-foreground">
+            {p.accountIds.length
+              ? p.accountIds.map((id) => (
+                  <AccountingAccountLabel
+                    key={id}
+                    accountId={id}
+                    name={accounts.get(id)?.name ?? "Unknown account"}
+                  />
+                ))
+              : "Multiple accounts"}
           </span>
         );
       },
@@ -840,7 +1054,7 @@ export function AccountingTransactions({
     const party = parties.get(e.context?.payee_id ?? "");
     const selectable = e.status === "draft" && !demo;
     return (
-      <article className="glass-card space-y-3 rounded-xl p-4">
+      <article className="space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-2.5">
             {selectable && (
@@ -854,7 +1068,8 @@ export function AccountingTransactions({
               />
             )}
             {p.accountIds[0] && (
-              <InstitutionLogo
+              <AccountingAccountLogo
+                accountId={p.accountIds[0]}
                 name={accounts.get(p.accountIds[0])?.name}
                 size={32}
                 className="mt-0.5"
@@ -864,7 +1079,7 @@ export function AccountingTransactions({
               <button
                 type="button"
                 className="block max-w-full truncate text-left text-sm font-medium focus-visible:outline-none focus-visible:underline"
-                onClick={() => onAction("edit", e)}
+                onClick={() => openAction("edit", e)}
               >
                 {e.memo}
               </button>
@@ -943,7 +1158,7 @@ export function AccountingTransactions({
                 label: "All accounts",
                 detail: (
                   <span>
-                    Book cash <MaskedValue value={money(cashBalance)} />
+                    Cash & bank <MaskedValue value={money(cashBalance)} />
                   </span>
                 ),
               },
@@ -951,11 +1166,17 @@ export function AccountingTransactions({
                 .filter((a) => bankIds.has(a.id) || a.id === account)
                 .map((a) => {
                   const p = profiles.find((p) => p.account_id === a.id);
-                  const b = data.balances.find((b) => b.id === a.id);
+                  const balance = balances.get(a.id);
                   return {
                     value: a.id,
                     label: a.name,
-                    icon: <InstitutionLogo name={a.name} size={20} />,
+                    icon: (
+                      <AccountingAccountLogo
+                        accountId={a.id}
+                        name={a.name}
+                        size={20}
+                      />
+                    ),
                     group:
                       p?.cash_kind === "card"
                         ? "Credit cards"
@@ -967,17 +1188,12 @@ export function AccountingTransactions({
                         <span>
                           {a.is_archived
                             ? "Archived account"
-                            : p?.cash_kind === "card"
-                              ? "Book card balance"
-                              : "Posted book balance"}
+                            : balance?.bank != null
+                              ? "Bank-reported balance"
+                              : "Book balance (no bank balance)"}
                         </span>
                         <MaskedValue
-                          value={money(
-                            BigInt(b?.ending_cents ?? "0") *
-                              (p?.cash_kind === "card"
-                                ? BigInt(-1)
-                                : BigInt(1)),
-                          )}
+                          value={money(balance?.amount ?? BigInt(0))}
                         />
                       </span>
                     ),
@@ -990,7 +1206,11 @@ export function AccountingTransactions({
           >
             <div className="flex min-w-0 flex-1 items-center gap-3">
               {account ? (
-                <InstitutionLogo name={accounts.get(account)?.name} size={36} />
+                <AccountingAccountLogo
+                  accountId={account}
+                  name={accounts.get(account)?.name}
+                  size={36}
+                />
               ) : (
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-teal-light">
                   <Wallet size={17} aria-hidden="true" />
@@ -1001,8 +1221,12 @@ export function AccountingTransactions({
                   {accounts.get(account)?.name ?? "All accounts"}
                 </p>
                 <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  {account ? "Posted balance" : "Cash & bank"} through{" "}
-                  {dateLabel(data.to)}
+                  {balanceLabel}
+                  {account && balances.get(account)?.observedAt
+                    ? ` · ${timestampLabel(new Date(balances.get(account)!.observedAt! * 1000).toISOString())}`
+                    : bankBalanceCount === 0
+                      ? ` · through ${dateLabel(data.to)}`
+                      : ""}
                 </p>
               </div>
               <span className="shrink-0 text-lg font-semibold tabular-nums">
@@ -1017,17 +1241,9 @@ export function AccountingTransactions({
             </div>
           </AccountingPicker>
         </div>
-        <div className="flex items-center gap-5 text-xs text-muted-foreground">
-          <span>
-            Card debt{" "}
-            <span className="ml-1.5 font-medium tabular-nums text-foreground">
-              <MaskedValue value={money(cardBalance)} />
-            </span>
-          </span>
-          <span className="hidden lg:inline">
-            Balances count reviewed transactions only
-          </span>
-        </div>
+        {actions && (
+          <div className="shrink-0 self-end sm:self-auto">{actions}</div>
+        )}
       </div>
 
       <section
@@ -1035,17 +1251,17 @@ export function AccountingTransactions({
         aria-label="Transactions"
       >
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
             <div
               role="tablist"
               aria-label="Transaction status"
-              className="flex items-center gap-1 rounded-lg bg-[rgba(var(--ink),0.05)] p-1 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]"
+              className="flex w-full flex-wrap items-center gap-1 rounded-lg bg-[rgba(var(--ink),0.05)] p-1 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)] sm:w-auto"
             >
               {(
                 [
-                  ["draft", "Needs review", reviewCount],
+                  ["draft", "Review", reviewCount],
                   ["all", "All", null],
-                  ["posted", "Reviewed", null],
+                  ["reversed", "Reversed", null],
                 ] as const
               ).map(([value, label, count]) => (
                 <button
@@ -1055,7 +1271,7 @@ export function AccountingTransactions({
                   aria-selected={status === value}
                   onClick={() => changed(() => setStatus(value))}
                   className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "inline-flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-none",
                     status === value
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:bg-secondary hover:text-foreground",
@@ -1197,12 +1413,23 @@ export function AccountingTransactions({
           </div>
         )}
 
-        {(invalid || error || cmd.error) && (
+        {(invalid ||
+          error ||
+          cmd.error ||
+          Object.keys(rowCommand.errors).length > 0) && (
           <p
             role="alert"
             className="border-b border-border bg-error/5 px-4 py-3 text-sm text-error"
           >
-            {invalid || error || cmd.error}
+            {invalid ||
+              error ||
+              cmd.error ||
+              Object.entries(rowCommand.errors)
+                .map(
+                  ([id, message]) =>
+                    `${result?.entries.find((entry) => entry.id === id)?.memo ?? "Transaction"}: ${message}`,
+                )
+                .join(" ")}
           </p>
         )}
 
@@ -1218,7 +1445,7 @@ export function AccountingTransactions({
               <Button
                 size="sm"
                 variant="outline"
-                disabled={busy}
+                disabled={busy || rowCommand.pending.size > 0}
                 onClick={() =>
                   setBulkCategory({
                     entries: chosen.filter((e) => {
@@ -1235,7 +1462,7 @@ export function AccountingTransactions({
               </Button>
               <Button
                 size="sm"
-                disabled={busy}
+                disabled={busy || rowCommand.pending.size > 0}
                 onClick={() =>
                   setBulk({ id: crypto.randomUUID(), entries: chosen })
                 }
@@ -1253,8 +1480,15 @@ export function AccountingTransactions({
           columns={columns}
           data={rows}
           keyExtractor={(e) => e.id}
-          onRowClick={(e) => onAction("detail", e)}
-          busy={loading && !!result}
+          rowClassName={(e) =>
+            chosenSet.has(e.id)
+              ? "bg-primary/[0.06]"
+              : isTransactionReviewed(e)
+                ? "bg-[color-mix(in_srgb,var(--card),var(--foreground)_4%)] hover:bg-[color-mix(in_srgb,var(--card),var(--foreground)_7%)]"
+                : "bg-card hover:bg-[color-mix(in_srgb,var(--card),var(--foreground)_2%)]"
+          }
+          onRowClick={(e) => openAction("detail", e)}
+          busy={loading && !!result && loadedSignature !== signature}
           emptyState={emptyState}
           mobileCard={mobileCard}
           className="lg:[&_table]:min-w-[720px]"
@@ -1264,6 +1498,7 @@ export function AccountingTransactions({
               : {
                   selected: chosenSet,
                   isSelectable: (key) =>
+                    !rowCommand.pending.has(key) &&
                     visibleDrafts.some((e) => e.id === key),
                   onToggle: (key) => {
                     const entry = visibleDrafts.find((e) => e.id === key);

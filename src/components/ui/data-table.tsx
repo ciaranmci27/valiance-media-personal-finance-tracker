@@ -38,8 +38,11 @@ export interface DataTableProps<T> {
   emptyState?: ReactNode;
   initialSort?: { key: string; dir: "asc" | "desc" };
   /**
-   * Card renderer for small screens. Below `lg` the table hides and this stack
-   * shows instead. Pass it for any table a phone will open.
+   * Row renderer for small screens. Below `lg` the table hides and this stack
+   * shows instead. Pass it for any table a phone will open. When `framed`, the
+   * renderer supplies its own card chrome (`glass-card rounded-xl p-4`); when
+   * the parent is already a card (`framed={false}`) the rows render as one
+   * divided list and the renderer returns the row's content only.
    */
   mobileCard?: (row: T) => ReactNode;
   /** Row selection with a leading checkbox column. */
@@ -51,7 +54,10 @@ export interface DataTableProps<T> {
   /** Dims the table and marks it busy while data reloads. */
   busy?: boolean;
   fixedLayout?: boolean;
-  /** Wraps the table in a glass card. Turn off when the parent already is one. */
+  /**
+   * Wraps the table in a glass card. Turn off when the parent already is one:
+   * the mobile stack then becomes a divided list instead of cards on a card.
+   */
   framed?: boolean;
   className?: string;
   /** Row class hook, e.g. to tint drafts. */
@@ -148,9 +154,19 @@ export function DataTable<T>({
       className={cn("transition-opacity", busy && "opacity-60", className)}
     >
       {mobileCard && (
-        <div className="space-y-3 lg:hidden">
+        <div
+          className={cn(
+            "lg:hidden",
+            framed ? "space-y-3" : "divide-y divide-border",
+          )}
+        >
           {sorted.length === 0 ? (
-            <div className="glass-card rounded-xl px-4 py-10 text-center text-sm text-muted-foreground">
+            <div
+              className={cn(
+                "px-4 py-10 text-center text-sm text-muted-foreground",
+                framed && "glass-card rounded-xl",
+              )}
+            >
               {empty}
             </div>
           ) : (
@@ -167,6 +183,7 @@ export function DataTable<T>({
                       : undefined
                   }
                   className={cn(
+                    !framed && "px-4 py-3",
                     onRowClick && "cursor-pointer",
                     rowClassName?.(row),
                   )}

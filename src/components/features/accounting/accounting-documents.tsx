@@ -272,7 +272,7 @@ export function AccountingDocuments({
     ) : null;
   const actions = (d: AccountingDocument) =>
     d.state === "available" ? (
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
         <Tooltip content={`Download ${d.original_name}`}>
           <Button asChild variant="ghost" size="icon-sm">
             <a
@@ -364,7 +364,7 @@ export function AccountingDocuments({
           if (!open) setLink(null);
         }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Attach to transaction</DialogTitle>
             <DialogDescription>{link?.original_name}</DialogDescription>

@@ -444,7 +444,7 @@ export function AccountingBankMatch({
                           type="button"
                           disabled={frozen}
                           className={cn(
-                            "glass-card flex w-full items-start justify-between gap-3 rounded-xl p-3 text-left text-sm transition-colors disabled:opacity-50",
+                            "flex w-full items-start justify-between gap-3 text-left text-sm transition-colors disabled:opacity-50",
                             selected?.line_id === c.line_id && "bg-primary/10",
                           )}
                           onClick={(e) => {
@@ -452,7 +452,7 @@ export function AccountingBankMatch({
                             pick(c);
                           }}
                         >
-                          <span>
+                          <span className="min-w-0 break-words">
                             <span className="block font-medium">{c.memo}</span>
                             <span className="mt-1 block text-xs text-muted-foreground">
                               {dateLabel(c.entry_date)} · {c.days_apart} days

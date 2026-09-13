@@ -5,6 +5,7 @@ import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Pagination } from "@/components/ui/pagination";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { JournalEntry } from "@/lib/accounting/contracts";
+import { isTransactionReviewed } from "@/lib/accounting/transactions";
 import { dateLabel, enumLabel } from "./format";
 import { accountingGet } from "./use-accounting-command";
 
@@ -97,7 +98,7 @@ export function AccountingEntryPicker({
               <span className="block text-sm font-medium">{entry.memo}</span>
               <span className="mt-1 block text-xs text-muted-foreground">
                 {dateLabel(entry.entry_date)} |{" "}
-                {entry.status === "posted" ? "Reviewed" : "Needs review"} |{" "}
+                {isTransactionReviewed(entry) ? "Reviewed" : "Needs review"} |{" "}
                 {enumLabel(entry.primary_origin)}
                 {entry.reversed_by_entry_id ? " | Corrected or reversed" : ""}
               </span>

@@ -4,7 +4,7 @@ import { ArrowLeftRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { TextInput } from "@/components/ui/inputs/TextInput";
-import { InstitutionLogo } from "@/components/ui/institution-logo";
+import { AccountingAccountLogo } from "./accounting-bank-identity";
 import { MaskedValue } from "@/components/ui/masked-value";
 import {
   Dialog,
@@ -77,7 +77,7 @@ export function AccountingTransferFromDraft({
     .map((a) => ({
       value: a.id,
       label: a.name,
-      icon: <InstitutionLogo name={a.name} size={20} />,
+      icon: <AccountingAccountLogo accountId={a.id} name={a.name} size={20} />,
     }));
 
   async function save() {
@@ -101,7 +101,7 @@ export function AccountingTransferFromDraft({
       <p className="mb-1.5 text-sm font-medium">{label}</p>
       {fixed ? (
         <div className="flex h-10 items-center gap-2 rounded-xl border border-border px-3 text-sm">
-          <InstitutionLogo name={name(id)} size={20} />
+          <AccountingAccountLogo accountId={id} name={name(id)} size={20} />
           <span className="truncate">{name(id)}</span>
         </div>
       ) : (

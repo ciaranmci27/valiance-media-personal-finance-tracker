@@ -2,7 +2,7 @@
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Check, Copy, Plus, RotateCcw, X } from "lucide-react";
+import { Check, Copy, Loader2, Plus, RotateCcw, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   RowActionsMenu,
@@ -21,7 +21,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { centsToDecimal, parseUsd } from "@/lib/accounting/money";
+import {
+  centsToDecimal,
+  journalTotals,
+  parseUsd,
+} from "@/lib/accounting/money";
+import { JournalTotals } from "./accounting-journal-totals";
+import { correctionImpact } from "@/lib/accounting/correction-impact";
 import type {
   AccountingAccount,
   JournalEntry,
@@ -29,9 +35,25 @@ import type {
 import type { Party, WorkflowCommand } from "@/lib/accounting/workflows";
 import type { BooksMetadata } from "./types";
 import { AccountingContextEditor } from "./accounting-context-editor";
-import { AccountingEvidence } from "./accounting-evidence";
+import { EntryEvidenceDisclosure } from "./accounting-entry-evidence";
 import { commandContext, type CommandContext } from "./use-accounting-command";
-import { absMoney, dateLabel, enumLabel, money, signedMoney } from "./format";
+import {
+  absMoney,
+  booksToday,
+  dateLabel,
+  enumLabel,
+  money,
+  signedMoney,
+} from "./format";
+import {
+  isTransactionReviewed,
+  isTransactionReversed,
+  canRestoreTransaction,
+} from "@/lib/accounting/transactions";
+import {
+  AccountingAccountLabel,
+  useAccountingBankIdentity,
+} from "./accounting-bank-identity";
 
 const ZERO = BigInt(0);
 
@@ -55,7 +77,7 @@ export type Editor = {
 
 export type Approval = {
   entry: JournalEntry;
-  type: "entry.post" | "entry.reverse" | "draft.discard";
+  type: "entry.post" | "entry.reverse" | "entry.restore" | "draft.discard";
 };
 
 export function makeEditor(
@@ -115,8 +137,12 @@ export function EntryDetailDialog({
   onPost,
   onDiscard,
   onReverse,
+  onRestore,
   onCopy,
   onCorrect,
+  busy = false,
+  error = "",
+  canReview = true,
 }: {
   entry: JournalEntry | null;
   accounts: Map<string, AccountingAccount>;
@@ -128,16 +154,16 @@ export function EntryDetailDialog({
   onPost: (entry: JournalEntry) => void;
   onDiscard: (entry: JournalEntry) => void;
   onReverse: (entry: JournalEntry) => void;
+  onRestore: (entry: JournalEntry) => void;
   onCopy: (entry: JournalEntry) => void;
   onCorrect: (entry: JournalEntry) => void;
+  busy?: boolean;
+  error?: string;
+  canReview?: boolean;
 }) {
-  const total = entry
-    ? entry.lines.reduce(
-        (sum, l) =>
-          BigInt(l.amount_cents) > ZERO ? sum + BigInt(l.amount_cents) : sum,
-        ZERO,
-      )
-    : ZERO;
+  const bankIdentity = useAccountingBankIdentity();
+  const reviewed = !!entry && isTransactionReviewed(entry);
+  const totals = journalTotals(entry?.lines ?? []);
   const more: RowAction[] = entry
     ? [
         {
@@ -146,15 +172,27 @@ export function EntryDetailDialog({
           onSelect: () => onCopy(entry),
           disabled: demo,
         },
-        ...(entry.status === "posted" && !entry.reversed_by_entry_id
+        ...(entry.status === "posted" && !isTransactionReversed(entry)
           ? [
               {
-                label: "Reverse",
+                label: entry.payroll_run_id
+                  ? "Open payroll to undo"
+                  : "Reverse",
                 icon: <RotateCcw size={14} aria-hidden="true" />,
                 onSelect: () => onReverse(entry),
                 disabled: demo,
                 variant: "danger" as const,
                 separator: true,
+              },
+            ]
+          : []),
+        ...(canRestoreTransaction(entry)
+          ? [
+              {
+                label: "Restore transaction",
+                icon: <RotateCcw size={14} />,
+                onSelect: () => onRestore(entry),
+                disabled: demo,
               },
             ]
           : []),
@@ -176,7 +214,7 @@ export function EntryDetailDialog({
     <Dialog
       open={entry !== null}
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (!open && !busy) onClose();
       }}
     >
       <DialogContent className="flex max-h-[90dvh] max-w-xl flex-col overflow-hidden p-0">
@@ -186,10 +224,21 @@ export function EntryDetailDialog({
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <span>{dateLabel(entry?.entry_date)}</span>
               {entry && (
-                <Badge variant={STATUS_VARIANT[entry.status]} size="sm">
-                  {entry.status === "posted"
-                    ? "Reviewed"
-                    : enumLabel(entry.status)}
+                <Badge
+                  variant={
+                    entry.status === "posted" && !reviewed
+                      ? "warning"
+                      : STATUS_VARIANT[entry.status]
+                  }
+                  size="sm"
+                >
+                  {isTransactionReversed(entry)
+                    ? "Reversed"
+                    : entry.status === "posted"
+                      ? reviewed
+                        ? "Reviewed"
+                        : "Needs review"
+                      : enumLabel(entry.status)}
                 </Badge>
               )}
               <span>{enumLabel(entry?.primary_origin)}</span>
@@ -199,8 +248,13 @@ export function EntryDetailDialog({
         {entry && (
           <>
             <div className="min-h-0 space-y-5 overflow-y-auto px-6 pb-6 pt-3 [scrollbar-gutter:stable]">
+              {error && (
+                <p role="alert" className="text-sm text-error">
+                  {error}
+                </p>
+              )}
               <p className="text-3xl font-semibold tracking-tight tabular-nums">
-                <MaskedValue value={absMoney(total)} />
+                <MaskedValue value={absMoney(totals.debit)} />
               </p>
               <div className="divide-y divide-border rounded-xl border border-border">
                 {entry.lines.map((l) => (
@@ -209,9 +263,18 @@ export function EntryDetailDialog({
                     className="flex items-center justify-between gap-3 px-4 py-3 text-sm"
                   >
                     <span className="min-w-0">
-                      <span className="block truncate">
-                        {accounts.get(l.account_id)?.name ?? "Account"}
-                      </span>
+                      {bankIdentity.accountIds.has(l.account_id) ? (
+                        <AccountingAccountLabel
+                          accountId={l.account_id}
+                          name={accounts.get(l.account_id)?.name ?? "Account"}
+                          size={32}
+                          showInstitution
+                        />
+                      ) : (
+                        <span className="block truncate">
+                          {accounts.get(l.account_id)?.name ?? "Account"}
+                        </span>
+                      )}
                       {l.memo && (
                         <span className="mt-0.5 block truncate text-xs text-muted-foreground">
                           {l.memo}
@@ -230,6 +293,7 @@ export function EntryDetailDialog({
                   </div>
                 ))}
               </div>
+              <JournalTotals {...totals} />
               {entry.reverses_entry_id && (
                 <p className="text-xs text-muted-foreground">
                   This reverses an earlier entry.{" "}
@@ -253,19 +317,38 @@ export function EntryDetailDialog({
                   . Both stay in the books.
                 </p>
               )}
+              {entry.restored_by_entry_id && (
+                <p className="text-sm text-muted-foreground">
+                  Restored as a replacement transaction.{" "}
+                  <Link
+                    className="underline"
+                    href={`/accounting?${range}&entry=${entry.restored_by_entry_id}`}
+                  >
+                    View restored transaction
+                  </Link>
+                </p>
+              )}
+              {entry.restore_workflow && isTransactionReversed(entry) && (
+                <p className="text-sm text-muted-foreground">
+                  This entry belongs to a {entry.restore_workflow} record.{" "}
+                  <Link
+                    className="underline"
+                    href={`/accounting?view=records&section=${entry.restore_workflow === "payroll" ? "payroll" : entry.restore_workflow === "transfer" ? "transfers" : "assets"}`}
+                  >
+                    Open records
+                  </Link>
+                  {entry.restore_workflow === "payroll"
+                    ? " to import the payroll report again."
+                    : " to manage the linked activity."}
+                </p>
+              )}
               {!demo && (
-                <details className="group rounded-xl border border-border">
-                  <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-                    Receipts and history
-                  </summary>
-                  <div className="border-t border-border p-4">
-                    <AccountingEvidence
-                      entryId={entry.id}
-                      accounts={[...accounts.values()]}
-                      parties={parties}
-                    />
-                  </div>
-                </details>
+                <EntryEvidenceDisclosure
+                  key={entry.id}
+                  entryId={entry.id}
+                  accounts={[...accounts.values()]}
+                  parties={parties}
+                />
               )}
             </div>
             <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-[rgba(var(--ink),0.04)] px-6 py-4">
@@ -273,7 +356,10 @@ export function EntryDetailDialog({
                 <RowActionsMenu
                   label={`More actions for ${entry.memo}`}
                   align="start"
-                  actions={more}
+                  actions={more.map((action) => ({
+                    ...action,
+                    disabled: busy || action.disabled,
+                  }))}
                 />
                 {!demo && (
                   <Link
@@ -288,27 +374,52 @@ export function EntryDetailDialog({
                 {entry.status === "draft" && (
                   <>
                     <Button
-                      disabled={demo}
+                      disabled={demo || busy}
                       variant="outline"
                       onClick={() => onEdit(entry)}
                     >
                       Edit draft
                     </Button>
-                    <Button disabled={demo} onClick={() => onPost(entry)}>
-                      <Check size={15} aria-hidden="true" />
-                      Mark reviewed
-                    </Button>
                   </>
                 )}
-                {entry.status === "posted" && !entry.reversed_by_entry_id && (
+                {entry.status === "posted" && !isTransactionReversed(entry) && (
                   <Button
-                    disabled={demo}
+                    disabled={demo || busy}
                     variant="outline"
                     onClick={() => onCorrect(entry)}
                   >
                     Correct
                   </Button>
                 )}
+                {entry.status !== "discarded" &&
+                  !isTransactionReversed(entry) && (
+                    <Button
+                      disabled={demo || busy || (!reviewed && !canReview)}
+                      variant={reviewed ? "outline" : "default"}
+                      aria-pressed={reviewed}
+                      title={
+                        !reviewed && !canReview
+                          ? "Choose a category before reviewing"
+                          : undefined
+                      }
+                      onClick={() => onPost(entry)}
+                    >
+                      {busy ? (
+                        <Loader2
+                          size={15}
+                          aria-hidden="true"
+                          className="animate-spin"
+                        />
+                      ) : (
+                        <Check size={15} aria-hidden="true" />
+                      )}
+                      {busy
+                        ? "Saving..."
+                        : reviewed
+                          ? "Mark unreviewed"
+                          : "Mark reviewed"}
+                    </Button>
+                  )}
               </div>
             </div>
           </>
@@ -425,7 +536,7 @@ export function JournalEditorDialog({
         if (!open) void close();
       }}
     >
-      <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] max-w-3xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {editor?.corrects
@@ -583,19 +694,14 @@ export function JournalEditorDialog({
                 <Plus size={15} aria-hidden="true" />
                 Add line
               </Button>
-              <p
-                className={cn(
-                  "text-sm",
-                  debit === credit ? "text-muted-foreground" : "text-warning",
-                )}
-              >
-                {amountError || (
-                  <>
-                    Difference: <Money value={debit - credit} />
-                  </>
-                )}
-              </p>
             </div>
+            {amountError ? (
+              <p role="alert" className="text-sm text-error">
+                {amountError}
+              </p>
+            ) : (
+              <JournalTotals debit={debit} credit={credit} />
+            )}
             {error && (
               <p role="alert" className="text-sm text-error">
                 {error}
@@ -657,15 +763,17 @@ export function ApprovalDialog({
           <DialogTitle>
             {kind === "entry.post"
               ? "Mark reviewed?"
-              : kind === "entry.reverse"
-                ? "Reverse entry"
-                : "Discard draft"}
+              : kind === "entry.restore"
+                ? "Restore transaction?"
+                : kind === "entry.reverse"
+                  ? "Reverse transaction?"
+                  : "Discard draft"}
           </DialogTitle>
           <DialogDescription>{approval?.entry.memo}</DialogDescription>
         </DialogHeader>
         {approval && (
           <ApprovalForm
-            key={approval.entry.id}
+            key={`${approval.type}:${approval.entry.id}`}
             approval={approval}
             accounts={accounts}
             busy={busy}
@@ -699,7 +807,9 @@ function ApprovalForm({
   onClose: () => void;
 }) {
   const [reason, setReason] = useState("");
-  const [date, setDate] = useState(defaultDate);
+  const [date, setDate] = useState(
+    approval.type === "entry.reverse" ? booksToday() : defaultDate,
+  );
   const kind = approval.type;
   return (
     <form
@@ -713,10 +823,10 @@ function ApprovalForm({
         const command: WorkflowCommand =
           kind === "entry.post"
             ? { ...common, type: "entry.post" }
-            : kind === "entry.reverse"
+            : kind === "entry.reverse" || kind === "entry.restore"
               ? {
                   ...common,
-                  type: "entry.reverse",
+                  type: kind,
                   entry_date: date,
                   reason,
                 }
@@ -724,13 +834,15 @@ function ApprovalForm({
         if (await onSubmit(command)) onClose();
       }}
     >
-      <div className="divide-y divide-border glass-card rounded-xl">
+      <div className="divide-y divide-border rounded-xl border border-border">
         {approval.entry.lines.map((l) => (
           <div
             key={l.id}
             className="flex justify-between gap-3 px-3 py-2 text-sm"
           >
-            <span>{accounts.get(l.account_id)?.name}</span>
+            <span className="min-w-0 truncate">
+              {accounts.get(l.account_id)?.name}
+            </span>
             <Money
               value={
                 kind === "entry.reverse"
@@ -741,9 +853,40 @@ function ApprovalForm({
           </div>
         ))}
       </div>
+      <JournalTotals
+        {...journalTotals(
+          approval.entry.lines.map((line) => ({
+            amount_cents:
+              kind === "entry.reverse"
+                ? (-BigInt(line.amount_cents)).toString()
+                : line.amount_cents,
+          })),
+        )}
+      />
       {kind === "entry.reverse" && (
+        <p className="text-sm text-muted-foreground">
+          Creates an opposite entry on {dateLabel(date)}. The transaction moves
+          to Reversed; reports before that date keep the original effect. Linked
+          bank activity will not be automatically imported again.
+        </p>
+      )}
+      {kind === "entry.restore" && (
+        <p className="text-sm text-muted-foreground">
+          Creates a replacement on {dateLabel(date)} and reconnects available
+          bank evidence. The original and reversal remain in history. Choose a
+          date on or after the reversal.
+        </p>
+      )}
+      {kind === "draft.discard" && (
+        <p className="text-sm text-muted-foreground">
+          Removes this draft from the transaction list. Its history is retained.
+        </p>
+      )}
+      {(kind === "entry.reverse" || kind === "entry.restore") && (
         <DateInput
-          label="Reversal date"
+          label={
+            kind === "entry.restore" ? "Restoration date" : "Reversal date"
+          }
           required
           value={date}
           onChange={(nextValue) => setDate(nextValue)}
@@ -770,9 +913,11 @@ function ApprovalForm({
         <Button type="submit" loading={busy} disabled={busy}>
           {kind === "entry.post"
             ? "Mark reviewed"
-            : kind === "entry.reverse"
-              ? "Create reversal"
-              : "Discard draft"}
+            : kind === "entry.restore"
+              ? "Restore transaction"
+              : kind === "entry.reverse"
+                ? "Reverse transaction"
+                : "Discard draft"}
         </Button>
       </div>
     </form>
@@ -782,6 +927,7 @@ function ApprovalForm({
 /** Final look at a correction before the reversal and replacement post together. */
 export function ReplacementReviewDialog({
   review,
+  original,
   accounts,
   busy,
   error,
@@ -789,12 +935,22 @@ export function ReplacementReviewDialog({
   onBack,
 }: {
   review: Extract<WorkflowCommand, { type: "entry.correct" }> | null;
+  original: JournalEntry | null;
   accounts: Map<string, AccountingAccount>;
   busy: boolean;
   error: string;
   onApply: () => void;
   onBack: () => void;
 }) {
+  const impact =
+    review && original
+      ? correctionImpact(original.lines, review.lines, accounts)
+      : [];
+  const linked =
+    !!original &&
+    (!!original.matches?.length ||
+      !!original.payroll_run_id ||
+      !!original.restore_workflow);
   return (
     <Dialog
       open={review !== null}
@@ -802,7 +958,7 @@ export function ReplacementReviewDialog({
         if (!open && !busy) onBack();
       }}
     >
-      <DialogContent>
+      <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Apply correction?</DialogTitle>
           <DialogDescription>{review?.memo}</DialogDescription>
@@ -814,14 +970,122 @@ export function ReplacementReviewDialog({
               posts the replacement on {dateLabel(review.entry_date)}.
               {review.reason ? ` Reason: ${review.reason}` : ""}
             </p>
-            <div className="divide-y divide-border glass-card rounded-xl">
+            {!!impact.length && (
+              <div className="hidden overflow-x-auto rounded-xl border border-border sm:block">
+                <table className="w-full text-sm">
+                  <caption className="px-3 py-2 text-left font-medium">
+                    Effect on account balances
+                  </caption>
+                  <thead>
+                    <tr className="border-y border-border bg-secondary/40">
+                      <th className="p-3 text-left">Account</th>
+                      <th className="p-3 text-right">Original</th>
+                      <th className="p-3 text-right">Replacement</th>
+                      <th className="p-3 text-right">Change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {impact.map((row) => (
+                      <tr
+                        key={row.id}
+                        className="border-b border-border last:border-0"
+                      >
+                        <td className="p-3">{row.name}</td>
+                        <td className="p-3 text-right tabular-nums">
+                          <Money value={row.before} />
+                        </td>
+                        <td className="p-3 text-right tabular-nums">
+                          <Money value={row.after} />
+                        </td>
+                        <td className="p-3 text-right tabular-nums">
+                          {row.change === ZERO ? (
+                            "Unchanged"
+                          ) : (
+                            <Money value={row.change} />
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            {!!impact.length && (
+              <section
+                className="space-y-2 sm:hidden"
+                aria-label="Effect on account balances"
+              >
+                <h3 className="text-sm font-medium">
+                  Effect on account balances
+                </h3>
+                {impact.map((row) => (
+                  <div
+                    key={row.id}
+                    className="rounded-xl border border-border p-3 text-sm"
+                  >
+                    <p className="mb-2 font-medium">{row.name}</p>
+                    <dl className="space-y-1">
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-muted-foreground">Original</dt>
+                        <dd>
+                          <Money value={row.before} />
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <dt className="text-muted-foreground">Replacement</dt>
+                        <dd>
+                          <Money value={row.after} />
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-3 border-t border-border pt-1">
+                        <dt>Change</dt>
+                        <dd>
+                          {row.change === ZERO ? (
+                            "Unchanged"
+                          ) : (
+                            <Money value={row.change} />
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                ))}
+              </section>
+            )}
+            {original && (
+              <p className="text-sm text-muted-foreground">
+                {review.reversal_date !== original.entry_date
+                  ? `The original remains effective from ${dateLabel(original.entry_date)} until its reversal on ${dateLabel(review.reversal_date)}. `
+                  : `The original effect is canceled on ${dateLabel(original.entry_date)}. `}
+                {review.entry_date.slice(0, 7) !==
+                original.entry_date.slice(0, 7)
+                  ? "The replacement affects a different month. "
+                  : "The replacement stays in the same month. "}
+                These are journal effects, not transfers of money at your bank.
+                Both entries save together, and receipts remain attached.
+              </p>
+            )}
+            {linked && (
+              <p role="alert" className="text-sm text-warning">
+                This entry has linked records. Resolve its bank matches or use
+                its payroll, transfer, or register workflow before correcting
+                it.
+              </p>
+            )}
+            <div className="divide-y divide-border rounded-xl border border-border">
               {review.lines.map((l, i) => (
-                <div key={i} className="flex justify-between px-3 py-2 text-sm">
-                  <span>{accounts.get(l.account_id)?.name}</span>
+                <div
+                  key={i}
+                  className="flex justify-between gap-3 px-3 py-2 text-sm"
+                >
+                  <span className="min-w-0 truncate">
+                    {accounts.get(l.account_id)?.name}
+                  </span>
                   <Money value={l.amount_cents} />
                 </div>
               ))}
             </div>
+            <JournalTotals {...journalTotals(review.lines)} />
             {error && (
               <p role="alert" className="text-sm text-error">
                 {error}
@@ -831,7 +1095,11 @@ export function ReplacementReviewDialog({
               <Button variant="ghost" disabled={busy} onClick={onBack}>
                 Back to editing
               </Button>
-              <Button loading={busy} disabled={busy} onClick={onApply}>
+              <Button
+                loading={busy}
+                disabled={busy || linked || !original}
+                onClick={onApply}
+              >
                 Apply correction
               </Button>
             </div>

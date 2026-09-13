@@ -25,9 +25,7 @@ async function main() {
     NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:15449",
     NEXT_PUBLIC_SUPABASE_ANON_KEY: "synthetic-production-key",
     ACCOUNTING_FEED_WORKER_ENABLED: "false",
-    ACCOUNTING_TAX_WORKER_ENABLED: "false",
     ACCOUNTING_WORKER_SECRET: secret,
-    ACCOUNTING_TAX_WORKER_SECRET: secret,
     SUPABASE_SERVICE_ROLE_KEY: "",
   };
   delete env.ACCOUNTING_TEST_DATABASE_URL;
@@ -94,7 +92,6 @@ async function main() {
       "/api/accounting/reports/10000000-0000-4000-8000-000000000001?format=pdf",
       "/api/accounting/packages/10000000-0000-4000-8000-000000000001?format=zip",
       "/api/accounting/jobs/feeds/unexpected",
-      "/api/accounting/jobs/tax/unexpected",
     ]) {
       const result = await request(path);
       assert.equal(result.status, 401, path);
@@ -119,10 +116,6 @@ async function main() {
     const feed = await post("/api/accounting/jobs/feeds", secret);
     assert.equal(feed.status, 503);
     assert.match((await feed.json()).error, /worker is disabled/);
-    checks += 2;
-    const tax = await post("/api/accounting/jobs/tax", secret);
-    assert.equal(tax.status, 401);
-    assert.match((await tax.json()).error, /worker disabled/);
     checks += 2;
     for (const path of [
       "/api/webhooks/accounting/invoices",

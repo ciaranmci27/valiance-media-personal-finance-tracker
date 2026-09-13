@@ -30,9 +30,9 @@ import {
 import { STATE_OPTIONS } from "@/lib/tax/state-taxes";
 import type { BusinessType, TaxClassification } from "@/types/database";
 import {
+  businessTypeForYear,
+  classificationForYear,
   describeTaxProfile,
-  estimatorBusinessType,
-  estimatorClassification,
   loadBusinessProfile,
   type BusinessProfile,
 } from "@/lib/business-profile";
@@ -158,8 +158,9 @@ export function TaxSetupCard({
       .then((result) => {
         if (result.status !== "ready") return;
         setBusinessProfile(result.profile);
-        setBusinessType(estimatorBusinessType(result.profile));
-        setTaxClassification(estimatorClassification(result.profile));
+        const now = new Date().getFullYear();
+        setBusinessType(businessTypeForYear(result.profile, now));
+        setTaxClassification(classificationForYear(result.profile, now));
       })
       .catch(() => {
         /* Fall back to the manual selects. */
@@ -264,11 +265,19 @@ export function TaxSetupCard({
 
   const getProfileForYear = (year: number): ProfileConfig => {
     if (yearOverrides[year]) return yearOverrides[year];
+    // With a business profile, each year takes its own answer: the election
+    // from its start year on, the entity's default before it.
+    const yearType = businessProfile
+      ? businessTypeForYear(businessProfile, year)
+      : businessType;
+    const yearClassification = businessProfile
+      ? classificationForYear(businessProfile, year)
+      : taxClassification;
     return {
       filingStatus,
       state: state || null,
-      businessType,
-      taxClassification: businessType === "none" ? null : taxClassification,
+      businessType: yearType,
+      taxClassification: yearType === "none" ? null : yearClassification,
       dependents,
     };
   };

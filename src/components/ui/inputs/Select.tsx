@@ -282,7 +282,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
             popover="manual"
             tabIndex={-1}
             onKeyDown={navigate}
-            className={`${popupChrome} p-1`}
+            className={`${popupChrome} ${searchable ? 'px-1 pb-1' : 'p-1'}`}
             style={{
               top: position.top,
               left: position.left,
@@ -293,7 +293,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
             }}
           >
             {searchable && (
-              <div className="sticky top-0 z-10 bg-surface-overlay p-1">
+              <div className="sticky top-0 z-10 mb-1 border-b border-input-border-divider bg-surface-overlay px-1 pb-1.5 pt-1">
                 <TextInput
                   ref={search}
                   aria-label={`Search ${accessibleLabel || 'options'}`}

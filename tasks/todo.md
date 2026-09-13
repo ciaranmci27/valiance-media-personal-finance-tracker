@@ -1,3 +1,137 @@
+# Next payment: tax so far beside the annualized requirement (2026-09-12)
+
+Owner: pays the tax on what was actually earned each quarter; wants no forecasting; agreed to show the IRS annualized instalment next to it; manual rows spread evenly. Plan: `~/.claude/plans/twinkly-whistling-creek.md`. No SQL.
+
+- [x] `payment-schedule.ts`: period table, `annualizeRows`, `withheldThrough`, `estimatedThrough`, `annualizedRequirement`, `shortfallCost`; suggestion becomes the full remaining balance; even split removed
+- [x] `verify-tax-schedule.ts` updated and extended; `verify-tax.ts` scaled-rows case
+- [x] `booksFiguresUrl(year, through?)`; estimator reads the period's books actuals once and computes the annualized requirement
+- [x] Hero card shows both rows and the shortfall cost; tiles show both lines, no "About"
+- [x] Verify: suites, tsc, eslint, no em-dashes, read-only browser check
+
+Review 2026-09-12: schedule 46 checks (period table, books-only scaling, prorated withholding, quarter-bounded payments, share and floor, shortfall cost), engine 101 (scaled income leaves the standard deduction whole); tsc and eslint clean. On the live 2026 estimate the card reads "Tax on the year so far 4,200.68 / 948.68" and "Required, annualized 4,762.99 / 835.24, income through Aug 31", with a 562.31 federal shortfall costing about 13.16 to Jan 15; the Q3 tile carries both lines and Q4 carries none; the period read happens once after the books read lands. Nothing written. Owner found the hero oddly spaced (left column bottom-aligned against the taller card) and the two stacked rows confusing; the card is now a three-column table (Still owed, Annualized against Federal and Arizona) with one sentence naming the period, and the hero aligns to the top. Then, after the owner walked through the 90% rule: the labels became Actual, Minimum (the 90%-rule instalment) and Total (the same instalment without the cushion, 25% of the year per deadline), with the definitions moved into tooltips on the labels and the sentence under the table dropped; 47 schedule checks. Tooltips then shortened to one shape (what it is, what it means), the interest note moved from Minimum to Actual, and the Total row hidden whenever it equals Actual (Q4, factor 1). Books notes: the payroll sentence dropped; drafts became a count with a Review link ("3 transactions still to review are not in these figures yet") and stay out of the figures by the owner's decision; bank-fed and imported drafts now read "Unreviewed" in report detail and the Transactions menu, "Draft" reserved for manual entries. The owner found the review sentence too quiet; it is now a warning callout between the hero and the numbers (`tax-books-callout.tsx`) with the count, why it matters, Review and Refresh. Card header collapsed to one row (deadline left, due badge right; "Next payment" stays as the section label) and Record payment right-aligned. Input bank: the searchable Select's sticky search header now owns the popup's top padding and carries a hairline, so the list no longer shows through above the box; fixed in app, mirrored to admin, byte check green.
+
+---
+
+# Derived tax classification per year (2026-09-12)
+
+Owner: 2022 shows as S-Corp but the LLC filed as an LLC through 2022 and elected S-Corp from 2023; "In effect since: Not recorded" let the profile save stamp every year. Rule: the profile decides every year, the election from its start year on, the entity's default before it. Plan: `~/.claude/plans/twinkly-whistling-creek.md`.
+
+- [x] `lib/business-classification.ts` (pure: defaultClassification, isElection, classificationForYear, businessTypeForYear) + `scripts/verify-accounting-business-classification.ts`
+- [x] `saveBusinessProfile` stamps years before and from the start year separately; `describeTaxProfileForYear`
+- [x] Business settings: start year required for an election, options from formation to next year, honest helper copy, cleared when nothing is elected
+- [x] Tax years page, estimator and setup wizard derive each year's structure from the profile
+- [x] Books: `tax_source.year_settings` derived with the same rule, `current` dropped, picker gate points at Business settings; delta SQL in chat
+- [x] Guide: profile step names a missing election year
+- [x] Verify: classification, workpapers, figures, setup, schema, tax engine and schedule suites; tsc; eslint; no em-dashes; browser check of the field and the guide sentence (the repairing save is the owner's)
+
+---
+
+# Setup guide: close every loop (2026-09-12)
+
+Owner: "I reviewed the payroll and it's good... there's literally no way for me to dismiss the payroll callout or acknowledge that the work has been done properly"; "there can't be any UX gaps". Rule: every step is provable from data or acknowledgeable by the owner, and says what to do and where. Plan: `~/.claude/plans/twinkly-whistling-creek.md`.
+
+- [x] Review every step's trigger against the live books and the SQL: payroll "verified YTD" unreachable from any owner path; classification pointed at a screen with no control; adjustments described an action the app cannot do; from-zero path (owner row, chart, system purposes, profile, bank) uncovered
+- [x] SQL: `settings.setup` jsonb, `setup.acknowledge` in `operate`, `setup_status` returns chart/purposes/profile/acknowledgements/runs-without-register; parity green; delta in chat
+- [x] Builder: chart, system-accounts, profile (ack "Looks right"), connect (ack), reconnect, mapping, mapping-partial (ack), sync (ack), primary (ack), treatments (ack per year), payroll-registers (ack per year); `claimGuide` before the owner row exists
+- [x] Route: `view=setup` answers the claim step when accounting is not configured
+- [x] Component: acknowledge and reopen through the command hook, both buttons on every row, done list under the expander, localStorage snooze removed
+- [x] Figures copy: no more "year-to-date report"
+- [x] Tests: setup suite (builder per step, provable-or-acknowledgeable rule, SQL command round trip, register count), figures, read-contracts, schema parity
+- [ ] Verify in the browser after the delta is applied: profile step leads, "Looks right" moves it under done, Reopen restores it, every row carries both buttons, payroll step absent, 2025 on the estimator; phone width
+- [x] Follow-ups spawned: Tax workpapers "Revise adjustment" always fails; `officer_wages` purpose unassignable from the Accounts picker
+- [x] Re-ask: acknowledgements answer a state. Business details, discovered accounts and sync errors carry a fingerprint of what was confirmed and reopen with a reason when it changes; Wave-primary is per year; the key vocabulary now allows uuid prefixes (the sync dismissal would have been refused); 63 setup checks
+- [x] Blank dialog on a real checkbox click: the input bank's sr-only input resolved its absolute position against the fixed dialog frame, so focusing it scrolled the frame 1,281px. `WorkflowDialog`'s scroll container is now `relative`; source fix in the input bank spawned as a task
+
+---
+
+# Setup guide banner (2026-09-12)
+
+Owner: "we need to use [the callout banner system] as a setup guide... go in proper UX order based on priority, like bank connection first." One step at a time on the dashboard, every accounting screen and the Tax Estimator. Plan: `~/.claude/plans/twinkly-whistling-creek.md`.
+
+- [x] SQL `accounting.setup_status(year, cutoff)` appended to the working-tree migration, mirrored in `schema.sql`; delta SQL in chat; `verify-accounting-schema` parity
+- [x] `read.ts` case `setup-status` + read-contracts line
+- [x] `lib/accounting/setup-guide.ts` pure builder (ports `booksNotices`, adds imports, classification, treatments, adjustments, payroll steps) + `scripts/verify-accounting-setup.ts`
+- [x] `route.ts` `view=setup` branch (feeds + status in parallel, steps built server-side)
+- [x] `components/features/accounting/setup-guide.tsx` (hook, one box, "N more after this", Later snooze for info steps, Suggest treatments dialog, in-place pushState links); `accountingHref(view, section?, params?)`
+- [x] Placements: shell (replaces the notice stack), dashboard, Tax Estimator; delete `accounting-notices.tsx`
+- [x] Verify: tsc, eslint, setup + read-contracts + schema suites, verify-accounting-all, input bank, no em-dashes, read-only browser check of all three placements; lesson
+- [x] Owner feedback: the imports step was unclearable (multi-year Wave batch, parity re-flagged by any posted entry) and unexplained. Dropped it from the guide and from `setup_status` (delta SQL in chat), made the picker treat parity as a note instead of a gate, added "Later" on warning steps, and rewrote the treatments and payroll details to say what to do; lesson
+
+Review 2026-09-12: tsc clean apart from the stale generated `.next/types/validator.ts`; eslint clean on the new files (the contracts script's five `no-explicit-any` and the dashboard's three unused-import warnings predate this change); setup suite 38 checks, read-contracts, schema parity (61 functions) and verify-accounting-all 48/50 pass (same two migration-shape failures as before). Browser check on the signed-in server, after the owner applied the delta SQL: the banner renders on the dashboard, every accounting screen and the Tax Estimator with the first open step ("Finish checking 1 import against the source"), the expander lists the treatments and payroll steps in order, "Suggest treatments" opens the rules review from the banner (cancelled, nothing applied), and the "Imports" link swaps the accounting view in place without a reload. At 375px the actions drop onto their own line (fixed during the pass) and nothing scrolls sideways. Before the SQL was applied the read returned a 400 (PostgREST PGRST202) and the banner stayed hidden, as designed.
+
+---
+
+# Suggest tax treatments by rule (2026-09-12)
+
+Owner: no AI; rules first, flag the rest for manual review; loosen the payroll gate. Plan: `~/.claude/plans/twinkly-whistling-creek.md`. No new SQL, routes or dependencies.
+
+- [x] `lib/accounting/tax-treatment-rules.ts` (prior year, purpose, name, subtype; manual review otherwise) + `scripts/verify-accounting-tax-treatments.ts`
+- [x] Payroll fallbacks in `tax-books-figures.ts` (posted runs when no verified register; gross pay when taxable wages missing) + tests
+- [x] `components/features/accounting/tax-treatment-review.tsx` (suggest list, overrides, needs-your-pick group, apply via tax.mapping commands)
+- [x] Hosts: Tax workpapers accounts tab button + dialog; books picker second step with refetch
+- [x] `accountingError` messages for ACCT_TAX_CONCEPT and ACCT_ACCOUNT_NOT_FOUND
+- [x] Verify: tsc, eslint, treatments + figures suites, verify-accounting-all, no em-dashes, no anthropic references, read-only browser check of both hosts
+
+Review 2026-09-12: tsc clean (source tree), eslint clean on touched files, treatments 58 and figures 77 checks pass, verify-accounting-all 47/49 (same two migration-shape failures as before). On the live 2026 books the rules placed 17 of 18 unmapped accounts (report group, purpose and name rules all fired) and flagged "Meals and Entertainment" for the owner's pick because its name fits two treatments. Nothing was applied; that is the owner's click.
+
+---
+
+# Books figures as rows (2026-09-12)
+
+Owner: the accounting tax link "doesn't make sense"; the books should be a source in Add income, like income tracking. Safe harbor dropped. Plan: `~/.claude/plans/twinkly-whistling-creek.md`. SQL objects stay for a later cleanup migration (that migration must also update `verify-accounting-schema.ts:68,112`).
+
+- [x] Types and pure code: `BooksLink` on the three row types, `payroll.ts` `source_through_date`, `ACCT_TAX_RANGE` message, `lib/accounting/tax-books-figures.ts`, `lib/tax/books-rows.ts`, template dedupe by books role, `scripts/verify-accounting-tax-figures.ts`
+- [x] Schedule and meter without safe harbor; `federalDeadlines` moves into `payment-schedule.ts`
+- [x] Estimator: `use-books-refresh.ts`, `books-figures-modal.tsx`, model and parent rewrite, card and sheet, popover entry; delete `use-accounting-tax-link.ts` and `tax-accounting-status.tsx`
+- [x] `GET /api/accounting/tax?year=&through=` figures endpoint
+- [x] Accounting-side removal: link files, workpapers estimator tab, route pre-flight, workflows, read.ts, worker route and middleware exemption, tax-service, local-test-client, lib files, `tax-projection.ts` trim
+- [x] Scripts, package.json, `.env.example`, docs; `timing` and `paid_on` removed last
+- [x] Verify: tsc, eslint, test:tax, test:tax:schedule, tax-figures, verify-accounting-all, grep for stragglers, read-only browser check
+
+Review 2026-09-12: source tree typechecks (the generated `.next/types/validator.ts` still lists the deleted worker route until the dev server restarts or the next build); eslint clean on the touched files apart from pre-existing `no-explicit-any` in `verify-tax.ts` and `verify-accounting-tax-core.ts`; test:tax 99, test:tax:schedule 35, tax-figures 74; verify-accounting-all 46/48 with the same two migration-shape failures as before (`verify-accounting-db`, `verify-accounting-drop`, unrelated). Picker verified on the signed-in server against the live books: business profit held back ("18 accounts still need a tax treatment"), payroll held back ("Needs a verified year-to-date register"), Cancel adds nothing. Five empty "Q3/Q4 federal estimate" rows appeared on the live 2026 estimate during this session's browser checks; owner to decide whether to remove them.
+
+---
+
+# Tax Estimator redesign (2026-09-11)
+
+Owner approved the mockup (artifact "Tax Estimator Redesign"): one hero number with a paid-vs-owed meter, rows that open an edit sheet, quarter tiles, a receipt column. Same data layer, calculation and persistence. Plan: `~/.claude/plans/twinkly-whistling-creek.md`.
+
+- [x] `src/lib/tax/payment-schedule.ts` (deadlines, quarter buckets, suggested amounts, meter segments) + `scripts/verify-tax-schedule.ts` + `test:tax:schedule`
+- [x] `.meter-hatch` utility in `globals.css`
+- [x] `tax-estimator-model.ts` (model and actions types)
+- [x] `tax-receipt.tsx` (replaces CalculationResults; every conditional line preserved)
+- [x] `tax-hero.tsx` (still owed / refund / paid in full, meter, legend, next payment)
+- [x] `tax-edit-sheet.tsx` (income, gain, withholding, payment, household, notes; Advanced disclosure)
+- [x] `tax-inputs-card.tsx` (list rows, quarter tiles, household line, notes line)
+- [x] `tax-accounting-status.tsx` rewritten as a pill + popover; dead "Payment planning" link removed
+- [x] `tax-estimator-content.tsx` swap: model/actions builders, new composition, dead components deleted
+- [ ] Verify: tsc, eslint (accounting config), test:tax, test:tax:schedule, verify-accounting-all, no em-dashes, demo walkthrough at desktop and mobile, privacy mask, keyboard pass
+
+Out of scope at the time: the linked-row zeroing bug (since resolved by the books-figures change), safe-harbor plan authoring (since dropped), state deadline tables.
+
+Guided entry (owner 2026-09-11: "confusing in terms of filling in your information"):
+- [x] `tax-guide.tsx`: setup card while income is empty (Profile, Income, Tax already paid, Household), compact strip until paid and household are reviewed, hide/ack stored per year in localStorage
+- [x] Sheet modes: profile (filing status, state; business structure read-only with settings link), add-income (template chips, import, custom), add-paid (withholding, quarterly estimate, nothing yet)
+- [x] Inputs card: plain-language section descriptions, quick-add template chips, amounts editable in place on manual rows and tile rows
+- [x] Parent: profile row becomes a button, setProfile action, guide prefs and step computation
+
+Review 2026-09-11: typecheck, eslint (accounting config), test:tax (99), test:tax:schedule (38), input-bank byte check and 49/51 accounting suites pass; the two failing suites (`verify-accounting-drop`, `verify-accounting-db`) read the in-flight accounting migrations and fail independently of the tax files. Verified on the signed-in dev server (3002, read-only): desktop and 375px layouts, strip guide, quick-add chips, inline amounts, sheet open and Escape close. Console shows a 422 from `POST /api/accounting/tax`, the books-link refresh failing on the pre-existing "linked income target was removed" state. Open: the stored 2026 row lost Officer Salary, Business Profit and both W-2 withholding rows between the owner's two screenshots; not restored, waiting on the owner.
+
+
+---
+
+# Accounting: mobile pass (2026-09-11)
+
+Owner report: the Overview scrolls sideways on a phone and the Transactions list shows cards inside a card. Make every accounting screen read cleanly at 375px.
+
+- [ ] Overview: implicit `auto` grid columns let nowrap memos widen the panel grids past the viewport (`accounting-overview.tsx`); pin `grid-cols-1` and `min-w-0` on the panels and chart.
+- [ ] DataTable: when `framed={false}` the parent is already a card, so the mobile stack renders as a divided list instead of cards on a card (`ui/data-table.tsx`).
+- [ ] Transactions: mobile rows as list rows inside the section card, toolbar stacks cleanly (`accounting-transactions.tsx`).
+- [ ] Other `framed={false}` + `mobileCard` callers (accounts, bank match, history, imports, payroll run, reconciliation, report detail, rules, support report) use the same row treatment.
+- [ ] Audit the remaining accounting screens (agent report) and fix fixed widths, ungated multi-column grids and dialogs.
+- [ ] Verify at 375px in the browser (demo server on 3003) and record results.
+
+---
 # Accounting: crash fixes and redesign (2026-09-10)
 
 ## Crash fixes (done, verified)
@@ -14,9 +148,9 @@
 - [x] Flow fixes 2026-09-11: books notices under every accounting header (`accounting-notices.tsx`: map accounts, partial mapping, reconnect, sync error, Wave still primary); contractor flag sent by party.save (partnership/requested options dropped, they never saved); payee default category applied in `apply_treatment` (migration appended, owner applies); New payee from the transaction editor; Remember payee checkbox in the editor; Income by customer hides vendors and vice versa; Review as I categorize toggle plus bulk Mark reviewed too, selection kept; Record as transfer from a draft row with counterpart detection (`accounting-transfer-from-draft.tsx`); month end step 2 only counts accounts with a bank balance; mapping dialog trimmed (no timezone, signs under Advanced, note optional, no checkbox) and duplicate identity hint.
 - [x] Modal simplification 2026-09-11 (owner: "every single modal I open has just way too much information"): `WorkflowDialog` takes an optional description (sr-only when omitted) and sizes sm/md/lg. Simplified: journal editor, approval, replacement review, bulk review, bulk set category, record transfer, new payee, connect/reconnect SimpleFIN, map account, disconnect, skip history, CSV import wizard, cancel import, post imported, review source group, lock covered months, attach document, match bank movement, edit account, standard chart, account ledger, add account, reconciliation confirm, new statement, add statement item, line detail, classify cash movement, rule editor, alias, add/edit payee, lock/reopen month. Pattern: short title, one sentence only when it changes the decision, extras under Advanced still submitting their defaults, one verb button plus ghost Cancel.
 - [x] Crash fix: the estimator link's history dialog read `count`/`snapshots`/`versions`, but `tax-history` returns only `rows`. `LinkHistory` in `accounting-tax-link.tsx` now renders the audit rows as "Change history" with plain-English actions (Recalculated, Link settings saved). The workpapers history empty state read the same missing `count` and now checks `rows.length`.
-- [ ] Modals not yet done (agent stopped on a model limit): payroll run, manual registers, register action, tax link, tax link editor, tax workpapers, transfers, books package.
+- [ ] Modals not yet done (agent stopped on a model limit): payroll run, manual registers, register action, tax workpapers, transfers, books package. (Tax link and its editor were retired 2026-09-12.)
 - [x] Sidebar: Tax Estimator moved to sit directly below the Accounting group, still a main-level item (not nested in the accordion).
-- [ ] Tax estimator zeroes a linked business income row and autosaves it when the books link is missing (`link: null`). 2026 Business Profit went 58208.07 to 0 on 2026-09-11; 2025 rows were already 0 from 2026-09-09. Needs a guard: never persist a derived 0 when the books read fails.
+- [x] Tax estimator zeroed a linked business income row when the books link read failed. Resolved 2026-09-12 by retiring the link: books figures now live on the row and a failed refresh keeps the last values.
 - [ ] Still open: feed.map never stamps company ownership in the discovery map (SQL, hidden by the UI); a changed provider record stalls an account with only feed.skip as escape; scope `busy` to the row on Transactions; collapse the three review surfaces.
 - [ ] Phase B: Transactions simplification and vocabulary pass.
 - [ ] Phase C: Accounts and Reports polish, Month end card.

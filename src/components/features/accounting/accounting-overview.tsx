@@ -19,6 +19,7 @@ import { SectionHeader } from "@/components/ui/section-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MaskedValue, useMaskedHover } from "@/components/ui/masked-value";
 import { InstitutionLogo } from "@/components/ui/institution-logo";
+import { accountBalances } from "@/lib/accounting/account-balances";
 import {
   CashFlowChart,
   CashFlowLegend,
@@ -33,7 +34,10 @@ import type {
 import type { FeedData } from "@/lib/accounting/feeds";
 import type { ReportData } from "@/lib/accounting/reports";
 import type { CloseChecklist } from "@/lib/accounting/close";
-import { presentTransaction } from "@/lib/accounting/transactions";
+import {
+  isTransactionReviewed,
+  presentTransaction,
+} from "@/lib/accounting/transactions";
 import type { BooksMetadata } from "./types";
 import { accountingGet } from "./use-accounting-command";
 import {
@@ -111,7 +115,7 @@ function PanelCard({
 }) {
   const { isRevealed, hoverProps } = useMaskedHover();
   return (
-    <Card className={cn("flex flex-col", className)} {...hoverProps}>
+    <Card className={cn("flex min-w-0 flex-col", className)} {...hoverProps}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="text-base font-semibold">{title}</CardTitle>
@@ -206,16 +210,26 @@ export function AccountingOverview({
   const isCard = (a: BalanceRow) => profileMap.get(a.id)?.cash_kind === "card";
   const bookBalance = (a: BalanceRow) =>
     isCard(a) ? -BigInt(a.ending_cents) : BigInt(a.ending_cents);
+  const currentBalances = accountBalances(data.balances, profiles, feeds);
   const cash = bankAccounts
     .filter((a) => !isCard(a))
-    .reduce((s, a) => s + BigInt(a.ending_cents), ZERO);
+    .reduce((s, a) => s + currentBalances.get(a.id)!.amount, ZERO);
   const cardDebt = bankAccounts
     .filter(isCard)
-    .reduce((s, a) => s - BigInt(a.ending_cents), ZERO);
+    .reduce((s, a) => s + currentBalances.get(a.id)!.amount, ZERO);
+  const cashAccounts = bankAccounts.filter((a) => !isCard(a));
+  const hasBankBalances = cashAccounts.some(
+    (a) => currentBalances.get(a.id)?.bank !== null,
+  );
+  const hasBookBalances = cashAccounts.some(
+    (a) => currentBalances.get(a.id)?.bank === null,
+  );
 
   useEffect(() => {
     if (demo) {
-      setDrafts(data.entries.filter((e) => e.status === "draft").slice(0, 5));
+      setDrafts(
+        data.entries.filter((e) => !isTransactionReviewed(e)).slice(0, 5),
+      );
       setRecent(data.entries.filter((e) => e.status === "posted").slice(0, 8));
       return;
     }
@@ -250,7 +264,7 @@ export function AccountingOverview({
         {
           view: "register",
           filter: JSON.stringify({
-            status: "draft",
+            review: "needs_review",
             sort: "date_desc",
             offset: 0,
             limit: 5,
@@ -259,7 +273,9 @@ export function AccountingOverview({
         signal,
       )
         .then((r) => setDrafts(r.entries))
-        .catch(() => setDrafts([])),
+        .catch(() => {
+          if (!signal.aborted) setDrafts([]);
+        }),
       accountingGet<{ entries: JournalEntry[] }>(
         {
           view: "register",
@@ -273,7 +289,9 @@ export function AccountingOverview({
         signal,
       )
         .then((r) => setRecent(r.entries))
-        .catch(() => setRecent([])),
+        .catch(() => {
+          if (!signal.aborted) setRecent([]);
+        }),
       accountingGet<CloseChecklist>(
         { view: "close", date: `${data.to.slice(0, 7)}-01` },
         signal,
@@ -468,9 +486,7 @@ export function AccountingOverview({
           subtitle={
             metadataLoading
               ? "Loading balances"
-              : cardDebt > ZERO
-                ? `Card balance ${money(cardDebt)} · through ${dateShortLabel(data.to)}`
-                : `${countLabel(bankAccounts.filter((a) => !isCard(a)).length, "account")} · through ${dateShortLabel(data.to)}`
+              : `${hasBankBalances ? (hasBookBalances ? "Bank + unconnected book balances" : "Latest bank balances") : "Book balances (no bank balances)"}${cardDebt > ZERO ? ` · Cards ${money(cardDebt)}` : ""}`
           }
         />
         <StatCard
@@ -502,7 +518,7 @@ export function AccountingOverview({
         />
       </div>
 
-      <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
         <PanelCard
           title="Cash flow"
           className="stagger-5 lg:col-span-2"
@@ -605,7 +621,7 @@ export function AccountingOverview({
           count={bankAccounts.length}
           description={
             demo
-              ? "Book balances from reviewed transactions."
+              ? "Book balances from posted transactions."
               : needsMapping
                 ? `Bank feed connected. Map ${countLabel(unmappedIdentities, "discovered account")} to your accounts to start syncing.`
                 : feedAttention
@@ -663,8 +679,15 @@ export function AccountingOverview({
                 {metadataLoading ? (
                   <Skeleton className="h-7 w-28" />
                 ) : (
-                  <MaskedValue value={money(c.book)} />
+                  <MaskedValue
+                    value={money(currentBalances.get(c.account.id)!.amount)}
+                  />
                 )}
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                {currentBalances.get(c.account.id)?.bank !== null
+                  ? "Bank-reported balance"
+                  : "Book balance (no bank balance)"}
               </span>
               <span className="text-xs text-muted-foreground">
                 {c.bank !== null ? (
@@ -676,7 +699,7 @@ export function AccountingOverview({
                   ) : (
                     <span className="inline-flex items-center gap-1 text-warning">
                       <CircleAlert size={12} aria-hidden="true" />
-                      Bank shows <MaskedValue value={money(c.bank)} />
+                      Reviewed books: <MaskedValue value={money(c.book)} />
                     </span>
                   )
                 ) : c.connection?.last_success_at ? (
@@ -710,7 +733,7 @@ export function AccountingOverview({
         </div>
       </section>
 
-      <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
         <PanelCard
           title="Recent activity"
           className="lg:col-span-2"

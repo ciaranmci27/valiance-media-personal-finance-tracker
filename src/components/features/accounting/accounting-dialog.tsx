@@ -90,7 +90,7 @@ export function WorkflowDialog({
     >
       <DialogContent
         className={cn(
-          "flex max-h-[92vh] flex-col overflow-hidden p-0",
+          "flex max-h-[92dvh] flex-col overflow-hidden p-0",
           size === "lg"
             ? "max-w-4xl"
             : size === "md"
@@ -99,14 +99,16 @@ export function WorkflowDialog({
         )}
       >
         <CloseContext.Provider value={() => void close()}>
-          <DialogHeader className="shrink-0 px-6 pb-1 pt-6 pr-12">
+          <DialogHeader className="shrink-0 pb-1 pl-4 pr-12 pt-6 sm:pl-6">
             <DialogTitle>{title}</DialogTitle>
             <DialogDescription className={cn(!description && "sr-only")}>
               {description ?? title}
             </DialogDescription>
           </DialogHeader>
+          {/* Positioned so the input bank's screen-reader-only inputs stay beside
+              their labels; otherwise focusing one scrolls the whole dialog frame. */}
           <div
-            className="min-h-0 overflow-y-auto px-6 pb-5 pt-4 [scrollbar-gutter:stable]"
+            className="relative min-h-0 overflow-y-auto px-4 pb-5 pt-4 [scrollbar-gutter:stable] sm:px-6"
             onClickCapture={(e) => {
               if (
                 form &&
@@ -167,7 +169,7 @@ export function WorkflowActions({
 }) {
   const guardedClose = useContext(CloseContext);
   return (
-    <div className="sticky -bottom-5 z-10 -mx-6 -mb-5 space-y-3 border-t border-border bg-[var(--background-subtle)] px-6 py-4">
+    <div className="sticky -bottom-5 z-10 -mx-4 -mb-5 space-y-3 border-t border-border bg-[var(--background-subtle)] px-4 py-4 sm:-mx-6 sm:px-6">
       {error && (
         <p role="alert" className="text-sm text-error">
           {error}

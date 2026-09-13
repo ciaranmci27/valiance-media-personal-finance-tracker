@@ -10,6 +10,23 @@ import { parseUsd, readCents } from "./money";
 export const defaultEntryContext: EntryContext = {
   kind: "manual",
 };
+
+export function isTransactionReviewed(entry: JournalEntry): boolean {
+  return entry.status === "posted" && !entry.review_pending;
+}
+export function isTransactionReversed(entry: JournalEntry): boolean {
+  return Boolean(entry.reverses_entry_id || entry.reversed_by_entry_id);
+}
+export function canRestoreTransaction(entry: JournalEntry): boolean {
+  return Boolean(
+    entry.reversed_by_entry_id &&
+      !entry.reverses_entry_id &&
+      !entry.restored_by_entry_id &&
+      !entry.replacement_entry_id &&
+      !entry.payroll_run_id &&
+      !entry.restore_workflow,
+  );
+}
 export interface TransactionPresentation {
   accountIds: string[];
   bankLine: JournalLine | null;

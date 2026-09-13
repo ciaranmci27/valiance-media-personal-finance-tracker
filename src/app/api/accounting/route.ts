@@ -12,10 +12,6 @@ import {
 import { z } from "zod";
 import { contractorFilterSchema } from "@/lib/accounting/contractors";
 import { taxScopeSchema } from "@/lib/accounting/tax-workpapers";
-import {
-  validateTaxTargets,
-  type TaxLinkView,
-} from "@/lib/accounting/tax-links";
 import { payrollFilterSchema } from "@/lib/accounting/payroll";
 import { registerActionSchema } from "@/lib/accounting/registers";
 import { supportReportFilterSchema } from "@/lib/accounting/support-reports";
@@ -24,21 +20,31 @@ import { reportFilterSchema } from "@/lib/accounting/reports";
 import { sameOrigin } from "@/lib/accounting/server/request-origin";
 import { boundedBytes } from "@/lib/accounting/server/request-body";
 import { importComparisonFilterSchema } from "@/lib/accounting/imports/comparison";
+import { buildSetupGuide, claimGuide, type SetupStatus } from "@/lib/accounting/setup-guide";
+import type { FeedData } from "@/lib/accounting/feeds";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const view = req.nextUrl.searchParams.get("view");
   let client;
   try {
     client = await accountingClient();
-  } catch {
+  } catch (e) {
+    // Before the owner row exists the guide still has one thing to say.
+    if (view === "setup" && e instanceof Error && /not configured/.test(e.message))
+      return NextResponse.json(
+        claimGuide(
+          Number(req.nextUrl.searchParams.get("year")) || new Date().getFullYear(),
+        ),
+        { headers: { "Cache-Control": "no-store" } },
+      );
     return NextResponse.json(
       { error: "Accounting is unavailable for this session." },
       { status: 403 },
     );
   }
-  const view = req.nextUrl.searchParams.get("view");
   if (view) {
     let result;
     if (view === "import-comparison") {
@@ -115,6 +121,30 @@ export async function GET(req: NextRequest) {
         p_year: scope.data.year,
         p_through: scope.data.through,
       });
+    } else if (view === "setup") {
+      const parsed = z
+        .object({ year: z.coerce.number().int().min(1900).max(2100) })
+        .safeParse({ year: req.nextUrl.searchParams.get("year") });
+      if (!parsed.success)
+        return NextResponse.json(
+          { error: "Choose a valid year." },
+          { status: 400 },
+        );
+      const [feeds, status] = await Promise.all([
+        readAccounting(client, "feeds"),
+        readAccounting(client, "setup-status", { p_year: parsed.data.year }),
+      ]);
+      // A feed read that fails leaves the bank steps out, as the shell does.
+      result = status.error
+        ? status
+        : {
+            data: buildSetupGuide({
+              year: parsed.data.year,
+              feeds: feeds.error ? null : (feeds.data as FeedData | null),
+              status: status.data as SetupStatus,
+            }),
+            error: null,
+          };
     } else if (view === "tax-history") {
       const parsed = z
         .object({
@@ -588,36 +618,6 @@ export async function POST(req: NextRequest) {
       { error: parsed.error.issues[0]?.message ?? "Invalid entry." },
       { status: 400 },
     );
-  if (
-    parsed.data.command.type === "tax.link.save" &&
-    parsed.data.command.enabled
-  ) {
-    const command = parsed.data.command;
-    const { data: current, error: readError } = await readAccounting(
-      client,
-      "tax",
-      { p_year: Number(command.body.through.slice(0, 4)) },
-    );
-    const view = current as TaxLinkView | null;
-    if (readError || view?.estimate?.id !== command.estimate_id)
-      return NextResponse.json(
-        { error: "Save the selected personal estimate before linking it." },
-        { status: 409 },
-      );
-    try {
-      validateTaxTargets(view.estimate, command.body);
-    } catch (e) {
-      return NextResponse.json(
-        {
-          error:
-            e instanceof Error
-              ? e.message
-              : "Review the selected estimator targets.",
-        },
-        { status: 400 },
-      );
-    }
-  }
   const { data, error } = await readAccounting(client, "operate", {
     p_key: parsed.data.key,
     p_command: parsed.data.command,

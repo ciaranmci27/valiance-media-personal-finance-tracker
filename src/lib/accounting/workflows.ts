@@ -11,7 +11,6 @@ import { feedCommandSchema } from "./feeds";
 import { cashAllocationCommand, reportCaptureCommand } from "./reports";
 import { payrollCommandSchema } from "./payroll";
 import { taxWorkpaperCommandSchema } from "./tax-workpapers";
-import { taxLinkCommandSchema } from "./tax-links";
 import { registerCommandSchema } from "./registers";
 import { supportReportCommandSchema } from "./support-reports";
 import { booksPackageCommandSchema } from "./books-package";
@@ -73,7 +72,10 @@ const registerFilterObject = z
     to: dateSchema.optional(),
     account: id.optional(),
     entry_id: id.optional(),
-    status: z.enum(["all", "draft", "posted", "discarded"]).default("all"),
+    status: z
+      .enum(["all", "draft", "posted", "discarded", "reversed"])
+      .default("all"),
+    review: z.enum(["needs_review", "reviewed"]).optional(),
     source: z
       .enum(["wave", "simplefin", "csv", "manual", "internal"])
       .optional(),
@@ -108,7 +110,6 @@ export const registerFilterSchema = registerFilterObject.refine(
 export type RegisterFilter = z.infer<typeof registerFilterSchema>;
 export const extendedCommandSchema = z.union([
   taxWorkpaperCommandSchema,
-  taxLinkCommandSchema,
   registerCommandSchema,
   supportReportCommandSchema,
   booksPackageCommandSchema,
@@ -270,6 +271,15 @@ export const extendedCommandSchema = z.union([
       .strict(),
     z
       .object({
+        type: z.literal("setup.acknowledge"),
+        id,
+        /** A guide step key, with the year for year-scoped steps. */
+        key: z.string().regex(/^[a-z][a-z0-9-]*(:[a-z0-9]{1,16})?$/),
+        acknowledged: z.boolean(),
+      })
+      .strict(),
+    z
+      .object({
         type: z.literal("account.update"),
         id,
         expected_version: version,
@@ -415,6 +425,20 @@ export interface ManageData {
   } | null;
 }
 export interface EntryEvidence {
+  history?: {
+    reference: string;
+    entries: {
+      id: string;
+      entry_date: string;
+      created_at: string;
+      memo: string;
+      reason: string;
+      status: string;
+      action: "Original" | "Reversal" | "Restoration" | "Replacement";
+      actor: string;
+      payroll_run_id: string | null;
+    }[];
+  };
   rules?: {
     id: string;
     rule_id: string;

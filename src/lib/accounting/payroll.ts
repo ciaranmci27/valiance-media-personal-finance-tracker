@@ -139,6 +139,8 @@ export interface PayrollYear {
     tax_year: number;
     version: number;
     through_date: string;
+    /** Last verified pay date; `through_date` is only the requested cutoff. */
+    source_through_date?: string;
     current: boolean;
     employees: PayrollEmployee[];
     document_id: string;
@@ -147,6 +149,15 @@ export interface PayrollYear {
   } | null;
 }
 export const payrollCommandSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("payroll.import.undo"),
+      id,
+      expected_version: z.number().int().positive(),
+      effective_date: dateSchema,
+      reason,
+    })
+    .strict(),
   z
     .object({
       type: z.literal("payroll.discard"),
@@ -212,6 +223,8 @@ export interface PayrollPreview {
   >;
 }
 export interface PayrollRun {
+  import_mode?: "created" | "linked" | null;
+  import_undone?: boolean;
   id: string;
   version: number;
   provider_run_id: string;
@@ -257,6 +270,8 @@ export interface PayrollRevision {
   posting?: PayrollPosting | null;
 }
 export interface PayrollDetail {
+  import_mode?: "created" | "linked" | null;
+  import_undone?: boolean;
   id: string;
   version: number;
   provider_run_id: string;

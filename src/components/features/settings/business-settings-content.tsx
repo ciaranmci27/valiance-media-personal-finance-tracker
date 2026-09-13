@@ -38,6 +38,8 @@ import {
   type EntityType,
   type ProfileClassification,
   type ProfileLoad,
+  CLASSIFICATION_PHRASES,
+  isElection,
 } from "@/lib/business-profile";
 
 const EIN_PATTERN = /^\d{2}-?\d{7}$/;
@@ -82,6 +84,16 @@ export function BusinessSettingsContent() {
   const [savedAt, setSavedAt] = React.useState<number | null>(null);
   const [error, setError] = React.useState("");
   const years = React.useMemo(() => getAvailableTaxYears(), []);
+  // An election can predate the estimator's years: offer from formation (floor 2000) to next year.
+  const electionYears = React.useMemo(() => {
+    const now = new Date().getFullYear();
+    const formed = profile?.formation_date
+      ? Number(profile.formation_date.slice(0, 4)) || now
+      : now;
+    const first = Math.max(2000, Math.min(formed, now, ...years));
+    const last = Math.max(now + 1, ...years);
+    return Array.from({ length: last - first + 1 }, (_, i) => last - i);
+  }, [profile?.formation_date, years]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -137,6 +149,12 @@ export function BusinessSettingsContent() {
       setError("Enter a valid accountant email address.");
       return;
     }
+    if (isElection(profile) && !profile.tax_classification_since) {
+      setError(
+        `Enter the year the ${CLASSIFICATION_PHRASES[profile.tax_classification].replace(/^an? /, "")} election took effect.`,
+      );
+      return;
+    }
     setSaving(true);
     try {
       const saved = await saveBusinessProfile(profile);
@@ -155,13 +173,18 @@ export function BusinessSettingsContent() {
   const classOptions = profile
     ? classificationOptions(profile.entity_type)
     : [];
-  const yearOptions = [
-    { value: "", label: "Not recorded" },
-    ...years
-      .slice()
-      .sort((a, b) => b - a)
-      .map((y) => ({ value: String(y), label: String(y) })),
-  ];
+  const election = profile ? isElection(profile) : false;
+  const defaultPhrase = profile
+    ? CLASSIFICATION_PHRASES[defaultClassification(profile.entity_type)]
+    : "";
+  const yearOptions = election
+    ? [
+        ...(profile?.tax_classification_since
+          ? []
+          : [{ value: "", label: "Choose the year" }]),
+        ...electionYears.map((y) => ({ value: String(y), label: String(y) })),
+      ]
+    : [{ value: "", label: "Applies to every year" }];
   // The estimator's state list carries tax rates in its labels; addresses do not need them.
   const stateOptions = [
     { value: "", label: "Select state" },
@@ -337,7 +360,7 @@ export function BusinessSettingsContent() {
           <Section
             icon={Landmark}
             title="Tax profile"
-            description="How the business is taxed. The estimator applies this to every tax year from the election year onward."
+            description="How the business is taxed. The estimator and the books apply an election from its start year; earlier years use the entity's default."
           >
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Select
@@ -345,9 +368,16 @@ export function BusinessSettingsContent() {
                 value={profile.tax_classification}
                 options={classOptions}
                 disabled={classOptions.length <= 1}
-                onChange={(v) =>
-                  update({ tax_classification: v as ProfileClassification })
-                }
+                onChange={(v) => {
+                  const next = v as ProfileClassification;
+                  update({
+                    tax_classification: next,
+                    // The entity's own default has no start year.
+                    ...(next === defaultClassification(profile.entity_type)
+                      ? { tax_classification_since: null }
+                      : {}),
+                  });
+                }}
               />
               <Select
                 label="In effect since tax year"
@@ -357,10 +387,15 @@ export function BusinessSettingsContent() {
                     : ""
                 }
                 options={yearOptions}
+                disabled={!election}
                 onChange={(v) =>
                   update({ tax_classification_since: v ? Number(v) : null })
                 }
-                helperText="Earlier years keep their own settings."
+                helperText={
+                  election
+                    ? `Years before this are taxed as ${defaultPhrase}.`
+                    : "Nothing was elected, so this applies to every year."
+                }
               />
               <Select
                 label="Home state for taxes"

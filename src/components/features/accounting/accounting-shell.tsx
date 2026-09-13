@@ -29,7 +29,10 @@ import type {
   WorkflowCommand,
 } from "@/lib/accounting/workflows";
 import { registerFilterSchema } from "@/lib/accounting/workflows";
-import { presentTransaction } from "@/lib/accounting/transactions";
+import {
+  isTransactionReviewed,
+  presentTransaction,
+} from "@/lib/accounting/transactions";
 import { feedSyncDue, type FeedData } from "@/lib/accounting/feeds";
 import {
   resolveAccountingView,
@@ -51,8 +54,10 @@ import {
   type Editor,
 } from "./accounting-journal-dialogs";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
-import { AccountingNotices, booksNotices } from "./accounting-notices";
+import { SetupGuide } from "./setup-guide";
 import type { BooksMetadata } from "./types";
+import { AccountingBankIdentityProvider } from "./accounting-bank-identity";
+import { createAccountingReadCache } from "@/lib/accounting/read-cache";
 
 const ZERO = BigInt(0);
 const loadingView = () => (
@@ -196,6 +201,63 @@ export function AccountingBooks({
   const syncRequested = useRef(false);
   // Bank feed state drives the notices under the header and the Overview.
   const [feeds, setFeeds] = useState<FeedData | null>(null);
+  const [registerCache] = useState(() => createAccountingReadCache());
+  const [registerEpoch, setRegisterEpoch] = useState(0);
+  const balanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const balanceRequest = useRef<AbortController | null>(null);
+  const entryRequest = useRef(0);
+
+  useEffect(
+    () => () => {
+      if (balanceTimer.current) clearTimeout(balanceTimer.current);
+      balanceRequest.current?.abort();
+      registerCache.invalidate();
+    },
+    [registerCache],
+  );
+
+  function invalidateRegister() {
+    registerCache.invalidate();
+    setRegisterEpoch((value) => value + 1);
+  }
+
+  async function refreshTransactionBooks(command?: WorkflowCommand) {
+    invalidateRegister();
+    // New payees are the exceptional transaction edit that changes shared metadata.
+    if (
+      command &&
+      "context" in command &&
+      command.context?.payee_id &&
+      !manage.parties.some((party) => party.id === command.context?.payee_id)
+    ) {
+      void accountingGet<BooksMetadata>({ view: "manage" })
+        .then(setManage)
+        .catch(() => toast("error", "Saved. Reload to update the payee list."));
+    }
+    if (balanceTimer.current) clearTimeout(balanceTimer.current);
+    balanceRequest.current?.abort();
+    // Coalesce rapid row edits; neither the save nor the next row waits for reports.
+    balanceTimer.current = setTimeout(() => {
+      const controller = new AbortController();
+      balanceRequest.current = controller;
+      void accountingGet<Workspace>(
+        { from: data.from, to: data.to },
+        controller.signal,
+      )
+        .then((next) => {
+          if (controller.signal.aborted) return;
+          setData(next);
+          window.dispatchEvent(new Event("accounting-refreshed"));
+        })
+        .catch(() => {
+          if (controller.signal.aborted) return;
+          toast(
+            "error",
+            "Saved. Summary totals could not refresh; reload the page to update them.",
+          );
+        });
+    }, 350);
+  }
 
   let urlFilter: Partial<RegisterFilter> = {};
   try {
@@ -211,6 +273,9 @@ export function AccountingBooks({
   const accountMap = new Map(data.accounts.map((a) => [a.id, a]));
 
   async function refreshBooks() {
+    if (balanceTimer.current) clearTimeout(balanceTimer.current);
+    balanceRequest.current?.abort();
+    invalidateRegister();
     const [next, metadata, feedState] = await Promise.all([
       accountingGet<Workspace>({ from: data.from, to: data.to }),
       accountingGet<BooksMetadata>({ view: "manage" }),
@@ -234,23 +299,27 @@ export function AccountingBooks({
     }
   }, [view]);
   const cmd = useAccountingCommand(refreshBooks);
+  const detailCommand = useAccountingCommand(refreshTransactionBooks);
 
   useEffect(() => {
     if (demo) return;
     const controller = new AbortController();
-    accountingGet<BooksMetadata>({ view: "manage" }, controller.signal)
+    registerCache
+      .read<BooksMetadata>({ view: "manage" }, controller.signal)
       .then((value) => {
         setManage(value);
         setManageLoaded(true);
       })
       .catch((e) => {
-        if (!controller.signal.aborted) setError(e.message);
+        if (!controller.signal.aborted && e.name !== "AbortError")
+          setError(e.message);
       });
-    accountingGet<FeedData>({ view: "feeds" }, controller.signal)
+    registerCache
+      .read<FeedData>({ view: "feeds" }, controller.signal)
       .then(setFeeds)
       .catch(() => undefined);
     return () => controller.abort();
-  }, [demo, initial.revision]);
+  }, [demo, initial.revision, registerCache]);
 
   // Sync on open: when the books report the newest feed run is stale, run
   // each due connection in the background, the same way Sync now does, and
@@ -260,7 +329,7 @@ export function AccountingBooks({
     syncRequested.current = true;
     setSyncing(true);
     (async () => {
-      const feeds = await accountingGet<FeedData>({ view: "feeds" });
+      const feeds = await registerCache.read<FeedData>({ view: "feeds" });
       // Only a connection with at least one mapped account can sync; the
       // Overview explains the mapping step for the rest.
       const mapped = new Set(
@@ -316,17 +385,20 @@ export function AccountingBooks({
     return !!ok;
   }
 
-  async function openEntry(id: string) {
-    if (demo) {
-      setSelected(data.entries.find((e) => e.id === id) ?? null);
+  async function openEntry(id: string, known?: JournalEntry) {
+    const request = ++entryRequest.current;
+    const loaded = known ?? data.entries.find((e) => e.id === id);
+    if (loaded || demo) {
+      setSelected(loaded ?? null);
       return;
     }
     try {
-      const result = await accountingGet<{ entries: JournalEntry[] }>({
+      const result = await registerCache.read<{ entries: JournalEntry[] }>({
         view: "register",
         filter: JSON.stringify({ entry_id: id }),
       });
-      setSelected(result.entries[0] ?? null);
+      if (request === entryRequest.current)
+        setSelected(result.entries[0] ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to load entry.");
     }
@@ -335,15 +407,8 @@ export function AccountingBooks({
   async function openEditor(entry?: JournalEntry, copy = false) {
     setError("");
     try {
-      if (entry && !demo) {
-        const result = await accountingGet<{ entries: JournalEntry[] }>({
-          view: "register",
-          filter: JSON.stringify({ entry_id: entry.id }),
-        });
-        entry = result.entries[0];
-        if (!entry)
-          throw new Error("This entry is unavailable. Refresh the books.");
-      }
+      // The loaded entry carries an expected_version; the server rejects stale edits.
+      entryRequest.current++;
       setSelected(null);
       setEditor(makeEditor(data.to, entry, copy));
     } catch (e) {
@@ -412,44 +477,48 @@ export function AccountingBooks({
     entry: JournalEntry,
   ) {
     if (action === "detail" || action === "journal" || demo) {
-      await openEntry(entry.id);
+      await openEntry(entry.id, entry);
+      return;
+    }
+    if (action === "reverse" && entry.payroll_run_id) {
+      setSelected(null);
+      setView("records", "payroll");
       return;
     }
     if (action === "copy") {
       await openEditor(entry, true);
       return;
     }
-    if (action === "reverse" || action === "discard") {
+    if (action === "reverse" || action === "discard" || action === "restore") {
       setApproval({
         entry,
-        type: action === "reverse" ? "entry.reverse" : "draft.discard",
+        type:
+          action === "restore"
+            ? "entry.restore"
+            : action === "reverse"
+              ? "entry.reverse"
+              : "draft.discard",
       });
       setError("");
       return;
     }
     try {
-      const current = await accountingGet<{ entries: JournalEntry[] }>({
-        view: "register",
-        filter: JSON.stringify({ entry_id: entry.id }),
-      });
-      const fresh = current.entries[0];
-      if (!fresh)
-        throw new Error("This transaction is unavailable. Refresh the books.");
-      if (presentTransaction(fresh, manage.profiles).editable)
-        setSimpleEditor({ entry: fresh });
-      else if (fresh.status === "draft") await openEditor(fresh);
-      else await openEntry(fresh.id);
+      entryRequest.current++;
+      if (presentTransaction(entry, manage.profiles).editable)
+        setSimpleEditor({ entry });
+      else if (entry.status === "draft") await openEditor(entry);
+      else await openEntry(entry.id, entry);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to open transaction.");
     }
   }
 
-  const addMenu = (
+  const transactionAddMenu = (
     <Menu.Root>
       <Menu.Trigger asChild id="accounting-add-transaction">
         <Button disabled={demo}>
           <Plus size={16} aria-hidden="true" />
-          Add
+          Add transaction
           <ChevronDown size={14} aria-hidden="true" />
         </Button>
       </Menu.Trigger>
@@ -476,7 +545,7 @@ export function AccountingBooks({
               run: () => setView("records", "transfers"),
             },
             {
-              label: "Payroll run",
+              label: "Payroll records",
               icon: Wallet,
               run: () => setView("records", "payroll"),
             },
@@ -501,13 +570,16 @@ export function AccountingBooks({
   );
 
   return (
-    <div className="space-y-5 lg:space-y-6">
+    <AccountingBankIdentityProvider
+      feeds={feeds}
+      profiles={manage.profiles}
+      className="space-y-5 lg:space-y-6"
+    >
       <PageHeader
         title="Accounting"
         subtitle={
           demo ? "Synthetic company, read-only demonstration" : data.legal_name
         }
-        actions={addMenu}
       />
 
       {syncing && (
@@ -520,14 +592,10 @@ export function AccountingBooks({
         </p>
       )}
 
-      <AccountingNotices
-        notices={booksNotices({
-          feeds,
-          manage,
-          demo,
-          onFeeds: () => setView("settings", "feeds"),
-          onSettings: () => setView("settings", "settings"),
-        })}
+      <SetupGuide
+        year={new Date().getFullYear()}
+        enabled={!demo}
+        onApplied={() => void refreshBooks()}
       />
 
       {(testing || demo) && (
@@ -585,6 +653,10 @@ export function AccountingBooks({
             ...(accountFilter ? { account: accountFilter } : {}),
           }}
           onRefresh={refreshBooks}
+          onTransactionSaved={refreshTransactionBooks}
+          registerCache={registerCache}
+          registerEpoch={registerEpoch}
+          actions={transactionAddMenu}
           onAction={(action, entry) => void transactionAction(action, entry)}
         />
       )}
@@ -648,7 +720,7 @@ export function AccountingBooks({
           accounts={data.accounts}
           manage={manage}
           onClose={() => setSimpleEditor(null)}
-          onSaved={refreshBooks}
+          onSaved={refreshTransactionBooks}
           onJournal={() => {
             const e = simpleEditor.entry;
             setSimpleEditor(null);
@@ -663,17 +735,60 @@ export function AccountingBooks({
         parties={manage.parties}
         demo={demo}
         range={range}
-        onClose={() => setSelected(null)}
-        onEdit={(e) => void openEditor(e)}
-        onPost={(e) => {
-          setApproval({ entry: e, type: "entry.post" });
+        busy={detailCommand.busy}
+        error={detailCommand.error}
+        canReview={
+          !!selected &&
+          presentTransaction(selected, manage.profiles).categorized
+        }
+        onClose={() => {
+          entryRequest.current++;
           setSelected(null);
+          detailCommand.setError("");
+        }}
+        onEdit={(e) => {
+          setSelected(null);
+          void transactionAction("edit", e);
+        }}
+        onPost={async (e) => {
+          const reviewed = !isTransactionReviewed(e);
+          const saved = await detailCommand.execute({
+            type: "entry.review",
+            id: e.id,
+            expected_version: e.version,
+            reviewed,
+          });
+          if (saved) {
+            setSelected((current) =>
+              current?.id === e.id
+                ? {
+                    ...current,
+                    status: "posted",
+                    review_pending: !reviewed,
+                    version: saved.version ?? e.version + 1,
+                  }
+                : current,
+            );
+            toast(
+              "success",
+              reviewed ? "Transaction reviewed." : "Marked as unreviewed.",
+            );
+          }
         }}
         onDiscard={(e) => {
           setApproval({ entry: e, type: "draft.discard" });
           setSelected(null);
         }}
+        onRestore={(e) => {
+          setApproval({ entry: e, type: "entry.restore" });
+          setSelected(null);
+        }}
         onReverse={(e) => {
+          if (e.payroll_run_id) {
+            setSelected(null);
+            setView("records", "payroll");
+            return;
+          }
           setApproval({ entry: e, type: "entry.reverse" });
           setSelected(null);
         }}
@@ -703,6 +818,7 @@ export function AccountingBooks({
 
       <ReplacementReviewDialog
         review={replacementReview}
+        original={editor?.corrects ?? null}
         accounts={accountMap}
         busy={cmd.busy}
         error={error}
@@ -734,6 +850,6 @@ export function AccountingBooks({
           onSaved={refreshBooks}
         />
       )}
-    </div>
+    </AccountingBankIdentityProvider>
   );
 }

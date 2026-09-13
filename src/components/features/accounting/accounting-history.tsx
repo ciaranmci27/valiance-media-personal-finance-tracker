@@ -348,7 +348,7 @@ export function AccountingHistory({
     })),
   ];
   const monthlyCard = (m: MonthRow) => (
-    <div className="glass-card rounded-xl p-4">
+    <div>
       <p className="text-sm font-medium">{monthLabel(m.from)}</p>
       <p className="mt-1 text-xs text-muted-foreground">
         {dateShortLabel(m.from)} through {dateShortLabel(m.to)}
@@ -514,7 +514,6 @@ export function AccountingHistory({
               data={data.monthly}
               keyExtractor={(m) => m.from}
               framed={false}
-              className="max-lg:p-4"
               mobileCard={monthlyCard}
             />
           </section>
@@ -528,13 +527,13 @@ export function AccountingHistory({
                 explicitly where required.
               </p>
             </div>
-            <div className="max-h-[520px] overflow-y-auto">
+            <div className="sm:max-h-[520px] sm:overflow-y-auto">
               {data.accounts
                 .filter((a) => a.required)
                 .map((a) => (
                   <div
                     key={a.account_id}
-                    className="grid grid-cols-[1fr_150px] items-center gap-4 border-b border-border p-4 text-sm last:border-0"
+                    className="grid grid-cols-1 gap-3 border-b border-border p-4 text-sm last:border-0 sm:grid-cols-[1fr_150px] sm:items-center sm:gap-4"
                   >
                     <div>
                       <p className="font-medium">
@@ -1021,7 +1020,7 @@ function WaveReportCheck({
     },
   ];
   const card = (row: TotalRow) => (
-    <div className="glass-card rounded-xl p-4 text-sm">
+    <div className="text-sm">
       <p className="font-medium">{totalLabels[row.key]}</p>
       <dl className="mt-2 grid grid-cols-2 gap-1 text-xs">
         <dt className="text-muted-foreground">Wave</dt>
@@ -1108,7 +1107,6 @@ function WaveReportCheck({
               data={rows}
               keyExtractor={(row) => row.key}
               framed={false}
-              className="max-lg:p-4"
               mobileCard={card}
             />
           </div>

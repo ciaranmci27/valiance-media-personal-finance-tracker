@@ -40,6 +40,18 @@ export function formatCents(value: string | bigint): string {
   return `${cents < ZERO ? "-" : ""}$${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",")}.${fraction}`;
 }
 
+/** Journal lines use positive cents for debits and negative cents for credits. */
+export function journalTotals(lines: readonly { amount_cents: string }[]) {
+  let debit = ZERO;
+  let credit = ZERO;
+  for (const line of lines) {
+    const amount = readCents(line.amount_cents);
+    if (amount > ZERO) debit += amount;
+    else credit -= amount;
+  }
+  return { debit, credit };
+}
+
 /** Largest remainder, stable input-order tie break, with no floating point. */
 export function allocateCents(
   total: bigint,

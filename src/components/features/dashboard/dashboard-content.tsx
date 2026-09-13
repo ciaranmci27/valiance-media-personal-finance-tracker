@@ -11,6 +11,7 @@ import { IncomeBreakdownChart } from "@/components/charts/income-breakdown-chart
 import { formatCurrency, toMonthlyAmount, cn, formatMonth } from "@/lib/utils";
 import { MaskedValue, useMaskedHover } from "@/components/ui/masked-value";
 import { PageHeader } from "@/components/layout/page-header";
+import { SetupGuide } from "@/components/features/accounting/setup-guide";
 import { siteConfig } from "@/config/site";
 import type { IncomeEntry, IncomeSource, IncomeAmount, Expense, ExpenseHistory, NetWorth } from "@/types/database";
 
@@ -269,6 +270,8 @@ export function DashboardContent({
         title={`${greeting}, ${firstName}`}
         subtitle="Here's where things stand today."
       />
+
+      <SetupGuide year={new Date().getFullYear()} />
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 lg:gap-4 lg:grid-cols-4">

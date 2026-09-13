@@ -5,7 +5,6 @@ import {
   fixtureAccounts,
   fixtureAccountId as account,
 } from "../src/lib/accounting/fixtures";
-import { calculateTaxLink } from "../src/lib/accounting/tax-refresh";
 async function main() {
   const db = await accountingTestDb();
   let n = 0;
@@ -20,19 +19,6 @@ async function main() {
           JSON.stringify({ key: randomUUID(), command }),
         ])
       ).rows[0].r;
-    const server = async (command: any) => {
-      await db.exec("RESET ROLE; SET ROLE service_role");
-      try {
-        return (
-          await db.query<{ r: any }>(
-            "SELECT accounting.tax_refresh_server($1) r",
-            [JSON.stringify(command)],
-          )
-        ).rows[0].r;
-      } finally {
-        await db.exec("RESET ROLE; SET ROLE authenticated");
-      }
-    };
     const source = async () =>
       (
         await db.query<{ r: any }>(
@@ -76,7 +62,7 @@ async function main() {
       concept: "ordinary_income",
       deductible_bps: 10000,
     });
-    const mapping = await cmd({
+    await cmd({
       type: "tax.mapping.save",
       id: randomUUID(),
       tax_year: 2026,
@@ -164,133 +150,7 @@ async function main() {
       reason: "Offset with support",
     });
     check((await source()).unavailable_adjustments, 0);
-    await db.exec("RESET ROLE");
-    const estimate = randomUUID();
-    await db.query(
-      "INSERT INTO public.tax_estimates(id,tax_year,income_sources,tax_classification) VALUES($1,2026,$2,'s_corp')",
-      [
-        estimate,
-        JSON.stringify([
-          {
-            id: "business",
-            name: "Synthetic business",
-            amount: 12345,
-            income_type: "k1",
-            subject_to_se: false,
-          },
-        ]),
-      ],
-    );
-    await db.exec("SET ROLE authenticated");
-    const body = {
-      cutoff_mode: "fixed",
-      through: "2026-08-31",
-      business_target_id: "business",
-      forecast: { method: "manual", remaining_cents: "0" },
-      separate_targets: [],
-      payroll: null,
-      manual_separate_review: null,
-    };
-    let link = await cmd({
-      type: "tax.link.save",
-      id: randomUUID(),
-      estimate_id: estimate,
-      expected_version: 0,
-      enabled: true,
-      body,
-      reason: "Synthetic linkage",
-    });
-    const view = async () =>
-      (
-        await db.query<{ r: any }>("SELECT accounting.tax_link($1) r", [
-          link.id,
-        ])
-      ).rows[0].r;
-    const claim = await server({ type: "start", link_id: link.id });
-    check(claim.state, "running");
-    const payload = calculateTaxLink(claim.inputs);
-    check(payload.calculation.overlay.income[0].amount_cents, "94999");
-    check((await server({ type: "start", link_id: link.id })).state, "busy");
-    check(
-      (
-        await server({
-          type: "finish",
-          link_id: link.id,
-          lease_token: claim.lease_token,
-          payload,
-        })
-      ).state,
-      "fresh",
-    );
-    check((await view()).current, true);
-    check(
-      (
-        await server({
-          type: "finish",
-          link_id: link.id,
-          lease_token: claim.lease_token,
-          payload,
-        })
-      ).state,
-      "fresh",
-    );
-    check((await view()).estimate.income_sources[0].amount, 12345);
-    await cmd({
-      type: "tax.mapping.save",
-      id: mapping.id,
-      tax_year: 2026,
-      account_id: meals,
-      expected_version: mapping.version,
-      concept: "meals_50",
-      deductible_bps: 5000,
-      notes: "Synthetic revision",
-    });
-    check((await view()).current, false);
-    const stale = await server({ type: "start", link_id: link.id });
-    await post("2026-03-01", [
-      { account_id: account(1), amount_cents: "1" },
-      { account_id: account(5), amount_cents: "-1" },
-    ]);
-    check(
-      (
-        await server({
-          type: "finish",
-          link_id: link.id,
-          lease_token: stale.lease_token,
-          payload: calculateTaxLink(stale.inputs),
-        })
-      ).state,
-      "stale",
-    );
-    const personal = await server({ type: "start", link_id: link.id });
-    await db.exec("RESET ROLE");
-    await db.query(
-      "UPDATE public.tax_estimates SET additional_deductions=10 WHERE id=$1",
-      [estimate],
-    );
-    await db.exec("SET ROLE authenticated");
-    check(
-      (
-        await server({
-          type: "finish",
-          link_id: link.id,
-          lease_token: personal.lease_token,
-          payload: calculateTaxLink(personal.inputs),
-        })
-      ).state,
-      "stale",
-    );
-    await assert.rejects(
-      db.query('SELECT accounting.tax_refresh_server(\'{"type":"due"}\')'),
-      /permission denied/,
-    );
-    n++;
-    await assert.rejects(
-      db.query("SELECT * FROM accounting.tax_links"),
-      /permission denied/,
-    );
-    n++;
-    console.log("Tax inputs and refresh integration:", n, "checks passed");
+    console.log("Tax workpaper inputs integration:", n, "checks passed");
   } finally {
     await db.close();
   }

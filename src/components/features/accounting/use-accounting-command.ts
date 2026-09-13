@@ -3,6 +3,8 @@
 import { useRef, useState } from "react";
 import type { EntryContext } from "@/lib/accounting/contracts";
 import type { WorkflowCommand } from "@/lib/accounting/workflows";
+import { accountingReadJson } from "@/lib/accounting/read-json";
+import { AccountingRetryKeys } from "@/lib/accounting/retry-keys";
 
 /** The context a transaction command accepts: the kind and the payee. */
 export type CommandContext = NonNullable<
@@ -24,7 +26,10 @@ export function commandContext(context: EntryContext): CommandContext {
   };
 }
 
-async function post(key: string, command: WorkflowCommand) {
+export async function postAccountingCommand(
+  key: string,
+  command: WorkflowCommand,
+) {
   const response = await fetch("/api/accounting", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -39,7 +44,9 @@ async function post(key: string, command: WorkflowCommand) {
 const REFRESH_FAILED =
   "Saved, but the books could not be reloaded. Refresh the page to see the change.";
 
-export function useAccountingCommand(onSaved?: () => Promise<void> | void) {
+export function useAccountingCommand(
+  onSaved?: (command?: WorkflowCommand) => Promise<void> | void,
+) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState<{
@@ -47,7 +54,7 @@ export function useAccountingCommand(onSaved?: () => Promise<void> | void) {
     total: number;
   } | null>(null);
   const inFlight = useRef(false);
-  const pending = useRef<{ signature: string; key: string } | null>(null);
+  const retryKeys = useRef(new AccountingRetryKeys());
   /** The latest error, readable right after `execute` without waiting for a render. */
   const lastError = useRef("");
 
@@ -57,9 +64,9 @@ export function useAccountingCommand(onSaved?: () => Promise<void> | void) {
   }
 
   /** A save landed; a failed reload afterwards is reported but does not undo it. */
-  async function reload() {
+  async function reload(command?: WorkflowCommand) {
     try {
-      await onSaved?.();
+      await onSaved?.(command);
     } catch {
       fail(REFRESH_FAILED);
     }
@@ -71,13 +78,13 @@ export function useAccountingCommand(onSaved?: () => Promise<void> | void) {
     inFlight.current = true;
     setBusy(true);
     fail("");
-    const signature = JSON.stringify(command);
-    if (pending.current?.signature !== signature)
-      pending.current = { signature, key: crypto.randomUUID() };
     try {
-      const result = await post(pending.current.key, command);
-      pending.current = null;
-      await reload();
+      const result = await postAccountingCommand(
+        retryKeys.current.keyFor(command),
+        command,
+      );
+      retryKeys.current.complete(command);
+      await reload(command);
       return result;
     } catch (e) {
       fail(
@@ -107,8 +114,10 @@ export function useAccountingCommand(onSaved?: () => Promise<void> | void) {
     let failed = false;
     try {
       for (const command of commands) {
+        const key = retryKeys.current.keyFor(command);
         try {
-          const result = await post(crypto.randomUUID(), command);
+          const result = await postAccountingCommand(key, command);
+          retryKeys.current.complete(command);
           saved.push(result.id ?? ("id" in command ? String(command.id) : ""));
           setProgress({ done: saved.length, total: commands.length });
         } catch (e) {
@@ -133,28 +142,16 @@ export function useAccountingCommand(onSaved?: () => Promise<void> | void) {
   return { execute, executeMany, busy, error, setError, progress, lastError };
 }
 
-/** A promise that never settles: the caller has moved on and wants nothing. */
-const forever = new Promise<never>(() => {});
-
 /**
- * Read one accounting view. A `signal` marks the request as superseded: once
- * it is aborted the result is dropped and the promise never settles, so a
- * component that unmounted or refetched never sees a stale value and never
- * has an AbortError to catch. The request itself is left to finish.
+ * Read one accounting view. Cancellation settles with AbortError so callers
+ * can finish cleanup; effects ignore it when their signal has been aborted.
  */
-export async function accountingGet<T>(
+export function accountingGet<T>(
   query: Record<string, string>,
   signal?: AbortSignal,
 ): Promise<T> {
-  if (signal?.aborted) return forever;
-  const response = await fetch(
+  return accountingReadJson<T>(
     `/api/accounting?${new URLSearchParams(query)}`,
-    { cache: "no-store" },
+    signal,
   );
-  if (signal?.aborted) return forever;
-  const result = await response.json();
-  if (signal?.aborted) return forever;
-  if (!response.ok)
-    throw new Error(result.error ?? "Unable to load accounting data.");
-  return result as T;
 }

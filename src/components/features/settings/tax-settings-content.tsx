@@ -46,7 +46,9 @@ import type {
   TaxEstimate,
 } from "@/types/database";
 import {
-  describeTaxProfile,
+  businessTypeForYear,
+  classificationForYear,
+  describeTaxProfileForYear,
   loadBusinessProfile,
   type BusinessProfile,
 } from "@/lib/business-profile";
@@ -96,6 +98,21 @@ export function TaxSettingsContent() {
         /* The per-year controls stay available when the profile cannot load. */
       });
   }, []);
+  // With a business profile, a year's structure is the profile's answer for
+  // that year; the per-year controls only apply while no profile exists.
+  const structureFor = (
+    year: Pick<YearProfile, "taxYear" | "businessType" | "taxClassification">,
+  ) =>
+    businessProfile
+      ? {
+          business_type: businessTypeForYear(businessProfile, year.taxYear),
+          tax_classification: classificationForYear(businessProfile, year.taxYear),
+        }
+      : {
+          business_type: year.businessType,
+          tax_classification:
+            year.businessType === "none" ? null : year.taxClassification,
+        };
   const [expandedYear, setExpandedYear] = React.useState<number | null>(
     initialYear ? Number(initialYear) : null,
   );
@@ -171,9 +188,7 @@ export function TaxSettingsContent() {
       const updates = {
         filing_status: profile.filingStatus,
         state: profile.state || null,
-        business_type: profile.businessType,
-        tax_classification:
-          profile.businessType === "none" ? null : profile.taxClassification,
+        ...structureFor(profile),
       };
 
       if (isDemoMode()) {
@@ -231,10 +246,10 @@ export function TaxSettingsContent() {
       const updates = {
         filing_status: source.filingStatus,
         state: source.state || null,
-        business_type: source.businessType,
-        tax_classification:
-          source.businessType === "none" ? null : source.taxClassification,
       };
+      // Structure follows each year, not the source year, once a profile exists.
+      const structure = (p: YearProfile) =>
+        structureFor({ ...source, taxYear: p.taxYear });
 
       if (isDemoMode()) {
         await new Promise((r) => setTimeout(r, 300));
@@ -243,7 +258,7 @@ export function TaxSettingsContent() {
         for (const profile of yearProfiles) {
           const { error } = await supabase
             .from("tax_estimates")
-            .update(updates)
+            .update({ ...updates, ...structure(profile) })
             .eq("id", profile.id);
           if (error) throw error;
         }
@@ -251,14 +266,17 @@ export function TaxSettingsContent() {
 
       // Update local state to reflect the change
       setYearProfiles((prev) =>
-        prev.map((p) => ({
-          ...p,
-          filingStatus: source.filingStatus,
-          state: source.state,
-          businessType: source.businessType,
-          taxClassification: source.taxClassification,
-          dirty: false,
-        })),
+        prev.map((p) => {
+          const s = structure(p);
+          return {
+            ...p,
+            filingStatus: source.filingStatus,
+            state: source.state,
+            businessType: s.business_type as BusinessType,
+            taxClassification: s.tax_classification as TaxClassification | null,
+            dirty: false,
+          };
+        }),
       );
       toast("success", `Applied ${sourceTaxYear} settings to all years`);
     } catch (err) {
@@ -302,8 +320,11 @@ export function TaxSettingsContent() {
         tax_year: year,
         filing_status: baseProfile?.filingStatus ?? ("single" as FilingStatus),
         state: baseProfile?.state || null,
-        business_type: baseProfile?.businessType ?? ("none" as BusinessType),
-        tax_classification: baseProfile?.taxClassification ?? null,
+        ...structureFor({
+          taxYear: year,
+          businessType: baseProfile?.businessType ?? ("none" as BusinessType),
+          taxClassification: baseProfile?.taxClassification ?? null,
+        }),
         income_sources: [] as unknown as Record<string, unknown>[],
         capital_gains: [] as unknown as Record<string, unknown>[],
         payments: [] as unknown as Record<string, unknown>[],
@@ -574,7 +595,12 @@ export function TaxSettingsContent() {
                               Business structure
                             </p>
                             <p className="mt-0.5 flex flex-wrap items-center gap-x-2">
-                              <span>{describeTaxProfile(businessProfile)}</span>
+                              <span>
+                                {describeTaxProfileForYear(
+                                  businessProfile,
+                                  profile.taxYear,
+                                )}
+                              </span>
                               <Link
                                 href="/settings/business"
                                 className="text-teal-light underline-offset-4 hover:underline"

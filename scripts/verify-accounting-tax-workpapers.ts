@@ -289,7 +289,12 @@ async function main() {
     [prepared.storage_path],
   );
   s = await source();
-  check(s.year_settings?.current, true);
+  check(s.year_settings?.classification, "s_corp");
+  // A year before the election takes the entity's default, the same rule the estimator applies.
+  await sql("UPDATE public.business_profile SET tax_classification_since=2027 WHERE id=1");
+  check((await source()).year_settings?.classification, "disregarded");
+  await sql("UPDATE public.business_profile SET tax_classification_since=NULL WHERE id=1");
+  check((await source()).year_settings?.classification, "s_corp");
   check(s.unmapped_accounts, 0);
   check(s.unavailable_adjustments, 5);
   check(s.revision, before);

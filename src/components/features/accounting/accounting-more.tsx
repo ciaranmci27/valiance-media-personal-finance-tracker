@@ -183,7 +183,7 @@ const SECTIONS: {
   {
     id: "tax",
     name: "Tax",
-    description: "Workpapers and estimator link",
+    description: "Workpapers and adjustments",
     icon: FileSpreadsheet,
   },
   {
@@ -532,7 +532,7 @@ export function AccountingMore({
             if (!open) setParty(null);
           }}
         >
-          <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+          <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {party?.version ? "Edit payee" : "Add payee"}

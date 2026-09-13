@@ -11,7 +11,6 @@ export async function updateSession(request: NextRequest) {
   // receivers authenticate signatures. A browser session is not their identity.
   if (
     pathname === "/api/accounting/jobs/feeds" ||
-    pathname === "/api/accounting/jobs/tax" ||
     pathname === "/api/webhooks" ||
     pathname.startsWith("/api/webhooks/")
   ) {

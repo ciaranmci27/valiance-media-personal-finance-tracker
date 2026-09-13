@@ -1,5 +1,6 @@
 import type { TaxIncomeSource, TaxClassification, IncomeType } from "@/types/database";
 import type { FilingStatus } from "@/lib/tax/constants";
+import { booksRole, templateBooksRole } from "@/lib/tax/books-rows";
 
 /**
  * Generate template income line items based on business setup.
@@ -75,14 +76,19 @@ export function createPersonalTemplateSources(
 
 /**
  * Check if a template income source is already present in existing sources.
- * Matches on name + income_type to avoid duplicates when re-opening the popover.
+ * Matches on name + income_type to avoid duplicates when re-opening the popover,
+ * and treats a row that came from the books as covering the template with the
+ * same role, so "Business Profit" does not reappear beside a books profit row.
  */
 export function isTemplateAlreadyAdded(
   template: TaxIncomeSource,
   existingSources: TaxIncomeSource[]
 ): boolean {
+  const role = templateBooksRole(template);
   return existingSources.some(
-    (s) => s.name === template.name && s.income_type === template.income_type
+    (s) =>
+      (s.name === template.name && s.income_type === template.income_type) ||
+      (!!s.books && role !== null && booksRole(s.books.key) === role)
   );
 }
 

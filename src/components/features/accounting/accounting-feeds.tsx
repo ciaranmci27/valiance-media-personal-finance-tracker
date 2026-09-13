@@ -474,7 +474,7 @@ export function AccountingFeeds({
                           )}
                         </div>
                       </div>
-                      <div className="flex shrink-0 items-center gap-2">
+                      <div className="flex shrink-0 flex-wrap items-center gap-2">
                         {undecided && (
                           <Button
                             size="sm"
@@ -956,7 +956,7 @@ function MapFeed({
         if (!open && !cmd.busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Map {identity.name}</DialogTitle>
           <DialogDescription className="sr-only">

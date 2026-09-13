@@ -250,7 +250,10 @@ export function AccountingAccounts({
                   label="Include archived"
                   className="py-2"
                 />
-                <form action="/accounting" className="flex items-end gap-2">
+                <form
+                  action="/accounting"
+                  className="flex flex-wrap items-end gap-2"
+                >
                   <input type="hidden" name="view" value="accounts" />
                   <input type="hidden" name="from" value={yearStart} />
                   <DateInput
@@ -274,7 +277,7 @@ export function AccountingAccounts({
                 </form>
               </div>
             </div>
-            <div className="border-t border-border p-4 lg:p-0">
+            <div className="border-t border-border">
               <DataTable<BalanceRow>
                 framed={false}
                 columns={columns}
@@ -282,7 +285,7 @@ export function AccountingAccounts({
                 keyExtractor={(a) => a.id}
                 emptyState="No accounts match these filters."
                 mobileCard={(a) => (
-                  <div className="glass-card rounded-xl p-4">
+                  <div>
                     <div className="flex items-start justify-between gap-3">
                       <button
                         type="button"
@@ -342,7 +345,7 @@ export function AccountingAccounts({
           if (!o && !command.busy) setEditing(null);
         }}
       >
-        <DialogContent className="max-h-[90vh] max-w-md overflow-y-auto">
+        <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit account</DialogTitle>
             <DialogDescription className="sr-only">
@@ -369,7 +372,7 @@ export function AccountingAccounts({
           if (!command.busy) setSeed(o);
         }}
       >
-        <DialogContent className="max-h-[85vh] max-w-lg overflow-y-auto">
+        <DialogContent className="max-h-[85dvh] max-w-lg overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Create standard chart</DialogTitle>
             <DialogDescription className="sr-only">
@@ -382,13 +385,13 @@ export function AccountingAccounts({
                 key={a.id}
                 className="flex justify-between gap-3 px-4 py-2.5 text-sm"
               >
-                <span>
+                <span className="min-w-0 truncate">
                   <span className="mr-3 font-mono text-xs text-muted-foreground">
                     {a.code}
                   </span>
                   {a.name}
                 </span>
-                <span className="text-muted-foreground">
+                <span className="shrink-0 text-muted-foreground">
                   {enumLabel(a.account_type)}
                 </span>
               </p>
@@ -432,7 +435,7 @@ export function AccountingAccounts({
           if (!o) setLedger(null);
         }}
       >
-        <DialogContent className="max-h-[90vh] max-w-3xl overflow-y-auto">
+        <DialogContent className="max-h-[90dvh] max-w-3xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{ledger?.name}</DialogTitle>
             <DialogDescription className="sr-only">
@@ -668,6 +671,8 @@ function AccountLedger({
   useEffect(() => {
     if (demo) return;
     const controller = new AbortController();
+    setError("");
+    setData(null);
     accountingGet<NonNullable<typeof data>>(
       { view: "account-ledger", account, from, to, offset: String(offset) },
       controller.signal,

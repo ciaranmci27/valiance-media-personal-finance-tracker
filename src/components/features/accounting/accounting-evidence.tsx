@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
+import Link from "next/link";
 import { ArrowRight, FileText, Paperclip, History, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/ui/inputs/TextInput";
@@ -8,7 +9,7 @@ import { SectionHeader } from "@/components/ui/section-header";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { EntryEvidence, Party } from "@/lib/accounting/workflows";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
-import { enumLabel, timestampLabel } from "./format";
+import { dateLabel, enumLabel, timestampLabel } from "./format";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { EvidenceUpload } from "./accounting-documents";
 export function AccountingEvidence({
@@ -52,6 +53,59 @@ export function AccountingEvidence({
       )}
       {data && (
         <>
+          {data.history && (
+            <section aria-label="Transaction history" className="space-y-3">
+              <div>
+                <h4 className="text-sm font-semibold">Transaction history</h4>
+                <Link
+                  href={`/accounting?view=journal&entry=${data.history.reference}`}
+                  title={data.history.reference}
+                  className="text-xs text-primary underline"
+                >
+                  Reference TX-
+                  {data.history.reference.slice(0, 8).toUpperCase()}
+                </Link>
+              </div>
+              <ol className="ml-1 space-y-4 border-l border-border pl-4">
+                {data.history.entries.map((event) => (
+                  <li key={event.id} className="relative space-y-1 text-sm">
+                    <span
+                      className="absolute -left-[21px] top-1.5 h-2 w-2 rounded-full bg-primary"
+                      aria-hidden="true"
+                    />
+                    <Link
+                      className="font-medium underline-offset-4 hover:underline"
+                      href={`/accounting?view=journal&entry=${event.id}`}
+                    >
+                      {event.action}
+                      {event.id === entryId ? " (viewing)" : ""}
+                    </Link>
+                    <p>{event.memo}</p>
+                    <p className="text-xs text-muted-foreground">
+                      Effective {dateLabel(event.entry_date)}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Recorded {timestampLabel(event.created_at)} ·{" "}
+                      {event.actor}
+                    </p>
+                    {event.reason && (
+                      <p className="text-xs text-muted-foreground">
+                        {event.reason}
+                      </p>
+                    )}
+                    {event.payroll_run_id && (
+                      <Link
+                        className="text-xs text-primary underline"
+                        href="/accounting?view=records&section=payroll"
+                      >
+                        Payroll record
+                      </Link>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          )}
           {!!data.rules?.length && (
             <div className="space-y-2">
               {data.rules.map((r) => (

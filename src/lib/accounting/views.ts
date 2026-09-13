@@ -52,6 +52,14 @@ export function accountingNavFor(view: AccountingView): AccountingView {
   return view === "close" ? "overview" : view;
 }
 
-export function accountingHref(view: AccountingView) {
-  return `/accounting?view=${view}`;
+/** `/accounting?view=...`, with a Settings or Records section and any extra params. */
+export function accountingHref(
+  view: AccountingView,
+  section?: string,
+  params?: Record<string, string>,
+) {
+  const query = new URLSearchParams({ view });
+  if (section) query.set("section", section);
+  for (const [key, value] of Object.entries(params ?? {})) query.set(key, value);
+  return `/accounting?${query}`;
 }

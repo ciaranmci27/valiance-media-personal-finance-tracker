@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { Plus, FileText, Link2, Pencil, Check, ChevronLeft, Briefcase, User } from "lucide-react";
+import { Plus, FileText, Link2, Pencil, Check, ChevronLeft, Briefcase, User, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -30,6 +30,8 @@ interface AddIncomePopoverProps {
   onAddTemplates: (sources: TaxIncomeSource[]) => void;
   onAddCustom: () => void;
   onOpenImport: () => void;
+  /** Present when the accounting books can supply figures for this year. */
+  onOpenBooks?: () => void;
   existingSources: TaxIncomeSource[];
 }
 
@@ -133,6 +135,7 @@ export function AddIncomePopover({
   onAddTemplates,
   onAddCustom,
   onOpenImport,
+  onOpenBooks,
   existingSources,
 }: AddIncomePopoverProps) {
   const [isOpen, setIsOpen] = React.useState(false);
@@ -309,6 +312,28 @@ export function AddIncomePopover({
               </div>
               <span className="text-muted-foreground/40 text-xs">&rsaquo;</span>
             </button>
+
+            {/* From the accounting books */}
+            {onOpenBooks && (
+              <div className="border-t border-white/[0.06]">
+                <button
+                  type="button"
+                  onClick={() => { setIsOpen(false); onOpenBooks(); }}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-secondary transition-colors cursor-pointer"
+                >
+                  <BookOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0 leading-tight">
+                    <span className="text-xs font-semibold text-foreground block">
+                      From your books
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      Profit, investments and payroll so far
+                    </span>
+                  </div>
+                  <span className="text-muted-foreground/40 text-xs">&rsaquo;</span>
+                </button>
+              </div>
+            )}
 
             {/* Link tracked income */}
             <div className="border-t border-white/[0.06]">

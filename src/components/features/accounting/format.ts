@@ -7,6 +7,16 @@ import { formatCents } from "@/lib/accounting/money";
 
 export const BOOKS_TIMEZONE = "America/Phoenix";
 
+/** The current date in the books, independent of the selected reporting period. */
+export function booksToday(now = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BOOKS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
 /** Whole-dollar or cent-exact display of integer cents, with a leading minus. */
 export function money(cents: string | bigint | null | undefined): string {
   if (cents === null || cents === undefined || cents === "") return "$0.00";
@@ -119,4 +129,19 @@ export function enumLabel(value: string | null | undefined): string {
 /** "3 transactions", "1 receipt". */
 export function countLabel(count: number, singular: string, plural?: string) {
   return `${count.toLocaleString()} ${count === 1 ? singular : (plural ?? `${singular}s`)}`;
+}
+
+/**
+ * A bank-fed or imported entry that has not been reviewed is real activity
+ * waiting for a category, not a draft; "draft" is reserved for entries the
+ * owner is still writing by hand. Posted entries carry no state word.
+ */
+export function entryStateLabel(entry: {
+  status: string;
+  primary_origin: string;
+}): "Draft" | "Unreviewed" | null {
+  if (entry.status !== "draft") return null;
+  return entry.primary_origin === "manual" || entry.primary_origin === "internal"
+    ? "Draft"
+    : "Unreviewed";
 }

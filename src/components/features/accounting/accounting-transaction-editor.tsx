@@ -13,7 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Checkbox } from "@/components/ui/inputs/Checkbox";
-import { InstitutionLogo } from "@/components/ui/institution-logo";
+import { AccountingAccountLogo } from "./accounting-bank-identity";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import {
   Dialog,
@@ -38,7 +38,7 @@ import {
 } from "@/lib/accounting/transactions";
 import { AccountingPicker } from "./accounting-picker";
 import { AccountingContextEditor } from "./accounting-context-editor";
-import { AccountingEvidence } from "./accounting-evidence";
+import { EntryEvidenceDisclosure } from "./accounting-entry-evidence";
 import {
   commandContext,
   useAccountingCommand,
@@ -138,7 +138,7 @@ export function AccountingTransactionEditor({
     .map((a) => ({
       value: a.id,
       label: a.name,
-      icon: <InstitutionLogo name={a.name} size={20} />,
+      icon: <AccountingAccountLogo accountId={a.id} name={a.name} size={20} />,
       group: a.account_type === "liability" ? "Credit cards" : "Cash & bank",
     }));
   const categoryOptions = accounts
@@ -284,7 +284,7 @@ export function AccountingTransactionEditor({
           if (command.busy) e.preventDefault();
         }}
       >
-        <DialogHeader className="shrink-0 px-6 pb-1 pt-6 pr-12">
+        <DialogHeader className="shrink-0 pb-1 pl-4 pr-12 pt-6 sm:pl-6">
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className={cn(!posted && "sr-only")}>
             {posted
@@ -292,7 +292,7 @@ export function AccountingTransactionEditor({
               : "Amount, description, account and category."}
           </DialogDescription>
         </DialogHeader>
-        <div className="min-h-0 overflow-y-auto px-6 pb-6 pt-4 [scrollbar-gutter:stable]">
+        <div className="min-h-0 overflow-y-auto px-4 pb-6 pt-4 [scrollbar-gutter:stable] sm:px-6">
           <form
             id="accounting-transaction-form"
             onSubmit={(e) => {
@@ -560,18 +560,13 @@ export function AccountingTransactionEditor({
             </div>
           </form>
           {entry && (
-            <details className="group mt-6 rounded-xl border border-border">
-              <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">
-                Receipts and history
-              </summary>
-              <div className="border-t border-border p-4">
-                <AccountingEvidence
-                  entryId={entry.id}
-                  accounts={accounts}
-                  parties={manage.parties}
-                />
-              </div>
-            </details>
+            <EntryEvidenceDisclosure
+              key={entry.id}
+              className="mt-6"
+              entryId={entry.id}
+              accounts={accounts}
+              parties={manage.parties}
+            />
           )}
           {(error || command.error) && (
             <p

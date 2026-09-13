@@ -111,9 +111,8 @@ export interface TaxSource {
   through: string;
   revision: string;
   fingerprint: string;
-  year_settings:
-    | (TaxWorkpaperRevision & { classification: string; current: boolean })
-    | null;
+  /** How the business is taxed in this year, derived from the business profile. */
+  year_settings: { classification: string } | null;
   accounts: {
     account_id: string;
     name: string;

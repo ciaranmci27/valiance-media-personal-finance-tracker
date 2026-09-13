@@ -381,7 +381,7 @@ export function AccountingClose({
                           className="mt-0.5 shrink-0 text-warning"
                         />
                       )}
-                      <div className="flex-1">
+                      <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium">{c.label}</p>
                         <p className="mt-0.5 text-xs text-muted-foreground">
                           {c.detail}

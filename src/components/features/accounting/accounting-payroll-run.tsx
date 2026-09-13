@@ -22,7 +22,9 @@ import { TableSkeleton } from "@/components/ui/skeleton";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { centsToDecimal } from "@/lib/accounting/money";
+import { centsToDecimal, journalTotals } from "@/lib/accounting/money";
+import { JournalTotals } from "./accounting-journal-totals";
+import { AccountingPayrollImport } from "./accounting-payroll-import";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
 import type { WorkflowCommand } from "@/lib/accounting/workflows";
 import type { BooksMetadata } from "./types";
@@ -41,11 +43,17 @@ import { absMoney, dateLabel, enumLabel, money } from "./format";
 
 /** Matches the LIMIT in acct_payroll_view. */
 const PAGE = 50;
+const runLabel = (id: string) =>
+  id.startsWith("Undone Patriot ")
+    ? "Patriot payroll (import undone)"
+    : /^Patriot [0-9-]{10} [a-f0-9]{64}$/.test(id)
+      ? `Patriot payroll · ${dateLabel(id.slice(8, 18))}`
+      : id;
 
 /** What the void dialog needs; built from the list row or the open detail. */
 type VoidTarget = Pick<
   PayrollRun,
-  "id" | "version" | "pay_date" | "provider_run_id"
+  "id" | "version" | "pay_date" | "provider_run_id" | "import_mode"
 >;
 
 /**
@@ -184,6 +192,7 @@ export function AccountingPayrollRuns({
   const [error, setError] = useState("");
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<PayrollDetail | null>(null);
+  const [detailError, setDetailError] = useState("");
   const [form, setForm] = useState<{
     record?: PayrollDetail;
     copy?: PayrollDetail;
@@ -207,6 +216,7 @@ export function AccountingPayrollRuns({
     [accounts, profileMap],
   );
   const [paidFrom, setPaidFrom] = useState("");
+  const [importing, setImporting] = useState(false);
   const [template, setTemplate] = useState<PostingTemplate>("cash");
   const bank =
     paidFrom || (bankOptions.length === 1 ? bankOptions[0].value : "");
@@ -259,6 +269,8 @@ export function AccountingPayrollRuns({
   useEffect(() => {
     if (!detailId || demo) return;
     const abort = new AbortController();
+    setDetail(null);
+    setDetailError("");
     accountingGet<PayrollDetail>(
       { view: "payroll-detail", id: detailId, offset: "0" },
       abort.signal,
@@ -269,7 +281,7 @@ export function AccountingPayrollRuns({
           setTemplate(needsAccrual(d) ? "accrual" : "cash");
       })
       .catch((e) => {
-        if (!abort.signal.aborted) setError(e.message);
+        if (!abort.signal.aborted) setDetailError(e.message);
       });
     return () => abort.abort();
   }, [detailId, tick, demo]);
@@ -330,7 +342,7 @@ export function AccountingPayrollRuns({
           onClick={() => setDetailId(r.id)}
           className="text-left transition-colors hover:text-teal-light focus-visible:outline-none focus-visible:underline"
         >
-          <span className="block truncate">{r.provider_run_id}</span>
+          <span className="block truncate">{runLabel(r.provider_run_id)}</span>
           {r.document_id && (
             <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
               <FileText size={11} aria-hidden="true" /> Register attached
@@ -359,7 +371,7 @@ export function AccountingPayrollRuns({
       render: (r) => (
         <div className="flex flex-wrap items-center gap-1.5">
           <Badge variant={STATUS[r.status].variant}>
-            {STATUS[r.status].label}
+            {r.import_undone ? "Import undone" : STATUS[r.status].label}
           </Badge>
         </div>
       ),
@@ -371,7 +383,7 @@ export function AccountingPayrollRuns({
       width: "w-16",
       render: (r) => (
         <RowActionsMenu
-          label={`Actions for payroll ${r.provider_run_id}`}
+          label={`Actions for payroll ${runLabel(r.provider_run_id)}`}
           actions={[
             {
               label: "Open",
@@ -410,7 +422,7 @@ export function AccountingPayrollRuns({
             ...(r.status === "posted" || r.status === "linked"
               ? [
                   {
-                    label: "Void run",
+                    label: r.import_mode ? "Undo import" : "Void run",
                     icon: <Undo2 />,
                     variant: "danger" as const,
                     separator: true,
@@ -433,15 +445,30 @@ export function AccountingPayrollRuns({
         <div>
           <h2 className="text-xl font-semibold">Payroll</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            Record each Patriot register as one entry. Bank debits for net pay
-            and taxes match to it from Transactions.
+            Import payroll already processed in Patriot. Your report becomes a
+            payroll record and a balanced journal entry.
           </p>
         </div>
-        <Button disabled={demo} onClick={() => setForm({})}>
-          <Plus size={15} aria-hidden="true" />
-          Record payroll run
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="ghost" disabled={demo} onClick={() => setForm({})}>
+            Enter manually
+          </Button>
+          <Button disabled={demo} onClick={() => setImporting(true)}>
+            <Plus size={15} aria-hidden="true" />
+            Import payroll
+          </Button>
+        </div>
       </div>
+      {importing && (
+        <AccountingPayrollImport
+          accounts={accounts}
+          onClose={() => setImporting(false)}
+          onSaved={async () => {
+            setTick((t) => t + 1);
+            await onRefresh();
+          }}
+        />
+      )}
 
       {totals && (
         <div className="grid grid-cols-3 gap-3">
@@ -518,7 +545,7 @@ export function AccountingPayrollRuns({
             )
           }
           mobileCard={(r) => (
-            <article className="glass-card space-y-2 rounded-xl p-4">
+            <article className="space-y-2">
               <div className="flex items-start justify-between gap-3">
                 <button
                   type="button"
@@ -527,7 +554,7 @@ export function AccountingPayrollRuns({
                 >
                   {dateLabel(r.pay_date)}
                   <span className="block text-xs font-normal text-muted-foreground">
-                    {r.provider_run_id}
+                    {runLabel(r.provider_run_id)}
                   </span>
                 </button>
                 <Badge variant={STATUS[r.status].variant}>
@@ -557,6 +584,19 @@ export function AccountingPayrollRuns({
         />
       </div>
 
+      {detailId && (!detail || detail.id !== detailId) && (
+        <WorkflowDialog title="Payroll run" onClose={() => setDetailId(null)}>
+          {detailError ? (
+            <p role="alert" className="text-sm text-error">
+              {detailError}
+            </p>
+          ) : (
+            <div role="status" aria-label="Loading payroll run">
+              <TableSkeleton rows={4} />
+            </div>
+          )}
+        </WorkflowDialog>
+      )}
       {detailId && detail && detail.id === detailId && (
         <RunDetail
           detail={detail}
@@ -577,6 +617,7 @@ export function AccountingPayrollRuns({
               version: detail.version,
               pay_date: detail.register.body.pay_date,
               provider_run_id: detail.provider_run_id,
+              import_mode: detail.import_mode,
             })
           }
           onEntry={onEntry}
@@ -667,8 +708,8 @@ function RunDetail({
             {status.label}
           </Badge>
           <span className="text-muted-foreground">
-            {detail.provider_run_id} · {dateLabel(body.period_from)} to{" "}
-            {dateLabel(body.period_to)}
+            {runLabel(detail.provider_run_id)} · {dateLabel(body.period_from)}{" "}
+            to {dateLabel(body.period_to)}
           </span>
           {detail.posting?.entry_id && onEntry && (
             <Button
@@ -748,6 +789,7 @@ function RunDetail({
             })}
           </div>
         </div>
+        <JournalTotals {...journalTotals(detail.preview.lines)} />
         {draft && (
           <>
             <AccountingPicker
@@ -818,7 +860,7 @@ function RunDetail({
               onClick={onVoid}
             >
               <Undo2 size={15} aria-hidden="true" />
-              Void
+              {detail.import_mode ? "Undo import" : "Void"}
             </Button>
           )}
         </ActionFooter>
@@ -1360,13 +1402,13 @@ function VoidDialog({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const [date, setDate] = useState(today);
+  const [date, setDate] = useState(run.import_mode ? run.pay_date : today);
   const [reason, setReason] = useState("");
   const command = useAccountingCommand(onSaved);
   return (
     <WorkflowDialog
-      title="Void payroll run"
-      description={`Run ${run.provider_run_id}, paid ${dateLabel(run.pay_date)}.`}
+      title={run.import_mode ? "Undo payroll import?" : "Void payroll run?"}
+      description={`Run ${runLabel(run.provider_run_id)}, paid ${dateLabel(run.pay_date)}.`}
       busy={command.busy}
       onClose={onClose}
       form
@@ -1377,7 +1419,7 @@ function VoidDialog({
         onSubmit={(e) => {
           e.preventDefault();
           void command.execute({
-            type: "payroll.void",
+            type: run.import_mode ? "payroll.import.undo" : "payroll.void",
             id: run.id,
             expected_version: run.version,
             effective_date: date,
@@ -1385,6 +1427,15 @@ function VoidDialog({
           });
         }}
       >
+        {run.import_mode && (
+          <p className="text-sm text-muted-foreground">
+            {run.import_mode === "linked"
+              ? "Removes the imported payroll record and keeps your existing journal unchanged."
+              : `Reverses the journal created by this import on ${dateLabel(date)}. Reports before that date retain its original effect.`}{" "}
+            You can upload the report again afterward. The original report
+            remains in history.
+          </p>
+        )}
         <DateInput
           label="Effective date"
           required
@@ -1400,7 +1451,11 @@ function VoidDialog({
         />
         <ActionFooter busy={command.busy} error={command.error}>
           <Button type="submit" variant="destructive" disabled={command.busy}>
-            {command.busy ? "Voiding..." : "Void"}
+            {command.busy
+              ? "Saving..."
+              : run.import_mode
+                ? "Undo import"
+                : "Void"}
           </Button>
         </ActionFooter>
       </form>

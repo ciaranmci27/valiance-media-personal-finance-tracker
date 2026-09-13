@@ -218,7 +218,7 @@ export function AccountingContractors({
         <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
-            onClick={() => void refresh()}
+            onClick={() => void refresh().catch((e) => setError(e.message))}
             disabled={loading || demo}
           >
             <RefreshCw aria-hidden="true" />

@@ -261,10 +261,10 @@ async function main() {
       id: standalone.id,
       expected_version: standalone.version,
       entry_date: "2026-01-13",
-      reason: "Reopen both evidence sources",
+      reason: "Suppress both evidence sources",
     });
-    check((await review(csv.observation)).review, "unmatched");
-    check((await review(wave.observation)).review, "unmatched");
+    check((await review(csv.observation)).review, "excluded");
+    check((await review(wave.observation)).review, "excluded");
     await fail(
       () => db.query("DELETE FROM accounting.bank_matches"),
       /permission denied/,

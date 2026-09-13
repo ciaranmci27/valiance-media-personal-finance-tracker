@@ -25,6 +25,7 @@ const allowed = new Map<string, readonly string[]>([
   ["workspace", ["from_date", "to_date"]],
   ["transactions", ["filter", "page"]],
   ["entry_detail", ["entry"]],
+  ["entry_history", ["entry"]],
   ["documents", ["filter"]],
   ["bank_review", ["filter"]],
   ["prior_treatment", ["descriptor_key", "bank_account_id", "max_rows"]],
@@ -34,8 +35,8 @@ const allowed = new Map<string, readonly string[]>([
   ["import_compare", ["batch_a", "batch_b", "filter"]],
   ["close_checklist", ["month"]],
   ["tax_source", ["year", "cutoff"]],
-  ["tax_link", ["id"]],
   ["payroll", ["view"]],
+  ["patriot_import", ["request"]],
   ["registers", ["view"]],
   ["contractor_report", ["year", "cutoff"]],
   ["report", ["kind", "params"]],
@@ -105,7 +106,7 @@ function fixtureClient(service: boolean) {
     },
     async rpc(name: string, args: Record<string, unknown> = {}) {
       const keys = service
-        ? ["sync_server", "tax_refresh_server"].includes(name)
+        ? name === "sync_server"
           ? ["command"]
           : undefined
         : allowed.get(name);

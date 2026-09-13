@@ -510,7 +510,7 @@ export function AccountingReconciliation({
                   />
                 </div>
               </div>
-              <div className="p-4 lg:p-0">
+              <div>
                 <DataTable
                   columns={lineColumns}
                   data={data.lines}
@@ -520,7 +520,7 @@ export function AccountingReconciliation({
                   framed={false}
                   emptyState="No posted transactions in this scope."
                   mobileCard={(l) => (
-                    <div className="glass-card flex items-start justify-between gap-4 rounded-xl p-4 text-sm">
+                    <div className="flex items-start justify-between gap-4 text-sm">
                       <div className="min-w-0">
                         <button
                           type="button"
@@ -701,7 +701,7 @@ function StatementCreate({
         if (!v && !cmd.busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>New statement</DialogTitle>
           <DialogDescription className="sr-only">
@@ -848,7 +848,7 @@ function SelectLine({
         if (!v && !cmd.busy) onClose();
       }}
     >
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto">
+      <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add statement item</DialogTitle>
           <DialogDescription className="sr-only">

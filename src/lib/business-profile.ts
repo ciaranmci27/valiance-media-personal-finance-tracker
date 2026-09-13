@@ -1,6 +1,14 @@
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
-import type { BusinessType, TaxClassification } from "@/types/database";
+import {
+  CLASSIFICATION_LABELS,
+  CLASSIFICATION_PHRASES,
+  businessTypeForYear,
+  classificationForYear,
+  isElection,
+  type EntityType,
+  type ProfileClassification,
+} from "./business-classification";
 
 /**
  * The one record of who the business is. The tax estimator and the accounting
@@ -8,18 +16,16 @@ import type { BusinessType, TaxClassification } from "@/types/database";
  * a singleton row with `id = 1`.
  */
 
-export type EntityType =
-  | "llc"
-  | "corporation"
-  | "sole_proprietorship"
-  | "partnership";
-
-export type ProfileClassification =
-  | "disregarded"
-  | "sole_prop"
-  | "s_corp"
-  | "c_corp"
-  | "partnership";
+// The classification rule is pure and shared; this module adds the record and its storage.
+export {
+  CLASSIFICATION_LABELS,
+  CLASSIFICATION_PHRASES,
+  businessTypeForYear,
+  classificationForYear,
+  defaultClassification,
+  isElection,
+} from "./business-classification";
+export type { EntityType, ProfileClassification } from "./business-classification";
 
 export interface BusinessAddress {
   line1: string;
@@ -98,14 +104,6 @@ export const ENTITY_TYPE_OPTIONS: { value: EntityType; label: string }[] = [
   { value: "partnership", label: "Partnership" },
 ];
 
-export const CLASSIFICATION_LABELS: Record<ProfileClassification, string> = {
-  disregarded: "Disregarded entity (Schedule C)",
-  sole_prop: "Sole proprietor (Schedule C)",
-  s_corp: "S corporation (Form 2553)",
-  c_corp: "C corporation",
-  partnership: "Partnership",
-};
-
 /** Which classifications a given entity can elect. */
 export function classificationOptions(entity: EntityType) {
   const values: ProfileClassification[] =
@@ -121,46 +119,6 @@ export function classificationOptions(entity: EntityType) {
     label: CLASSIFICATION_LABELS[value],
   }));
 }
-
-export function defaultClassification(
-  entity: EntityType,
-): ProfileClassification {
-  return entity === "llc"
-    ? "disregarded"
-    : entity === "corporation"
-      ? "c_corp"
-      : entity === "sole_proprietorship"
-        ? "sole_prop"
-        : "partnership";
-}
-
-/** The estimator's business type for a profile, so both features agree. */
-export function estimatorBusinessType(profile: BusinessProfile): BusinessType {
-  switch (profile.entity_type) {
-    case "llc":
-      return "llc";
-    case "corporation":
-      return profile.tax_classification === "s_corp" ? "s_corp" : "c_corp";
-    case "sole_proprietorship":
-      return "sole_prop";
-    case "partnership":
-      return "partnership";
-  }
-}
-
-export function estimatorClassification(
-  profile: BusinessProfile,
-): TaxClassification {
-  return profile.tax_classification;
-}
-
-const CLASSIFICATION_PHRASES: Record<ProfileClassification, string> = {
-  disregarded: "a disregarded entity",
-  sole_prop: "a sole proprietorship",
-  s_corp: "an S corporation",
-  c_corp: "a C corporation",
-  partnership: "a partnership",
-};
 
 /** Short human line, e.g. "LLC taxed as an S corporation since 2023". */
 export function describeTaxProfile(profile: BusinessProfile): string {
@@ -178,6 +136,24 @@ export function describeTaxProfile(profile: BusinessProfile): string {
   return elected
     ? `${entity} taxed as ${CLASSIFICATION_PHRASES[profile.tax_classification]}${since}`
     : entity;
+}
+
+/** The same line for one year, naming the pre-election default when it applies. */
+export function describeTaxProfileForYear(
+  profile: BusinessProfile,
+  year: number,
+): string {
+  const since = profile.tax_classification_since;
+  if (since === null || year >= since || !isElection(profile))
+    return describeTaxProfile(profile);
+  const entity =
+    ENTITY_TYPE_OPTIONS.find((o) => o.value === profile.entity_type)?.label ??
+    "";
+  const elected = CLASSIFICATION_PHRASES[profile.tax_classification].replace(
+    /^an? /,
+    "",
+  );
+  return `${entity} taxed as ${CLASSIFICATION_PHRASES[classificationForYear(profile, year)]} in ${year}, ${elected} since ${since}`;
 }
 
 export const MONTH_OPTIONS = [
@@ -319,9 +295,9 @@ function toRow(profile: BusinessProfile) {
 }
 
 /**
- * Saves the profile and pushes the tax structure into the estimator's yearly
- * rows from the election year onward, so the estimator never needs its own
- * copy of these two facts.
+ * Saves the profile and stamps every estimator year with the profile's answer
+ * for that year: the election from its start year on, the entity's default
+ * before it. The estimator never needs its own copy of these two facts.
  */
 export async function saveBusinessProfile(
   profile: BusinessProfile,
@@ -340,16 +316,32 @@ export async function saveBusinessProfile(
   const saved = normalize(data as Record<string, unknown>);
 
   const since = saved.tax_classification_since;
-  const yearUpdate = supabase
-    .from("tax_estimates")
-    .update({
-      business_type: estimatorBusinessType(saved),
-      tax_classification: estimatorClassification(saved),
-    })
-    .is("deleted_at", null);
-  const { error: yearError } = await (since
-    ? yearUpdate.gte("tax_year", since)
-    : yearUpdate);
-  if (yearError) throw yearError;
+  const stamp = (year: number) => ({
+    business_type: businessTypeForYear(saved, year),
+    tax_classification: classificationForYear(saved, year),
+  });
+  const writes = since
+    ? [
+        supabase
+          .from("tax_estimates")
+          .update(stamp(since))
+          .is("deleted_at", null)
+          .gte("tax_year", since),
+        supabase
+          .from("tax_estimates")
+          .update(stamp(since - 1))
+          .is("deleted_at", null)
+          .lt("tax_year", since),
+      ]
+    : [
+        supabase
+          .from("tax_estimates")
+          .update(stamp(new Date().getFullYear()))
+          .is("deleted_at", null),
+      ];
+  for (const write of writes) {
+    const { error: yearError } = await write;
+    if (yearError) throw yearError;
+  }
   return saved;
 }

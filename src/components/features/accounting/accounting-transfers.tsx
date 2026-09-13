@@ -88,7 +88,7 @@ export function AccountingTransfers({
             posted. Card payments reduce card debt.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
             variant="outline"
             disabled={demo || !data}
@@ -109,7 +109,7 @@ export function AccountingTransfers({
         </p>
       )}
       <section className="glass-card overflow-hidden rounded-xl">
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
           <span className="text-sm font-medium">
             Transfers touching this date range
           </span>
@@ -147,8 +147,8 @@ export function AccountingTransfers({
               className="border-b border-border p-5 last:border-0"
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <p className="font-medium">{g.memo}</p>
+                <div className="min-w-0">
+                  <p className="break-words font-medium">{g.memo}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                     <span>{g.from_name}</span>
                     <ArrowRight size={14} aria-hidden="true" />
@@ -561,7 +561,7 @@ function TransferEntryPicker({
           </Button>
         </div>
       ) : (
-        <div className="max-h-44 divide-y divide-border overflow-y-auto rounded-xl border border-border">
+        <div className="divide-y divide-border rounded-xl border border-border sm:max-h-44 sm:overflow-y-auto">
           {candidates.map((e) => (
             <Button
               type="button"

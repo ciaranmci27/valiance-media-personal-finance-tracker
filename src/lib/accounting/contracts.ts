@@ -73,6 +73,14 @@ export const commandSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
+      type: z.literal("entry.review"),
+      id: z.uuid(),
+      expected_version: version,
+      reviewed: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
       type: z.enum(["draft.discard", "entry.discard"]),
       id: z.uuid(),
       expected_version: version,
@@ -81,7 +89,7 @@ export const commandSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
-      type: z.literal("entry.reverse"),
+      type: z.enum(["entry.reverse", "entry.restore"]),
       id: z.uuid(),
       expected_version: version,
       entry_date: dateSchema,
@@ -114,11 +122,14 @@ export interface JournalLine {
   memo: string;
 }
 export interface JournalEntry {
+  matches?: { bank_transaction_id: string; amount_cents: string }[];
   context?: EntryContext | null;
   id: string;
   entry_date: string;
   memo: string;
   status: "draft" | "posted" | "discarded";
+  /** Posted entries can return to the review queue without changing the ledger. */
+  review_pending?: boolean;
   version: number;
   primary_origin: string;
   source_description: string | null;
@@ -130,6 +141,11 @@ export interface JournalEntry {
   } | null;
   reverses_entry_id: string | null;
   reversed_by_entry_id: string | null;
+  restored_by_entry_id?: string | null;
+  restores_entry_id?: string | null;
+  replacement_entry_id?: string | null;
+  payroll_run_id?: string | null;
+  restore_workflow?: "payroll" | "transfer" | "register" | null;
   created_at: string;
   lines: JournalLine[];
 }

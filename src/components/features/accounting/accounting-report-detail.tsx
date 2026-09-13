@@ -23,7 +23,9 @@ import type {
 import { centsToDecimal, parseUsd } from "@/lib/accounting/money";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { AccountingPicker } from "./accounting-picker";
-import { countLabel, dateLabel, enumLabel, money } from "./format";
+import { countLabel, dateLabel, enumLabel, money,
+  entryStateLabel,
+} from "./format";
 
 export const cashLabels: Record<CashClass, string> = {
   operating: "Operating activities",
@@ -90,15 +92,17 @@ export function AccountingReportDetail({
   }, [signature, revision]);
   const stale = data && data.revision !== revision;
   const cashMode = !!filter.cash_class;
-  const originLabel = (r: DetailRow) =>
-    `${enumLabel(r.primary_origin)}${r.status === "draft" ? " · Draft" : ""}`;
+  const originLabel = (r: DetailRow) => {
+    const state = entryStateLabel(r);
+    return `${enumLabel(r.primary_origin)}${state ? ` · ${state}` : ""}`;
+  };
   const memoLink = (r: DetailRow) => (
     <button
       type="button"
       onClick={() => onEntry(r.entry_id)}
       className="flex items-center gap-2 text-left hover:text-teal-light focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <span className="line-clamp-2">{r.memo || "Journal entry"}</span>
+      <span className="min-w-0 line-clamp-2">{r.memo || "Journal entry"}</span>
       <ArrowUpRight size={13} aria-hidden="true" className="shrink-0" />
     </button>
   );
@@ -190,7 +194,7 @@ export function AccountingReportDetail({
     },
   ];
   const mobileCard = (r: DetailRow) => (
-    <div className="glass-card rounded-xl p-4">
+    <div>
       <div className="flex items-start justify-between gap-3 text-sm">
         <span>{dateLabel(r.entry_date)}</span>
         <span className="text-xs text-muted-foreground">{originLabel(r)}</span>
@@ -266,7 +270,6 @@ export function AccountingReportDetail({
               framed={false}
               mobileCard={mobileCard}
               emptyState="No contributing entries in this period."
-              className="p-4 lg:p-0"
               after={
                 <Pagination
                   offset={offset}

@@ -28,16 +28,36 @@ export async function accountingClient() {
 
 export function accountingError(message: string): string {
   const known: Record<string, string> = {
+    ACCT_CORRECTION_LINKED:
+      "Resolve this entry's bank matches or reconciliation, or use its linked payroll, transfer, or register workflow before correcting it. No changes were saved.",
+    ACCT_PATRIOT_CHANGED:
+      "The books changed since the preview. Refresh the preview before importing. No payrolls from this request were saved.",
     ACCT_IMPORT_COMPARISON_SCOPE:
       "Choose two files from the same source, scope and import type, with dates covered by both files.",
     ACCT_IMPORT_COMPARISON_STAGING:
       "Finish staging both files before comparing them. Posting is not required.",
+    ACCT_TAX_RANGE:
+      "Choose a cutoff inside the tax year that is not in the future.",
+    ACCT_TAX_CONCEPT:
+      "Choose a treatment that fits this account type.",
+    ACCT_ACCOUNT_NOT_FOUND:
+      "That account no longer exists.",
     ACCT_TAX_MAPPING:
       "Choose a tax concept and deductible percentage appropriate for this income or expense account.",
     ACCT_PAYROLL_EVIDENCE:
       "Attach the verified Patriot register and confirm that its amounts and mappings agree.",
     ACCT_CATEGORY_REQUIRED:
       "Choose a category for every amount before marking the transaction reviewed.",
+    ACCT_RESTORE_UNAVAILABLE:
+      "This entry is not available to restore. It may already have a restoration or correction. Refresh the list.",
+    ACCT_RESTORE_DATE:
+      "Choose a restoration date on or after the reversal date.",
+    ACCT_RESTORE_WORKFLOW:
+      "Restore this through its linked payroll, transfer, or asset/loan workflow. For an undone payroll import, upload the report again.",
+    ACCT_IMPORT_UNDO_UNAVAILABLE:
+      "Only an active payroll import can be undone. Refresh to see its current status.",
+    ACCT_IMPORT_UNDO_LINKED:
+      "Resolve the linked bank payments or reconciliation before undoing this import.",
     ACCT_FEED_MAPPING:
       "Discover the current accounts, review ownership, and map each company account before enabling its feed.",
     ACCT_FEED_BUSY:

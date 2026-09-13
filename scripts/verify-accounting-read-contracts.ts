@@ -184,8 +184,11 @@ async function main() {
     await read("rules-preview", { p_from: "2026-01-01", p_to: "2026-06-30" });
     await read("payroll", { p_filter: { year: 2026 } });
     await read("payroll-year", { p_year: 2026, p_through: "2026-06-30" });
-    await read("tax", { p_year: 2026 });
     await read("tax-source", { p_year: 2026, p_through: "2026-06-30" });
+    const setup = await read("setup-status", { p_year: 2026 });
+    check(setup.unmapped_accounts, 1);
+    check(setup.runs_without_register, 0);
+    check(setup.missing_purposes, []);
     await read("contractors", { p_filter: { year: 2026 } });
     const filter = { from: "2026-01-01", to: "2026-06-30", mode: "posted" };
     for (const view of ["report", "ledger-report", "report-detail"])
