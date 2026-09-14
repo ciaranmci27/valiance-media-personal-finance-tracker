@@ -341,6 +341,7 @@ export const extendedCommandSchema = z.union([
         type: z.literal("entry.context"),
         id,
         expected_version: version,
+        memo: memo.optional(),
         ...contextFields,
       })
       .strict(),

@@ -56,13 +56,16 @@ async function main() {
     (
       await db.query<{
         r: { ready: boolean; partial_year: boolean; differences: number };
-      }>("SELECT accounting.history_preview(jsonb_build_object('from',$1::date,'to',$2::date,'monthly',$3::jsonb,'accounts',$4::jsonb,'totals',$5::jsonb)) r", [
-        "2026-01-01",
-        "2026-02-28",
-        JSON.stringify(m),
-        JSON.stringify(a),
-        JSON.stringify(t),
-      ])
+      }>(
+        "SELECT accounting.history_preview(jsonb_build_object('from',$1::date,'to',$2::date,'monthly',$3::jsonb,'accounts',$4::jsonb,'totals',$5::jsonb)) r",
+        [
+          "2026-01-01",
+          "2026-02-28",
+          JSON.stringify(m),
+          JSON.stringify(a),
+          JSON.stringify(t),
+        ],
+      )
     ).rows[0].r;
   try {
     await command({
@@ -124,10 +127,25 @@ async function main() {
       /ACCT_DUPLICATE_CONTROL/,
     );
     checks++;
-    check((await preview(monthly.slice(0,1))).ready,false);
-    await assert.rejects(preview([monthly[0],monthly[0]]),/ACCT_DUPLICATE_CONTROL/);checks++;
-    await assert.rejects(preview(monthly,[...accounts,{account_id:randomUUID(),amount_cents:'0'}]),/ACCT_UNKNOWN_CONTROL/);checks++;
-    await assert.rejects(preview([{...monthly[0],from:'2026-01-02'},monthly[1]]),/ACCT_HISTORY_SCOPE/);checks++;
+    check((await preview(monthly.slice(0, 1))).ready, false);
+    await assert.rejects(
+      preview([monthly[0], monthly[0]]),
+      /ACCT_DUPLICATE_CONTROL/,
+    );
+    checks++;
+    await assert.rejects(
+      preview(monthly, [
+        ...accounts,
+        { account_id: randomUUID(), amount_cents: "0" },
+      ]),
+      /ACCT_UNKNOWN_CONTROL/,
+    );
+    checks++;
+    await assert.rejects(
+      preview([{ ...monthly[0], from: "2026-01-02" }, monthly[1]]),
+      /ACCT_HISTORY_SCOPE/,
+    );
+    checks++;
     const doc = randomUUID();
     await command({
       type: "document.prepare",
@@ -202,7 +220,9 @@ async function main() {
       1,
     );
     await assert.rejects(
-      db.query("DELETE FROM accounting.history_checks WHERE id=$1", [verify.id]),
+      db.query("DELETE FROM accounting.history_checks WHERE id=$1", [
+        verify.id,
+      ]),
       /ACCT_NO_HARD_DELETE/,
     );
     checks++;

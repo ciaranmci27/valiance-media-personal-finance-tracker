@@ -19,7 +19,10 @@ import {
   suggestTreatments,
   type TreatmentSource,
 } from "@/lib/accounting/tax-treatment-rules";
-import type { AccountProfile, WorkflowCommand } from "@/lib/accounting/workflows";
+import type {
+  AccountProfile,
+  WorkflowCommand,
+} from "@/lib/accounting/workflows";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { money } from "./format";
 
@@ -73,9 +76,16 @@ export function TreatmentReview({
         { view: "tax-workpapers", year: String(year), through },
         abort.signal,
       ),
-      accountingGet<{ profiles?: AccountProfile[] }>({ view: "manage" }, abort.signal),
+      accountingGet<{ profiles?: AccountProfile[] }>(
+        { view: "manage" },
+        abort.signal,
+      ),
       accountingGet<TaxSource>(
-        { view: "tax-workpapers", year: String(year - 1), through: `${year - 1}-12-31` },
+        {
+          view: "tax-workpapers",
+          year: String(year - 1),
+          through: `${year - 1}-12-31`,
+        },
         abort.signal,
       ).catch(() => null),
     ])
@@ -117,7 +127,11 @@ export function TreatmentReview({
       })
       .catch((e: unknown) => {
         if (!abort.signal.aborted) {
-          setError(e instanceof Error && e.message ? e.message : "The books could not be read.");
+          setError(
+            e instanceof Error && e.message
+              ? e.message
+              : "The books could not be read.",
+          );
         }
       })
       .finally(() => {
@@ -126,8 +140,14 @@ export function TreatmentReview({
     return () => abort.abort();
   }, [year, through, attempt]);
 
-  const suggested = useMemo(() => rows?.filter((r) => r.source !== null) ?? [], [rows]);
-  const needsPick = useMemo(() => rows?.filter((r) => r.source === null) ?? [], [rows]);
+  const suggested = useMemo(
+    () => rows?.filter((r) => r.source !== null) ?? [],
+    [rows],
+  );
+  const needsPick = useMemo(
+    () => rows?.filter((r) => r.source === null) ?? [],
+    [rows],
+  );
   const chosen = useMemo(
     () => rows?.filter((r) => r.selected && r.concept !== null) ?? [],
     [rows],
@@ -135,7 +155,11 @@ export function TreatmentReview({
 
   const update = (id: string, patch: Partial<ReviewRow>) => {
     setReviewed(false);
-    setRows((prev) => prev?.map((r) => (r.account_id === id ? { ...r, ...patch } : r)) ?? prev);
+    setRows(
+      (prev) =>
+        prev?.map((r) => (r.account_id === id ? { ...r, ...patch } : r)) ??
+        prev,
+    );
   };
 
   async function apply() {
@@ -161,7 +185,9 @@ export function TreatmentReview({
     if (result.failed) {
       // The loop stops at the first failure, so the leading rows landed.
       // Drop them so a retry does not resend what was saved.
-      const landed = new Set(chosen.slice(0, result.saved.length).map((r) => r.account_id));
+      const landed = new Set(
+        chosen.slice(0, result.saved.length).map((r) => r.account_id),
+      );
       setRows((prev) => prev?.filter((r) => !landed.has(r.account_id)) ?? prev);
       setReviewed(false);
       return;
@@ -193,7 +219,12 @@ export function TreatmentReview({
           className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-error/40 bg-error/5 px-4 py-3 text-sm text-error"
         >
           <span>{error}</span>
-          <Button type="button" size="sm" variant="outline" onClick={() => setAttempt((n) => n + 1)}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => setAttempt((n) => n + 1)}
+          >
             Retry
           </Button>
         </div>
@@ -218,7 +249,11 @@ export function TreatmentReview({
               options={conceptOptions(row.account_type)}
               onSelect={(selected) => update(row.account_id, { selected })}
               onConcept={(concept) =>
-                update(row.account_id, { concept, source: "owner", reason: "Chosen by you" })
+                update(row.account_id, {
+                  concept,
+                  source: "owner",
+                  reason: "Chosen by you",
+                })
               }
             />
           ))}
@@ -237,7 +272,9 @@ export function TreatmentReview({
               busy={cmd.busy}
               options={conceptOptions(row.account_type)}
               onSelect={(selected) => update(row.account_id, { selected })}
-              onConcept={(concept) => update(row.account_id, { concept, selected: true })}
+              onConcept={(concept) =>
+                update(row.account_id, { concept, selected: true })
+              }
             />
           ))}
         </Group>
@@ -252,7 +289,8 @@ export function TreatmentReview({
       {!loading && rows && rows.length > 0 && (
         <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
           <p className="font-medium">
-            Apply {chosen.length} {chosen.length === 1 ? "treatment" : "treatments"}
+            Apply {chosen.length}{" "}
+            {chosen.length === 1 ? "treatment" : "treatments"}
           </p>
           <p className="text-sm text-muted-foreground">
             Each becomes this year&apos;s treatment for its account, with the
@@ -346,14 +384,23 @@ function Row({
             <span className="text-sm font-medium">
               {row.name}
               {row.code && (
-                <span className="ml-2 text-xs text-muted-foreground">{row.code}</span>
+                <span className="ml-2 text-xs text-muted-foreground">
+                  {row.code}
+                </span>
               )}
             </span>
-            <MaskedValue className="text-sm tabular-nums" value={money(row.book_cents)} />
+            <MaskedValue
+              className="text-sm tabular-nums"
+              value={money(row.book_cents)}
+            />
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
             <span className="text-muted-foreground">Choose tax treatment</span>
-            <ArrowRight size={13} aria-hidden="true" className="text-muted-foreground" />
+            <ArrowRight
+              size={13}
+              aria-hidden="true"
+              className="text-muted-foreground"
+            />
             <Select
               ariaLabel={`Treatment for ${row.name}`}
               size="sm"

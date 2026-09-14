@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import {payrollCommandSchema} from '../src/lib/accounting/payroll';
+import { payrollCommandSchema } from "../src/lib/accounting/payroll";
 import { randomUUID } from "node:crypto";
 import { accountingTestDb } from "./accounting-test-db";
 import {
@@ -43,41 +43,74 @@ async function main() {
       id: doc.id,
       expected_version: doc.version,
     });
-    const run = await cmd(payrollCommandSchema.parse({
-      type: "payroll.save",
-      id: randomUUID(),
-      expected_version: 0,
-      provider_run_id: "SYNTHETIC-PAYROLL-001",
-      reason: "Synthetic cash payroll approval source",
-      document_id: doc.id,
-      body: {
-        pay_date: "2026-09-01",
-        period_start: "2026-08-16",
-        period_end: "2026-08-31",
-        gross_cents: "500000",
-        net_cents: "380000",
-        employee_withholding_cents: "120000",
-        employer_tax_cents: "38250",
-        components: [
-          { kind: "employee_tax", amount_cents: "120000" },
-          { kind: "employer_tax", amount_cents: "38250" },
-        ],
-      },
-      ytd: {
-        verified: true,
-        through: "2026-09-01",
-        federal_taxable_cents: "3000000",
-        federal_withheld_cents: "400000",
-      },
-    }));
-    const preview=(await db.query<{r:any}>('SELECT accounting.payroll($1) r',[JSON.stringify({view:'detail',id:run.id,bank_account_id:account(1)})])).rows[0].r;
-    check(preview.preview.ready,true);check(preview.preview.totals.gross_cents,'500000');check(preview.preview.lines.map((l:any)=>l.amount_cents),['500000','38250','-380000','-158250']);check(preview.register.body.declared_net_cents,'380000');
-    const missingBank=(await db.query<{r:any}>('SELECT accounting.payroll($1) r',[JSON.stringify({view:'detail',id:run.id})])).rows[0].r;
-    check(missingBank.preview.ready,false);check(missingBank.preview.issues,['ACCT_BANK_ACCOUNT_REQUIRED']);
-    const listing=async(view:object)=>(await db.query<{r:any}>('SELECT accounting.payroll($1) r',[JSON.stringify(view)])).rows[0].r;
-    check((await listing({year:2026,as_of:'2026-08-31'})).count,0);
-    check((await listing({year:2026,as_of:'2026-09-01',query:'NO-MATCH'})).count,0);
-    const page=await listing({year:2026,as_of:'2026-09-01',offset:1});check(page.rows.length,0);check(page.count,1);check(page.totals.gross_cents,'500000');
+    const run = await cmd(
+      payrollCommandSchema.parse({
+        type: "payroll.save",
+        id: randomUUID(),
+        expected_version: 0,
+        provider_run_id: "SYNTHETIC-PAYROLL-001",
+        reason: "Synthetic cash payroll approval source",
+        document_id: doc.id,
+        body: {
+          pay_date: "2026-09-01",
+          period_start: "2026-08-16",
+          period_end: "2026-08-31",
+          gross_cents: "500000",
+          net_cents: "380000",
+          employee_withholding_cents: "120000",
+          employer_tax_cents: "38250",
+          components: [
+            { kind: "employee_tax", amount_cents: "120000" },
+            { kind: "employer_tax", amount_cents: "38250" },
+          ],
+        },
+        ytd: {
+          verified: true,
+          through: "2026-09-01",
+          federal_taxable_cents: "3000000",
+          federal_withheld_cents: "400000",
+        },
+      }),
+    );
+    const preview = (
+      await db.query<{ r: any }>("SELECT accounting.payroll($1) r", [
+        JSON.stringify({
+          view: "detail",
+          id: run.id,
+          bank_account_id: account(1),
+        }),
+      ])
+    ).rows[0].r;
+    check(preview.preview.ready, true);
+    check(preview.preview.totals.gross_cents, "500000");
+    check(
+      preview.preview.lines.map((l: any) => l.amount_cents),
+      ["500000", "38250", "-380000", "-158250"],
+    );
+    check(preview.register.body.declared_net_cents, "380000");
+    const missingBank = (
+      await db.query<{ r: any }>("SELECT accounting.payroll($1) r", [
+        JSON.stringify({ view: "detail", id: run.id }),
+      ])
+    ).rows[0].r;
+    check(missingBank.preview.ready, false);
+    check(missingBank.preview.issues, ["ACCT_BANK_ACCOUNT_REQUIRED"]);
+    const listing = async (view: object) =>
+      (
+        await db.query<{ r: any }>("SELECT accounting.payroll($1) r", [
+          JSON.stringify(view),
+        ])
+      ).rows[0].r;
+    check((await listing({ year: 2026, as_of: "2026-08-31" })).count, 0);
+    check(
+      (await listing({ year: 2026, as_of: "2026-09-01", query: "NO-MATCH" }))
+        .count,
+      0,
+    );
+    const page = await listing({ year: 2026, as_of: "2026-09-01", offset: 1 });
+    check(page.rows.length, 0);
+    check(page.count, 1);
+    check(page.totals.gross_cents, "500000");
     await db.exec("RESET ROLE");
     const mapped = (
       await db.query<{ id: string }>(

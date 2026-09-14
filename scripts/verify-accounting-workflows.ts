@@ -7,6 +7,7 @@ import {
   fixtureAccountId,
 } from "../src/lib/accounting/fixtures";
 import type { JournalEntry } from "../src/lib/accounting/contracts";
+import { extendedRequestSchema } from "../src/lib/accounting/workflows";
 
 async function main() {
   const db = await accountingTestDb();
@@ -20,7 +21,7 @@ async function main() {
   const cmd = (c: object, key = randomUUID()) =>
     query<{ id: string; version: number; reversal_id?: string }>(
       "SELECT accounting.operate($1::jsonb) r",
-      [JSON.stringify({key,command:c})],
+      [JSON.stringify({ key, command: c })],
     );
   const rejects = async (c: object, pattern: RegExp) => {
     await assert.rejects(cmd(c), pattern);
@@ -74,12 +75,14 @@ async function main() {
       /ACCT_ACCOUNT_IN_USE/,
     );
     type Register = { entries: JournalEntry[]; total: number; offset: number };
-    const first = await query<Register>("SELECT accounting.transactions($1) r", [
-      JSON.stringify({ limit: 3 }),
-    ]);
-    const second = await query<Register>("SELECT accounting.transactions($1) r", [
-      JSON.stringify({ limit: 3, offset: 3 }),
-    ]);
+    const first = await query<Register>(
+      "SELECT accounting.transactions($1) r",
+      [JSON.stringify({ limit: 3 })],
+    );
+    const second = await query<Register>(
+      "SELECT accounting.transactions($1) r",
+      [JSON.stringify({ limit: 3, offset: 3 })],
+    );
     check(first.total, 11);
     check(first.entries.length, 3);
     check(
@@ -97,9 +100,7 @@ async function main() {
     const ledger = await query<{
       opening_cents: string;
       rows: { running_cents: string }[];
-    }>("SELECT accounting.ledger($1,'2026-01-01','2026-02-28') r", [
-      checking,
-    ]);
+    }>("SELECT accounting.ledger($1,'2026-01-01','2026-02-28') r", [checking]);
     check(ledger.opening_cents, "1200000");
     check(ledger.rows.at(-1)?.running_cents, "1228000");
     const replacementId = randomUUID();
@@ -155,8 +156,14 @@ async function main() {
       entry_id: ids[0],
       note: "Late evidence note",
     });
-    const annotated=await query<{audit:{after:{note_id?:string}}[]}>("SELECT accounting.entry_detail($1) r",[ids[0]]);
-    check(annotated.audit.some(a=>a.after?.note_id===noteId),true);
+    const annotated = await query<{ audit: { after: { note_id?: string } }[] }>(
+      "SELECT accounting.entry_detail($1) r",
+      [ids[0]],
+    );
+    check(
+      annotated.audit.some((a) => a.after?.note_id === noteId),
+      true,
+    );
     const draftId = randomUUID();
     await cmd({
       type: "draft.save",
@@ -186,6 +193,35 @@ async function main() {
       },
       /ACCT_POSTED_IMMUTABLE/,
     );
+    // Words and the payee can change on a reviewed entry without a new
+    // version of the money, as long as the stored kind goes back unchanged.
+    const reviewedEntry = (
+      await query<Register>("SELECT accounting.transactions($1) r", [
+        JSON.stringify({ entry_id: ids[0] }),
+      ])
+    ).entries[0];
+    const reworded = {
+      type: "entry.context",
+      id: ids[0],
+      expected_version: reviewedEntry.version,
+      kind: reviewedEntry.context?.kind ?? "manual",
+      memo: "Reworded after review",
+    };
+    check(
+      extendedRequestSchema.safeParse({ key: randomUUID(), command: reworded })
+        .success,
+      true,
+    );
+    const rewordedVersion = (await cmd(reworded)).version;
+    const afterWords = (
+      await query<Register>("SELECT accounting.transactions($1) r", [
+        JSON.stringify({ entry_id: ids[0] }),
+      ])
+    ).entries[0];
+    check(afterWords.memo, "Reworded after review");
+    check(afterWords.status, "posted");
+    check(afterWords.version, rewordedVersion);
+    check(afterWords.lines.length, reviewedEntry.lines.length);
     const snapshotId = randomUUID();
     const payeeId = randomUUID();
     await cmd({
@@ -264,32 +300,140 @@ async function main() {
       from: "2026-01-01",
       to: "2026-02-28",
     });
-    const snapshot = await query<{revision:string;payload:unknown}>("SELECT accounting.snapshot_read($1) r",[snapshotId]);
-    check(typeof snapshot.revision,"string");check(!!snapshot.payload,true);
-    const sourcePosted=randomUUID(),sourceDraft=randomUUID();
-    const movement={type:'draft.save',expected_version:0,entry_date:'2026-04-01',memo:'Synthetic descriptor review',source_description:'POS SYNTHETIC SOFTWARE #98765',lines:[{account_id:checking,amount_cents:'-700'},{account_id:fixtureAccountId(6),amount_cents:'700'}]};
-    await cmd({...movement,id:sourcePosted});await cmd({type:'entry.post',id:sourcePosted,expected_version:1});
-    await cmd({...movement,id:sourceDraft,entry_date:'2026-04-02'});
-    const suggestion=await query<JournalEntry>('SELECT accounting.entry_detail($1) r',[sourceDraft]);
-    check(suggestion.source_description,'POS SYNTHETIC SOFTWARE #98765');check(suggestion.descriptor_key,'SYNTHETIC SOFTWARE');
-    check(suggestion.prior_treatment,{count:1,last_category:fixtureAccountId(6),payee_id:null});
-    const settings=await query<{preferences:{version:number;business_profile:{version:number}}}>("SELECT accounting.context('manage') r");
-    const saveSettings={type:'settings.save',id:randomUUID(),expected_version:settings.preferences.version,profile_version:settings.preferences.business_profile.version,primary_system:'admin',business_profile:{legal_name:'Synthetic profile update',tax_classification:'s_corp'}};
-    check((await cmd(saveSettings)).version,2);await rejects({...saveSettings,id:randomUUID()},/ACCT_STALE_VERSION/);
-    check((await query<{legal_name:string}>("SELECT accounting.workspace('2026-01-01','2026-04-30') r")).legal_name,'Synthetic profile update');
-    await rejects({...saveSettings,id:randomUUID(),expected_version:2,profile_version:0,primary_system:'wave'},/ACCT_STALE_VERSION/);
-    const state=await query<{preferences:{primary_system:string}}>("SELECT accounting.context('manage') r");check(state.preferences.primary_system,'admin');
-    const cashLine=suggestion.lines.find(l=>l.account_id===checking)!;
-    const override={type:'cash.allocate',id:cashLine.id,expected_version:1,reason:'Synthetic cash override',allocations:[{classification:'operating',amount_cents:'-700',note:'Synthetic classification'}]};
-    check((await cmd(override)).version,2);await rejects({...override,expected_version:2,allocations:[{classification:'operating',amount_cents:'-699'}]},/ACCT_INVALID_CASH_ALLOCATION/);
-    const fileId=randomUUID();await cmd({type:'document.prepare',id:fileId,original_name:'synthetic-receipt.pdf',mime_type:'application/pdf',content_hash:'d'.repeat(64),size_bytes:'8'});
-    await db.query("INSERT INTO storage.objects(bucket_id,name) VALUES('accounting-private',$1)",[fileId+'/'+'d'.repeat(64)]);
-    await cmd({type:'document.link',id:fileId,expected_version:1,entry_id:sourceDraft});
-    check((await query<{total:number}>("SELECT accounting.transactions($1) r",[JSON.stringify({entry_id:sourceDraft,missing_receipt:true})])).total,0);
-    check((await query<{total:number}>("SELECT accounting.transactions($1) r",[JSON.stringify({entry_id:sourcePosted,missing_receipt:true})])).total,1);
+    const snapshot = await query<{ revision: string; payload: unknown }>(
+      "SELECT accounting.snapshot_read($1) r",
+      [snapshotId],
+    );
+    check(typeof snapshot.revision, "string");
+    check(!!snapshot.payload, true);
+    const sourcePosted = randomUUID(),
+      sourceDraft = randomUUID();
+    const movement = {
+      type: "draft.save",
+      expected_version: 0,
+      entry_date: "2026-04-01",
+      memo: "Synthetic descriptor review",
+      source_description: "POS SYNTHETIC SOFTWARE #98765",
+      lines: [
+        { account_id: checking, amount_cents: "-700" },
+        { account_id: fixtureAccountId(6), amount_cents: "700" },
+      ],
+    };
+    await cmd({ ...movement, id: sourcePosted });
+    await cmd({ type: "entry.post", id: sourcePosted, expected_version: 1 });
+    await cmd({ ...movement, id: sourceDraft, entry_date: "2026-04-02" });
+    const suggestion = await query<JournalEntry>(
+      "SELECT accounting.entry_detail($1) r",
+      [sourceDraft],
+    );
+    check(suggestion.source_description, "POS SYNTHETIC SOFTWARE #98765");
+    check(suggestion.descriptor_key, "SYNTHETIC SOFTWARE");
+    check(suggestion.prior_treatment, {
+      count: 1,
+      last_category: fixtureAccountId(6),
+      payee_id: null,
+    });
+    const settings = await query<{
+      preferences: { version: number; business_profile: { version: number } };
+    }>("SELECT accounting.context('manage') r");
+    const saveSettings = {
+      type: "settings.save",
+      id: randomUUID(),
+      expected_version: settings.preferences.version,
+      profile_version: settings.preferences.business_profile.version,
+      primary_system: "admin",
+      business_profile: {
+        legal_name: "Synthetic profile update",
+        tax_classification: "s_corp",
+      },
+    };
+    check((await cmd(saveSettings)).version, 2);
+    await rejects({ ...saveSettings, id: randomUUID() }, /ACCT_STALE_VERSION/);
+    check(
+      (
+        await query<{ legal_name: string }>(
+          "SELECT accounting.workspace('2026-01-01','2026-04-30') r",
+        )
+      ).legal_name,
+      "Synthetic profile update",
+    );
+    await rejects(
+      {
+        ...saveSettings,
+        id: randomUUID(),
+        expected_version: 2,
+        profile_version: 0,
+        primary_system: "wave",
+      },
+      /ACCT_STALE_VERSION/,
+    );
+    const state = await query<{ preferences: { primary_system: string } }>(
+      "SELECT accounting.context('manage') r",
+    );
+    check(state.preferences.primary_system, "admin");
+    const cashLine = suggestion.lines.find((l) => l.account_id === checking)!;
+    const override = {
+      type: "cash.allocate",
+      id: cashLine.id,
+      expected_version: 1,
+      reason: "Synthetic cash override",
+      allocations: [
+        {
+          classification: "operating",
+          amount_cents: "-700",
+          note: "Synthetic classification",
+        },
+      ],
+    };
+    check((await cmd(override)).version, 2);
+    await rejects(
+      {
+        ...override,
+        expected_version: 2,
+        allocations: [{ classification: "operating", amount_cents: "-699" }],
+      },
+      /ACCT_INVALID_CASH_ALLOCATION/,
+    );
+    const fileId = randomUUID();
+    await cmd({
+      type: "document.prepare",
+      id: fileId,
+      original_name: "synthetic-receipt.pdf",
+      mime_type: "application/pdf",
+      content_hash: "d".repeat(64),
+      size_bytes: "8",
+    });
+    await db.query(
+      "INSERT INTO storage.objects(bucket_id,name) VALUES('accounting-private',$1)",
+      [fileId + "/" + "d".repeat(64)],
+    );
+    await cmd({
+      type: "document.link",
+      id: fileId,
+      expected_version: 1,
+      entry_id: sourceDraft,
+    });
+    check(
+      (
+        await query<{ total: number }>("SELECT accounting.transactions($1) r", [
+          JSON.stringify({ entry_id: sourceDraft, missing_receipt: true }),
+        ])
+      ).total,
+      0,
+    );
+    check(
+      (
+        await query<{ total: number }>("SELECT accounting.transactions($1) r", [
+          JSON.stringify({ entry_id: sourcePosted, missing_receipt: true }),
+        ])
+      ).total,
+      1,
+    );
     await db.exec("RESET ROLE;");
     await assert.rejects(
-      db.query("DELETE FROM accounting.report_snapshots WHERE id=$1", [snapshotId]),
+      db.query("DELETE FROM accounting.report_snapshots WHERE id=$1", [
+        snapshotId,
+      ]),
       /ACCT_IMMUTABLE_SNAPSHOT/,
     );
     checks++;

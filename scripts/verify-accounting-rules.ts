@@ -33,7 +33,10 @@ async function main() {
     (
       await db.query<{
         r: { revision: string; total: number; rows: Candidate[] };
-      }>("SELECT accounting.rules_preview(jsonb_build_object('from','2026-01-01','to','2026-12-31','rule_id',$1::uuid)) r", [id])
+      }>(
+        "SELECT accounting.rules_preview(jsonb_build_object('from','2026-01-01','to','2026-12-31','rule_id',$1::uuid)) r",
+        [id],
+      )
     ).rows[0].r;
   let uncategorized: string;
   const draft = async (
@@ -91,12 +94,15 @@ async function main() {
           ...a,
           cash_kind: a.id === account(1) ? "bank" : "none",
         })),
-
       ],
     });
-    await db.exec('RESET ROLE');
-    uncategorized=(await db.query<{id:string}>("SELECT id FROM accounting.accounts WHERE system_purpose='uncategorized_expense'")).rows[0].id;
-    await db.exec('SET ROLE authenticated');
+    await db.exec("RESET ROLE");
+    uncategorized = (
+      await db.query<{ id: string }>(
+        "SELECT id FROM accounting.accounts WHERE system_purpose='uncategorized_expense'",
+      )
+    ).rows[0].id;
+    await db.exec("SET ROLE authenticated");
     const first = await draft(" ACME    HOSTING "),
       second = await draft("Acme seats", "-2000"),
       large = await draft("Acme annual", "-50000");
@@ -244,15 +250,37 @@ async function main() {
     const applied = await cmd(operation, key);
     check(applied.count, 2);
     check(await cmd(operation, key), applied);
-    const evidence = async () => (await db.query<{ value: { rules: { rule_name: string; rule_version: number; before_value: Candidate & { rule_id: string }; after_value: { lines: { amount_cents: string }[] } }[] } }>(
-      "SELECT accounting.context('evidence', jsonb_build_object('id',$1::text)) value", [first.id],
-    )).rows[0].value;
+    const evidence = async () =>
+      (
+        await db.query<{
+          value: {
+            rules: {
+              rule_name: string;
+              rule_version: number;
+              before_value: Candidate & { rule_id: string };
+              after_value: { lines: { amount_cents: string }[] };
+            }[];
+          };
+        }>(
+          "SELECT accounting.context('evidence', jsonb_build_object('id',$1::text)) value",
+          [first.id],
+        )
+      ).rows[0].value;
     const retained = (await evidence()).rules;
     check(retained.length, 1);
     check(retained[0].before_value.bank_amount_cents, "-1999");
-    check(retained[0].after_value.lines.reduce((n, l) => n + BigInt(l.amount_cents), BigInt(0)), BigInt(0));
+    check(
+      retained[0].after_value.lines.reduce(
+        (n, l) => n + BigInt(l.amount_cents),
+        BigInt(0),
+      ),
+      BigInt(0),
+    );
     await db.exec("RESET ROLE");
-    await db.query("UPDATE accounting.rules SET name='Later synthetic name' WHERE id=$1", [retained[0].before_value.rule_id]);
+    await db.query(
+      "UPDATE accounting.rules SET name='Later synthetic name' WHERE id=$1",
+      [retained[0].before_value.rule_id],
+    );
     await db.exec("SET ROLE authenticated");
     check((await evidence()).rules, retained);
     p = await preview();
@@ -277,7 +305,11 @@ async function main() {
       party.id,
     );
     check(
-      (await db.query("SELECT * FROM accounting.journal_entries WHERE applied_rule_id IS NOT NULL")).rows.length,
+      (
+        await db.query(
+          "SELECT * FROM accounting.journal_entries WHERE applied_rule_id IS NOT NULL",
+        )
+      ).rows.length,
       2,
     );
     check(

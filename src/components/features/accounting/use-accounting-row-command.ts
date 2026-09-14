@@ -12,21 +12,24 @@ export function useAccountingRowCommand() {
   const [pending, setPending] = useState(new Set<string>());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const failedVersions = useRef(new Map<string, number>());
-  const clearResolved = useCallback((entries: { id: string; version: number }[]) => {
-    const resolved = entries.filter((entry) => {
-      const failed = failedVersions.current.get(entry.id);
-      return failed !== undefined && entry.version > failed;
-    });
-    if (!resolved.length) return;
-    setErrors((previous) => {
-      const next = { ...previous };
-      for (const entry of resolved) {
-        delete next[entry.id];
-        failedVersions.current.delete(entry.id);
-      }
-      return next;
-    });
-  }, []);
+  const clearResolved = useCallback(
+    (entries: { id: string; version: number }[]) => {
+      const resolved = entries.filter((entry) => {
+        const failed = failedVersions.current.get(entry.id);
+        return failed !== undefined && entry.version > failed;
+      });
+      if (!resolved.length) return;
+      setErrors((previous) => {
+        const next = { ...previous };
+        for (const entry of resolved) {
+          delete next[entry.id];
+          failedVersions.current.delete(entry.id);
+        }
+        return next;
+      });
+    },
+    [],
+  );
   async function execute(id: string, command: WorkflowCommand) {
     if (inFlight.current.has(id)) return null;
     inFlight.current.add(id);

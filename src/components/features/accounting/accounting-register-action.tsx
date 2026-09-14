@@ -217,7 +217,7 @@ export function AccountingRegisterAction({
   const title = isVoid
     ? historical
       ? "Unlink entry"
-      : "Reverse entry"
+      : "Delete entry"
     : registerActionLabels[kind];
   const description =
     isVoid && movement
@@ -413,7 +413,7 @@ export function AccountingRegisterAction({
                 </Button>
               </DialogClose>
               <Button type="submit" variant="destructive" disabled={busy}>
-                {command.busy ? "Saving..." : historical ? "Unlink" : "Reverse"}
+                {command.busy ? "Saving..." : historical ? "Unlink" : "Delete"}
               </Button>
             </div>
           </div>

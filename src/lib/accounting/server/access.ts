@@ -29,7 +29,7 @@ export async function accountingClient() {
 export function accountingError(message: string): string {
   const known: Record<string, string> = {
     ACCT_CORRECTION_LINKED:
-      "Resolve this entry's bank matches or reconciliation, or use its linked payroll, transfer, or register workflow before correcting it. No changes were saved.",
+      "Use this transaction's payroll, transfer, register or reconciliation workflow to change it. No changes were saved.",
     ACCT_PATRIOT_CHANGED:
       "The books changed since the preview. Refresh the preview before importing. No payrolls from this request were saved.",
     ACCT_IMPORT_COMPARISON_SCOPE:
@@ -47,9 +47,8 @@ export function accountingError(message: string): string {
     ACCT_CATEGORY_REQUIRED:
       "Choose a category for every amount before marking the transaction reviewed.",
     ACCT_RESTORE_UNAVAILABLE:
-      "This entry is not available to restore. It may already have a restoration or correction. Refresh the list.",
-    ACCT_RESTORE_DATE:
-      "Choose a restoration date on or after the reversal date.",
+      "This transaction is not available to restore. It may already have been restored or edited. Refresh the list.",
+    ACCT_RESTORE_DATE: "Choose a restore date on or after the deletion date.",
     ACCT_RESTORE_WORKFLOW:
       "Restore this through its linked payroll, transfer, or asset/loan workflow. For an undone payroll import, upload the report again.",
     ACCT_IMPORT_UNDO_UNAVAILABLE:
@@ -69,13 +68,13 @@ export function accountingError(message: string): string {
     ACCT_IMPORT_FINAL:
       "This batch or source group is already final. Refresh to see its recorded result.",
     ACCT_IMPORT_EXCEPTION:
-      "This source requires a correction or period review before it can be applied.",
+      "This source requires an edit or period review before it can be applied.",
     ACCT_BANK_ACCOUNT_REQUIRED:
       "Choose an active bank or card account in the account settings.",
     ACCT_TRANSFER_ALREADY_LINKED:
       "A selected entry already belongs to a transfer group.",
     ACCT_TRANSFER_REVERSE_TOGETHER:
-      "Reverse the transfer from either leg in Transactions. Both legs reverse together.",
+      "Delete the transfer from either leg in Transactions. Both legs are deleted together.",
     ACCT_ACCOUNT_KIND:
       "Bank and cash accounts must be assets. Credit cards must be liabilities.",
     ACCT_ACCOUNT_IN_USE:
@@ -93,17 +92,17 @@ export function accountingError(message: string): string {
     ACCT_STALE_VERSION:
       "This record changed. Refresh and review the latest version before saving.",
     ACCT_PERIOD_LOCKED:
-      "This date belongs to a locked period. Choose an open correction date.",
+      "This date belongs to a locked month. Choose a date in an open month.",
     ACCT_IMMUTABLE:
-      "Posted or discarded entries cannot be edited. Use a reversal to correct a posting.",
-    ACCT_ALREADY_REVERSED: "This entry already has a reversal.",
+      "Reviewed or deleted transactions cannot be changed in place. Edit one to save a new version.",
+    ACCT_ALREADY_REVERSED: "This transaction was already deleted.",
     ACCT_IDEMPOTENCY_CONFLICT:
       "This request changed after submission. Review it and try again.",
     ACCT_ACCOUNT_ARCHIVED: "An account on this entry is archived.",
     ACCT_RULE_INELIGIBLE:
       "One of the selected drafts no longer qualifies. Refresh the preview and review its exception.",
     ACCT_BANK_SOURCE_CHANGED:
-      "The draft's bank date or amount differs from its imported source. Restore the source movement before posting or resolve the source conflict explicitly.",
+      "The bank side of this transaction (date, account and amount) comes from the bank and cannot change. Edit the category, description or payee instead.",
     ACCT_REASON_REQUIRED: "Provide a reason for this change.",
     ACCT_FORBIDDEN: "Accounting is restricted to its configured owner.",
   };

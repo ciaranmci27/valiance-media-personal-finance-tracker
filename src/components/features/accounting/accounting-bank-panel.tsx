@@ -141,7 +141,7 @@ export function AccountingBankPanel({
         count={accounts.length}
         description={
           demo
-            ? "Book balances from posted transactions."
+            ? "Book balances."
             : "Latest bank-reported balances, independent of transaction review."
         }
         action={
@@ -206,7 +206,7 @@ export function AccountingBankPanel({
                   {off ? (
                     <span className="inline-flex items-center gap-1 text-warning">
                       <CircleAlert size={12} aria-hidden="true" />
-                      Reviewed books: <MaskedValue value={money(r.book)} />
+                      Books: <MaskedValue value={money(r.book)} />
                     </span>
                   ) : r.difference !== null ? (
                     <span className="inline-flex items-center gap-1 text-teal-light">

@@ -39,3 +39,18 @@ export function accountBalances(
     }),
   );
 }
+
+/** Everything still parked in the uncategorized accounts, as a positive amount. */
+export function uncategorizedCents<T>(
+  rows: readonly T[],
+  purpose: (row: T) => string | null | undefined,
+  cents: (row: T) => string,
+): bigint {
+  let total = BigInt(0);
+  for (const row of rows) {
+    if (!purpose(row)?.startsWith("uncategorized")) continue;
+    const value = BigInt(cents(row));
+    total += value < BigInt(0) ? -value : value;
+  }
+  return total;
+}

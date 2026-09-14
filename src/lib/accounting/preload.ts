@@ -1,5 +1,5 @@
 import type { AccountingQuery } from "./read-cache";
-import type { ReportFilter } from "./reports";
+import { DEFAULT_BOOK_MODE, type ReportFilter } from "./reports";
 import type { AccountingView } from "./views";
 import { registerFilterSchema, type RegisterFilter } from "./workflows";
 
@@ -123,14 +123,14 @@ export function journalFilterFromLocation(
   }
 }
 
-/** The Overview's cash flow: the last twelve months, posted only. */
+/** The Overview's cash flow: the last twelve months, all activity. */
 export function overviewReportFilter(to: string): ReportFilter {
-  return { from: monthsBefore(to, 11), to, mode: "posted", offset: 0 };
+  return { from: monthsBefore(to, 11), to, mode: DEFAULT_BOOK_MODE, offset: 0 };
 }
 
-/** A report opened from the catalog: the books' date range, posted only. */
+/** A report opened from the catalog: the books' date range, all activity. */
 export function defaultReportFilter(from: string, to: string): ReportFilter {
-  return { from, to, mode: "posted", offset: 0 };
+  return { from, to, mode: DEFAULT_BOOK_MODE, offset: 0 };
 }
 
 export function reportSignature(filter: ReportFilter): string {

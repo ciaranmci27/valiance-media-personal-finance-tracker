@@ -205,7 +205,14 @@ async function main() {
       /ACCT_IMPORT_COMPARISON_STAGING/,
     );
     // Duplicate source IDs now fail at staging through the target table's unique key.
-    await rejects(() => batch("test-comparison", [{id:"repeat",amount:"100"},{id:"repeat",amount:"200"}]), /duplicate key/);
+    await rejects(
+      () =>
+        batch("test-comparison", [
+          { id: "repeat", amount: "100" },
+          { id: "repeat", amount: "200" },
+        ]),
+      /duplicate key/,
+    );
     const manyOld = await batch(
         "page-scope",
         Array.from({ length: 101 }, (_, i) => ({

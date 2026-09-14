@@ -1,12 +1,19 @@
 import { z } from "zod";
 import { dateSchema } from "./contracts";
 
+export type BookMode = "posted" | "working";
+/**
+ * What the owner's screens read: every balanced transaction, reviewed or not.
+ * SQL keeps 'posted' as its strict default; the client opts in here.
+ */
+export const DEFAULT_BOOK_MODE: BookMode = "working";
+
 const dimension = z.union([z.uuid(), z.literal("unassigned")]).optional();
 export const reportFilterSchema = z
   .object({
     from: dateSchema,
     to: dateSchema,
-    mode: z.enum(["posted", "working"]).default("posted"),
+    mode: z.enum(["posted", "working"]).default(DEFAULT_BOOK_MODE),
     compare_from: dateSchema.optional(),
     compare_to: dateSchema.optional(),
     payee: dimension,

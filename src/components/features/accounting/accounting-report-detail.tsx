@@ -23,7 +23,11 @@ import type {
 import { centsToDecimal, parseUsd } from "@/lib/accounting/money";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { AccountingPicker } from "./accounting-picker";
-import { countLabel, dateLabel, enumLabel, money,
+import {
+  countLabel,
+  dateLabel,
+  enumLabel,
+  money,
   entryStateLabel,
 } from "./format";
 
@@ -228,7 +232,7 @@ export function AccountingReportDetail({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3 text-xs text-muted-foreground">
         <span>
           {dateLabel(filter.from)} to {dateLabel(filter.to)} ·{" "}
-          {filter.mode === "working" ? "Working preview" : "Posted books"}
+          {filter.mode === "working" ? "All activity" : "Reviewed only"}
         </span>
         {data && <span>{countLabel(data.total, "journal line")}</span>}
       </div>

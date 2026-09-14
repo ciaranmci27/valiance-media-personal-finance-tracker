@@ -505,6 +505,7 @@ export function AccountingPayrollRuns({
           <TextInput
             aria-label="Search payroll runs"
             placeholder="Search runs"
+            clearable
             prefix={<Search size={15} aria-hidden="true" />}
             value={query}
             onChange={(nextValue) => setQuery(nextValue)}
@@ -1407,7 +1408,7 @@ function VoidDialog({
           <p className="text-sm text-muted-foreground">
             {run.import_mode === "linked"
               ? "Removes the imported payroll record and keeps your existing journal unchanged."
-              : `Reverses the journal created by this import on ${dateLabel(date)}. Reports before that date retain its original effect.`}{" "}
+              : `Removes the journal created by this import as of ${dateLabel(date)}. Reports before that date keep its original effect.`}{" "}
             You can upload the report again afterward. The original report
             remains in history.
           </p>

@@ -2901,7 +2901,7 @@ BEGIN
  PERFORM accounting.require_owner();IF extract(day FROM month)<>1 THEN RAISE EXCEPTION 'ACCT_MONTH_REQUIRED';END IF;
  SELECT count(*) INTO drafts FROM accounting.journal_entries WHERE entry_date BETWEEN month AND ending AND status='draft';
  SELECT count(*) INTO mismatches FROM (SELECT DISTINCT ON(fiscal_year,kind) * FROM accounting.history_checks WHERE fiscal_year=extract(year FROM month) ORDER BY fiscal_year,kind,checked_at DESC,id DESC) checks WHERE status='mismatch';
- balances:=accounting.report('account_balances',jsonb_build_object('from',month,'to',ending));
+ balances:=accounting.report('account_balances',jsonb_build_object('from',month,'to',ending,'mode','working'));
  SELECT coalesce(jsonb_agg(jsonb_build_object('id',b.id,'account_id',b.account_id,'name',a.name,'book_cents',coalesce(r->>'ending_cents','0'),'observed_balance_cents',b.observed_balance_cents::text,'observed_at',b.observed_at,
   'difference_cents',CASE WHEN b.observed_balance_cents IS NULL THEN NULL ELSE (coalesce((r->>'ending_cents')::bigint,0)-b.observed_balance_cents)::text END) ORDER BY a.name),'[]') INTO observations
   FROM accounting.bank_accounts b JOIN accounting.accounts a ON a.id=b.account_id LEFT JOIN LATERAL (SELECT value r FROM jsonb_array_elements(balances->'rows') WHERE value->>'id'=b.account_id::text) q ON true WHERE NOT b.is_closed;
@@ -3645,7 +3645,7 @@ CREATE OR REPLACE FUNCTION accounting.ledger_command(c jsonb)
 AS $function$
 DECLARE t text:=c->>'type'; k uuid:=coalesce((c->>'id')::uuid,gen_random_uuid()); actor uuid:=CASE WHEN current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE accounting.require_owner() END;
  e accounting.journal_entries; account_row accounting.accounts; v integer; x jsonb; line jsonb; idx integer; r jsonb; replacement jsonb; reversal jsonb;
- preserved uuid[]:='{}'; seen uuid[]:='{}'; existing_line uuid; original_date date; category uuid; bank_line accounting.journal_lines; total numeric; allocated bigint; remain bigint; share_sum bigint;
+ preserved uuid[]:='{}'; seen uuid[]:='{}'; existing_line uuid; original_date date; category uuid; bank_line accounting.journal_lines; carried jsonb:='[]'; total numeric; allocated bigint; remain bigint; share_sum bigint;
 BEGIN
  IF t='cash.allocate' THEN
   SELECT * INTO bank_line FROM accounting.journal_lines WHERE id=k;
@@ -3768,8 +3768,19 @@ BEGIN
    IF original_date IS NULL OR original_date<e.entry_date OR btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_INVALID_REVERSAL_DATE_OR_REASON'; END IF;
    IF t='entry.correct' AND (e.register_id IS NOT NULL OR e.transfer_group_id IS NOT NULL
     OR EXISTS(SELECT 1 FROM accounting.payroll_runs p WHERE p.entry_id=e.id AND p.status='posted')
-    OR EXISTS(SELECT 1 FROM accounting.journal_lines l WHERE l.entry_id=e.id AND (EXISTS(SELECT 1 FROM accounting.bank_matches m WHERE m.journal_line_id=l.id) OR EXISTS(SELECT 1 FROM accounting.reconciliation_items ri WHERE ri.journal_line_id=l.id))))
+    OR EXISTS(SELECT 1 FROM accounting.journal_lines l WHERE l.entry_id=e.id AND EXISTS(SELECT 1 FROM accounting.reconciliation_items ri WHERE ri.journal_line_id=l.id)))
    THEN RAISE EXCEPTION 'ACCT_CORRECTION_LINKED'; END IF;
+   IF t='entry.correct' THEN
+    -- Bank evidence follows an edit as long as the bank side stays exactly as the bank reported it.
+    SELECT coalesce(jsonb_agg(jsonb_build_object('bank_transaction_id',m.bank_transaction_id,'amount_cents',m.amount_cents,'account_id',l.account_id,'line_cents',l.amount_cents) ORDER BY m.amount_cents DESC),'[]') INTO carried
+     FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id WHERE l.entry_id=e.id;
+    IF jsonb_array_length(carried)>0 THEN
+     IF (c->>'entry_date')::date<>e.entry_date THEN RAISE EXCEPTION 'ACCT_BANK_SOURCE_CHANGED'; END IF;
+     IF EXISTS(SELECT 1 FROM (SELECT l.account_id,l.amount_cents,count(DISTINCT l.id) n FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id WHERE l.entry_id=e.id GROUP BY l.account_id,l.amount_cents) need
+      WHERE need.n>(SELECT count(*) FROM jsonb_array_elements(c->'lines') nl WHERE (nl->>'account_id')::uuid=need.account_id AND (nl->>'amount_cents')::bigint=need.amount_cents))
+     THEN RAISE EXCEPTION 'ACCT_BANK_SOURCE_CHANGED'; END IF;
+    END IF;
+   END IF;
    INSERT INTO accounting.journal_entries(entry_date,memo,origin,kind,reverses_entry_id,reason,created_by,payee_id)
     VALUES(original_date,'Reversal: '||left(e.memo,990),'internal','correction',e.id,c->>'reason',actor,e.payee_id) RETURNING id,version INTO k,v;
    INSERT INTO accounting.journal_lines(entry_id,account_id,amount_cents,memo,sort_order,cash_class)
@@ -3794,6 +3805,11 @@ BEGIN
     k:=(replacement->>'id')::uuid;
     UPDATE accounting.journal_entries SET replaces_entry_id=e.id WHERE id=k RETURNING version INTO v;
     replacement:=accounting.ledger_command(jsonb_build_object('type','entry.post','id',k,'expected_version',v));
+    FOR x IN SELECT value FROM jsonb_array_elements(carried) LOOP
+     SELECT l.* INTO bank_line FROM accounting.journal_lines l WHERE l.entry_id=k AND l.account_id=(x->>'account_id')::uuid AND l.amount_cents=(x->>'line_cents')::bigint
+      AND NOT EXISTS(SELECT 1 FROM accounting.bank_matches m WHERE m.journal_line_id=l.id AND m.bank_transaction_id=(x->>'bank_transaction_id')::uuid) ORDER BY l.sort_order LIMIT 1;
+     INSERT INTO accounting.bank_matches(bank_transaction_id,journal_line_id,amount_cents,created_by) VALUES((x->>'bank_transaction_id')::uuid,bank_line.id,(x->>'amount_cents')::bigint,actor);
+    END LOOP;
     INSERT INTO accounting.document_links(document_id,entry_id,created_by)
      SELECT document_id,k,actor FROM accounting.document_links WHERE entry_id=e.id ON CONFLICT DO NOTHING;
     RETURN replacement||jsonb_build_object('reversal_id',reversal->'id','original_id',e.id);
@@ -4584,7 +4600,7 @@ BEGIN
   coalesce(sum((r->>'ending_cents')::numeric) FILTER(WHERE r->>'subtype' IN ('bank','cash')),0) cash_ending
  FROM a)
  SELECT jsonb_build_object('income_cents',income::text,'expense_cents',expense::text,'cogs_cents',cogs::text,'net_cents',(income-expense)::text,'assets_cents',assets::text,'liabilities_cents',liabilities::text,'equity_cents',equity::text,'prior_cents',prior::text,'year_cents',current_year::text,'difference_cents',(assets-liabilities-equity-prior-current_year)::text,'cash_opening_cents',cash_opening::text,'cash_ending_cents',cash_ending::text) INTO totals FROM s;
- IF kind='balance_sheet' AND coalesce(params->>'mode','posted')='posted' AND NOT params ?| ARRAY['account_ids','account_types','payee'] AND (totals->>'difference_cents')::numeric<>0 THEN RAISE EXCEPTION 'ACCT_BALANCE_SHEET_UNBALANCED';END IF;
+ IF kind='balance_sheet' AND NOT params ?| ARRAY['account_ids','account_types','payee'] AND (totals->>'difference_cents')::numeric<>0 THEN RAISE EXCEPTION 'ACCT_BALANCE_SHEET_UNBALANCED';END IF;
  IF compare_start IS NOT NULL THEN comparison:=accounting.report(kind,(params-ARRAY['compare_from','compare_to','as_of'])||jsonb_build_object('from',compare_start,'to',compare_end))->'totals';
  ELSE comparison:=(SELECT jsonb_object_agg(key,'0'::text) FROM jsonb_each(totals));END IF;
  SELECT coalesce(jsonb_agg(jsonb_build_object('month',month,'income_cents',income::text,'expense_cents',expense::text,'net_cents',(income-expense)::text) ORDER BY month),'[]') INTO monthly FROM (
@@ -4594,7 +4610,7 @@ BEGIN
  LEFT JOIN accounting.journal_lines l ON l.entry_id=e.id LEFT JOIN accounting.accounts a ON a.id=l.account_id GROUP BY d) m;
  SELECT coalesce(jsonb_agg(jsonb_build_object('classification',classification,'amount_cents',cents::text,'line_count',n) ORDER BY classification),'[]') INTO cash FROM (SELECT classification,sum(amount_cents) cents,count(DISTINCT id) n FROM accounting.cash_lines(params||jsonb_build_object('from',start_date,'to',end_date)) GROUP BY classification) c;
  SELECT jsonb_build_object('draft_count',(SELECT count(*) FROM accounting.journal_entries WHERE status='draft' AND entry_date BETWEEN start_date AND end_date),
- 'unbalanced_drafts',(SELECT count(*) FROM accounting.journal_entries e WHERE e.status='draft' AND e.entry_date BETWEEN start_date AND end_date AND (SELECT coalesce(sum(amount_cents),0) FROM accounting.journal_lines WHERE entry_id=e.id)<>0),
+ 'unbalanced_drafts',(SELECT count(*) FROM accounting.journal_entries e WHERE e.status='draft' AND e.entry_date BETWEEN start_date AND end_date AND (SELECT count(*)<2 OR coalesce(sum(amount_cents),0)<>0 FROM accounting.journal_lines WHERE entry_id=e.id)),
  'incomplete_imports',(SELECT count(*) FROM accounting.import_batches ib WHERE ib.kind='journal' AND parity_status<>'verified' AND coverage_from<=end_date AND (report.kind IN ('balance_sheet','trial_balance','general_ledger','account_balances','summary','cash_movements') OR coverage_to>=start_date) AND (status<>'cancelled' OR applied_count>0)),
  'unclassified_cash_lines',0,'uncategorized_lines',(SELECT count(*) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE a.subtype='uncategorized' AND e.status='posted' AND e.entry_date BETWEEN start_date AND end_date),
  'reconciliations',(SELECT coalesce(jsonb_agg(jsonb_build_object('account_id',b.account_id,'through',r.statement_end)),'[]') FROM accounting.reconciliations r JOIN accounting.bank_accounts b ON b.id=r.bank_account_id WHERE r.status='completed'),
@@ -4626,7 +4642,6 @@ BEGIN
  IF c->>'expected_revision' IS NOT NULL AND (c->>'expected_revision')::bigint<>revision THEN RAISE EXCEPTION 'ACCT_STALE_REPORT';END IF;
  IF t='report.books.capture' THEN p:=jsonb_build_object('from',make_date((c->>'year')::integer,1,1),'to',(c->>'through')::date,'mode','posted');END IF;
  IF t='report.capture' AND coalesce(report_id,'')<>'general-ledger' AND p ?| ARRAY['account_ids','account_types','cash_class'] THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
- IF p->>'mode'='working' THEN RAISE EXCEPTION 'ACCT_POSTED_REPORT_REQUIRED';END IF;
  kind:=coalesce(c->>'kind',CASE report_id WHEN 'profit-loss' THEN 'profit_loss' WHEN 'balance-sheet' THEN 'balance_sheet' WHEN 'trial-balance' THEN 'trial_balance' WHEN 'general-ledger' THEN 'general_ledger' WHEN 'cash-flow' THEN 'cash_movements' ELSE 'profit_loss' END);
  IF t='report.books.capture' THEN kind:='year_end_package';END IF;
  r:=accounting.report(CASE WHEN kind='year_end_package' THEN 'summary' ELSE kind END,p);
@@ -5265,7 +5280,7 @@ BEGIN
 END $function$
 ;
 
-CREATE OR REPLACE FUNCTION accounting.workspace(from_date date, to_date date)
+CREATE OR REPLACE FUNCTION accounting.workspace(from_date date, to_date date, mode text DEFAULT 'posted'::text)
  RETURNS jsonb
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
@@ -5273,7 +5288,7 @@ CREATE OR REPLACE FUNCTION accounting.workspace(from_date date, to_date date)
 AS $function$
 DECLARE r jsonb;tx jsonb;
 BEGIN
- PERFORM accounting.require_owner();r:=accounting.report('summary',jsonb_build_object('from',from_date,'to',to_date));tx:=accounting.transactions(jsonb_build_object('from',from_date,'to',to_date));
+ PERFORM accounting.require_owner();r:=accounting.report('summary',jsonb_build_object('from',from_date,'to',to_date,'mode',coalesce(mode,'posted')));tx:=accounting.transactions(jsonb_build_object('from',from_date,'to',to_date));
  RETURN jsonb_build_object('legal_name',r->'legal_name','revision',r->'revision','from',from_date,'to',to_date,'accounts',r->'accounts','balances',r->'accounts','entries',tx->'entries','entry_count',tx->'total','draft_count',r->'quality'->'draft_count',
  'needs_review_count',(SELECT count(*) FROM accounting.journal_entries e WHERE (status='draft' OR (status='posted' AND review_pending)) AND e.reverses_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries re WHERE re.reverses_entry_id=e.id)),'sync_due',EXISTS(SELECT 1 FROM accounting.bank_connections WHERE status='active' AND scheduled AND (last_success_at IS NULL OR last_success_at<now()-interval '6 hours')),
  'reports',r-ARRAY['legal_name','revision','definition_version','currency','basis','generated_at','filter','accounts','rows','totals','comparison','monthly','dimensions','cash','quality']);
@@ -6090,11 +6105,11 @@ GRANT EXECUTE ON FUNCTION accounting.transactions(jsonb,jsonb) TO "postgres";
 
 GRANT EXECUTE ON FUNCTION accounting.transactions(jsonb,jsonb) TO "authenticated";
 
-REVOKE ALL ON FUNCTION accounting.workspace(date,date) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION accounting.workspace(date,date,text) FROM PUBLIC, anon, authenticated, service_role;
 
-GRANT EXECUTE ON FUNCTION accounting.workspace(date,date) TO "postgres";
+GRANT EXECUTE ON FUNCTION accounting.workspace(date,date,text) TO "postgres";
 
-GRANT EXECUTE ON FUNCTION accounting.workspace(date,date) TO "authenticated";
+GRANT EXECUTE ON FUNCTION accounting.workspace(date,date,text) TO "authenticated";
 
 REVOKE ALL ON FUNCTION accounting.write_lock() FROM PUBLIC, anon, authenticated, service_role;
 

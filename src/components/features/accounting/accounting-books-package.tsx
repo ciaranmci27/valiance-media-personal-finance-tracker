@@ -271,7 +271,7 @@ export function AccountingBooksPackage({
           Update scope
         </Button>
         <span className="ml-auto pb-2 text-xs text-muted-foreground">
-          Posted books · January 1 through cutoff
+          Reviewed only · January 1 through cutoff
         </span>
       </form>
       {(error || request.error) && (

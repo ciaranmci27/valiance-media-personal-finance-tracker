@@ -23,9 +23,9 @@ const query = z.object({
 
 /** Today in the books timezone, `YYYY-MM-DD`. */
 function booksToday(): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Phoenix" }).format(
-    new Date(),
-  );
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Phoenix",
+  }).format(new Date());
 }
 
 function previousDay(iso: string): string {

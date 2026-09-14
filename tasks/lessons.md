@@ -149,3 +149,13 @@ A Bash tool call above roughly 8 KB on this Windows shell fails to parse before 
 ## Browser pane: set a viewport before measuring layout (2026-09-13)
 
 When the Browser pane is hidden it lays the page out at width 0, so every fixed or full-width box collapses to its padding and elementFromPoint checks lie. Call resize_window with an explicit size before any getBoundingClientRect or coverage probe, and reset to desktop afterwards. Animations also do not advance in a hidden tab, so opacity and currentTime readings are meaningless there.
+
+## Exact-match edit scripts must normalize line endings (2026-09-13)
+
+**Rule:** TypeScript, TSX and markdown files in this working copy are CRLF (core.autocrlf=true) while script-written SQL (schema.sql, migrations) is LF. An edit script reads each file, remembers that file's ending, matches on LF-normalized text, and writes back with the original ending. A `grep -q $'\r'` check in Git Bash reported LF for CRLF files here; test with node `text.includes("\r\n")` instead.
+
+**Why this matters:** The all-activity edit script failed on its first multi-line anchor twice before the cause was found: anchors written with `\n` never match a `\r\n` file, and the shell check hid it.
+
+## Strict command schemas and read-back records (2026-09-13)
+
+Records read from the books carry raw table columns (to_jsonb) beyond their client type, and every workflow command schema is strict. Spreading a read-back record into a command therefore answers 400 while the type check stays green. Build commands field by field, and when unifying forms check what the submit actually sends against the schema with a quick zod parse of a read-back record.

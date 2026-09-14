@@ -19,7 +19,10 @@ import { SectionHeader } from "@/components/ui/section-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MaskedValue, useMaskedHover } from "@/components/ui/masked-value";
 import { InstitutionLogo } from "@/components/ui/institution-logo";
-import { accountBalances } from "@/lib/accounting/account-balances";
+import {
+  accountBalances,
+  uncategorizedCents,
+} from "@/lib/accounting/account-balances";
 import {
   CashFlowChart,
   CashFlowLegend,
@@ -231,6 +234,11 @@ export function AccountingOverview({
   const profileMap = useMemo(
     () => new Map(profiles.map((p) => [p.account_id, p])),
     [profiles],
+  );
+  const uncategorized = uncategorizedCents(
+    data.balances,
+    (a) => profileMap.get(a.id)?.purpose,
+    (a) => a.ending_cents,
   );
   const bankAccounts = useMemo(
     () =>
@@ -524,9 +532,18 @@ export function AccountingOverview({
           title="Needs review"
           className="stagger-6"
           right={
-            reviewCount > 0 ? (
-              <span className="rounded-full bg-copper/20 px-2 py-0.5 text-xs font-semibold tabular-nums text-copper">
-                {reviewCount}
+            reviewCount > 0 || uncategorized > ZERO ? (
+              <span className="flex items-center gap-2">
+                {uncategorized > ZERO && (
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    <MaskedValue value={money(uncategorized)} /> uncategorized
+                  </span>
+                )}
+                {reviewCount > 0 && (
+                  <span className="rounded-full bg-copper/20 px-2 py-0.5 text-xs font-semibold tabular-nums text-copper">
+                    {reviewCount}
+                  </span>
+                )}
               </span>
             ) : undefined
           }
@@ -577,7 +594,7 @@ export function AccountingOverview({
           count={bankAccounts.length}
           description={
             demo
-              ? "Book balances from posted transactions."
+              ? "Book balances."
               : needsMapping
                 ? `Bank feed connected. Map ${countLabel(unmappedIdentities, "discovered account")} to your accounts to start syncing.`
                 : feedAttention
@@ -660,7 +677,7 @@ export function AccountingOverview({
                   ) : (
                     <span className="inline-flex items-center gap-1 text-warning">
                       <CircleAlert size={12} aria-hidden="true" />
-                      Reviewed books: <MaskedValue value={money(c.book)} />
+                      Books: <MaskedValue value={money(c.book)} />
                     </span>
                   )
                 ) : c.connection?.last_success_at ? (

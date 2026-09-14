@@ -7,7 +7,6 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   BookOpen,
-  ChevronDown,
   Plus,
   RefreshCw,
 } from "lucide-react";
@@ -27,8 +26,10 @@ import type {
   WorkflowCommand,
 } from "@/lib/accounting/workflows";
 import {
+  isTransactionReversed,
   isTransactionReviewed,
   presentTransaction,
+  transactionRowAction,
 } from "@/lib/accounting/transactions";
 import { feedSyncDue, type FeedData } from "@/lib/accounting/feeds";
 import {
@@ -445,6 +446,13 @@ function AccountingBooksInner({
     return !!ok;
   }
 
+  /** The Transactions inbox: unreviewed activity first, no account filter. */
+  function openReviewInbox() {
+    setRegisterFilter({ status: "draft" });
+    setAccountFilter("");
+    setListKey((k) => k + 1);
+    setView("journal");
+  }
   async function openEntry(id: string, known?: JournalEntry) {
     const request = ++entryRequest.current;
     const loaded = known ?? data.entries.find((e) => e.id === id);
@@ -533,7 +541,7 @@ function AccountingBooksInner({
           entry_date: editor.date,
           reversal_date: editor.reversalDate ?? editor.corrects.entry_date,
           memo: editor.memo,
-          reason: editor.correctionReason ?? "",
+          reason: editor.correctionReason?.trim() ?? "",
           lines,
         });
         return;
@@ -614,9 +622,13 @@ function AccountingBooksInner({
     }
     try {
       entryRequest.current++;
+      // One edit path: simple movements get the simple form, other drafts the
+      // journal editor, other posted entries the journal correction.
       if (presentTransaction(entry, manage.profiles).editable)
         setSimpleEditor({ entry });
       else if (entry.status === "draft") await openEditor(entry);
+      else if (entry.status === "posted" && !isTransactionReversed(entry))
+        openCorrection(entry);
       else await openEntry(entry.id, entry);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to open transaction.");
@@ -626,10 +638,9 @@ function AccountingBooksInner({
   const transactionAddMenu = (
     <Menu.Root>
       <Menu.Trigger asChild id="accounting-add-transaction">
-        <Button disabled={demo}>
+        <Button disabled={demo} aria-label="New transaction">
           <Plus size={16} aria-hidden="true" />
-          Add transaction
-          <ChevronDown size={14} aria-hidden="true" />
+          New
         </Button>
       </Menu.Trigger>
       <Menu.Portal>
@@ -754,22 +765,14 @@ function AccountingBooksInner({
                 metadataLoading={!manageLoaded}
                 demo={demo}
                 onIntent={(next) => void warmAccountingView(next, ctx, cache)}
-                onReview={() => {
-                  setRegisterFilter({ status: "draft" });
-                  setAccountFilter("");
-                  setListKey((k) => k + 1);
-                  setView("journal");
-                }}
+                onReview={openReviewInbox}
                 onTransactions={() => setView("journal")}
                 onAccounts={() => setView("accounts")}
                 onFeeds={() => setView("manage", "feeds")}
                 onMonthEnd={() => setView("close")}
                 onReport={(id) => setView("reports", undefined, { report: id })}
                 onEntry={(entry) =>
-                  void transactionAction(
-                    entry.status === "draft" ? "edit" : "detail",
-                    entry,
-                  )
+                  void transactionAction(transactionRowAction(entry), entry)
                 }
                 onAdd={(direction) => setSimpleEditor({ direction })}
               />
@@ -845,6 +848,7 @@ function AccountingBooksInner({
                 revision={data.revision}
                 manage={manage}
                 onEntry={openEntry}
+                onReview={openReviewInbox}
                 demo={demo}
               />
             )}
@@ -941,7 +945,10 @@ function AccountingBooksInner({
             setSelected(null);
           }}
           onCopy={(e) => void openEditor(e, true)}
-          onCorrect={openCorrection}
+          onCorrect={(e) => {
+            setSelected(null);
+            void transactionAction("edit", e);
+          }}
         />
 
         <JournalEditorDialog
@@ -963,11 +970,17 @@ function AccountingBooksInner({
           error={error}
           onBack={() => setReplacementReview(null)}
           onApply={async () => {
-            if (replacementReview && (await mutate(replacementReview))) {
+            if (
+              replacementReview &&
+              (await mutate({
+                ...replacementReview,
+                reason: replacementReview.reason || "Edited in Transactions",
+              }))
+            ) {
               if (editor) await saveEditorNote(editor);
               setReplacementReview(null);
               setEditor(null);
-              toast("success", "Correction applied.");
+              toast("success", "Changes saved.");
             }
           }}
         />

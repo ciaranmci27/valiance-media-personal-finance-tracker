@@ -1,15 +1,9 @@
 "use client";
-import { Disclosure } from "@/components/ui/disclosure";
-import { DateInput } from "@/components/ui/inputs/DateInput";
-import { NumberInput } from "@/components/ui/inputs/NumberInput";
 import { useState } from "react";
-import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowRight,
-  ArrowUpRight,
-  Building2,
   FileSpreadsheet,
   Layers,
   Pencil,
@@ -24,31 +18,18 @@ import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Select } from "@/components/ui/inputs/Select";
 
-import { Textarea } from "@/components/ui/inputs/Textarea";
-import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { Badge } from "@/components/ui/badge";
 import { SectionHeader } from "@/components/ui/section-header";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import type { AccountingWorkspace } from "@/lib/accounting/contracts";
-import type {
-  Party,
-  RegisterFilter,
-  WorkflowCommand,
-} from "@/lib/accounting/workflows";
+import type { Party, RegisterFilter } from "@/lib/accounting/workflows";
 import type { RegisterKind } from "@/lib/accounting/registers";
 import {
   resolveManageSection,
   type ManageSection,
 } from "@/lib/accounting/views";
 import type { BooksMetadata } from "./types";
-import { useAccountingCommand } from "./use-accounting-command";
+import { PartyDialog, newParty } from "./accounting-party-form";
 import { useAccountingCache } from "./accounting-cache";
 import { ManagePanelSkeleton } from "./accounting-skeletons";
 import { enumLabel } from "./format";
@@ -135,7 +116,7 @@ const SECTIONS: {
   },
   {
     id: "payees",
-    name: "Payees",
+    name: "Contacts",
     description: "Vendors, customers, contractors",
     icon: Users,
   },
@@ -145,19 +126,12 @@ const SECTIONS: {
     description: "Automatic categorization",
     icon: Settings2,
   },
-  {
-    id: "settings",
-    name: "Books",
-    description: "System of record and matching",
-    icon: Building2,
-  },
 ];
 const GROUPS: { name: string; ids: MoreSection[] }[] = [
   { name: "Money in and out", ids: ["feeds", "imports", "documents"] },
   { name: "Registers", ids: ["registers"] },
-  { name: "Year end", ids: ["tax"] },
   { name: "Reference", ids: ["payees", "rules"] },
-  { name: "Books", ids: ["settings"] },
+  { name: "Year end", ids: ["tax"] },
 ];
 
 /**
@@ -220,8 +194,8 @@ export function AccountingMore({
       <div>
         <h2 className="text-xl font-semibold tracking-tight">Manage</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Bank connections, imports, receipts, registers, year end and the books
-          themselves.
+          Bank connections, imports, receipts, registers, contacts, rules and
+          year end.
         </p>
       </div>
       <div className="grid items-start gap-6 xl:grid-cols-[208px_1fr]">
@@ -357,29 +331,17 @@ export function AccountingMore({
           {section === "payees" && (
             <section className="space-y-3">
               <SectionHeader
-                label="Payees"
+                label="Contacts"
                 count={manage.parties.length}
                 description="Vendors and customers, with the contractor flag for year-end reporting."
                 action={
                   <Button
                     size="sm"
                     disabled={demo}
-                    onClick={() =>
-                      setParty({
-                        id: crypto.randomUUID(),
-                        version: 0,
-                        name: "",
-                        kind: "vendor",
-                        default_account_id: null,
-                        tax_classification: "unreviewed",
-                        documentation: "missing",
-                        notes: "",
-                        is_archived: false,
-                      })
-                    }
+                    onClick={() => setParty(newParty())}
                   >
                     <Plus size={15} aria-hidden="true" />
-                    Add payee
+                    Add contact
                   </Button>
                 }
               />
@@ -387,8 +349,8 @@ export function AccountingMore({
                 <div className="p-4">
                   <TextInput
                     prefix={<Search size={15} aria-hidden="true" />}
-                    aria-label="Find payee"
-                    placeholder="Find a payee or customer"
+                    aria-label="Find contact"
+                    placeholder="Find a vendor or customer"
                     value={query}
                     onChange={(nextValue) => setQuery(nextValue)}
                   />
@@ -441,7 +403,7 @@ export function AccountingMore({
                     ))}
                   {!manage.parties.length && (
                     <p className="px-5 pb-8 pt-4 text-sm text-muted-foreground">
-                      No payees yet. Add recurring vendors and customers, then
+                      No contacts yet. Add recurring vendors and customers, then
                       choose them on transactions.
                     </p>
                   )}
@@ -449,316 +411,18 @@ export function AccountingMore({
               </div>
             </section>
           )}
-
-          {section === "settings" && (
-            <BookSettings
-              key={manage.preferences?.version ?? 0}
-              data={data}
-              manage={manage}
-              demo={demo}
-              onRefresh={onRefresh}
-            />
-          )}
         </div>
 
-        <Dialog
-          open={!!party}
-          onOpenChange={(open) => {
-            if (!open) setParty(null);
+        <PartyDialog
+          party={party}
+          accounts={data.accounts}
+          onClose={() => setParty(null)}
+          onSaved={async () => {
+            await onRefresh();
+            setParty(null);
           }}
-        >
-          <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>
-                {party?.version ? "Edit payee" : "Add payee"}
-              </DialogTitle>
-              <DialogDescription className="sr-only">
-                Name, relationship and default category for this payee.
-              </DialogDescription>
-            </DialogHeader>
-            {party && (
-              <PartyForm
-                party={party}
-                data={data}
-                onCancel={() => setParty(null)}
-                onSaved={async () => {
-                  await onRefresh();
-                  setParty(null);
-                }}
-              />
-            )}
-          </DialogContent>
-        </Dialog>
+        />
       </div>
-    </div>
-  );
-}
-
-function PartyForm({
-  party,
-  data,
-  onCancel,
-  onSaved,
-}: {
-  party: Party;
-  data: AccountingWorkspace;
-  onCancel: () => void;
-  onSaved: () => Promise<void>;
-}) {
-  const [value, setValue] = useState(party);
-  const command = useAccountingCommand(onSaved);
-  return (
-    <form
-      className="mt-4 space-y-5"
-      onSubmit={(e) => {
-        e.preventDefault();
-        const { version, ...fields } = value;
-        void command.execute({
-          type: "party.save",
-          ...fields,
-          expected_version: version,
-          is_contractor: fields.tax_classification !== "unreviewed",
-        });
-      }}
-    >
-      <TextInput
-        label="Name"
-        value={value.name}
-        onChange={(nextValue) => setValue({ ...value, name: nextValue })}
-        required
-        maxLength={120}
-      />
-      <Select
-        label="Relationship"
-        value={value.kind}
-        onChange={(v) => setValue({ ...value, kind: v as Party["kind"] })}
-        options={[
-          { value: "vendor", label: "Vendor or payee" },
-          { value: "customer", label: "Customer" },
-          { value: "both", label: "Vendor and customer" },
-        ]}
-      />
-      <Select
-        searchable
-        label="Default category"
-        visibleLabel="Default category"
-        value={value.default_account_id ?? ""}
-        placeholder="No default"
-        options={[
-          { value: "", label: "No default" },
-          ...data.accounts
-            .filter((a) => !a.is_archived)
-            .map((a) => ({
-              value: a.id,
-              label: a.name,
-              group: enumLabel(a.account_type),
-              keywords: a.code,
-            })),
-        ]}
-        onChange={(v) => setValue({ ...value, default_account_id: v || null })}
-        helperText="Fills new bank activity from this payee."
-      />
-      <Disclosure summary="Advanced" contentClassName="space-y-4">
-        <Select
-          label="Contractor status"
-          value={value.tax_classification}
-          onChange={(v) =>
-            setValue({
-              ...value,
-              tax_classification: v as Party["tax_classification"],
-            })
-          }
-          options={[
-            { value: "unreviewed", label: "Not a contractor / unreviewed" },
-            { value: "individual", label: "Individual contractor" },
-            { value: "corporation", label: "Corporation" },
-            { value: "foreign", label: "Foreign" },
-            { value: "other", label: "Other" },
-          ]}
-        />
-        <Select
-          label="W-9 on file"
-          value={value.documentation}
-          onChange={(v) =>
-            setValue({
-              ...value,
-              documentation: v as Party["documentation"],
-            })
-          }
-          options={[
-            { value: "missing", label: "Missing" },
-            { value: "received", label: "Received" },
-            { value: "not_required", label: "Not required" },
-          ]}
-        />
-        <Textarea
-          label="Notes"
-          maxLength={3000}
-          value={value.notes}
-          onChange={(nextValue) => setValue({ ...value, notes: nextValue })}
-        />
-        <Checkbox
-          checked={value.is_archived}
-          onChange={(v) => setValue({ ...value, is_archived: v })}
-          label="Archive from new selections"
-        />
-      </Disclosure>
-      {command.error && (
-        <p className="text-sm text-error" role="alert">
-          {command.error}
-        </p>
-      )}
-      <div className="flex justify-end gap-2">
-        <Button
-          type="button"
-          variant="ghost"
-          disabled={command.busy}
-          onClick={onCancel}
-        >
-          Cancel
-        </Button>
-        <Button disabled={command.busy} loading={command.busy}>
-          Save
-        </Button>
-      </div>
-    </form>
-  );
-}
-
-function BookSettings({
-  data,
-  manage,
-  demo,
-  onRefresh,
-}: {
-  data: AccountingWorkspace;
-  manage: BooksMetadata;
-  demo: boolean;
-  onRefresh: () => Promise<void>;
-}) {
-  const [form, setForm] = useState<
-    Extract<WorkflowCommand, { type: "preferences.save" }>
-  >(() => ({
-    type: "preferences.save",
-    id: crypto.randomUUID(),
-    expected_version: manage.preferences?.version ?? 0,
-    legal_name: data.legal_name,
-    primary_system: manage.preferences?.primary_system ?? "wave",
-    primary_system_since: manage.preferences?.primary_system_since ?? null,
-    history_start: manage.preferences?.history_start ?? null,
-    transfer_window_days: manage.preferences?.transfer_window_days ?? 5,
-  }));
-  const command = useAccountingCommand(onRefresh);
-  const primary = manage.preferences?.primary_system === "admin";
-  return (
-    <div className="space-y-6">
-      <section className="glass-card rounded-xl p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-semibold">Business details</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Legal name, EIN, tax classification, fiscal year and contacts live
-              in one place shared with the tax estimator.
-            </p>
-          </div>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/settings/business">
-              Open Business settings
-              <ArrowUpRight size={14} aria-hidden="true" />
-            </Link>
-          </Button>
-        </div>
-      </section>
-      <form
-        className="glass-card space-y-5 rounded-xl p-5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void command.execute(form);
-        }}
-      >
-        <div>
-          <h2 className="font-semibold">Books</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            USD, cash basis, one company. The name on reports and the first day
-            of history live in Business settings.
-          </p>
-        </div>
-        <Select
-          label="System of record"
-          value={form.primary_system ?? "wave"}
-          disabled={primary}
-          onChange={(v) =>
-            setForm({
-              ...form,
-              primary_system: v as "wave" | "admin",
-              primary_system_since:
-                v === "admin" ? (form.primary_system_since ?? data.to) : null,
-            })
-          }
-          options={[
-            { value: "wave", label: "Another system stays primary" },
-            { value: "admin", label: "These books are primary" },
-          ]}
-          helperText={
-            primary
-              ? `These books have been primary since ${manage.preferences?.primary_system_since ?? "the recorded date"}.`
-              : "Rules only fill drafts until these books are primary. Nothing here creates a cutover entry."
-          }
-        />
-        {form.primary_system === "admin" && !primary && (
-          <DateInput
-            label="Primary from"
-            required
-            value={form.primary_system_since ?? ""}
-            onChange={(nextValue) =>
-              setForm({
-                ...form,
-                primary_system_since: nextValue || null,
-              })
-            }
-          />
-        )}
-        <NumberInput
-          step={1}
-          label="Transfer matching window (days)"
-          min={0}
-          max={30}
-          value={form.transfer_window_days}
-          onChange={(nextValue) =>
-            setForm({
-              ...form,
-              transfer_window_days: Number(String(nextValue)),
-            })
-          }
-        />
-        {command.error && (
-          <p role="alert" className="text-sm text-error">
-            {command.error}
-          </p>
-        )}
-        <div className="flex justify-end">
-          <Button disabled={demo || command.busy} loading={command.busy}>
-            Save settings
-          </Button>
-        </div>
-      </form>
-      <section className="glass-card rounded-xl p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-semibold">Export the books</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Transactions, accounts, statements, payees, receipts and payroll
-              download from Data management, where you choose what to include.
-            </p>
-          </div>
-          <Button asChild variant="outline" size="sm">
-            <Link href="/settings/data">
-              Open Data management
-              <ArrowUpRight size={14} aria-hidden="true" />
-            </Link>
-          </Button>
-        </div>
-      </section>
     </div>
   );
 }

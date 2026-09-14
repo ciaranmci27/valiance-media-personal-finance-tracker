@@ -31,7 +31,7 @@ export const reportCatalog = [
   {
     id: "vendor-expenses",
     title: "Expenses by vendor",
-    description: "Review spending by payee, including unassigned expenses.",
+    description: "Review spending by contact, including unassigned expenses.",
     group: "Business performance",
   },
   {
@@ -217,7 +217,7 @@ export function buildReportModel(
     ? ["Current period", "Comparison", "Change"]
     : ["Amount"];
   const footnotes = [
-    "Amounts are USD. Only the selected book mode is included. Original entries and their reversals remain in the ledger.",
+    "Amounts are USD. Edited and deleted transactions stay in history.",
   ];
   if (id === "profit-loss") {
     const income = data.accounts.filter((a) => a.account_type === "income"),
@@ -580,7 +580,7 @@ export function buildReportModel(
     });
     footnotes.push(
       vendor
-        ? "Expenses without a payee remain visible as Unassigned."
+        ? "Expenses without a contact remain visible as Unassigned."
         : "Contribution means income less directly attributed costs. Unassigned activity remains visible; this is not full project profitability without overhead allocation.",
     );
   }

@@ -149,11 +149,26 @@ async function main() {
       () => post(asset.id, { ...acquire, amount_cents: "99999" }),
       /ACCT_REGISTER_COST/,
     );
-    const planned=(await db.query<{r:any}>('SELECT accounting.registers($1) r',[JSON.stringify({view:'preview',id:asset.id,body:acquire})])).rows[0].r;
-    check(planned.cost_delta,'100000');check(planned.lines,[{account_id:accounts.asset,amount_cents:'100000'},{account_id:accounts.bank,amount_cents:'-100000'}]);
+    const planned = (
+      await db.query<{ r: any }>("SELECT accounting.registers($1) r", [
+        JSON.stringify({ view: "preview", id: asset.id, body: acquire }),
+      ])
+    ).rows[0].r;
+    check(planned.cost_delta, "100000");
+    check(planned.lines, [
+      { account_id: accounts.asset, amount_cents: "100000" },
+      { account_id: accounts.bank, amount_cents: "-100000" },
+    ]);
     const acquired = await post(asset.id, acquire);
-    const screen=(await db.query<{r:any}>('SELECT accounting.registers($1) r',[JSON.stringify({view:'detail',id:asset.id,date:'2026-01-01'})])).rows[0].r;
-    check(screen.body.initial_cents,'100000');check(screen.state.carrying_cents,'100000');check(screen.movements[0].entry_id,acquired.entry_id);check(screen.record.body.name,'Synthetic workstation');
+    const screen = (
+      await db.query<{ r: any }>("SELECT accounting.registers($1) r", [
+        JSON.stringify({ view: "detail", id: asset.id, date: "2026-01-01" }),
+      ])
+    ).rows[0].r;
+    check(screen.body.initial_cents, "100000");
+    check(screen.state.carrying_cents, "100000");
+    check(screen.movements[0].entry_id, acquired.entry_id);
+    check(screen.record.body.name, "Synthetic workstation");
 
     check((await detail(asset.id)).book_cents, "100000");
     await fail(() => post(asset.id, acquire), /ACCT_REGISTER_COST/);

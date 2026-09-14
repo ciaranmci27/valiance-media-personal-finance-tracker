@@ -14,6 +14,10 @@ export const defaultEntryContext: EntryContext = {
 export function isTransactionReviewed(entry: JournalEntry): boolean {
   return entry.status === "posted" && !entry.review_pending;
 }
+/** What a click on a row opens: a draft goes straight to its editor, anything else to the detail view. */
+export function transactionRowAction(entry: JournalEntry): "edit" | "detail" {
+  return entry.status === "draft" ? "edit" : "detail";
+}
 export function isTransactionReversed(entry: JournalEntry): boolean {
   return Boolean(entry.reverses_entry_id || entry.reversed_by_entry_id);
 }

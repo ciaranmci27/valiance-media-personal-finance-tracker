@@ -5,6 +5,7 @@ import { useMemo, useRef, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowUpRight,
+  BookOpen,
   Check,
   Plus,
   Scissors,
@@ -13,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Checkbox } from "@/components/ui/inputs/Checkbox";
-import { Toggle } from "@/components/ui/inputs/Toggle";
+import { ReviewCheck } from "./accounting-review-check";
 import { AccountingAccountLogo } from "./accounting-bank-identity";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import {
@@ -210,6 +211,16 @@ export function AccountingTransactionEditor({
       onJournal();
   }
 
+  /** Accounts, amounts and memos as one comparable key, order independent. */
+  function lineKey(
+    lines: { account_id: string; amount_cents: string; memo?: string }[],
+  ) {
+    return lines
+      .map((l) => `${l.account_id}|${BigInt(l.amount_cents)}|${l.memo ?? ""}`)
+      .sort()
+      .join("\n");
+  }
+
   async function save() {
     setError("");
     try {
@@ -227,20 +238,35 @@ export function AccountingTransactionEditor({
         manage.profiles,
       );
       if (!memo.trim()) throw new Error("Add a description.");
-      if (posted && !reason.trim())
-        throw new Error("Add a reason for this correction.");
+      // A reviewed transaction keeps its version when only the words change;
+      // a money, date or category change saves a new version.
+      const sameMoney =
+        posted &&
+        entryDate === entry!.entry_date &&
+        lineKey(lines) === lineKey(entry!.lines);
       const c: WorkflowCommand = posted
-        ? {
-            type: "entry.correct",
-            id,
-            expected_version: entry!.version,
-            replacement_id: replacementId,
-            entry_date: entryDate,
-            reversal_date: entry!.entry_date,
-            memo,
-            reason,
-            lines,
-          }
+        ? sameMoney
+          ? {
+              type: "entry.context",
+              id,
+              expected_version: entry!.version,
+              memo,
+              // The stored kind goes back unchanged: a reviewed transaction
+              // only takes new words and a payee in place.
+              kind: commandContext(entry!.context ?? defaultEntryContext).kind,
+              payee_id: context.payee_id ?? null,
+            }
+          : {
+              type: "entry.correct",
+              id,
+              expected_version: entry!.version,
+              replacement_id: replacementId,
+              entry_date: entryDate,
+              reversal_date: entry!.entry_date,
+              memo,
+              reason: reason.trim() || "Edited in Transactions",
+              lines,
+            }
         : {
             type: review ? "transaction.review" : "transaction.save",
             id,
@@ -293,13 +319,11 @@ export function AccountingTransactionEditor({
     }
   }
 
-  const title = posted
-    ? "Correct transaction"
-    : entry
-      ? "Edit transaction"
-      : direction === "in"
-        ? "Deposit"
-        : "Withdrawal";
+  const title = entry
+    ? "Edit transaction"
+    : direction === "in"
+      ? "Deposit"
+      : "Withdrawal";
 
   function chooseDirection(next: "in" | "out") {
     if (next === direction) return;
@@ -334,7 +358,7 @@ export function AccountingTransactionEditor({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className={cn(!posted && "sr-only")}>
             {posted
-              ? "Saves a corrected copy and keeps the original in your history."
+              ? "Amount, date or category changes save a new version. The earlier version stays in your history."
               : "Amount, description, account and category."}
           </DialogDescription>
         </DialogHeader>
@@ -449,30 +473,70 @@ export function AccountingTransactionEditor({
                 />
               )}
             </div>
-            {posted ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <AccountingContextEditor
+                className="min-w-0"
+                value={context}
+                manage={manage}
+                accounts={accounts}
+                onChange={(v) => change(() => setContext(v))}
+              />
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:self-end sm:pb-0.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() =>
+                    change(() =>
+                      setSplits([
+                        ...splits,
+                        {
+                          key: crypto.randomUUID(),
+                          account: "",
+                          amount:
+                            remaining !== null && remaining > BigInt(0)
+                              ? centsToDecimal(remaining)
+                              : "",
+                          memo: "",
+                        },
+                      ]),
+                    )
+                  }
+                >
+                  {splits.length === 1 ? (
+                    <Scissors size={14} aria-hidden="true" />
+                  ) : (
+                    <Plus size={14} aria-hidden="true" />
+                  )}
+                  {splits.length === 1 ? "Split entry" : "Add category"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={command.busy}
+                  onClick={() => void openJournal()}
+                >
+                  <BookOpen size={14} aria-hidden="true" />
+                  Journal view
+                </Button>
+              </div>
+            </div>
+            {posted && (
               <TextInput
-                label="Reason for the correction"
+                label="Note"
                 value={reason}
-                required
-                placeholder="What changed and why"
+                maxLength={1000}
+                placeholder="Optional"
                 onChange={(nextValue) => change(() => setReason(nextValue))}
               />
-            ) : (
-              <div className="grid gap-4 sm:grid-cols-2">
-                <AccountingContextEditor
-                  className="min-w-0"
-                  value={context}
-                  manage={manage}
-                  onChange={(v) => change(() => setContext(v))}
-                />
-              </div>
             )}
             {!posted && context.payee_id && descriptor && (
               <Checkbox
                 checked={remember}
                 onChange={setRemember}
-                label="Remember this payee for this bank description"
-                description={`Future "${descriptor}" activity gets this payee automatically.`}
+                label="Remember this contact for this bank description"
+                description={`Future "${descriptor}" activity gets this contact automatically.`}
               />
             )}
             {splits.length > 1 && (
@@ -574,49 +638,6 @@ export function AccountingTransactionEditor({
                 </div>
               </section>
             )}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="-ml-2"
-                onClick={() =>
-                  change(() =>
-                    setSplits([
-                      ...splits,
-                      {
-                        key: crypto.randomUUID(),
-                        account: "",
-                        amount:
-                          remaining !== null && remaining > BigInt(0)
-                            ? centsToDecimal(remaining)
-                            : "",
-                        memo: "",
-                      },
-                    ]),
-                  )
-                }
-              >
-                {splits.length === 1 ? (
-                  <Scissors size={14} aria-hidden="true" />
-                ) : (
-                  <Plus size={14} aria-hidden="true" />
-                )}
-                {splits.length === 1
-                  ? "Split across categories"
-                  : "Add category"}
-              </Button>
-              <Button
-                type="button"
-                variant="link"
-                size="sm"
-                className="text-muted-foreground"
-                disabled={command.busy}
-                onClick={() => void openJournal()}
-              >
-                Edit as journal entry
-              </Button>
-            </div>
           </form>
           {entry && (
             <EntryEvidenceDisclosure
@@ -638,11 +659,29 @@ export function AccountingTransactionEditor({
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border bg-[rgba(var(--ink),0.04)] px-6 py-4">
           {!posted ? (
-            <Toggle
-              checked={review}
-              onChange={setReview}
-              label="Mark as reviewed"
-            />
+            <div className="flex items-center gap-2">
+              <ReviewCheck
+                reviewed={review}
+                categorized={
+                  splits.length > 0 &&
+                  splits.every(
+                    (s) =>
+                      s.account !== "" &&
+                      !manage.profiles.some(
+                        (p) =>
+                          p.account_id === s.account &&
+                          p.purpose?.startsWith("uncategorized"),
+                      ),
+                  )
+                }
+                name={memo || "this transaction"}
+                disabled={command.busy}
+                onToggle={() => change(() => setReview(!review))}
+              />
+              <span className="text-sm">
+                {review ? "Reviewed on save" : "Mark as reviewed"}
+              </span>
+            </div>
           ) : (
             <span className="text-xs text-muted-foreground">
               Original date {dateLabel(entry?.entry_date)}
@@ -666,7 +705,7 @@ export function AccountingTransactionEditor({
               {command.busy
                 ? "Saving..."
                 : posted
-                  ? "Save correction"
+                  ? "Save changes"
                   : review
                     ? "Save and review"
                     : "Save"}

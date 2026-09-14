@@ -49,12 +49,14 @@ import { useAccountingCommand } from "./use-accounting-command";
 import { useAccountingRead } from "./use-accounting-read";
 import { useAccountingCache } from "./accounting-cache";
 import { defaultReportFilter, reportQuery } from "@/lib/accounting/preload";
+import { uncategorizedCents } from "@/lib/accounting/account-balances";
 import { StatementSkeleton } from "./accounting-skeletons";
 import {
   AccountingReportDetail,
   ReportMoney,
 } from "./accounting-report-detail";
 import {
+  countLabel,
   dateLabel,
   money,
   monthLabel,
@@ -123,7 +125,7 @@ function initialFilter(
   } catch {
     /* A broken link must not change the report scope. */
   }
-  return { from, to, mode: "posted", offset: 0 };
+  return defaultReportFilter(from, to);
 }
 const REPORT_GROUPS: {
   name: string;
@@ -165,6 +167,7 @@ export function AccountingReports({
   manage,
   accounts,
   onEntry,
+  onReview,
   demo = false,
 }: {
   from: string;
@@ -173,6 +176,7 @@ export function AccountingReports({
   manage: BooksMetadata;
   accounts: AccountingAccount[];
   onEntry: (id: string) => void;
+  onReview: () => void;
   demo?: boolean;
 }) {
   const params = useSearchParams(),
@@ -216,6 +220,22 @@ export function AccountingReports({
     data && report
       ? buildReportModel(report.id, data, showZero, manage.parties)
       : null;
+  // What the banner says about scope: the count awaiting review and the
+  // amount still parked in the uncategorized accounts for these dates.
+  const allActivity = data?.filter.mode === "working";
+  const awaiting = data
+    ? allActivity
+      ? data.quality.draft_count - data.quality.unbalanced_drafts
+      : data.quality.draft_count
+    : 0;
+  const uncategorized =
+    data && allActivity
+      ? uncategorizedCents(
+          data.accounts,
+          (a) => a.purpose,
+          (a) => a.period_cents,
+        )
+      : BigInt(0);
   const warm = (id: string) => {
     if (demo || !reportCatalog.some((r) => r.id === id)) return;
     void cache
@@ -449,7 +469,7 @@ export function AccountingReports({
         }}
         className="glass-card space-y-4 rounded-xl p-4 sm:p-5"
       >
-        <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[180px_1fr_1fr_200px_auto]">
+        <div className="grid items-end gap-3 sm:grid-cols-2 xl:grid-cols-[180px_1fr_1fr_auto]">
           <Select
             id="report-period"
             label="Date range"
@@ -482,18 +502,6 @@ export function AccountingReports({
             required
             value={draft.to}
             onChange={(nextValue) => setDraft({ ...draft, to: nextValue })}
-          />
-          <Select
-            id="report-mode"
-            label="Book mode"
-            value={draft.mode}
-            onChange={(value) =>
-              setDraft({ ...draft, mode: value as ReportFilter["mode"] })
-            }
-            options={[
-              { value: "posted", label: "Posted books" },
-              { value: "working", label: "Working preview" },
-            ]}
           />
           <Button type="submit" disabled={loading || demo}>
             {loading ? "Updating..." : "Update report"}
@@ -537,6 +545,15 @@ export function AccountingReports({
               }
               label="Compare a period"
             />
+            <Checkbox
+              size="sm"
+              id="report-reviewed-only"
+              checked={draft.mode === "posted"}
+              onChange={(checked) =>
+                setDraft({ ...draft, mode: checked ? "posted" : "working" })
+              }
+              label="Reviewed only"
+            />
             <Button
               type="button"
               variant="ghost"
@@ -546,7 +563,7 @@ export function AccountingReports({
               className="h-8 px-2 text-muted-foreground hover:text-foreground"
             >
               <SlidersHorizontal aria-hidden="true" />
-              Filter by payee
+              Filter by contact
               {activeFilters > 0 && <Badge size="sm">{activeFilters}</Badge>}
             </Button>
           </div>
@@ -596,11 +613,11 @@ export function AccountingReports({
         {advanced && (
           <div className="grid gap-3 border-t border-border pt-4 sm:grid-cols-2 lg:grid-cols-4">
             <AccountingPicker
-              label="Payee"
-              visibleLabel="Payee"
+              label="Contact"
+              visibleLabel="Contact"
               value={draft.payee ?? ""}
               options={[
-                { value: "", label: "All payees" },
+                { value: "", label: "All contacts" },
                 { value: "unassigned", label: "Unassigned" },
                 ...manage.parties.map((p) => ({
                   value: p.id,
@@ -628,21 +645,45 @@ export function AccountingReports({
       {loading && <StatementSkeleton />}
       {data && model && !loading && (
         <>
-          {(data.filter.mode === "working" ||
+          {(awaiting > 0 ||
+            uncategorized > BigInt(0) ||
+            (allActivity && data.quality.unbalanced_drafts > 0) ||
             data.quality.incomplete_imports > 0 ||
             data.quality.uncategorized_lines > 0) && (
             <div className="rounded-lg border border-copper/30 bg-copper/5 px-4 py-3 text-xs leading-relaxed">
-              <span className="font-medium">
-                {data.filter.mode === "working" ? "Working preview. " : ""}
-              </span>
-              {data.filter.mode === "working"
-                ? `${data.quality.draft_count - data.quality.unbalanced_drafts} balanced drafts are included. ${data.quality.unbalanced_drafts} incomplete drafts are excluded. `
+              {allActivity && (awaiting > 0 || uncategorized > BigInt(0)) && (
+                <>
+                  {awaiting > 0
+                    ? `Includes ${countLabel(awaiting, "transaction")} awaiting review`
+                    : ""}
+                  {uncategorized > BigInt(0) && (
+                    <>
+                      {awaiting > 0 ? ", " : ""}
+                      <MaskedValue value={money(uncategorized)} /> still
+                      uncategorized
+                    </>
+                  )}
+                  {". "}
+                  <button
+                    type="button"
+                    onClick={onReview}
+                    className="inline-flex items-center gap-1 font-medium text-teal-light hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    Review all
+                  </button>{" "}
+                </>
+              )}
+              {allActivity && data.quality.unbalanced_drafts > 0
+                ? `${countLabel(data.quality.unbalanced_drafts, "incomplete transaction")} ${data.quality.unbalanced_drafts === 1 ? "is" : "are"} not included. `
+                : ""}
+              {!allActivity && awaiting > 0
+                ? `${countLabel(awaiting, "transaction")} awaiting review ${awaiting === 1 ? "is" : "are"} not included. `
                 : ""}
               {data.quality.incomplete_imports > 0
                 ? `${data.quality.incomplete_imports} imports need completion. Report export is unavailable until the import review is complete. `
                 : ""}
               {data.quality.uncategorized_lines > 0
-                ? `${data.quality.uncategorized_lines} posted lines still need categorization.`
+                ? `${data.quality.uncategorized_lines} reviewed lines still need a category.`
                 : ""}
             </div>
           )}
@@ -715,9 +756,7 @@ export function AccountingReports({
             <p>
               Revision {data.revision} · Report definition{" "}
               {data.definition_version} ·{" "}
-              {data.filter.mode === "posted"
-                ? `${data.quality.draft_count} drafts excluded`
-                : "Working preview includes balanced drafts"}
+              {data.filter.mode === "posted" ? "Reviewed only" : "All activity"}
             </p>
           </div>
           <Disclosure

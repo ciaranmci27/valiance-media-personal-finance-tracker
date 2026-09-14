@@ -16,6 +16,7 @@ import {
   type SupportReportId,
 } from "@/lib/accounting/support-reports";
 import { accountingHref } from "@/lib/accounting/views";
+import { treatmentLabel } from "@/lib/accounting/tax-workpapers";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { ReportMoney } from "./accounting-report-detail";
 import { countLabel, dateLabel } from "./format";
@@ -40,6 +41,7 @@ function rowHref(r: SupportRow, to: string): string | null {
       report_filter: JSON.stringify({
         from: `${to.slice(0, 4)}-01-01`,
         to,
+        // Reviewed only: the contractor worksheet behind this link is posted-only.
         mode: "posted",
         offset: 0,
         payee: r.contractor_party_id,
@@ -236,6 +238,8 @@ export function AccountingSupportReport({
       </a>
     ) : column.numeric ? (
       <ReportMoney value={r.cells[i]} />
+    ) : /^treatment$/i.test(column.label) ? (
+      treatmentLabel(r.cells[i])
     ) : (
       r.cells[i]
     );

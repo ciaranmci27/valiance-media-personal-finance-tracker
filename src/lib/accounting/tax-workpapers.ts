@@ -20,6 +20,38 @@ export const taxConcepts = {
   excluded_book: "Other book amount excluded from ordinary income",
 } as const;
 export type TaxConcept = keyof typeof taxConcepts;
+
+/** The tax-form treatments the books store, in the owner's words. */
+export const treatmentLabels: Record<string, string> = {
+  gross_receipts: "Gross receipts",
+  cogs: "Cost of goods sold",
+  officer_compensation: "Officer compensation",
+  salaries: "Salaries and wages",
+  payroll_taxes: "Payroll taxes",
+  rent: "Rent",
+  advertising: "Advertising",
+  meals_50: "Meals, 50% deductible",
+  travel: "Travel",
+  depreciation: "Depreciation",
+  interest: "Interest, separately stated",
+  other_deduction: "Other deduction",
+  nondeductible: "Nondeductible",
+  distribution: "Distribution",
+  contribution: "Contribution",
+  balance_sheet_only: "Balance sheet only",
+  qualified_dividend: "Qualified dividends",
+  short_gain: "Short-term gain or loss",
+  long_gain: "Long-term gain or loss",
+  charity: "Charitable contributions",
+  tax_exempt: "Tax-exempt income",
+  ordinary_adjustment: "Ordinary adjustment",
+  stock_basis_opening: "Opening stock basis",
+  debt_basis_opening: "Opening debt basis",
+};
+/** A treatment as the owner reads it; unknown tokens lose their underscores. */
+export function treatmentLabel(token: string): string {
+  return treatmentLabels[token] ?? token.replace(/_/g, " ");
+}
 const concept = z.enum(
   Object.keys(taxConcepts) as [TaxConcept, ...TaxConcept[]],
 );

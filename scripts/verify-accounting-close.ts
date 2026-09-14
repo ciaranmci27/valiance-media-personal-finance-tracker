@@ -355,6 +355,45 @@ async function main() {
       /permission denied/,
     );
     checks++;
+    // Month end compares the bank with everything in the books, reviewed or not.
+    const pending = await cmd({
+      type: "draft.save",
+      id: randomUUID(),
+      expected_version: 0,
+      entry_date: "2026-06-03",
+      memo: "Awaiting review",
+      lines: [
+        { account_id: account(9), amount_cents: "700" },
+        { account_id: account(5), amount_cents: "-700" },
+      ],
+    });
+    const reviewedOnly = (
+      await db.query<{ r: any }>(
+        "SELECT accounting.report('account_balances',$1) r",
+        [JSON.stringify({ from: "2026-06-01", to: "2026-06-30" })],
+      )
+    ).rows[0].r.rows.find((a: any) => a.id === account(9)).ending_cents;
+    const bankReported = (BigInt(reviewedOnly) + BigInt(700)).toString();
+    await read(
+      "INSERT INTO accounting.bank_accounts(account_id,observed_balance_cents,observed_at) VALUES($1,$2,now()) ON CONFLICT (account_id) DO UPDATE SET observed_balance_cents=EXCLUDED.observed_balance_cents,observed_at=EXCLUDED.observed_at",
+      [account(9), bankReported],
+    );
+    const june = (
+      await db.query<{ r: any }>(
+        "SELECT accounting.close_checklist('2026-06-01') r",
+      )
+    ).rows[0].r;
+    const savings = june.banks.find((b: any) => b.account_id === account(9));
+    check(savings.book_cents, bankReported);
+    check(savings.difference_cents, "0");
+    check(june.drafts, 1);
+    check(june.ready, false);
+    await cmd({
+      type: "draft.discard",
+      id: pending.id,
+      expected_version: pending.version,
+      reason: "Synthetic review fixture finished",
+    });
     console.log(
       `Statement reconciliation, dated corrections and optional close evidence: ${checks} assertions passed.`,
     );

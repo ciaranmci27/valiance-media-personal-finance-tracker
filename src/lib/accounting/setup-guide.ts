@@ -308,21 +308,6 @@ export function buildSetupGuide({
     }
   }
 
-  if (status.primary_system !== "admin")
-    steps.push({
-      key: "primary",
-      level: "info",
-      title: "Another system is still the system of record",
-      detail:
-        "Rules only fill drafts and never post while another system is primary. Switch when these books are ready to take over.",
-      action: {
-        label: "Book settings",
-        target: { kind: "link", href: accountingHref("manage", "settings") },
-      },
-      // "For now" is a year, not forever.
-      acknowledge: { key: yearKey("primary"), label: "Keep it for now" },
-    });
-
   if (status.unmapped_accounts > 0)
     steps.push({
       key: "treatments",

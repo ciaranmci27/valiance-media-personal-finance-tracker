@@ -12,7 +12,10 @@ async function main() {
     (
       await db.query<{
         r: { id: string; version: number; storage_path: string };
-      }>("SELECT accounting.operate(jsonb_build_object('key',$1::text,'command',$2::jsonb)) r", [key, JSON.stringify(command)])
+      }>(
+        "SELECT accounting.operate(jsonb_build_object('key',$1::text,'command',$2::jsonb)) r",
+        [key, JSON.stringify(command)],
+      )
     ).rows[0].r;
   try {
     await db.exec(

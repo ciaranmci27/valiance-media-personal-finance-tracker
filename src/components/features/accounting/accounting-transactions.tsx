@@ -2,20 +2,13 @@
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  ArrowLeftRight,
   ArrowUpDown,
-  Check,
-  CheckCheck,
-  Loader2,
   Copy,
-  FileText,
-  Filter,
   Pencil,
+  Plus,
   Search,
-  SlidersHorizontal,
   Split,
   Sparkles,
-  Tag,
   Trash2,
   Undo2,
   Wallet,
@@ -24,6 +17,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Checkbox } from "@/components/ui/inputs/Checkbox";
+import { ReviewCheck } from "./accounting-review-check";
+import { Toggle } from "@/components/ui/inputs/Toggle";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/tooltip";
 import { toast } from "@/components/ui/toast";
@@ -58,6 +53,7 @@ import {
   isTransactionReversed,
   canRestoreTransaction,
   presentTransaction,
+  transactionRowAction,
 } from "@/lib/accounting/transactions";
 import {
   AccountingAccountLabel,
@@ -85,16 +81,16 @@ import {
   type CategoryKind,
 } from "@/lib/accounting/categories";
 import { AccountingTransferFromDraft } from "./accounting-transfer-from-draft";
-import { TransferForm, type TransferLeg } from "./accounting-transfer-dialogs";
-import { commandContext, useAccountingCommand } from "./use-accounting-command";
 import {
-  absMoney,
-  dateLabel,
-  money,
-  signedMoney,
-  timestampLabel,
-  entryStateLabel,
-} from "./format";
+  commandContext,
+  useAccountingCommand,
+  type CommandContext,
+} from "./use-accounting-command";
+import { AccountingContextEditor } from "./accounting-context-editor";
+import { FilterPopover } from "./accounting-filter-popover";
+import { contactAffiliation } from "./accounting-party-form";
+import { Select } from "@/components/ui/inputs/Select";
+import { dateLabel, money, signedMoney, timestampLabel } from "./format";
 
 type Result = {
   entries: JournalEntry[];
@@ -106,6 +102,22 @@ type Result = {
 
 /** An entry as the list shows it: the bank's own wording and prior treatment ride along. */
 type TransactionRow = JournalEntry;
+
+/** One line of a bulk edit: which field changes, and to what. */
+type BulkLine = {
+  key: string;
+  field: "category" | "payee" | "description" | "";
+  account: string;
+  context: CommandContext;
+  memo: string;
+};
+const newBulkLine = (): BulkLine => ({
+  key: crypto.randomUUID(),
+  field: "",
+  account: "",
+  context: { kind: "manual", payee_id: null },
+  memo: "",
+});
 
 export type TransactionAction =
   | "edit"
@@ -178,20 +190,22 @@ export function AccountingTransactions({
   const [error, setError] = useState("");
   // Selected draft ids with the version seen at selection time, so a stale row never posts.
   const [selection, setSelection] = useState<Record<string, number>>({});
-  const [bulk, setBulk] = useState<{
-    id: string;
+  // One dialog for every selected row: a line per field to change, and a
+  // switch to mark the drafts reviewed once the changes land.
+  const [bulkEdit, setBulkEdit] = useState<{
     entries: JournalEntry[];
+    lines: BulkLine[];
+    review: boolean;
   } | null>(null);
-  const [bulkCategory, setBulkCategory] = useState<{
-    entries: JournalEntry[];
-    account: string;
+  // A quick rename from the list: the description becomes an input in place.
+  const [renaming, setRenaming] = useState<{
+    id: string;
+    value: string;
   } | null>(null);
   const [transfer, setTransfer] = useState<{
     entry: JournalEntry;
     counterpart: JournalEntry | null;
   } | null>(null);
-  // A posted bank movement that is really one leg of a transfer.
-  const [link, setLink] = useState<TransferLeg | null>(null);
   const cmd = useAccountingCommand(onRefresh);
   const { feeds } = useAccountingBankIdentity();
   const balances = useMemo(
@@ -203,10 +217,6 @@ export function AccountingTransactions({
   const accounts = useMemo(
     () => new Map(data.accounts.map((a) => [a.id, a])),
     [data.accounts],
-  );
-  const parties = useMemo(
-    () => new Map(manage.parties.map((p) => [p.id, p])),
-    [manage.parties],
   );
 
   let invalid = "";
@@ -288,13 +298,56 @@ export function AccountingTransactions({
     keepPrevious: true,
     revalidateOnFocus: true,
   });
+  // The Review badge follows the search and filters: with any active it
+  // counts the unreviewed rows that match instead of the whole inbox.
+  const narrowed = Boolean(
+    search ||
+      account ||
+      source ||
+      payee ||
+      from ||
+      to ||
+      minCents ||
+      maxCents ||
+      missing,
+  );
+  const reviewTotal = useAccountingRead<Result>(
+    registerQuery({
+      ...buildRegisterFilter({
+        search,
+        account,
+        status: "draft",
+        sort,
+        source,
+        payee,
+        from,
+        to,
+        missing,
+        minCents,
+        maxCents,
+        offset: 0,
+      }),
+      limit: 1,
+    }),
+    {
+      enabled: !demo && !invalid && narrowed && status !== "draft",
+      keepPrevious: true,
+    },
+  );
+  const reviewBadge = !narrowed
+    ? reviewCount
+    : status === "draft"
+      ? (page.data?.total ?? null)
+      : (reviewTotal.data?.total ?? null);
   const demoResult = useMemo<Result | null>(() => {
     if (!demo || invalid) return null;
     const f: Partial<RegisterFilter> = JSON.parse(signature);
     const list = data.entries.filter(
       (e) =>
         (f.status === "reversed"
-          ? !e.reverses_entry_id && Boolean(e.reversed_by_entry_id)
+          ? !e.reverses_entry_id &&
+            Boolean(e.reversed_by_entry_id) &&
+            !e.replacement_entry_id
           : !isTransactionReversed(e) &&
             (f.status === "all"
               ? e.status !== "discarded"
@@ -374,12 +427,26 @@ export function AccountingTransactions({
   const payeeDefault = (entry: JournalEntry) =>
     manage.parties.find((party) => party.id === entry.context?.payee_id)
       ?.default_account_id;
+  // The quiet tag beside a description: who the row is with, without
+  // repeating a name the description already carries.
+  const partyById = useMemo(
+    () => new Map(manage.parties.map((party) => [party.id, party])),
+    [manage.parties],
+  );
+  const affiliationOf = (entry: JournalEntry) => {
+    const party = entry.context?.payee_id
+      ? partyById.get(entry.context.payee_id)
+      : undefined;
+    return party ? contactAffiliation(entry.memo, party) : "";
+  };
 
   const rows = (result?.entries ?? [])
     .map((entry) => overrides[entry.id]?.entry ?? entry)
     .filter((entry) =>
       status === "reversed"
-        ? !entry.reverses_entry_id && Boolean(entry.reversed_by_entry_id)
+        ? !entry.reverses_entry_id &&
+          Boolean(entry.reversed_by_entry_id) &&
+          !entry.replacement_entry_id
         : !isTransactionReversed(entry) &&
           (status === "all" ||
             (status === "discarded"
@@ -387,8 +454,13 @@ export function AccountingTransactions({
               : entry.status !== "discarded" &&
                 isTransactionReviewed(entry) === (status === "posted"))),
     ) as TransactionRow[];
-  const visibleDrafts = rows.filter((e) => e.status === "draft");
-  const chosen = visibleDrafts.filter((e) => selection[e.id] === e.version);
+  // Any live row can be selected; deleted rows and earlier versions cannot.
+  const selectableRows = rows.filter(
+    (e) => !isTransactionReversed(e) && e.status !== "discarded",
+  );
+  const chosen = selectableRows.filter((e) => selection[e.id] === e.version);
+  const plural = (n: number, noun: string) =>
+    `${n} ${n === 1 ? noun : `${noun}s`}`;
   const chosenSet = new Set(chosen.map((e) => e.id));
   const busy = cmd.busy || page.isPlaceholder;
   const rowBusy = (id: string) => busy || rowCommand.pending.has(id);
@@ -471,10 +543,32 @@ export function AccountingTransactions({
       );
   }
 
+  /** Words only, saved in place: no new version, whatever the row's status. */
+  async function renameRow(entry: JournalEntry, memo: string) {
+    const next = memo.trim();
+    setRenaming(null);
+    if (!next || next === entry.memo) return;
+    if (
+      await saveRow(
+        entry,
+        {
+          type: "entry.context",
+          id: entry.id,
+          expected_version: entry.version,
+          kind: commandContext(entry.context ?? defaultEntryContext).kind,
+          memo: next,
+        },
+        { ...entry, memo: next },
+      )
+    )
+      toast("success", "Description saved.");
+  }
+
   function saveCommand(
     entry: JournalEntry,
     accountId: string,
     payeeId?: string | null,
+    memo?: string,
     // The schema keeps save and review on one member, so the narrow type names both.
   ): Extract<
     WorkflowCommand,
@@ -495,11 +589,11 @@ export function AccountingTransactions({
       id: entry.id,
       expected_version: entry.version,
       entry_date: entry.entry_date,
-      memo: entry.memo,
+      memo: memo ?? entry.memo,
       context: {
         ...context,
         ...(kind ? { kind } : {}),
-        ...(payeeId ? { payee_id: payeeId } : {}),
+        ...(payeeId !== undefined ? { payee_id: payeeId } : {}),
       },
       lines: entry.lines.map((l) => ({
         account_id: l.id === p.categoryLines[0].id ? accountId : l.account_id,
@@ -533,56 +627,175 @@ export function AccountingTransactions({
       toast("success", "Category saved. Review it when you are ready.");
   }
 
-  /** The bank's own wording for this movement, or the memo until the data layer reports it. */
-  function descriptorOf(entry: TransactionRow) {
-    return (entry.source_description ?? entry.memo).trim().slice(0, 250);
-  }
-
-  async function rememberPayee(entry: TransactionRow) {
-    const description = descriptorOf(entry);
-    if (!description || !entry.context?.payee_id) return;
-    const command: WorkflowCommand = {
-      type: "alias.save",
-      id: crypto.randomUUID(),
-      expected_version: 0,
-      party_id: entry.context.payee_id,
-      match_mode: "exact",
-      description,
-      enabled: true,
+  /** The category change for one row: a draft saves in place, a reviewed row saves a new version. */
+  function categoryCommand(
+    entry: JournalEntry,
+    accountId: string,
+  ): WorkflowCommand | null {
+    if (entry.status !== "posted") return saveCommand(entry, accountId);
+    const p = presentTransaction(entry, profiles);
+    if (!p.editable || p.categoryLines.length !== 1) return null;
+    return {
+      type: "entry.correct",
+      id: entry.id,
+      expected_version: entry.version,
+      replacement_id: crypto.randomUUID(),
+      entry_date: entry.entry_date,
+      reversal_date: entry.entry_date,
+      memo: entry.memo,
+      reason: "Bulk edit in Transactions",
+      lines: entry.lines.map((l) => ({
+        account_id: l.id === p.categoryLines[0].id ? accountId : l.account_id,
+        amount_cents: l.amount_cents,
+        memo: l.memo,
+      })),
     };
-    if (await cmd.execute(command))
-      toast(
-        "success",
-        "Future transactions with this descriptor get this payee.",
-      );
   }
 
-  async function applyBulkCategory() {
-    if (!bulkCategory?.account) return;
-    const commands = bulkCategory.entries
-      .map((e) => saveCommand(e, bulkCategory.account))
-      .filter((c) => c !== null);
-    const { done, failed, saved } = await cmd.executeMany(commands);
-    if (done > 0 && !failed) {
-      setBulkCategory(null);
-      // The rows stay selected so Review selected is one more click, not a
-      // fresh selection.
-      toast(
-        "success",
-        `${done} ${done === 1 ? "transaction" : "transactions"} categorized. Review them when you are ready.`,
+  const takesCategory = (e: JournalEntry) => {
+    const p = presentTransaction(e, profiles);
+    return p.editable && p.categoryLines.length === 1;
+  };
+  const takesPayee = (e: JournalEntry) => e.context?.kind !== "invoice_receipt";
+
+  /**
+   * What a bulk edit does to each selected row. A draft that takes a new
+   * category saves everything in one command; otherwise the payee lands in
+   * place first, so a category change on a reviewed row copies it into the
+   * new version. Rows no longer on screen (already replaced) are skipped.
+   */
+  function bulkPlan(edit: NonNullable<typeof bulkEdit>) {
+    const entries = edit.entries.flatMap((e) => {
+      const current = rows.find((r) => r.id === e.id);
+      return current ? [current] : [];
+    });
+    const category = edit.lines.find(
+      (l) => l.field === "category" && l.account,
+    );
+    const payee = edit.lines.find((l) => l.field === "payee");
+    const description = edit.lines.find(
+      (l) => l.field === "description" && l.memo.trim(),
+    );
+    const groups = entries.map((e) => {
+      const wantsCategory = !!category && takesCategory(e);
+      const wantsPayee = !!payee && takesPayee(e);
+      const wantsDescription = !!description;
+      const payeeId = payee ? (payee.context.payee_id ?? null) : undefined;
+      const inPlace: WorkflowCommand[] = [];
+      const money: WorkflowCommand[] = [];
+      if (e.status === "draft" && wantsCategory) {
+        const save = saveCommand(
+          e,
+          category!.account,
+          wantsPayee ? payeeId : undefined,
+          wantsDescription ? description!.memo.trim() : undefined,
+        );
+        if (save) money.push(save);
+      } else {
+        if (wantsPayee || wantsDescription)
+          inPlace.push({
+            type: "entry.context",
+            id: e.id,
+            expected_version: e.version,
+            kind: commandContext(e.context ?? defaultEntryContext).kind,
+            ...(wantsPayee ? { payee_id: payeeId ?? null } : {}),
+            ...(wantsDescription ? { memo: description!.memo.trim() } : {}),
+          });
+        if (wantsCategory) {
+          const correct = categoryCommand(e, category!.account);
+          if (correct) money.push(correct);
+        }
+      }
+      return {
+        entry: e,
+        inPlace,
+        money,
+        wantsCategory,
+        wantsPayee,
+        wantsDescription,
+        categorized:
+          wantsCategory || presentTransaction(e, profiles).categorized,
+      };
+    });
+    return { entries, category, payee, description, groups };
+  }
+
+  async function applyBulkEdit() {
+    if (!bulkEdit) return;
+    const plan = bulkPlan(bulkEdit);
+    const versions = new Map(plan.entries.map((e) => [e.id, e.version]));
+    const note = (id: string, result?: { version?: number }) => {
+      if (result?.version !== undefined) versions.set(id, result.version);
+    };
+    // Phase 1: payees, in place.
+    const inPlace = plan.groups.flatMap((g) => g.inPlace);
+    if (inPlace.length > 0) {
+      const first = await cmd.executeMany(inPlace);
+      first.results.forEach((r, i) =>
+        note(String((inPlace[i] as { id: string }).id), r),
       );
-    } else if (done > 0) {
-      // Keep only the rows that did not land so a retry does not resend saved ones.
-      const landed = new Set(saved);
-      setBulkCategory((b) =>
-        b ? { ...b, entries: b.entries.filter((e) => !landed.has(e.id)) } : b,
-      );
-      setSelection((s) => {
-        const next = { ...s };
-        for (const id of landed) delete next[id];
-        return next;
-      });
+      if (first.failed) return;
     }
+    // Phase 2: categories, with the versions the payee phase produced.
+    const money = plan.groups.flatMap((g) =>
+      g.money.map((c) => ({
+        ...c,
+        expected_version: versions.get(g.entry.id) ?? g.entry.version,
+      })),
+    );
+    if (money.length > 0) {
+      const second = await cmd.executeMany(money as WorkflowCommand[]);
+      second.results.forEach((r, i) => {
+        const c = money[i] as { type: string; id: string };
+        if (c.type === "transaction.save") note(c.id, r);
+      });
+      if (second.failed) return;
+    }
+    // Phase 3: review the drafts that have a category.
+    const toReview = bulkEdit.review
+      ? plan.groups.filter((g) => g.entry.status === "draft" && g.categorized)
+      : [];
+    if (toReview.length > 0) {
+      const chunks: WorkflowCommand[] = [];
+      for (let i = 0; i < toReview.length; i += 50)
+        chunks.push({
+          type: "entry.bulkpost",
+          id: crypto.randomUUID(),
+          entries: toReview.slice(i, i + 50).map((g) => ({
+            id: g.entry.id,
+            expected_version: versions.get(g.entry.id) ?? g.entry.version,
+          })),
+        });
+      const third = await cmd.executeMany(chunks);
+      if (third.failed) return;
+    }
+    const parts: string[] = [];
+    if (plan.description)
+      parts.push(
+        "description on " +
+          plural(
+            plan.groups.filter((g) => g.wantsDescription).length,
+            "transaction",
+          ),
+      );
+    if (plan.payee)
+      parts.push(
+        "contact on " +
+          plural(plan.groups.filter((g) => g.wantsPayee).length, "transaction"),
+      );
+    if (plan.category)
+      parts.push(
+        "category on " +
+          plural(
+            plan.groups.filter((g) => g.wantsCategory).length,
+            "transaction",
+          ),
+      );
+    if (toReview.length > 0)
+      parts.push(plural(toReview.length, "transaction") + " reviewed");
+    setBulkEdit(null);
+    setSelection({});
+    if (parts.length > 0) toast("success", "Saved: " + parts.join(", ") + ".");
   }
 
   const activeFilters = [
@@ -596,74 +809,25 @@ export function AccountingTransactions({
   ].filter(Boolean).length;
 
   function rowActions(entry: JournalEntry): RowAction[] {
-    const row = entry as TransactionRow;
     const readOnly = (action: TransactionAction) =>
-      rowBusy(entry.id) ||
-      (demo && action !== "detail" && action !== "journal");
+      rowBusy(entry.id) || (demo && action !== "detail");
     const actions: RowAction[] = [
       {
-        label:
-          entry.status === "posted"
-            ? "Edit with correction"
-            : "Edit transaction",
+        label: "Edit",
         icon: <Pencil />,
         onSelect: () => openAction("edit", entry),
         disabled: isTransactionReversed(entry) || readOnly("edit"),
       },
       {
-        label: "Details & receipts",
-        icon: <FileText />,
-        onSelect: () => openAction("detail", entry),
-      },
-      {
-        label: "View journal",
-        icon: <SlidersHorizontal />,
-        onSelect: () => openAction("journal", entry),
-      },
-      {
-        label: "Duplicate as draft",
+        label: "Copy",
         icon: <Copy />,
         onSelect: () => openAction("copy", entry),
         disabled: readOnly("copy"),
       },
     ];
-    if (row.context?.payee_id && descriptorOf(row) && !demo)
-      actions.push({
-        label: "Remember payee for this description",
-        icon: <Tag />,
-        onSelect: () => void rememberPayee(row),
-      });
-    const p = presentTransaction(entry, profiles);
-    if (entry.status === "draft" && p.bankLine && p.editable && !demo)
-      actions.push({
-        label: "Record as transfer",
-        icon: <ArrowLeftRight />,
-        onSelect: () =>
-          setTransfer({ entry, counterpart: transferCounterpart(row) }),
-      });
-    if (
-      entry.status === "posted" &&
-      p.bankLine &&
-      !entry.transfer_group_id &&
-      !entry.payroll_run_id &&
-      !isTransactionReversed(entry) &&
-      !demo
-    ) {
-      const bankLine = p.bankLine;
-      actions.push({
-        label: "Link as transfer",
-        icon: <ArrowLeftRight />,
-        onSelect: () =>
-          setLink({
-            entry,
-            account: bankLine.account_id,
-            side: p.amount < BigInt(0) ? "out" : "in",
-          }),
-      });
-    }
     if (entry.status === "draft")
       actions.push({
-        label: entryStateLabel(entry) === "Draft" ? "Discard draft" : "Discard",
+        label: "Delete",
         icon: <Trash2 />,
         variant: "danger",
         separator: true,
@@ -672,12 +836,8 @@ export function AccountingTransactions({
       });
     else if (!entry.reversed_by_entry_id && !entry.reverses_entry_id)
       actions.push({
-        label: entry.payroll_run_id
-          ? "Open payroll to undo"
-          : entry.transfer_group_id
-            ? "Reverse transfer"
-            : "Reverse transaction",
-        icon: <Undo2 />,
+        label: entry.payroll_run_id ? "Delete in Payroll" : "Delete",
+        icon: <Trash2 />,
         variant: "danger",
         separator: true,
         onSelect: () => openAction("reverse", entry),
@@ -685,7 +845,7 @@ export function AccountingTransactions({
       });
     if (canRestoreTransaction(entry))
       actions.push({
-        label: "Restore transaction",
+        label: "Restore",
         icon: <Undo2 />,
         onSelect: () => openAction("restore", entry),
         disabled: demo,
@@ -766,53 +926,23 @@ export function AccountingTransactions({
     if (isTransactionReversed(entry))
       return (
         <Badge size="sm">
-          {entry.restored_by_entry_id ? "Restored" : "Reversed"}
+          {entry.restored_by_entry_id
+            ? "Restored"
+            : entry.replacement_entry_id
+              ? "Earlier version"
+              : "Deleted"}
         </Badge>
       );
     const reviewed = isTransactionReviewed(entry);
-    const hint = reviewed
-      ? "Mark as unreviewed"
-      : p.categorized
-        ? "Mark as reviewed"
-        : "Choose a category first";
     return (
-      <Tooltip content={hint}>
-        <button
-          type="button"
-          disabled={
-            demo ||
-            rowBusy(entry.id) ||
-            entry.status === "discarded" ||
-            (!reviewed && !p.categorized)
-          }
-          onClick={() => void review(entry)}
-          aria-label={
-            reviewed
-              ? `Mark ${entry.memo} as unreviewed`
-              : `Mark ${entry.memo} as reviewed`
-          }
-          aria-pressed={reviewed}
-          className={cn(
-            "flex h-8 w-8 items-center justify-center rounded-full border transition-colors",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-            "disabled:cursor-default",
-            reviewed
-              ? "border-primary/20 bg-primary/15 text-teal-light enabled:hover:bg-primary/25"
-              : "border-border text-muted-foreground enabled:hover:border-primary enabled:hover:bg-primary/10 enabled:hover:text-teal-light",
-            !p.categorized && !reviewed && "opacity-40",
-          )}
-        >
-          {rowCommand.pending.has(entry.id) ? (
-            <Loader2
-              size={15}
-              aria-label="Saving transaction"
-              className="animate-spin"
-            />
-          ) : (
-            <Check size={15} aria-hidden="true" />
-          )}
-        </button>
-      </Tooltip>
+      <ReviewCheck
+        reviewed={reviewed}
+        categorized={p.categorized}
+        name={entry.memo}
+        busy={rowCommand.pending.has(entry.id)}
+        disabled={demo || rowBusy(entry.id) || entry.status === "discarded"}
+        onToggle={() => void review(entry)}
+      />
     );
   }
 
@@ -856,7 +986,7 @@ export function AccountingTransactions({
     return (
       <button
         type="button"
-        onClick={() => openAction("edit", entry)}
+        onClick={() => openAction(transactionRowAction(entry), entry)}
         className="flex max-w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {p.categoryLines.length > 1 && <Split size={12} aria-hidden="true" />}
@@ -882,25 +1012,69 @@ export function AccountingTransactions({
       header: "Description",
       render: (e) => {
         const p = presentTransaction(e, profiles, account);
-        const party = parties.get(e.context?.payee_id ?? "");
         return (
           <div className="min-w-0">
-            <button
-              type="button"
-              onClick={() => openAction("edit", e)}
-              className="block w-full truncate text-left font-medium transition-colors hover:text-teal-light focus-visible:outline-none focus-visible:underline"
-            >
-              {e.memo}
-            </button>
-            {(party || e.reversed_by_entry_id || e.reverses_entry_id) && (
+            {renaming?.id === e.id ? (
+              <div onClick={(event) => event.stopPropagation()}>
+                <TextInput
+                  aria-label={`Description for ${e.memo}`}
+                  size="sm"
+                  autoFocus
+                  value={renaming.value}
+                  maxLength={1000}
+                  onChange={(value) => setRenaming({ id: e.id, value })}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void renameRow(e, renaming.value);
+                    } else if (event.key === "Escape") {
+                      event.preventDefault();
+                      setRenaming(null);
+                    }
+                  }}
+                  onBlur={() => void renameRow(e, renaming.value)}
+                />
+              </div>
+            ) : (
+              <div className="flex min-w-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => openAction(transactionRowAction(e), e)}
+                  className="min-w-0 truncate text-left font-medium transition-colors hover:text-teal-light focus-visible:outline-none focus-visible:underline"
+                >
+                  {e.memo}
+                </button>
+                {affiliationOf(e) && (
+                  <Badge size="sm" className="shrink-0">
+                    {affiliationOf(e)}
+                  </Badge>
+                )}
+                {!demo &&
+                  !isTransactionReversed(e) &&
+                  e.status !== "discarded" && (
+                    <button
+                      type="button"
+                      aria-label={`Rename ${e.memo}`}
+                      disabled={rowBusy(e.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setRenaming({ id: e.id, value: e.memo });
+                      }}
+                      className="shrink-0 rounded-md p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-secondary hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [tr:hover_&]:opacity-100"
+                    >
+                      <Pencil size={13} aria-hidden="true" />
+                    </button>
+                  )}
+              </div>
+            )}
+            {(e.reversed_by_entry_id || e.reverses_entry_id) && (
               <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                {party?.name}
                 {e.reversed_by_entry_id
-                  ? party
-                    ? ", corrected or reversed"
-                    : "Corrected or reversed"
+                  ? e.replacement_entry_id
+                    ? "Earlier version"
+                    : "Deleted"
                   : ""}
-                {e.reverses_entry_id ? (party ? ", reversal" : "Reversal") : ""}
+                {e.reverses_entry_id ? "Deletion" : ""}
               </p>
             )}
             {priorHint(e, p)}
@@ -982,7 +1156,6 @@ export function AccountingTransactions({
 
   const mobileCard = (e: TransactionRow) => {
     const p = presentTransaction(e, profiles, account);
-    const party = parties.get(e.context?.payee_id ?? "");
     const selectable = e.status === "draft" && !demo;
     return (
       <article className="space-y-3">
@@ -1010,13 +1183,15 @@ export function AccountingTransactions({
               <button
                 type="button"
                 className="block max-w-full truncate text-left text-sm font-medium focus-visible:outline-none focus-visible:underline"
-                onClick={() => openAction("edit", e)}
+                onClick={() => openAction(transactionRowAction(e), e)}
               >
                 {e.memo}
               </button>
-              <p className="mt-0.5 text-xs text-muted-foreground">
-                {dateLabel(e.entry_date)}
-                {party ? ` · ${party.name}` : ""}
+              <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                <span>{dateLabel(e.entry_date)}</span>
+                {affiliationOf(e) && (
+                  <Badge size="sm">{affiliationOf(e)}</Badge>
+                )}
               </p>
             </div>
           </div>
@@ -1190,9 +1365,9 @@ export function AccountingTransactions({
             >
               {(
                 [
-                  ["draft", "Review", reviewCount],
+                  ["draft", "Review", reviewBadge],
                   ["all", "All", null],
-                  ["reversed", "Reversed", null],
+                  ["reversed", "Deleted", null],
                 ] as const
               ).map(([value, label, count]) => (
                 <button
@@ -1225,116 +1400,150 @@ export function AccountingTransactions({
               ))}
             </div>
           </div>
-          <div className="flex w-full items-center gap-2 sm:w-auto">
-            <TextInput
-              aria-label="Search transactions"
-              placeholder="Search transactions"
-              prefix={<Search size={15} aria-hidden="true" />}
-              value={query}
-              maxLength={200}
-              onChange={(nextValue) => setQuery(nextValue)}
-            />
-            <Button
-              size="sm"
-              variant={filters ? "secondary" : "ghost"}
-              onClick={() => setFilters(!filters)}
-              aria-expanded={filters}
-            >
-              <Filter size={14} aria-hidden="true" />
-              Filters
-              {activeFilters > 0 && (
-                <Badge variant="info" size="sm">
-                  {activeFilters}
-                </Badge>
-              )}
-            </Button>
-            <Tooltip content="Sort">
-              <div className="w-9">
-                <AccountingPicker
-                  label="Sort transactions"
-                  showChevron={false}
-                  value={sort}
-                  onChange={(v) => changed(() => setSort(v as typeof sort))}
-                  compact
-                  options={[
-                    { value: "date_desc", label: "Newest first" },
-                    { value: "date_asc", label: "Oldest first" },
-                    { value: "amount_desc", label: "Largest amount first" },
-                    { value: "amount_asc", label: "Smallest amount first" },
-                    { value: "description", label: "Description A to Z" },
-                  ]}
-                >
-                  <ArrowUpDown size={15} aria-hidden="true" />
-                </AccountingPicker>
-              </div>
-            </Tooltip>
-          </div>
-        </div>
-
-        {filters && (
-          <div className="grid gap-3 border-b border-border bg-[rgba(var(--ink),0.04)] p-4 sm:grid-cols-2 xl:grid-cols-4">
-            <DateInput
-              label="From date"
-              value={from}
-              onChange={(nextValue) => changed(() => setFrom(nextValue))}
-            />
-            <DateInput
-              label="Through date"
-              value={to}
-              onChange={(nextValue) => changed(() => setTo(nextValue))}
-            />
-            <TextInput
-              label="Minimum amount"
-              inputMode="decimal"
-              placeholder="0.00"
-              value={minimum}
-              onChange={(nextValue) => changed(() => setMinimum(nextValue))}
-            />
-            <TextInput
-              label="Maximum amount"
-              inputMode="decimal"
-              placeholder="No maximum"
-              value={maximum}
-              onChange={(nextValue) => changed(() => setMaximum(nextValue))}
-            />
-            <AccountingPicker
-              label="Source"
-              visibleLabel="Source"
-              value={source}
-              options={[
-                { value: "", label: "All sources" },
-                { value: "simplefin", label: "Bank feed" },
-                { value: "csv", label: "Imported file" },
-                { value: "wave", label: "Wave" },
-                { value: "manual", label: "Manual" },
-                { value: "internal", label: "Internal" },
-              ]}
-              onChange={(v) => changed(() => setSource(v))}
-            />
-            <AccountingPicker
-              label="Payee"
-              visibleLabel="Payee"
-              value={payee}
-              options={[
-                { value: "", label: "All payees" },
-                ...manage.parties.map((p) => ({ value: p.id, label: p.name })),
-              ]}
-              onChange={(v) => changed(() => setPayee(v))}
-            />
-            <Checkbox
-              checked={missing}
-              onChange={(v) => changed(() => setMissing(v))}
-              label="Missing receipt or document"
-              className="self-end pb-2"
-            />
-            <div className="flex gap-2 xl:justify-end">
-              <Button size="sm" variant="ghost" onClick={resetFilters}>
+          {chosen.length > 0 ? (
+            <div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto">
+              <span className="text-sm text-muted-foreground">
+                {chosen.length} selected
+                {cmd.progress
+                  ? ` · saving ${cmd.progress.done} of ${cmd.progress.total}`
+                  : ""}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy || rowCommand.pending.size > 0}
+                onClick={() =>
+                  setBulkEdit({
+                    entries: chosen,
+                    lines: [newBulkLine()],
+                    review: false,
+                  })
+                }
+              >
+                <Pencil size={14} aria-hidden="true" />
+                Edit selected
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label="Clear selection"
+                disabled={busy}
+                onClick={() => setSelection({})}
+              >
                 <X size={14} aria-hidden="true" />
-                Reset filters
               </Button>
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="flex w-full items-center gap-2 sm:w-auto">
+              <Tooltip content="Sort">
+                <RowActionsMenu
+                  label="Sort transactions"
+                  trigger={
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label="Sort transactions"
+                    >
+                      <ArrowUpDown size={15} aria-hidden="true" />
+                    </Button>
+                  }
+                  actions={(
+                    [
+                      ["date_desc", "Newest first"],
+                      ["date_asc", "Oldest first"],
+                      ["amount_desc", "Largest amount first"],
+                      ["amount_asc", "Smallest amount first"],
+                      ["description", "Description A to Z"],
+                    ] as const
+                  ).map(([value, label]) => ({
+                    label,
+                    checked: sort === value,
+                    onSelect: () => changed(() => setSort(value)),
+                  }))}
+                />
+              </Tooltip>
+              <FilterPopover
+                open={filters}
+                onOpenChange={setFilters}
+                count={activeFilters}
+                onReset={resetFilters}
+              >
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <DateInput
+                    label="From date"
+                    value={from}
+                    onChange={(nextValue) => changed(() => setFrom(nextValue))}
+                  />
+                  <DateInput
+                    label="Through date"
+                    value={to}
+                    onChange={(nextValue) => changed(() => setTo(nextValue))}
+                  />
+                  <TextInput
+                    label="Minimum amount"
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={minimum}
+                    onChange={(nextValue) =>
+                      changed(() => setMinimum(nextValue))
+                    }
+                  />
+                  <TextInput
+                    label="Maximum amount"
+                    inputMode="decimal"
+                    placeholder="No maximum"
+                    value={maximum}
+                    onChange={(nextValue) =>
+                      changed(() => setMaximum(nextValue))
+                    }
+                  />
+                  <AccountingPicker
+                    label="Source"
+                    visibleLabel="Source"
+                    value={source}
+                    options={[
+                      { value: "", label: "All sources" },
+                      { value: "simplefin", label: "Bank feed" },
+                      { value: "csv", label: "Imported file" },
+                      { value: "wave", label: "Wave" },
+                      { value: "manual", label: "Manual" },
+                      { value: "internal", label: "Internal" },
+                    ]}
+                    onChange={(v) => changed(() => setSource(v))}
+                  />
+                  <AccountingPicker
+                    label="Contact"
+                    visibleLabel="Contact"
+                    value={payee}
+                    options={[
+                      { value: "", label: "All contacts" },
+                      ...manage.parties.map((p) => ({
+                        value: p.id,
+                        label: p.name,
+                      })),
+                    ]}
+                    onChange={(v) => changed(() => setPayee(v))}
+                  />
+                  <Checkbox
+                    checked={missing}
+                    onChange={(v) => changed(() => setMissing(v))}
+                    label="Missing receipt or document"
+                    className="self-end pb-2"
+                  />
+                </div>
+              </FilterPopover>
+              <TextInput
+                aria-label="Search transactions"
+                placeholder="Search transactions"
+                clearable
+                prefix={<Search size={15} aria-hidden="true" />}
+                value={query}
+                maxLength={200}
+                onChange={(nextValue) => setQuery(nextValue)}
+              />
+            </div>
+          )}
+        </div>
 
         {(invalid ||
           error ||
@@ -1358,46 +1567,6 @@ export function AccountingTransactions({
           </p>
         )}
 
-        {chosen.length > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-primary/5 px-4 py-2">
-            <span className="text-sm">
-              {chosen.length} selected
-              {cmd.progress
-                ? ` · saving ${cmd.progress.done} of ${cmd.progress.total}`
-                : ""}
-            </span>
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy || rowCommand.pending.size > 0}
-                onClick={() =>
-                  setBulkCategory({
-                    entries: chosen.filter((e) => {
-                      const p = presentTransaction(e, profiles);
-                      return p.editable && p.categoryLines.length === 1;
-                    }),
-                    account: "",
-                  })
-                }
-              >
-                <Tag size={14} aria-hidden="true" />
-                Set category
-              </Button>
-              <Button
-                size="sm"
-                disabled={busy || rowCommand.pending.size > 0}
-                onClick={() =>
-                  setBulk({ id: crypto.randomUUID(), entries: chosen })
-                }
-              >
-                <CheckCheck size={14} aria-hidden="true" />
-                Review selected
-              </Button>
-            </div>
-          </div>
-        )}
-
         <DataTable<TransactionRow>
           framed={false}
           fixedLayout
@@ -1411,7 +1580,7 @@ export function AccountingTransactions({
                 ? "bg-[color-mix(in_srgb,var(--card),var(--foreground)_4%)] hover:bg-[color-mix(in_srgb,var(--card),var(--foreground)_7%)]"
                 : "bg-card hover:bg-[color-mix(in_srgb,var(--card),var(--foreground)_2%)]"
           }
-          onRowClick={(e) => openAction("detail", e)}
+          onRowClick={(e) => openAction(transactionRowAction(e), e)}
           busy={page.isPlaceholder}
           skeletonRows={loading ? 12 : 0}
           emptyState={emptyState}
@@ -1424,9 +1593,9 @@ export function AccountingTransactions({
                   selected: chosenSet,
                   isSelectable: (key) =>
                     !rowCommand.pending.has(key) &&
-                    visibleDrafts.some((e) => e.id === key),
+                    selectableRows.some((e) => e.id === key),
                   onToggle: (key) => {
-                    const entry = visibleDrafts.find((e) => e.id === key);
+                    const entry = selectableRows.find((e) => e.id === key);
                     if (entry) toggleOne(entry);
                   },
                   onToggleAll: (keys) =>
@@ -1434,7 +1603,7 @@ export function AccountingTransactions({
                       keys.every((k) => chosenSet.has(k))
                         ? {}
                         : Object.fromEntries(
-                            visibleDrafts
+                            selectableRows
                               .filter((e) => keys.includes(e.id))
                               .map((e) => [e.id, e.version]),
                           ),
@@ -1455,190 +1624,239 @@ export function AccountingTransactions({
       </section>
 
       <Dialog
-        open={!!bulk}
+        open={!!bulkEdit}
         onOpenChange={(open) => {
-          if (!open && !cmd.busy) setBulk(null);
+          if (!open && !cmd.busy) setBulkEdit(null);
         }}
       >
-        <DialogContent>
+        <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle>Review selected</DialogTitle>
+            <DialogTitle>
+              Edit{" "}
+              {bulkEdit
+                ? plural(bulkEdit.entries.length, "transaction")
+                : "transactions"}
+            </DialogTitle>
             <DialogDescription className="sr-only">
-              The selected transactions become reviewed and count in reports.
+              One change per line for every selected transaction, then
+              optionally mark them reviewed.
             </DialogDescription>
           </DialogHeader>
-          {bulk && (
-            <div className="mt-4 space-y-4">
-              <p className="text-sm">
-                {bulk.entries.length} transactions,{" "}
-                {dateLabel(bulk.entries.map((e) => e.entry_date).sort()[0])} to{" "}
-                {dateLabel(
-                  bulk.entries
-                    .map((e) => e.entry_date)
-                    .sort()
-                    .at(-1),
-                )}
-              </p>
-              <div className="grid grid-cols-2 gap-3 glass-card rounded-xl p-3 text-sm">
-                {(["in", "out"] as const).map((direction) => (
-                  <div key={direction}>
-                    <p className="text-xs text-muted-foreground">
-                      Money {direction}
-                    </p>
-                    <MaskedValue
-                      value={absMoney(
-                        bulk.entries.reduce((sum, e) => {
-                          const p = presentTransaction(e, profiles);
-                          return p.movement &&
-                            (direction === "in"
-                              ? p.amount > BigInt(0)
-                              : p.amount < BigInt(0))
-                            ? sum +
-                                (p.amount < BigInt(0) ? -p.amount : p.amount)
-                            : sum;
-                        }, BigInt(0)),
-                      )}
-                    />
-                  </div>
-                ))}
-              </div>
-              <div className="max-h-72 divide-y divide-border overflow-auto">
-                {bulk.entries.map((e) => {
-                  const p = presentTransaction(e, profiles);
-                  return (
+          {bulkEdit &&
+            (() => {
+              const plan = bulkPlan(bulkEdit);
+              const total = plan.entries.length;
+              const drafts = plan.groups.filter(
+                (g) => g.entry.status === "draft",
+              );
+              const unreviewable = drafts.filter((g) => !g.categorized).length;
+              const complete = bulkEdit.lines.every(
+                (l) =>
+                  l.field === "payee" ||
+                  (l.field === "category" && l.account !== "") ||
+                  (l.field === "description" && l.memo.trim() !== ""),
+              );
+              const reaches = plan.groups.some(
+                (g) => g.inPlace.length + g.money.length > 0,
+              );
+              const canApply =
+                !cmd.busy &&
+                complete &&
+                (bulkEdit.lines.length > 0
+                  ? reaches
+                  : bulkEdit.review && drafts.length - unreviewable > 0);
+              const update = (key: string, patch: Partial<BulkLine>) =>
+                setBulkEdit({
+                  ...bulkEdit,
+                  lines: bulkEdit.lines.map((l) =>
+                    l.key === key ? { ...l, ...patch } : l,
+                  ),
+                });
+              const used = (field: BulkLine["field"], key: string) =>
+                bulkEdit.lines.some((l) => l.key !== key && l.field === field);
+              return (
+                <div className="mt-4 space-y-4">
+                  {bulkEdit.lines.map((line) => (
                     <div
-                      key={e.id}
-                      className="flex items-center justify-between gap-3 py-3 text-sm"
+                      key={line.key}
+                      className="grid gap-3 sm:grid-cols-[minmax(0,2fr)_minmax(0,3fr)_auto] sm:items-end"
                     >
-                      <span className="truncate">{e.memo}</span>
-                      {p.categorized ? (
-                        <MaskedValue value={money(p.amount)} />
+                      <Select
+                        id={"bulk-field-" + line.key}
+                        label="Edit"
+                        value={line.field}
+                        placeholder="Choose a field"
+                        options={[
+                          { value: "category", label: "Category" },
+                          { value: "payee", label: "Contact" },
+                          { value: "description", label: "Description" },
+                        ].filter(
+                          (o) =>
+                            o.value === line.field ||
+                            !used(o.value as BulkLine["field"], line.key),
+                        )}
+                        onChange={(value) =>
+                          update(line.key, {
+                            field: value as BulkLine["field"],
+                          })
+                        }
+                      />
+                      {line.field === "category" ? (
+                        <AccountingCategoryPicker
+                          label="Change to"
+                          visibleLabel="Change to"
+                          value={line.account}
+                          groups={(() => {
+                            // One direction gets its own menu; a mix opens both sides.
+                            const directions = new Set(
+                              plan.entries
+                                .filter(takesCategory)
+                                .map((e) =>
+                                  directionOf(presentTransaction(e, profiles)),
+                                ),
+                            );
+                            return directions.size === 1
+                              ? menus[[...directions][0]]
+                              : menus.any;
+                          })()}
+                          placeholder="Choose a category"
+                          onChange={(v) => update(line.key, { account: v })}
+                        />
+                      ) : line.field === "description" ? (
+                        <TextInput
+                          label="Change to"
+                          value={line.memo}
+                          maxLength={1000}
+                          placeholder="New description"
+                          onChange={(nextValue) =>
+                            update(line.key, { memo: nextValue })
+                          }
+                        />
+                      ) : line.field === "payee" ? (
+                        <AccountingContextEditor
+                          className="min-w-0"
+                          value={line.context}
+                          manage={manage}
+                          accounts={data.accounts}
+                          onChange={(context) => update(line.key, { context })}
+                        />
                       ) : (
-                        <span className="text-xs text-warning">
-                          Needs a category or balanced lines
-                        </span>
+                        <Select
+                          id={"bulk-value-" + line.key}
+                          label="Change to"
+                          value=""
+                          placeholder="Choose a field first"
+                          options={[]}
+                          disabled
+                          onChange={() => {}}
+                        />
                       )}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        aria-label="Remove this edit"
+                        className="sm:mb-1"
+                        onClick={() =>
+                          setBulkEdit({
+                            ...bulkEdit,
+                            lines: bulkEdit.lines.filter(
+                              (l) => l.key !== line.key,
+                            ),
+                          })
+                        }
+                      >
+                        <Trash2 size={14} aria-hidden="true" />
+                      </Button>
                     </div>
-                  );
-                })}
-              </div>
-              {cmd.error && (
-                <p role="alert" className="text-sm text-error">
-                  {cmd.error}
-                </p>
-              )}
-              <Button
-                disabled={
-                  cmd.busy ||
-                  bulk.entries.some(
-                    (e) => !presentTransaction(e, profiles).categorized,
-                  )
-                }
-                onClick={async () => {
-                  if (
-                    await cmd.execute({
-                      type: "entry.bulkpost",
-                      id: bulk.id,
-                      entries: bulk.entries.map((e) => ({
-                        id: e.id,
-                        expected_version: e.version,
-                      })),
-                    })
-                  ) {
-                    setBulk(null);
-                    setSelection({});
-                    toast("success", "Selected transactions reviewed.");
-                  }
-                }}
-              >
-                <CheckCheck size={15} aria-hidden="true" />
-                Review {bulk.entries.length} transactions
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={!!bulkCategory}
-        onOpenChange={(open) => {
-          if (!open && !cmd.busy) setBulkCategory(null);
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Set category</DialogTitle>
-            <DialogDescription className="sr-only">
-              One category for every selected transaction.
-            </DialogDescription>
-          </DialogHeader>
-          {bulkCategory && (
-            <div className="mt-4 space-y-4">
-              <AccountingCategoryPicker
-                label="Category"
-                visibleLabel="Category"
-                value={bulkCategory.account}
-                groups={(() => {
-                  // One direction gets its own menu; a mix opens both sides.
-                  const directions = new Set(
-                    bulkCategory.entries.map((e) =>
-                      directionOf(presentTransaction(e, profiles)),
-                    ),
-                  );
-                  return directions.size === 1
-                    ? menus[[...directions][0]]
-                    : menus.any;
-                })()}
-                placeholder="Choose a category"
-                onChange={(v) =>
-                  setBulkCategory({ ...bulkCategory, account: v })
-                }
-              />
-              <div className="max-h-64 divide-y divide-border overflow-auto glass-card rounded-xl px-3">
-                {bulkCategory.entries.map((e) => (
-                  <div
-                    key={e.id}
-                    className="flex items-center justify-between gap-3 py-2.5 text-sm"
-                  >
-                    <span className="truncate">{e.memo}</span>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {dateLabel(e.entry_date)}
-                    </span>
+                  ))}
+                  {bulkEdit.lines.length < 3 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setBulkEdit({
+                          ...bulkEdit,
+                          lines: [...bulkEdit.lines, newBulkLine()],
+                        })
+                      }
+                    >
+                      <Plus size={14} aria-hidden="true" />
+                      Add another edit
+                    </Button>
+                  )}
+                  <div className="space-y-1 text-xs text-muted-foreground">
+                    {plan.category && (
+                      <p>
+                        Category: applies to{" "}
+                        {plan.groups.filter((g) => g.wantsCategory).length} of{" "}
+                        {total}
+                        {plan.groups.some((g) => !g.wantsCategory)
+                          ? ". Splits and transfers are edited one at a time."
+                          : "."}
+                        {plan.groups.some(
+                          (g) => g.wantsCategory && g.entry.status === "posted",
+                        )
+                          ? " Reviewed transactions save a new version; the earlier version stays in history."
+                          : ""}
+                      </p>
+                    )}
+                    {plan.description && (
+                      <p>
+                        Description: applies to{" "}
+                        {plan.groups.filter((g) => g.wantsDescription).length}{" "}
+                        of {total}.
+                      </p>
+                    )}
+                    {plan.payee && (
+                      <p>
+                        Contact: applies to{" "}
+                        {plan.groups.filter((g) => g.wantsPayee).length} of{" "}
+                        {total}.
+                      </p>
+                    )}
                   </div>
-                ))}
-                {bulkCategory.entries.length === 0 && (
-                  <p className="py-4 text-sm text-muted-foreground">
-                    None of the selected transactions can take a single
-                    category. Splits and transfers are edited one at a time.
-                  </p>
-                )}
-              </div>
-              {chosen.length > bulkCategory.entries.length &&
-                bulkCategory.entries.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    {chosen.length - bulkCategory.entries.length} selected
-                    transactions are splits or transfers and will be skipped.
-                  </p>
-                )}
-              {cmd.error && (
-                <p role="alert" className="text-sm text-error">
-                  {cmd.error}
-                </p>
-              )}
-              <Button
-                disabled={
-                  cmd.busy ||
-                  !bulkCategory.account ||
-                  bulkCategory.entries.length === 0
-                }
-                loading={cmd.busy}
-                onClick={() => void applyBulkCategory()}
-              >
-                <Tag size={15} aria-hidden="true" />
-                Categorize {bulkCategory.entries.length} transactions
-              </Button>
-            </div>
-          )}
+                  {drafts.length > 0 && (
+                    <Toggle
+                      checked={bulkEdit.review}
+                      onChange={(review) =>
+                        setBulkEdit({ ...bulkEdit, review })
+                      }
+                      label="Mark selected transactions as reviewed"
+                      description={
+                        unreviewable > 0
+                          ? plural(unreviewable, "transaction") +
+                            " without a category will stay unreviewed."
+                          : undefined
+                      }
+                    />
+                  )}
+                  {cmd.error && (
+                    <p role="alert" className="text-sm text-error">
+                      {cmd.error}
+                    </p>
+                  )}
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={cmd.busy}
+                      onClick={() => setBulkEdit(null)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      disabled={!canApply}
+                      loading={cmd.busy}
+                      onClick={() => void applyBulkEdit()}
+                    >
+                      Apply
+                    </Button>
+                  </div>
+                </div>
+              );
+            })()}
         </DialogContent>
       </Dialog>
 
@@ -1652,27 +1870,6 @@ export function AccountingTransactions({
           onClose={() => setTransfer(null)}
           onSaved={async () => {
             setTransfer(null);
-            await onRefresh();
-          }}
-        />
-      )}
-      {link && (
-        <TransferForm
-          mode="link"
-          from={data.from}
-          to={data.to}
-          accounts={data.accounts.filter((a) =>
-            profiles.some(
-              (p) =>
-                p.account_id === a.id &&
-                ["bank", "cash", "card"].includes(p.cash_kind),
-            ),
-          )}
-          revision={data.revision}
-          initial={link}
-          onClose={() => setLink(null)}
-          onSaved={async () => {
-            setLink(null);
             await onRefresh();
           }}
         />

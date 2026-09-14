@@ -18,7 +18,9 @@ export async function accountingMigrations() {
   const directory = new URL("../supabase/migrations/", import.meta.url);
   const names = (await readdir(directory))
     // Deliberately non-recursive: historical migrations are never applied.
-    .filter((name) => /^\d{14}_(?:accounting_.*|business_profile)\.sql$/.test(name))
+    .filter((name) =>
+      /^\d{14}_(?:accounting_.*|business_profile)\.sql$/.test(name),
+    )
     .sort();
   const migrations = await Promise.all(
     names.map(async (name) => ({

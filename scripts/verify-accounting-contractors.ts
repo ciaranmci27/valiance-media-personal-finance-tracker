@@ -82,9 +82,22 @@ async function main() {
     check(view.rows[0].card_cents, "100000");
     check(view.rows[0].meets_threshold, false);
     check(view.threshold_cents, "200000");
-    const cutoff = (await db.query<{r:any}>('SELECT accounting.contractor_report($1,$2) r',[2026,'2026-08-01'])).rows[0].r;
-    check(cutoff.through,'2026-08-01');check(cutoff.rows[0].paid_cents,'100000');
-    await fail(()=>db.query('SELECT accounting.contractor_report($1,$2)',[2026,'2025-12-31']),/ACCT_TAX_RANGE/);
+    const cutoff = (
+      await db.query<{ r: any }>(
+        "SELECT accounting.contractor_report($1,$2) r",
+        [2026, "2026-08-01"],
+      )
+    ).rows[0].r;
+    check(cutoff.through, "2026-08-01");
+    check(cutoff.rows[0].paid_cents, "100000");
+    await fail(
+      () =>
+        db.query("SELECT accounting.contractor_report($1,$2)", [
+          2026,
+          "2025-12-31",
+        ]),
+      /ACCT_TAX_RANGE/,
+    );
     check((await read(2025)).threshold_cents, "60000");
     check((await read(2025)).rows[0].paid_cents, "50000");
     check((await read(2024)).threshold_cents, "60000");

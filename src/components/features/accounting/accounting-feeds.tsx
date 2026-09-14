@@ -2,6 +2,7 @@
 import { Disclosure } from "@/components/ui/disclosure";
 import { PasswordInput } from "@/components/ui/inputs/PasswordInput";
 import { DateInput } from "@/components/ui/inputs/DateInput";
+import { NumberInput } from "@/components/ui/inputs/NumberInput";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -721,6 +722,12 @@ export function AccountingFeeds({
           }}
         />
       )}
+      <MatchingWindow
+        data={data}
+        manage={manage}
+        demo={demo}
+        onRefresh={onRefresh}
+      />
       {disconnect && (
         <DisconnectFeed
           connection={disconnect}
@@ -742,6 +749,70 @@ export function AccountingFeeds({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * The one book setting that belongs with the feeds: how many days apart a
+ * bank movement and its entry may be and still count as the same money.
+ */
+function MatchingWindow({
+  data,
+  manage,
+  demo,
+  onRefresh,
+}: {
+  data: AccountingWorkspace;
+  manage: BooksMetadata;
+  demo: boolean;
+  onRefresh: () => Promise<void>;
+}) {
+  const [days, setDays] = useState(
+    manage.preferences?.transfer_window_days ?? 5,
+  );
+  const command = useAccountingCommand(onRefresh);
+  return (
+    <section className="glass-card rounded-xl p-5">
+      <Disclosure summary="Advanced" contentClassName="space-y-4">
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void command.execute({
+              type: "preferences.save",
+              id: crypto.randomUUID(),
+              expected_version: manage.preferences?.version ?? 0,
+              legal_name: data.legal_name,
+              primary_system: manage.preferences?.primary_system ?? "admin",
+              primary_system_since:
+                manage.preferences?.primary_system_since ?? null,
+              history_start: manage.preferences?.history_start ?? null,
+              transfer_window_days: days,
+            });
+          }}
+        >
+          <NumberInput
+            step={1}
+            label="Matching window (days)"
+            description="How far apart a bank movement and its entry can be and still count as the same money."
+            min={0}
+            max={30}
+            value={days}
+            onChange={(nextValue) => setDays(Number(String(nextValue)))}
+          />
+          {command.error && (
+            <p role="alert" className="text-sm text-error">
+              {command.error}
+            </p>
+          )}
+          <div className="flex justify-end">
+            <Button disabled={demo || command.busy} loading={command.busy}>
+              Save
+            </Button>
+          </div>
+        </form>
+      </Disclosure>
+    </section>
   );
 }
 

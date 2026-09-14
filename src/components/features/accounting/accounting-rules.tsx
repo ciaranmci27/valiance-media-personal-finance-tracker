@@ -152,7 +152,7 @@ export function AccountingRules({
       ),
     },
     { key: "status", header: "Status", render: aliasStatus },
-    { key: "payee", header: "Payee", render: (a) => a.party_name },
+    { key: "payee", header: "Contact", render: (a) => a.party_name },
   ];
   return (
     <div className="space-y-6">
@@ -473,13 +473,13 @@ export function AccountingRules({
                           ))}
                           {row.aliases.conflict && (
                             <p className="text-error">
-                              Two payee aliases match this movement. Choose the
-                              payee by hand.
+                              Two contact aliases match this movement. Choose
+                              the contact by hand.
                             </p>
                           )}
                           {row.aliases.aliases.map((a) => (
                             <p key={a.id}>
-                              Payee alias: {a.description} → {a.name}
+                              Contact alias: {a.description} → {a.name}
                             </p>
                           ))}
                           {row.lines.map((l, i) => (
@@ -570,7 +570,7 @@ export function AccountingRules({
                   className="items-start text-left"
                   checked={reviewed}
                   onChange={setReviewed}
-                  label="I reviewed the proposed categories and payees."
+                  label="I reviewed the proposed categories and contacts."
                 />
                 <Button
                   disabled={!reviewed || cmd.busy}
@@ -605,9 +605,9 @@ export function AccountingRules({
       <section className="glass-card overflow-hidden rounded-xl">
         <div className="flex flex-wrap justify-between gap-3 border-b border-border p-4">
           <div>
-            <h3 className="font-medium">Payee aliases</h3>
+            <h3 className="font-medium">Contact aliases</h3>
             <p className="mt-1 text-xs text-muted-foreground">
-              Normalize bank descriptions to a known payee. Different payees
+              Normalize bank descriptions to a known contact. Different contacts
               matching the same movement create an exception.
             </p>
           </div>
@@ -639,7 +639,7 @@ export function AccountingRules({
             skeletonRows={rulesRead.loading ? 3 : 0}
             keyExtractor={(a) => a.id}
             onRowClick={(a) => setAlias(a)}
-            emptyState="No aliases yet. Add a payee under Payees first."
+            emptyState="No aliases yet. Add a contact under Contacts first."
             mobileCard={(a) => (
               <div className="text-sm">
                 <div className="flex items-start justify-between gap-3">
@@ -691,7 +691,7 @@ export function AccountingRules({
             setAlias(null);
             await refresh();
             setNotice(
-              "Payee alias saved. Refresh the preview to see its matches.",
+              "Contact alias saved. Refresh the preview to see its matches.",
             );
           }}
         />
@@ -895,15 +895,15 @@ function RuleEditor({
               }
             />
             <AccountingPicker
-              label="Only this payee"
-              visibleLabel="Only this payee"
+              label="Only this contact"
+              visibleLabel="Only this contact"
               value={value.match_payee_id ?? ""}
-              options={[{ value: "", label: "Any payee" }, ...payees]}
+              options={[{ value: "", label: "Any contact" }, ...payees]}
               onChange={(v) => set("match_payee_id", v || null)}
             />
             <AccountingPicker
-              label="Assign payee"
-              visibleLabel="Assign payee"
+              label="Assign contact"
+              visibleLabel="Assign contact"
               value={value.assign_payee_id ?? ""}
               options={[
                 { value: "", label: "Keep current or resolved alias" },
@@ -967,7 +967,7 @@ function AliasEditor({
             {alias.version ? "Edit alias" : "New alias"}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Match a bank description to a payee.
+            Match a bank description to a contact.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -986,10 +986,10 @@ function AliasEditor({
           }}
         >
           <AccountingPicker
-            label="Payee"
-            visibleLabel="Payee"
+            label="Contact"
+            visibleLabel="Contact"
             required
-            placeholder="Choose payee"
+            placeholder="Choose contact"
             value={value.party_id}
             options={manage.parties
               .filter((p) => !p.is_archived)

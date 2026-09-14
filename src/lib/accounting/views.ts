@@ -33,8 +33,7 @@ export type ManageSection =
   | "registers"
   | "tax"
   | "payees"
-  | "rules"
-  | "settings";
+  | "rules";
 
 const MANAGE_SECTIONS = new Set<string>([
   "feeds",
@@ -44,7 +43,6 @@ const MANAGE_SECTIONS = new Set<string>([
   "tax",
   "payees",
   "rules",
-  "settings",
 ]);
 
 /**
@@ -59,6 +57,7 @@ const LEGACY_SECTIONS: Record<string, ManageSection | null> = {
   history: "imports",
   transfers: null,
   payroll: null,
+  settings: "feeds",
 };
 
 /** Old Records and Settings links keep working: every one of them lands on Manage, Payroll or Transactions. */

@@ -16,7 +16,10 @@ import { payrollFilterSchema } from "@/lib/accounting/payroll";
 import { registerActionSchema } from "@/lib/accounting/registers";
 import { supportReportFilterSchema } from "@/lib/accounting/support-reports";
 import { booksPackageScopeSchema } from "@/lib/accounting/books-package";
-import { reportFilterSchema } from "@/lib/accounting/reports";
+import {
+  DEFAULT_BOOK_MODE,
+  reportFilterSchema,
+} from "@/lib/accounting/reports";
 import { sameOrigin } from "@/lib/accounting/server/request-origin";
 import { boundedBytes } from "@/lib/accounting/server/request-body";
 import { importComparisonFilterSchema } from "@/lib/accounting/imports/comparison";
@@ -537,6 +540,7 @@ export async function GET(req: NextRequest) {
           from: dateSchema,
           to: dateSchema,
           offset: z.coerce.number().int().min(0).default(0),
+          mode: z.enum(["posted", "working"]).default(DEFAULT_BOOK_MODE),
         })
         .refine((v) => v.from <= v.to);
       const parsed = schema.safeParse(
@@ -552,6 +556,7 @@ export async function GET(req: NextRequest) {
         p_from: parsed.data.from,
         p_to: parsed.data.to,
         p_offset: parsed.data.offset,
+        p_mode: parsed.data.mode,
       });
     } else
       return NextResponse.json(
@@ -578,6 +583,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await readAccounting(client, "workspace", {
     p_from: from.data,
     p_to: to.data,
+    p_mode: DEFAULT_BOOK_MODE,
   });
   if (error)
     return NextResponse.json(

@@ -62,7 +62,10 @@ export function conceptsFor(type: AccountKind): readonly TaxConcept[] {
   return type === "income" ? INCOME_CONCEPTS : EXPENSE_CONCEPTS;
 }
 
-export function conceptAllowed(type: AccountKind, concept: TaxConcept): boolean {
+export function conceptAllowed(
+  type: AccountKind,
+  concept: TaxConcept,
+): boolean {
   return conceptsFor(type).includes(concept);
 }
 
@@ -99,7 +102,10 @@ export function sqlConceptToTs(concept: string): TaxConcept | null {
 // Rules
 
 const OFFICER_PURPOSES = new Set(["officer_compensation", "officer_wages"]);
-const UNCATEGORIZED_PURPOSES = new Set(["uncategorized_income", "uncategorized_expense"]);
+const UNCATEGORIZED_PURPOSES = new Set([
+  "uncategorized_income",
+  "uncategorized_expense",
+]);
 
 const PURPOSE_CONCEPT: Record<string, TaxConcept> = {
   officer_compensation: "officer_wages",
@@ -109,14 +115,27 @@ const PURPOSE_CONCEPT: Record<string, TaxConcept> = {
 };
 
 function purposeLabel(purpose: string): string {
-  return defaultChart.find((entry) => entry.purpose === purpose)?.name ?? purpose.replace(/_/g, " ");
+  return (
+    defaultChart.find((entry) => entry.purpose === purpose)?.name ??
+    purpose.replace(/_/g, " ")
+  );
 }
 
-type Rule = { concept: TaxConcept; reason: string; source: TreatmentSource; confidence: "certain" | "likely" };
-type Outcome = { kind: "suggest"; rule: Rule } | { kind: "review"; reason: string } | null;
+type Rule = {
+  concept: TaxConcept;
+  reason: string;
+  source: TreatmentSource;
+  confidence: "certain" | "likely";
+};
+type Outcome =
+  | { kind: "suggest"; rule: Rule }
+  | { kind: "review"; reason: string }
+  | null;
 
 function fromPriorYear(account: TaxAccount, prior: TaxSource | null): Outcome {
-  const mapping = prior?.accounts.find((a) => a.account_id === account.account_id)?.mapping;
+  const mapping = prior?.accounts.find(
+    (a) => a.account_id === account.account_id,
+  )?.mapping;
   if (!mapping || !prior) return null;
   const concept = sqlConceptToTs(String(mapping.concept));
   if (!concept || !conceptAllowed(account.account_type, concept)) return null;
@@ -131,7 +150,10 @@ function fromPriorYear(account: TaxAccount, prior: TaxSource | null): Outcome {
   };
 }
 
-function fromPurpose(account: TaxAccount, profile: AccountProfile | undefined): Outcome {
+function fromPurpose(
+  account: TaxAccount,
+  profile: AccountProfile | undefined,
+): Outcome {
   const purpose = profile?.purpose;
   if (!purpose) return null;
   if (UNCATEGORIZED_PURPOSES.has(purpose)) {
@@ -164,15 +186,36 @@ function fromPurpose(account: TaxAccount, profile: AccountProfile | undefined): 
 const INCOME_PATTERNS: { concept: TaxConcept; test: RegExp; what: string }[] = [
   { concept: "interest", test: /\binterest\b/i, what: "interest" },
   { concept: "qualified_dividend", test: /\bdividend/i, what: "dividend" },
-  { concept: "tax_exempt", test: /tax[\s-]?exempt|municipal/i, what: "tax-exempt" },
+  {
+    concept: "tax_exempt",
+    test: /tax[\s-]?exempt|municipal/i,
+    what: "tax-exempt",
+  },
 ];
-const EXPENSE_PATTERNS: { concept: TaxConcept; test: RegExp; what: string }[] = [
-  { concept: "meals", test: /\bmeals?\b|\bdining\b|\brestaurant/i, what: "meals" },
-  { concept: "travel", test: /\btravel|\bairfare|\bflights?\b|\blodging|\bhotel|\bmileage/i, what: "travel" },
-  { concept: "nondeductible", test: /\bpenalt|\bfines?\b|\bentertain|income tax|federal tax|state tax|estimated tax/i, what: "a nondeductible item" },
-  { concept: "charity", test: /\bcharit|\bdonation/i, what: "charity" },
-  { concept: "officer_wages", test: /\bofficer\b.*(salar|wage|comp)|(salar|wage|comp).*\bofficer\b/i, what: "officer wages" },
-];
+const EXPENSE_PATTERNS: { concept: TaxConcept; test: RegExp; what: string }[] =
+  [
+    {
+      concept: "meals",
+      test: /\bmeals?\b|\bdining\b|\brestaurant/i,
+      what: "meals",
+    },
+    {
+      concept: "travel",
+      test: /\btravel|\bairfare|\bflights?\b|\blodging|\bhotel|\bmileage/i,
+      what: "travel",
+    },
+    {
+      concept: "nondeductible",
+      test: /\bpenalt|\bfines?\b|\bentertain|income tax|federal tax|state tax|estimated tax/i,
+      what: "a nondeductible item",
+    },
+    { concept: "charity", test: /\bcharit|\bdonation/i, what: "charity" },
+    {
+      concept: "officer_wages",
+      test: /\bofficer\b.*(salar|wage|comp)|(salar|wage|comp).*\bofficer\b/i,
+      what: "officer wages",
+    },
+  ];
 
 /** Every treatment a name points at, or a review flag when gains lack a term. */
 function nameMatches(
@@ -181,21 +224,30 @@ function nameMatches(
 ): Map<TaxConcept, string> | { kind: "review"; reason: string } {
   const matches = new Map<TaxConcept, string>();
   if (type === "income") {
-    for (const p of INCOME_PATTERNS) if (p.test.test(text)) matches.set(p.concept, p.what);
+    for (const p of INCOME_PATTERNS)
+      if (p.test.test(text)) matches.set(p.concept, p.what);
     if (/\bgains?\b|\blosse?s?\b/i.test(text)) {
       const long = /\blong[\s-]?term|\blong\b/i.test(text);
       const short = /\bshort[\s-]?term|\bshort\b/i.test(text);
       if (long && !short) matches.set("long_gain", "long-term gains");
       else if (short && !long) matches.set("short_gain", "short-term gains");
-      else return { kind: "review", reason: "Say whether these gains are short- or long-term" };
+      else
+        return {
+          kind: "review",
+          reason: "Say whether these gains are short- or long-term",
+        };
     }
   } else {
-    for (const p of EXPENSE_PATTERNS) if (p.test.test(text)) matches.set(p.concept, p.what);
+    for (const p of EXPENSE_PATTERNS)
+      if (p.test.test(text)) matches.set(p.concept, p.what);
   }
   return matches;
 }
 
-function fromName(account: TaxAccount, profile: AccountProfile | undefined): Outcome {
+function fromName(
+  account: TaxAccount,
+  profile: AccountProfile | undefined,
+): Outcome {
   // The owner's own name for the account is the deliberate signal. The name
   // it had in Wave only counts when the current name says nothing, so a
   // rename is never second-guessed by the alias it replaced.
@@ -212,7 +264,8 @@ function fromName(account: TaxAccount, profile: AccountProfile | undefined): Out
   }
 
   if (matches.size === 0) return null;
-  if (matches.size > 1) return { kind: "review", reason: `${where} fits more than one treatment` };
+  if (matches.size > 1)
+    return { kind: "review", reason: `${where} fits more than one treatment` };
   const [concept, what] = [...matches.entries()][0];
   return {
     kind: "suggest",
@@ -232,8 +285,14 @@ const SUBTYPE_CONCEPT: Record<string, TaxConcept> = {
   payroll_expense: "ordinary_expense",
 };
 
-function fromSubtype(account: TaxAccount, profile: AccountProfile | undefined): Outcome {
-  const subtype = (profile?.subtype ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+function fromSubtype(
+  account: TaxAccount,
+  profile: AccountProfile | undefined,
+): Outcome {
+  const subtype = (profile?.subtype ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
   const concept = SUBTYPE_CONCEPT[subtype];
   if (!concept || !conceptAllowed(account.account_type, concept)) return null;
   return {

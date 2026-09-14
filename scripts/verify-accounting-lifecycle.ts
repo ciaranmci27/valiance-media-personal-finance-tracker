@@ -101,6 +101,7 @@ async function verify(source: "canonical" | "migrations") {
       entry_date: "2026-09-02",
       reason: "Test reversal",
     };
+    // The bank side of a matched entry is the bank's fact: an edit may not move its date...
     await assert.rejects(
       async () =>
         cmd({
@@ -111,7 +112,24 @@ async function verify(source: "canonical" | "migrations") {
           memo: "Matched correction",
           lines: (await detail(original.id)).lines,
         }),
-      /ACCT_CORRECTION_LINKED/,
+      /ACCT_BANK_SOURCE_CHANGED/,
+    );
+    // ...or change its amount.
+    await assert.rejects(
+      async () =>
+        cmd({
+          ...reverseCommand,
+          type: "entry.correct",
+          entry_date: "2026-09-01",
+          replacement_id: randomUUID(),
+          reversal_date: "2026-09-01",
+          memo: "Matched correction",
+          lines: [
+            { account_id: bank, amount_cents: "12000" },
+            { account_id: income, amount_cents: "-12000" },
+          ],
+        }),
+      /ACCT_BANK_SOURCE_CHANGED/,
     );
     assert.equal(
       (await detail(original.id)).matches.length,
@@ -612,6 +630,69 @@ async function verify(source: "canonical" | "migrations") {
       effect.find((r) => r.id === income)?.change,
       BigInt(2000),
       "credit-normal income shows an increase",
+    );
+    // An edit that keeps the bank side carries the bank evidence to the new version.
+    const software = ac.find((a) => a.name === "Software")!.id;
+    const office = ac.find((a) => a.name === "Office expenses")!.id;
+    const kept = await post("2026-09-03", "Lifecycle software", [
+      { account_id: bank, amount_cents: "-4500" },
+      { account_id: software, amount_cents: "4500" },
+    ]);
+    await db.exec("RESET ROLE");
+    const keptObservation = (
+      await db.query<{ id: string }>(
+        "INSERT INTO accounting.bank_transactions(bank_account_id,source,external_id,posted_date,amount_cents,description,content_hash,raw_payload,state) VALUES($1,'simplefin','lifecycle-software','2026-09-03',-4500,'Lifecycle software',$2,'{}','posted') RETURNING id",
+        [ba, "b".repeat(64)],
+      )
+    ).rows[0].id;
+    await db.exec("SET ROLE authenticated");
+    await cmd({
+      type: "bank.match",
+      id: randomUUID(),
+      bank_transaction_id: keptObservation,
+      allocations: [
+        {
+          line_id: (await detail(kept.id)).lines.find(
+            (l: any) => l.account_id === bank,
+          ).id,
+          amount_cents: "4500",
+        },
+      ],
+      reason: "Fixture match",
+    });
+    const edited = await cmd({
+      type: "entry.correct",
+      id: kept.id,
+      expected_version: (await detail(kept.id)).version,
+      replacement_id: randomUUID(),
+      entry_date: "2026-09-03",
+      reversal_date: "2026-09-03",
+      memo: "Lifecycle software",
+      reason: "Recategorized",
+      lines: [
+        { account_id: bank, amount_cents: "-4500" },
+        { account_id: office, amount_cents: "4500" },
+      ],
+    });
+    assert.equal(
+      (await detail(edited.id)).matches.length,
+      1,
+      "edit carries bank evidence to the new version",
+    );
+    assert.equal(
+      (await detail(kept.id)).matches.length,
+      0,
+      "earlier version releases its evidence",
+    );
+    assert.equal(
+      (
+        await inspect(
+          "SELECT review FROM accounting.bank_transactions WHERE id=$1",
+          [keptObservation],
+        )
+      ).rows[0].review,
+      "matched",
+      "observation stays matched through the edit",
     );
     await db.exec("SET ROLE anon");
     await assert.rejects(

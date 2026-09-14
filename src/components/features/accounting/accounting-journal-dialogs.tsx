@@ -36,6 +36,7 @@ import type {
 import type { Party, WorkflowCommand } from "@/lib/accounting/workflows";
 import type { BooksMetadata } from "./types";
 import { AccountingContextEditor } from "./accounting-context-editor";
+import { partyRelationshipLabel } from "./accounting-party-form";
 import { EntryEvidenceDisclosure } from "./accounting-entry-evidence";
 import { EntryNotes } from "./accounting-entry-notes";
 import { commandContext, type CommandContext } from "./use-accounting-command";
@@ -172,6 +173,16 @@ export function EntryDetailDialog({
   const bankIdentity = useAccountingBankIdentity();
   const reviewed = !!entry && isTransactionReviewed(entry);
   const totals = journalTotals(entry?.lines ?? []);
+  // Who the transaction was with. Transfers, payroll and opening balances
+  // carry no contact, so they show no row rather than an empty one.
+  const party = parties.find((p) => p.id === entry?.context?.payee_id) ?? null;
+  const takesContact =
+    !!entry &&
+    !entry.transfer_group_id &&
+    !entry.payroll_run_id &&
+    !["transfer", "payroll", "opening", "invoice_receipt"].includes(
+      entry.context?.kind ?? "",
+    );
   const more: RowAction[] = entry
     ? [
         {
@@ -183,9 +194,7 @@ export function EntryDetailDialog({
         ...(entry.status === "posted" && !isTransactionReversed(entry)
           ? [
               {
-                label: entry.payroll_run_id
-                  ? "Open payroll to undo"
-                  : "Reverse",
+                label: entry.payroll_run_id ? "Open payroll to undo" : "Delete",
                 icon: <RotateCcw size={14} aria-hidden="true" />,
                 onSelect: () => onReverse(entry),
                 disabled: demo,
@@ -207,7 +216,7 @@ export function EntryDetailDialog({
         ...(entry.status === "draft"
           ? [
               {
-                label: "Discard draft",
+                label: "Delete draft",
                 icon: <X size={14} aria-hidden="true" />,
                 onSelect: () => onDiscard(entry),
                 disabled: demo,
@@ -243,7 +252,9 @@ export function EntryDetailDialog({
                   size="sm"
                 >
                   {isTransactionReversed(entry)
-                    ? "Reversed"
+                    ? entry.replacement_entry_id
+                      ? "Earlier version"
+                      : "Deleted"
                     : entry.status === "posted"
                       ? reviewed
                         ? "Reviewed"
@@ -283,6 +294,18 @@ export function EntryDetailDialog({
               <p className="text-3xl font-semibold tracking-tight tabular-nums">
                 <MaskedValue value={absMoney(totals.debit)} />
               </p>
+              {(party || takesContact) && (
+                <div className="flex items-center justify-between gap-3 rounded-xl border border-border px-4 py-3 text-sm">
+                  <span className="shrink-0 text-muted-foreground">
+                    {party ? partyRelationshipLabel(party) : "Contact"}
+                  </span>
+                  {party ? (
+                    <span className="truncate font-medium">{party.name}</span>
+                  ) : (
+                    <span className="text-muted-foreground">No contact</span>
+                  )}
+                </div>
+              )}
               <div className="divide-y divide-border rounded-xl border border-border">
                 {entry.lines.map((l) => (
                   <div
@@ -323,7 +346,7 @@ export function EntryDetailDialog({
               <JournalTotals {...totals} />
               {entry.reverses_entry_id && (
                 <p className="text-xs text-muted-foreground">
-                  This reverses an earlier entry.{" "}
+                  This entry deletes an earlier transaction.{" "}
                   <Link
                     className="text-teal-light underline-offset-4 hover:underline"
                     href={`/accounting?${range}&entry=${entry.reverses_entry_id}`}
@@ -334,14 +357,29 @@ export function EntryDetailDialog({
               )}
               {entry.reversed_by_entry_id && (
                 <p className="text-xs text-muted-foreground">
-                  This entry has been reversed.{" "}
-                  <Link
-                    className="text-teal-light underline-offset-4 hover:underline"
-                    href={`/accounting?${range}&entry=${entry.reversed_by_entry_id}`}
-                  >
-                    View reversal
-                  </Link>
-                  . Both stay in the books.
+                  {entry.replacement_entry_id ? (
+                    <>
+                      This is an earlier version of the transaction.{" "}
+                      <Link
+                        className="text-teal-light underline-offset-4 hover:underline"
+                        href={`/accounting?${range}&entry=${entry.replacement_entry_id}`}
+                      >
+                        View the current version
+                      </Link>
+                      .
+                    </>
+                  ) : (
+                    <>
+                      This transaction was deleted.{" "}
+                      <Link
+                        className="text-teal-light underline-offset-4 hover:underline"
+                        href={`/accounting?${range}&entry=${entry.reversed_by_entry_id}`}
+                      >
+                        View the deletion
+                      </Link>
+                      . It stays in your history.
+                    </>
+                  )}
                 </p>
               )}
               {entry.restored_by_entry_id && (
@@ -401,14 +439,6 @@ export function EntryDetailDialog({
                     disabled: busy || action.disabled,
                   }))}
                 />
-                {!demo && (
-                  <Link
-                    className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-                    href={`/accounting?${range}&entry=${entry.id}`}
-                  >
-                    Entry link
-                  </Link>
-                )}
               </div>
               <div className="flex items-center gap-2">
                 {entry.status === "draft" && (
@@ -428,7 +458,7 @@ export function EntryDetailDialog({
                     variant="outline"
                     onClick={() => onCorrect(entry)}
                   >
-                    Correct
+                    Edit
                   </Button>
                 )}
                 {entry.status !== "discarded" &&
@@ -600,7 +630,7 @@ export function JournalEditorDialog({
         <DialogHeader className="border-b border-border px-6 py-4 text-left sm:px-8">
           <DialogTitle>
             {editor?.corrects
-              ? "Correct entry"
+              ? "Edit entry"
               : editor?.version
                 ? "Edit journal entry"
                 : "New journal entry"}
@@ -673,6 +703,7 @@ export function JournalEditorDialog({
                           className="min-w-0"
                           value={editor.context}
                           manage={manage}
+                          accounts={accounts}
                           onChange={(context) =>
                             setEditor({ ...editor, context })
                           }
@@ -682,7 +713,7 @@ export function JournalEditorDialog({
                     {editor.corrects && (
                       <div className="grid gap-4 md:grid-cols-[11rem_minmax(0,1fr)]">
                         <DateInput
-                          label="Reverse original on"
+                          label="Earlier version ends on"
                           required
                           value={
                             editor.reversalDate ?? editor.corrects.entry_date
@@ -692,8 +723,8 @@ export function JournalEditorDialog({
                           }
                         />
                         <TextInput
-                          label="Correction reason"
-                          required
+                          label="Note"
+                          placeholder="Optional"
                           maxLength={1000}
                           value={editor.correctionReason ?? ""}
                           onChange={(nextValue) =>
@@ -853,7 +884,7 @@ export function JournalEditorDialog({
                 disabled={busy || Boolean(amountError)}
                 loading={busy}
               >
-                {editor.corrects ? "Review correction" : "Save draft"}
+                {editor.corrects ? "Review changes" : "Save draft"}
               </Button>
             </div>
           </form>
@@ -898,8 +929,8 @@ export function ApprovalDialog({
               : kind === "entry.restore"
                 ? "Restore transaction?"
                 : kind === "entry.reverse"
-                  ? "Reverse transaction?"
-                  : "Discard draft"}
+                  ? "Delete transaction?"
+                  : "Delete draft?"}
           </DialogTitle>
           <DialogDescription>{approval?.entry.memo}</DialogDescription>
         </DialogHeader>
@@ -952,6 +983,11 @@ function ApprovalForm({
           id: approval.entry.id,
           expected_version: approval.entry.version,
         };
+        const note =
+          reason.trim() ||
+          (kind === "entry.restore"
+            ? "Restored in Transactions"
+            : "Deleted in Transactions");
         const command: WorkflowCommand =
           kind === "entry.post"
             ? { ...common, type: "entry.post" }
@@ -960,9 +996,9 @@ function ApprovalForm({
                   ...common,
                   type: kind,
                   entry_date: date,
-                  reason,
+                  reason: note,
                 }
-              : { ...common, type: "draft.discard", reason };
+              : { ...common, type: "draft.discard", reason: note };
         if (await onSubmit(command)) onClose();
       }}
     >
@@ -997,16 +1033,16 @@ function ApprovalForm({
       />
       {kind === "entry.reverse" && (
         <p className="text-sm text-muted-foreground">
-          Creates an opposite entry on {dateLabel(date)}. The transaction moves
-          to Reversed; reports before that date keep the original effect. Linked
-          bank activity will not be automatically imported again.
+          Deletes this transaction as of {dateLabel(date)}. It moves to Deleted
+          and can be restored; reports before that date keep its effect. Linked
+          bank activity will not be imported again.
         </p>
       )}
       {kind === "entry.restore" && (
         <p className="text-sm text-muted-foreground">
-          Creates a replacement on {dateLabel(date)} and reconnects available
-          bank evidence. The original and reversal remain in history. Choose a
-          date on or after the reversal.
+          Brings the transaction back on {dateLabel(date)} and reconnects
+          available bank evidence. The deletion stays in history. Choose a date
+          on or after the deletion.
         </p>
       )}
       {kind === "draft.discard" && (
@@ -1016,9 +1052,7 @@ function ApprovalForm({
       )}
       {(kind === "entry.reverse" || kind === "entry.restore") && (
         <DateInput
-          label={
-            kind === "entry.restore" ? "Restoration date" : "Reversal date"
-          }
+          label={kind === "entry.restore" ? "Restore on" : "Delete on"}
           required
           value={date}
           onChange={(nextValue) => setDate(nextValue)}
@@ -1026,8 +1060,8 @@ function ApprovalForm({
       )}
       {kind !== "entry.post" && (
         <TextInput
-          label="Reason"
-          required
+          label="Note"
+          placeholder="Optional"
           maxLength={1000}
           value={reason}
           onChange={(nextValue) => setReason(nextValue)}
@@ -1048,8 +1082,8 @@ function ApprovalForm({
             : kind === "entry.restore"
               ? "Restore transaction"
               : kind === "entry.reverse"
-                ? "Reverse transaction"
-                : "Discard draft"}
+                ? "Delete transaction"
+                : "Delete draft"}
         </Button>
       </div>
     </form>
@@ -1092,15 +1126,15 @@ export function ReplacementReviewDialog({
     >
       <DialogContent className="max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Apply correction?</DialogTitle>
+          <DialogTitle>Save changes?</DialogTitle>
           <DialogDescription>{review?.memo}</DialogDescription>
         </DialogHeader>
         {review && (
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Reverses the original on {dateLabel(review.reversal_date)} and
-              posts the replacement on {dateLabel(review.entry_date)}.
-              {review.reason ? ` Reason: ${review.reason}` : ""}
+              Ends the earlier version on {dateLabel(review.reversal_date)} and
+              saves the new one on {dateLabel(review.entry_date)}.
+              {review.reason ? ` Note: ${review.reason}` : ""}
             </p>
             {!!impact.length && (
               <div className="hidden overflow-x-auto rounded-xl border border-border sm:block">
@@ -1187,21 +1221,20 @@ export function ReplacementReviewDialog({
             {original && (
               <p className="text-sm text-muted-foreground">
                 {review.reversal_date !== original.entry_date
-                  ? `The original remains effective from ${dateLabel(original.entry_date)} until its reversal on ${dateLabel(review.reversal_date)}. `
-                  : `The original effect is canceled on ${dateLabel(original.entry_date)}. `}
+                  ? `The earlier version stays in effect from ${dateLabel(original.entry_date)} until ${dateLabel(review.reversal_date)}. `
+                  : `The earlier version ends on ${dateLabel(original.entry_date)}. `}
                 {review.entry_date.slice(0, 7) !==
                 original.entry_date.slice(0, 7)
-                  ? "The replacement affects a different month. "
-                  : "The replacement stays in the same month. "}
+                  ? "The new version lands in a different month. "
+                  : "The new version stays in the same month. "}
                 These are journal effects, not transfers of money at your bank.
-                Both entries save together, and receipts remain attached.
+                Both versions save together, and receipts stay attached.
               </p>
             )}
             {linked && (
               <p role="alert" className="text-sm text-warning">
                 This entry has linked records. Resolve its bank matches or use
-                its payroll, transfer, or register workflow before correcting
-                it.
+                its payroll, transfer, or register workflow before editing it.
               </p>
             )}
             <div className="divide-y divide-border rounded-xl border border-border">
@@ -1232,7 +1265,7 @@ export function ReplacementReviewDialog({
                 disabled={busy || linked || !original}
                 onClick={onApply}
               >
-                Apply correction
+                Save changes
               </Button>
             </div>
           </div>

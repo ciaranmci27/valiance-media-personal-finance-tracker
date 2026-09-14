@@ -4,9 +4,7 @@ import { z } from "zod";
 import { ACCOUNTING_ENABLED, isLocalOrTestEnv } from "@/lib/env";
 import { isDemoMode } from "@/lib/demo";
 import { getAccountingDemo } from "@/lib/accounting/demo";
-import {
-  accountingError,
-} from "@/lib/accounting/server/access";
+import { accountingError } from "@/lib/accounting/server/access";
 import {
   dateSchema,
   type AccountingWorkspace,

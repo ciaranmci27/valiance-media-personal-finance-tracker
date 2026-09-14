@@ -2,12 +2,14 @@
 
 import * as React from "react";
 import * as Menu from "@radix-ui/react-dropdown-menu";
-import { MoreHorizontal } from "lucide-react";
+import { Check, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface RowAction {
   label: string;
   icon?: React.ReactNode;
+  /** Marks the current choice in a pick-one menu. */
+  checked?: boolean;
   onSelect: () => void;
   variant?: "default" | "danger";
   disabled?: boolean;
@@ -21,6 +23,8 @@ export interface RowActionsMenuProps {
   label: string;
   align?: "start" | "end";
   className?: string;
+  /** A custom trigger element; the default is a "more" button. */
+  trigger?: React.ReactNode;
 }
 
 /**
@@ -33,25 +37,28 @@ export function RowActionsMenu({
   label,
   align = "end",
   className,
+  trigger,
 }: RowActionsMenuProps) {
   if (!actions.length) return null;
   return (
     <Menu.Root modal={false}>
       <Menu.Trigger asChild>
-        <button
-          type="button"
-          aria-label={label}
-          onClick={(e) => e.stopPropagation()}
-          className={cn(
-            "inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors",
-            "hover:bg-secondary hover:text-foreground",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-            "data-[state=open]:bg-secondary data-[state=open]:text-foreground",
-            className,
-          )}
-        >
-          <MoreHorizontal size={16} aria-hidden="true" />
-        </button>
+        {trigger ?? (
+          <button
+            type="button"
+            aria-label={label}
+            onClick={(e) => e.stopPropagation()}
+            className={cn(
+              "inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors",
+              "hover:bg-secondary hover:text-foreground",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+              "data-[state=open]:bg-secondary data-[state=open]:text-foreground",
+              className,
+            )}
+          >
+            <MoreHorizontal size={16} aria-hidden="true" />
+          </button>
+        )}
       </Menu.Trigger>
       <Menu.Portal>
         <Menu.Content
@@ -86,6 +93,13 @@ export function RowActionsMenu({
                   </span>
                 )}
                 {action.label}
+                {action.checked && (
+                  <Check
+                    size={14}
+                    aria-hidden="true"
+                    className="ml-auto text-teal-light"
+                  />
+                )}
               </Menu.Item>
             </React.Fragment>
           ))}

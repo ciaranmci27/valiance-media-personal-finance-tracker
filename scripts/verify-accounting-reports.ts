@@ -35,6 +35,7 @@ async function main() {
     const names: Record<string, string> = {
       acct_report: "accounting.report('summary',$1)",
       acct_ledger_report: "accounting.report('general_ledger',$1)",
+      acct_balance_sheet: "accounting.report('balance_sheet',$1)",
       acct_report_detail: `accounting.report_lines('${arg?.cash_class ? "cash_movements" : "general_ledger"}',$1)`,
       acct_snapshot_read: "accounting.snapshot_read($1)",
       acct_register: "accounting.transactions($1)",
@@ -314,6 +315,58 @@ async function main() {
         .totals.income_cents,
       "190100",
     );
+    // The workspace reads reviewed entries by default and everything on request.
+    const workspaceOf = async (mode?: string) =>
+      (
+        await db.query<{ r: any }>(
+          mode
+            ? "SELECT accounting.workspace('2026-01-01','2026-02-28',$1) r"
+            : "SELECT accounting.workspace('2026-01-01','2026-02-28') r",
+          mode ? [mode] : [],
+        )
+      ).rows[0].r;
+    const balanceOf = (w: any) =>
+      BigInt(
+        w.balances.find((b: any) => b.id === fixtureAccountId(1)).ending_cents,
+      );
+    const reviewedWorkspace = await workspaceOf();
+    const allWorkspace = await workspaceOf("working");
+    check(
+      (balanceOf(allWorkspace) - balanceOf(reviewedWorkspace)).toString(),
+      "100",
+    );
+    check(reviewedWorkspace.draft_count, 1);
+    check(allWorkspace.draft_count, 1);
+    check(
+      (
+        await read<ReportData>("acct_balance_sheet", {
+          ...filter,
+          mode: "working",
+        })
+      ).totals.difference_cents,
+      "0",
+    );
+    // An all-activity report can be retained; the document names its scope.
+    const allReport = await read<ReportData>("acct_report", {
+      ...filter,
+      mode: "working",
+    });
+    const allId = randomUUID();
+    await cmd({
+      ...capture,
+      id: allId,
+      expected_revision: allReport.revision,
+      filter: allReport.filter,
+    });
+    const allSnapshot = await read<DetailedReportSnapshot>(
+      "acct_snapshot_read",
+      allId,
+    );
+    check(allSnapshot.payload.data.filter.mode, "working");
+    check(
+      reportDocument(allSnapshot).metadata.find(([k]) => k === "Scope")?.[1],
+      "All activity, includes 1 transaction awaiting review",
+    );
     await cmd({
       type: "draft.save",
       id: randomUUID(),
@@ -452,6 +505,25 @@ async function main() {
       expected_version: draft.version,
       reason: "Synthetic working draft complete",
     });
+    // A draft without two lines is incomplete, not silently absent.
+    await cmd({
+      type: "draft.save",
+      id: randomUUID(),
+      expected_version: 0,
+      entry_date: "2026-02-13",
+      memo: "Empty draft counts as incomplete",
+      lines: [],
+    });
+    const incomplete = await read<ReportData>("acct_report", {
+      ...filter,
+      mode: "working",
+    });
+    check(incomplete.quality.draft_count, 2);
+    check(incomplete.quality.unbalanced_drafts, 2);
+    check(
+      incomplete.totals.income_cents,
+      (await read<ReportData>("acct_report", filter)).totals.income_cents,
+    );
     console.log(
       `Detailed reports, exact comparisons, cash classifications and payee reversals: ${checks} assertions passed.`,
     );

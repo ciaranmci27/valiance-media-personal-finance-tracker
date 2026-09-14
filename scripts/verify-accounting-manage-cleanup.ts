@@ -23,20 +23,19 @@ async function main() {
   const cmd = async (c: object, key = randomUUID()): Promise<Json> =>
     (
       await db
-        .query<{ r: Json }>(
-          "SELECT accounting.operate(jsonb_build_object('key',$1::text,'command',$2::jsonb)) r",
-          [key, JSON.stringify(c)],
-        )
+        .query<{
+          r: Json;
+        }>("SELECT accounting.operate(jsonb_build_object('key',$1::text,'command',$2::jsonb)) r", [key, JSON.stringify(c)])
         .catch((e) => {
           throw new Error(`${JSON.stringify(c)}: ${e.message}`);
         })
     ).rows[0].r;
   const context = async (view: string, params: object): Promise<Json> =>
     (
-      await db.query<{ r: Json }>(
-        "SELECT accounting.context($1,$2::jsonb) r",
-        [view, JSON.stringify(params)],
-      )
+      await db.query<{ r: Json }>("SELECT accounting.context($1,$2::jsonb) r", [
+        view,
+        JSON.stringify(params),
+      ])
     ).rows[0].r;
   const documents = async (): Promise<Json[]> =>
     (await db.query<{ r: Json }>("SELECT accounting.documents('{}'::jsonb) r"))
@@ -71,7 +70,11 @@ async function main() {
         memo,
         lines,
       });
-      r = await cmd({ type: "entry.post", id: r.id, expected_version: r.version });
+      r = await cmd({
+        type: "entry.post",
+        id: r.id,
+        expected_version: r.version,
+      });
       return r;
     };
     const sale = await post("Synthetic sale", [
@@ -192,7 +195,11 @@ async function main() {
     check(paged.total, 2);
     check(paged.groups.length, 1);
     check(paged.groups[0].amount_cents, "200");
-    const second = await context("transfers", { ...range, limit: 1, offset: 1 });
+    const second = await context("transfers", {
+      ...range,
+      limit: 1,
+      offset: 1,
+    });
     check(second.groups[0].amount_cents, "100");
     const byId = await context("transfers", {
       from: "2026-01-01",
@@ -202,7 +209,10 @@ async function main() {
     check(byId.total, 1);
     check(byId.groups[0].id, one.id);
     check(byId.groups[0].amount_cents, "100");
-    check((await context("transfers", { ...range, id: randomUUID() })).total, 0);
+    check(
+      (await context("transfers", { ...range, id: randomUUID() })).total,
+      0,
+    );
     const leg = (
       await db.query<{ r: Json }>("SELECT accounting.entry_detail($1) r", [
         one.outgoing_entry_id,

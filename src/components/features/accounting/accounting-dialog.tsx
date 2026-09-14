@@ -238,9 +238,7 @@ export async function linkedEntry(id: string): Promise<JournalEntry> {
   });
   const entry = result.entries[0];
   if (!entry || entry.status !== "posted" || entry.reversed_by_entry_id)
-    throw new Error(
-      "Choose a reviewed transaction that has not been reversed.",
-    );
+    throw new Error("Choose a reviewed transaction that has not been deleted.");
   return entry;
 }
 

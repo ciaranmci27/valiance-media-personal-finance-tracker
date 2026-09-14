@@ -64,7 +64,8 @@ export function AccountingEntryPicker({
     <div className="space-y-3">
       <TextInput
         label="Find a transaction"
-        placeholder="Search description, payee or account"
+        placeholder="Search description, contact or account"
+        clearable
         value={query}
         disabled={disabled}
         onChange={(nextValue) => {
@@ -100,7 +101,11 @@ export function AccountingEntryPicker({
                 {dateLabel(entry.entry_date)} |{" "}
                 {isTransactionReviewed(entry) ? "Reviewed" : "Needs review"} |{" "}
                 {enumLabel(entry.primary_origin)}
-                {entry.reversed_by_entry_id ? " | Corrected or reversed" : ""}
+                {entry.reversed_by_entry_id
+                  ? entry.replacement_entry_id
+                    ? " | Earlier version"
+                    : " | Deleted"
+                  : ""}
               </span>
             </span>
           </label>

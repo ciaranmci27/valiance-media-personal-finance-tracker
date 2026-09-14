@@ -3,15 +3,15 @@ import { Disclosure } from "@/components/ui/disclosure";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { Landmark, Search, Pencil, Plus } from "lucide-react";
+import { History, Landmark, Search, Pencil, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Pagination } from "@/components/ui/pagination";
+import { RowActionsMenu } from "@/components/ui/row-actions-menu";
 import { Select } from "@/components/ui/inputs/Select";
-import { Tooltip } from "@/components/ui/tooltip";
 import {
   Dialog,
   DialogContent,
@@ -22,6 +22,7 @@ import {
 import { MaskedValue } from "@/components/ui/masked-value";
 import { cn } from "@/lib/utils";
 import { defaultChart } from "@/lib/accounting/chart";
+import { DEFAULT_BOOK_MODE } from "@/lib/accounting/reports";
 import type {
   AccountingAccount,
   AccountingWorkspace,
@@ -30,9 +31,11 @@ import type {
 import type { AccountProfile } from "@/lib/accounting/workflows";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { AccountingBankPanel } from "./accounting-bank-panel";
+import { AccountingAccountLabel } from "./accounting-bank-identity";
+import { FilterPopover } from "./accounting-filter-popover";
 import { AccountingPicker } from "./accounting-picker";
 import { AccountingReconciliation } from "./accounting-reconciliation";
-import { dateLabel, enumLabel, money } from "./format";
+import { dateLabel, enumLabel, money, todayInBooks } from "./format";
 
 const accountTypeFilters: [string, string][] = [
   ["all", "All accounts"],
@@ -76,7 +79,11 @@ export function AccountingAccounts({
   >();
   const [type, setType] = useState("all");
   const [archived, setArchived] = useState(false);
+  const [filters, setFilters] = useState(false);
   const [asOf, setAsOf] = useState(data.to);
+  // Balances on a past date count as a filter, so the button says so.
+  const historic = data.to !== todayInBooks();
+  const activeFilters = (archived ? 1 : 0) + (historic ? 1 : 0);
   const yearStart = `${asOf.slice(0, 4)}-01-01`;
   const [ledger, setLedger] = useState<BalanceRow | null>(null);
   const [seed, setSeed] = useState(false);
@@ -93,9 +100,9 @@ export function AccountingAccounts({
     ) ?? localReconcile;
   const command = useAccountingCommand(onRefresh);
   const profileMap = new Map(profiles.map((p) => [p.account_id, p]));
-  const cashAccounts = data.balances.filter((a) =>
-    ["bank", "cash", "card"].includes(profileMap.get(a.id)?.cash_kind ?? ""),
-  );
+  const isCash = (a: BalanceRow) =>
+    ["bank", "cash", "card"].includes(profileMap.get(a.id)?.cash_kind ?? "");
+  const cashAccounts = data.balances.filter(isCash);
   const filtered = data.balances.filter(
     (a) =>
       (type === "all" || a.account_type === type) &&
@@ -107,44 +114,57 @@ export function AccountingAccounts({
     setEditingProfile(profileMap.get(a.id));
     setEditing(a);
   };
-  const editButton = (a: BalanceRow, size: "icon" | "icon-sm") => (
-    <Tooltip content={`Edit ${a.name}`}>
-      <Button
-        variant="ghost"
-        size={size}
-        aria-label={`Edit ${a.name}`}
-        disabled={demo}
-        onClick={() => startEdit(a)}
-      >
-        <Pencil size={14} aria-hidden="true" />
-      </Button>
-    </Tooltip>
+  const rowActions = (a: BalanceRow) => [
+    {
+      label: "View activity",
+      icon: <History size={14} aria-hidden="true" />,
+      onSelect: () => setLedger(a),
+    },
+    {
+      label: "Edit",
+      icon: <Pencil size={14} aria-hidden="true" />,
+      onSelect: () => startEdit(a),
+      disabled: demo,
+    },
+  ];
+  // Bank, card and cash accounts carry their institution mark, as in the
+  // transactions list; the code, when there is one, follows the name.
+  const nameCell = (a: BalanceRow) => (
+    <button
+      type="button"
+      onClick={() => setLedger(a)}
+      className={cn(
+        linkClass,
+        "flex min-w-0 max-w-full items-center gap-2 font-medium",
+      )}
+    >
+      {isCash(a) ? (
+        <AccountingAccountLabel accountId={a.id} name={a.name} />
+      ) : (
+        <span className="truncate">{a.name}</span>
+      )}
+      {a.code && (
+        <span className="shrink-0 font-mono text-xs font-normal text-muted-foreground">
+          {a.code}
+        </span>
+      )}
+      {a.is_archived && (
+        <Badge size="sm" className="shrink-0">
+          Archived
+        </Badge>
+      )}
+    </button>
   );
   const columns: DataTableColumn<BalanceRow>[] = [
     {
       key: "account",
       header: "Account",
-      render: (a) => (
-        <button
-          type="button"
-          onClick={() => setLedger(a)}
-          className={linkClass}
-        >
-          <span className="mr-3 font-mono text-xs text-muted-foreground">
-            {a.code}
-          </span>
-          {a.name}
-          {a.is_archived && (
-            <Badge size="sm" className="ml-2">
-              Archived
-            </Badge>
-          )}
-        </button>
-      ),
+      render: nameCell,
     },
     {
       key: "type",
       header: "Type",
+      className: "w-[18%]",
       render: (a) => (
         <span className="text-muted-foreground">
           {enumLabel(a.account_type)}
@@ -153,19 +173,25 @@ export function AccountingAccounts({
     },
     {
       key: "balance",
-      header: "Book balance",
+      header: historic ? `Balance on ${dateLabel(data.to)}` : "Book balance",
       align: "right",
       numeric: true,
+      width: "w-40",
       render: (a) => (
         <MaskedValue className="tabular-nums" value={bookBalance(a)} />
       ),
     },
     {
-      key: "edit",
-      header: <span className="sr-only">Edit</span>,
+      key: "actions",
+      header: <span className="sr-only">Actions</span>,
       align: "right",
       width: "w-12",
-      render: (a) => editButton(a, "icon"),
+      render: (a) => (
+        <RowActionsMenu
+          label={`Actions for ${a.name}`}
+          actions={rowActions(a)}
+        />
+      ),
     },
   ];
   if (reconcile)
@@ -199,35 +225,27 @@ export function AccountingAccounts({
         onReconcile={setReconcile}
         onRefresh={onRefresh}
       />
-      <section className="glass-card overflow-hidden rounded-xl">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-5">
-          <div>
-            <h2 className="font-semibold">Chart of accounts</h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Your categories, balances, and account history.
-            </p>
-          </div>
-          <Button size="sm" disabled={demo} onClick={onAdd}>
-            <Plus size={14} aria-hidden="true" />
-            Add account
-          </Button>
-        </div>
+      <section
+        className="glass-card overflow-hidden rounded-xl"
+        aria-label="Chart of accounts"
+      >
         {data.accounts.length > 0 ? (
           <>
-            <div className="space-y-4 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
               <div
-                role="group"
+                role="tablist"
                 aria-label="Account types"
-                className="inline-flex flex-wrap items-center gap-1 rounded-lg bg-[rgba(var(--ink),0.05)] p-1 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]"
+                className="flex w-full flex-wrap items-center gap-1 rounded-lg bg-[rgba(var(--ink),0.05)] p-1 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)] sm:w-auto"
               >
                 {accountTypeFilters.map(([id, label]) => (
                   <button
                     key={id}
                     type="button"
-                    aria-pressed={type === id}
+                    role="tab"
+                    aria-selected={type === id}
                     onClick={() => setType(id)}
                     className={cn(
-                      "rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "inline-flex flex-1 items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:flex-none",
                       type === id
                         ? "bg-primary text-primary-foreground"
                         : "text-muted-foreground hover:bg-secondary hover:text-foreground",
@@ -237,85 +255,94 @@ export function AccountingAccounts({
                   </button>
                 ))}
               </div>
-              <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+                <FilterPopover
+                  open={filters}
+                  onOpenChange={setFilters}
+                  count={activeFilters}
+                  width={380}
+                  onReset={() => {
+                    setArchived(false);
+                    setAsOf(data.to);
+                  }}
+                >
+                  <div className="grid gap-3">
+                    <form
+                      action="/accounting"
+                      className="flex flex-wrap items-end gap-2"
+                    >
+                      <input type="hidden" name="view" value="accounts" />
+                      <input type="hidden" name="from" value={yearStart} />
+                      <div className="min-w-0 flex-1">
+                        <DateInput
+                          name="to"
+                          label="Balances as of"
+                          value={asOf}
+                          onChange={(nextValue) => setAsOf(nextValue)}
+                          minDate="1900-01-01"
+                          maxDate="2100-12-31"
+                          required
+                          disabled={demo}
+                        />
+                      </div>
+                      <Button
+                        type="submit"
+                        size="sm"
+                        variant="outline"
+                        disabled={demo}
+                      >
+                        Update
+                      </Button>
+                    </form>
+                    <Checkbox
+                      checked={archived}
+                      onChange={setArchived}
+                      label="Include archived"
+                    />
+                  </div>
+                </FilterPopover>
                 <TextInput
                   aria-label="Search accounts"
-                  placeholder="Search by name or code"
+                  placeholder="Search accounts"
+                  clearable
                   value={query}
                   onChange={(nextValue) => setQuery(nextValue)}
-                  prefix={<Search size={16} aria-hidden="true" />}
+                  prefix={<Search size={15} aria-hidden="true" />}
                 />
-                <Checkbox
-                  checked={archived}
-                  onChange={setArchived}
-                  label="Include archived"
-                  className="py-2"
-                />
-                <form
-                  action="/accounting"
-                  className="flex flex-wrap items-end gap-2"
-                >
-                  <input type="hidden" name="view" value="accounts" />
-                  <input type="hidden" name="from" value={yearStart} />
-                  <DateInput
-                    name="to"
-                    label="Balances as of"
-                    value={asOf}
-                    onChange={(nextValue) => setAsOf(nextValue)}
-                    minDate="1900-01-01"
-                    maxDate="2100-12-31"
-                    required
-                    disabled={demo}
-                  />
-                  <Button
-                    type="submit"
-                    size="sm"
-                    variant="outline"
-                    disabled={demo}
-                  >
-                    Update
-                  </Button>
-                </form>
+                <Button size="sm" disabled={demo} onClick={onAdd}>
+                  <Plus size={14} aria-hidden="true" />
+                  Add account
+                </Button>
               </div>
             </div>
-            <div className="border-t border-border">
-              <DataTable<BalanceRow>
-                framed={false}
-                columns={columns}
-                data={filtered}
-                keyExtractor={(a) => a.id}
-                emptyState="No accounts match these filters."
-                mobileCard={(a) => (
-                  <div>
-                    <div className="flex items-start justify-between gap-3">
-                      <button
-                        type="button"
-                        onClick={() => setLedger(a)}
-                        className={cn(linkClass, "min-w-0 text-sm")}
-                      >
-                        <span className="block font-mono text-xs text-muted-foreground">
-                          {a.code}
-                        </span>
-                        <span className="mt-0.5 block font-medium">
-                          {a.name}
-                        </span>
-                      </button>
-                      {editButton(a, "icon-sm")}
-                    </div>
-                    <div className="mt-3 flex items-center justify-between gap-3 text-sm">
-                      <span className="flex items-center gap-2 text-muted-foreground">
-                        {enumLabel(a.account_type)}
-                        {a.is_archived && <Badge size="sm">Archived</Badge>}
-                      </span>
-                      <MaskedValue
-                        className="tabular-nums"
-                        value={bookBalance(a)}
-                      />
-                    </div>
+            <DataTable<BalanceRow>
+              framed={false}
+              columns={columns}
+              data={filtered}
+              keyExtractor={(a) => a.id}
+              onRowClick={(a) => setLedger(a)}
+              emptyState="No accounts match these filters."
+              mobileCard={(a) => (
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    {nameCell(a)}
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {enumLabel(a.account_type)}
+                    </p>
                   </div>
-                )}
-              />
-            </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <MaskedValue
+                      className="text-sm font-medium tabular-nums"
+                      value={bookBalance(a)}
+                    />
+                    <RowActionsMenu
+                      label={`Actions for ${a.name}`}
+                      actions={rowActions(a)}
+                    />
+                  </div>
+                </div>
+              )}
+            />
           </>
         ) : (
           <div className="mx-auto max-w-lg px-6 py-14 text-center">
@@ -669,7 +696,14 @@ function AccountLedger({
     setError("");
     setData(null);
     accountingGet<NonNullable<typeof data>>(
-      { view: "account-ledger", account, from, to, offset: String(offset) },
+      {
+        view: "account-ledger",
+        account,
+        from,
+        to,
+        offset: String(offset),
+        mode: DEFAULT_BOOK_MODE,
+      },
       controller.signal,
     )
       .then(setData)

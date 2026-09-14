@@ -9,7 +9,7 @@
 - Payroll detail opens a loading dialog immediately and displays request failures inside it. Reopening a run clears the previous detail while it reloads.
 - Account ledger reads clear old errors and data when their query changes, allowing a successful retry to display again.
 - Contractor refresh failures are caught and displayed instead of escaping an async click handler.
-- Overview's review queue includes posted entries marked unreviewed. Entry pickers use the independent review state. Book-balance captions refer to posted transactions.
+- Overview's review queue includes posted entries marked unreviewed. Entry pickers use the independent review state. Book-balance captions refer to all activity.
 
 ## Validation
 

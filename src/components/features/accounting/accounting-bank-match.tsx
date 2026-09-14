@@ -418,6 +418,7 @@ export function AccountingBankMatch({
                     label="Posted bank line"
                     leftIcon={Search}
                     placeholder="Search a description or YYYY-MM-DD"
+                    clearable
                     value={query}
                     onChange={(nextValue) => {
                       setQuery(nextValue);

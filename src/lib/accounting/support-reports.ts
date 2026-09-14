@@ -2,6 +2,7 @@ import { z } from "zod";
 import { dateSchema } from "./contracts";
 import { centsToDecimal } from "./money";
 import type { ReportDocument } from "./report-document";
+import { treatmentLabel } from "./tax-workpapers";
 export const supportReportCatalog = [
   {
     id: "tax-workpapers",
@@ -14,7 +15,7 @@ export const supportReportCatalog = [
     id: "contractor-worksheet",
     title: "Contractor worksheet",
     description:
-      "Payments, refunds, exclusions and unresolved reporting decisions by payee.",
+      "Payments, refunds, exclusions and unresolved reporting decisions by contact.",
     group: "Payroll & year end",
   },
   {
@@ -122,7 +123,11 @@ export function supportReportDocument(
     throw new Error("The retained report is incomplete.");
   const cells = (values: string[]) =>
     values.map((value, i) =>
-      d.columns[i].numeric ? centsToDecimal(BigInt(value)) : value,
+      d.columns[i].numeric
+        ? centsToDecimal(BigInt(value))
+        : /^treatment$/i.test(d.columns[i].label)
+          ? treatmentLabel(value)
+          : value,
     );
   return {
     title: report.title,

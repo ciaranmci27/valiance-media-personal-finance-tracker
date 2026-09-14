@@ -111,7 +111,7 @@ assert.equal(overview[0].report, "profit-loss");
 assert.deepEqual(JSON.parse(overview[0].filter), {
   from: "2025-02-01",
   to: "2026-01-15",
-  mode: "posted",
+  mode: "working",
   offset: 0,
 });
 assert.equal(
@@ -212,10 +212,10 @@ assert.deepEqual(
 );
 assert.deepEqual(journalFilterFromLocation(new URLSearchParams()), {});
 
-// A report from the catalog: the books' range, posted only.
+// A report from the catalog: the books' range, all activity.
 assert.equal(
   reportSignature(defaultReportFilter("2026-01-01", "2026-01-15")),
-  '{"from":"2026-01-01","to":"2026-01-15","mode":"posted","offset":0}',
+  '{"from":"2026-01-01","to":"2026-01-15","mode":"working","offset":0}',
 );
 
 console.log(

@@ -22,7 +22,7 @@ function loadPool(): typeof import("pg").Pool {
 const allowed = new Map<string, readonly string[]>([
   ["context", ["view", "params"]],
   ["operate", ["command"]],
-  ["workspace", ["from_date", "to_date"]],
+  ["workspace", ["from_date", "to_date", "mode"]],
   ["transactions", ["filter", "page"]],
   ["entry_detail", ["entry"]],
   ["entry_history", ["entry"]],

@@ -148,10 +148,7 @@ export function syncWindow(
     end = Math.min(start + SYNC_WINDOW_SECONDS, now + 1);
   return { start, end, catchingUp: end < now + 1 };
 }
-export function postingDate(
-  timestampSeconds: number,
-  zone: string,
-): string {
+export function postingDate(timestampSeconds: number, zone: string): string {
   if (
     !Number.isSafeInteger(timestampSeconds) ||
     timestampSeconds <= 0 ||
@@ -164,13 +161,16 @@ export function postingDate(
   let formatter: Intl.DateTimeFormat;
   try {
     formatter = new Intl.DateTimeFormat("en-CA", {
-    timeZone: zone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
+      timeZone: zone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
     });
   } catch {
-    throw new SimpleFinError("invalid_timezone", "Choose a valid books timezone in Business settings.");
+    throw new SimpleFinError(
+      "invalid_timezone",
+      "Choose a valid books timezone in Business settings.",
+    );
   }
   const parts = formatter.formatToParts(new Date(timestampSeconds * 1000));
   const part = (kind: string) => parts.find((p) => p.type === kind)!.value;
@@ -197,13 +197,22 @@ export function parseSimpleFin(
     errors: z.array(z.string().max(10000)).max(2000),
     accounts: z.array(z.unknown()).max(2000),
   });
-  const legacyAccount = z.object({
-    org: z.object({
-      domain: identifier.optional(), name: identifier.optional(), id: identifier.optional(),
-      "sfin-url": z.string().min(1).max(8192),
-    }).refine((org) => Boolean(org.domain || org.name)),
-  }).passthrough();
-  const isV2 = raw !== null && typeof raw === "object" && ("errlist" in raw || "connections" in raw);
+  const legacyAccount = z
+    .object({
+      org: z
+        .object({
+          domain: identifier.optional(),
+          name: identifier.optional(),
+          id: identifier.optional(),
+          "sfin-url": z.string().min(1).max(8192),
+        })
+        .refine((org) => Boolean(org.domain || org.name)),
+    })
+    .passthrough();
+  const isV2 =
+    raw !== null &&
+    typeof raw === "object" &&
+    ("errlist" in raw || "connections" in raw);
   let normalized: unknown = raw;
   if (!isV2) {
     const legacy = legacyEnvelope.safeParse(raw);
@@ -215,12 +224,19 @@ export function parseSimpleFin(
         const org = item.data.org;
         const conn_id = `v1:${sourceHash([org["sfin-url"], org.domain ?? org.id ?? org.name])}`;
         institutions.set(conn_id, {
-          conn_id, name: org.name ?? org.domain!, org_id: org.id ?? org.domain ?? org.name!,
+          conn_id,
+          name: org.name ?? org.domain!,
+          org_id: org.id ?? org.domain ?? org.name!,
           sfin_url: org["sfin-url"],
         });
         return { ...item.data, conn_id };
       });
-      normalized = { errors: legacy.data.errors, errlist: [], connections: [...institutions.values()], accounts };
+      normalized = {
+        errors: legacy.data.errors,
+        errlist: [],
+        connections: [...institutions.values()],
+        accounts,
+      };
     }
   }
   const parsed = envelope.safeParse(normalized);

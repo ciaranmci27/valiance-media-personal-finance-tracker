@@ -25,6 +25,7 @@ export async function readAccounting(
       const result = await client.rpc("workspace", {
         from_date: p.from,
         to_date: p.to,
+        ...(p.mode ? { mode: p.mode } : {}),
       });
       if (!result.error && p.entry_id) {
         const entry = await client.rpc("entry_detail", { entry: p.entry_id });
@@ -162,7 +163,12 @@ export async function readAccounting(
     case "account-ledger":
       return client.rpc("report_lines", {
         kind: "general_ledger",
-        params: { from: p.from, to: p.to, offset: p.offset },
+        params: {
+          from: p.from,
+          to: p.to,
+          offset: p.offset,
+          ...(p.mode ? { mode: p.mode } : {}),
+        },
         account: p.account,
       });
     case "close":

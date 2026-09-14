@@ -218,6 +218,7 @@ export function AccountingManualRegisters({
           <TextInput
             label={`Find ${kind === "asset" ? "an asset" : "a loan"}`}
             placeholder="Search by name"
+            clearable
             value={query}
             onChange={(nextValue) => {
               setQuery(nextValue);
@@ -396,7 +397,7 @@ export function AccountingManualRegisters({
                               ? "Linked existing transaction"
                               : "Posted from this register"}
                             {m.void
-                              ? ` · ${m.mode === "historical" ? "Unlinked" : "Reversed"} ${dateLabel(m.void.effective_date)}`
+                              ? ` · ${m.mode === "historical" ? "Unlinked" : "Deleted"} ${dateLabel(m.void.effective_date)}`
                               : ""}
                           </p>
                         </div>
@@ -408,7 +409,7 @@ export function AccountingManualRegisters({
                               setAction({ kind: "void", movement: m })
                             }
                           >
-                            {m.mode === "historical" ? "Unlink" : "Reverse"}
+                            {m.mode === "historical" ? "Unlink" : "Delete"}
                           </Button>
                         )}
                       </div>

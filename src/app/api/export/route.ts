@@ -139,6 +139,7 @@ export async function GET(req: NextRequest) {
       books = await accountingClient();
       const [m, w] = await Promise.all([
         readAccounting(books, "manage"),
+        // Reviewed only by design: this export is a record of the books, not the screen.
         readAccounting(books, "workspace", { from, to }),
       ]);
       if (m.error) throw new Error(m.error.message);

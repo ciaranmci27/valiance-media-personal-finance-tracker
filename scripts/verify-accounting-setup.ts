@@ -411,7 +411,6 @@ const profileKey = buildSetupGuide({
         "reconnect:c-bad",
         "mapping",
         "sync:c-sync",
-        "primary",
         "treatments",
         "payroll-registers",
       ]),
@@ -419,7 +418,7 @@ const profileKey = buildSetupGuide({
   check(
     "levels follow the step",
     everything.steps.map((s) => s.level).join(",") ===
-      "critical,warning,critical,critical,warning,info,warning,info",
+      "critical,warning,critical,critical,warning,warning,info",
   );
   check(
     "every step is provable or acknowledgeable: critical ones clear from data, the rest carry an answer",
@@ -441,10 +440,6 @@ const profileKey = buildSetupGuide({
       ack["sync:c-sync"].label === "Dismiss",
   );
   check(
-    "keeping the other system is an answer for the year",
-    ack.primary.key === "primary:2026",
-  );
-  check(
     "every acknowledgement key fits the vocabulary the command accepts",
     Object.values(ack).every((a) =>
       /^[a-z][a-z0-9-]*(:[a-z0-9]{1,16})?$/.test(a.key),
@@ -452,8 +447,7 @@ const profileKey = buildSetupGuide({
   );
   check(
     "the answers are in the owner's words",
-    ack.primary.label === "Keep it for now" &&
-      ack.treatments.label === "Skip this year",
+    ack.treatments.label === "Skip this year",
   );
   const treatments = everything.steps.find((s) => s.key === "treatments")!;
   check(

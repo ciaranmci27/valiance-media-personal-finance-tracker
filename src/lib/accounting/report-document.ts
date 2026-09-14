@@ -22,14 +22,17 @@ export function reportDocument(
 ): ReportDocument {
   const { data, options, ledger } = snapshot.payload;
   const model = buildReportModel(options.report_id, data, options.show_zero);
+  const awaiting = data.quality.draft_count - data.quality.unbalanced_drafts;
+  const transactions = (n: number) =>
+    `${n} ${n === 1 ? "transaction" : "transactions"}`;
   const metadata: [string, string][] = [
     ["Period", `${data.filter.from} through ${data.filter.to}`],
     ["Basis", data.basis],
     [
-      "Mode",
+      "Scope",
       data.filter.mode === "working"
-        ? "Working preview, includes balanced drafts"
-        : "Posted books",
+        ? `All activity, includes ${transactions(awaiting)} awaiting review`
+        : "Reviewed only",
     ],
     ["Currency", data.currency],
     ["Data revision", data.revision],
@@ -51,7 +54,7 @@ export function reportDocument(
   for (const kind of ["payee"] as const) {
     if (data.filter[kind])
       metadata.push([
-        kind.replaceAll("_", " ") + " filter",
+        "Contact filter",
         data.filter[kind] === "unassigned"
           ? "Unassigned"
           : (data.dimensions.find(
@@ -62,8 +65,10 @@ export function reportDocument(
   }
   const notes = [
     ...model.footnotes,
-    `${data.quality.draft_count} drafts in this period. ${data.quality.unbalanced_drafts} incomplete drafts excluded. ${data.quality.incomplete_imports} incomplete imports.`,
-    `${data.quality.uncategorized_lines} posted lines need categorization. ${data.quality.unclassified_cash_lines} bank cash lines need classification.`,
+    data.filter.mode === "working"
+      ? `Includes ${transactions(awaiting)} awaiting review. Incomplete transactions not included: ${data.quality.unbalanced_drafts}. Incomplete imports: ${data.quality.incomplete_imports}.`
+      : `Transactions awaiting review, not included: ${data.quality.draft_count}. Incomplete imports: ${data.quality.incomplete_imports}.`,
+    `Reviewed lines still needing a category: ${data.quality.uncategorized_lines}. Bank cash lines needing classification: ${data.quality.unclassified_cash_lines}.`,
   ];
   if (options.report_id === "general-ledger") {
     if (!ledger)

@@ -1,5 +1,6 @@
 import type { AccountingWorkspace } from "../contracts";
 import "server-only";
+import { DEFAULT_BOOK_MODE } from "../reports";
 import { accountingClient } from "./access";
 import { readAccounting } from "./read";
 export async function loadAccountingWorkspace(params: {
@@ -10,6 +11,7 @@ export async function loadAccountingWorkspace(params: {
   const result = await readAccounting(await accountingClient(), "workspace", {
     p_from: params.from,
     p_to: params.to,
+    p_mode: DEFAULT_BOOK_MODE,
     p_entry_id: params.entry_id,
   });
   return result as {

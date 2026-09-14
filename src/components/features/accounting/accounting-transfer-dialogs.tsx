@@ -356,6 +356,7 @@ export function TransferEntryPicker({
       <TextInput
         label={label}
         placeholder="Search posted descriptions"
+        clearable
         value={query}
         disabled={!account}
         onChange={(nextValue) => setQuery(nextValue)}
@@ -450,7 +451,7 @@ export function ReverseTransfer({
       expected_revision: revision,
       outgoing_date: outDate,
       incoming_date: separate ? inDate : outDate,
-      reason,
+      reason: reason.trim() || "Deleted in Transactions",
     });
     if (result) {
       onClose();
@@ -466,7 +467,7 @@ export function ReverseTransfer({
     >
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Reverse transfer</DialogTitle>
+          <DialogTitle>Delete transfer</DialogTitle>
           <DialogDescription>
             {group.memo},{" "}
             <MaskedValue
@@ -492,14 +493,14 @@ export function ReverseTransfer({
             </div>
           ) : (
             <DateInput
-              label="Reversal date"
+              label="Delete on"
               value={outDate}
               onChange={(nextValue) => setOutDate(nextValue)}
             />
           )}
           <TextInput
-            label="Reason"
-            required
+            label="Note"
+            placeholder="Optional"
             value={reason}
             maxLength={1000}
             onChange={(nextValue) => setReason(nextValue)}
@@ -526,7 +527,7 @@ export function ReverseTransfer({
                 void save().catch((e) => command.setError(e.message))
               }
             >
-              Reverse
+              Delete
             </Button>
           </div>
         </div>

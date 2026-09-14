@@ -105,8 +105,9 @@ export function useAccountingCommand(
    */
   async function executeMany(commands: WorkflowCommand[]) {
     const saved: string[] = [];
+    const results: { id: string; version?: number }[] = [];
     if (inFlight.current || commands.length === 0)
-      return { done: 0, failed: false, saved };
+      return { done: 0, failed: false, saved, results };
     inFlight.current = true;
     setBusy(true);
     fail("");
@@ -119,6 +120,7 @@ export function useAccountingCommand(
           const result = await postAccountingCommand(key, command);
           retryKeys.current.complete(command);
           saved.push(result.id ?? ("id" in command ? String(command.id) : ""));
+          results.push(result);
           setProgress({ done: saved.length, total: commands.length });
         } catch (e) {
           failed = true;
@@ -131,7 +133,7 @@ export function useAccountingCommand(
         }
       }
       if (saved.length > 0) await reload();
-      return { done: saved.length, failed, saved };
+      return { done: saved.length, failed, saved, results };
     } finally {
       inFlight.current = false;
       setBusy(false);

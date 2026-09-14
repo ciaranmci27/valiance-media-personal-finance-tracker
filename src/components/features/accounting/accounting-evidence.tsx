@@ -24,7 +24,7 @@ const ACTIONS: Record<string, string> = {
   "entry.correct": "Corrected",
   "entry.categorize": "Categorized",
   "entry.split": "Split",
-  "entry.context": "Payee changed",
+  "entry.context": "Details changed",
   "entry.annotate": "Note added",
   "draft.discard": "Discarded",
   "document.link": "Receipt attached",
@@ -37,6 +37,50 @@ const ACTIONS: Record<string, string> = {
 };
 const actionLabel = (action: string) =>
   ACTIONS[action.toLowerCase()] ?? enumLabel(action.toLowerCase());
+
+/** A context save can change the description, the contact or the type; say which. */
+type ContextSnapshot = {
+  memo?: string;
+  payee_id?: string | null;
+  kind?: string;
+};
+
+/** What a context save changed, with the old and new values in the owner's words. */
+function contextChanges(
+  before: unknown,
+  after: unknown,
+  parties: Party[],
+): { label: string; from: string; to: string }[] {
+  const b = (before ?? {}) as ContextSnapshot;
+  const a = (after ?? {}) as ContextSnapshot;
+  const payeeName = (id?: string | null) =>
+    id ? (parties.find((p) => p.id === id)?.name ?? "Contact") : "No contact";
+  const changes: { label: string; from: string; to: string }[] = [];
+  if (b.memo !== a.memo)
+    changes.push({
+      label: "Description",
+      from: b.memo ?? "",
+      to: a.memo ?? "",
+    });
+  if ((b.payee_id ?? null) !== (a.payee_id ?? null))
+    changes.push({
+      label: "Contact",
+      from: payeeName(b.payee_id),
+      to: payeeName(a.payee_id),
+    });
+  if (b.kind !== a.kind)
+    changes.push({
+      label: "Type",
+      from: enumLabel(b.kind ?? ""),
+      to: enumLabel(a.kind ?? ""),
+    });
+  return changes;
+}
+function contextLabel(changes: { label: string }[]): string {
+  return changes.length
+    ? changes.map((c) => c.label).join(" and ") + " changed"
+    : "Details saved";
+}
 
 /** One quiet block: a small caption, an optional right-hand note, then the content. */
 function Section({
@@ -202,7 +246,7 @@ export function AccountingEvidence({
                         <>
                           {" · "}
                           {parties.find((p) => p.id === r.after_value.payee_id)
-                            ?.name ?? "Payee"}
+                            ?.name ?? "Contact"}
                         </>
                       )}
                     </p>
@@ -268,20 +312,52 @@ export function AccountingEvidence({
                 data.audit.length > 6 && "max-h-56 overflow-auto pr-1",
               )}
             >
-              {data.audit.map((a) => (
-                <li
-                  key={a.id}
-                  className="flex flex-wrap items-baseline justify-between gap-x-3 py-1.5 text-sm"
-                >
-                  <span>{actionLabel(a.action)}</span>
-                  <time
-                    dateTime={a.recorded_at}
-                    className="text-xs text-muted-foreground"
-                  >
-                    {timestampLabel(a.recorded_at)}
-                  </time>
-                </li>
-              ))}
+              {data.audit.map((a) => {
+                const changes =
+                  a.action.toLowerCase() === "entry.context"
+                    ? contextChanges(a.before_value, a.after_value, parties)
+                    : [];
+                return (
+                  <li key={a.id} className="py-1.5 text-sm">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3">
+                      <span>
+                        {a.action.toLowerCase() === "entry.context"
+                          ? contextLabel(changes)
+                          : a.action.toLowerCase() === "entry.review" &&
+                              (
+                                a.after_value as {
+                                  review_pending?: boolean;
+                                } | null
+                              )?.review_pending
+                            ? "Marked unreviewed"
+                            : actionLabel(a.action)}
+                      </span>
+                      <time
+                        dateTime={a.recorded_at}
+                        className="text-xs text-muted-foreground"
+                      >
+                        {timestampLabel(a.recorded_at)}
+                      </time>
+                    </div>
+                    {changes.map((c) => (
+                      <p
+                        key={c.label}
+                        className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground"
+                      >
+                        <span className="break-words">{c.from || "None"}</span>
+                        <ArrowRight
+                          size={12}
+                          aria-hidden="true"
+                          className="shrink-0"
+                        />
+                        <span className="break-words text-foreground">
+                          {c.to || "None"}
+                        </span>
+                      </p>
+                    ))}
+                  </li>
+                );
+              })}
               {data.audit.length === 0 && (
                 <li className="py-1.5 text-sm text-muted-foreground">
                   Nothing recorded yet.

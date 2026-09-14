@@ -92,6 +92,16 @@ async function main() {
     check(workspace.reports.net_income_cents, "12345");
     check(workspace.needs_review_count, 0);
     check(workspace.sync_due, false);
+    check(
+      (
+        await read("workspace", {
+          p_from: "2026-01-01",
+          p_to: "2026-06-30",
+          p_mode: "working",
+        })
+      ).reports.net_income_cents,
+      "12345",
+    );
     check(workspace.entries[0].prior_treatment, null);
     const filtered = await read("workspace", {
       p_from: "2026-01-01",

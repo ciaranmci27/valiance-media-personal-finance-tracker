@@ -503,6 +503,7 @@ export function AccountingReconciliation({
                     aria-label="Search posted transactions"
                     prefix={<Search size={15} aria-hidden="true" />}
                     placeholder="Search memo or date"
+                    clearable
                     value={query}
                     onChange={(nextValue) => {
                       setQuery(nextValue);
@@ -856,6 +857,7 @@ function SelectLine({
           <TextInput
             aria-label="Find a posted transaction"
             placeholder="Search memo or date"
+            clearable
             prefix={<Search size={15} aria-hidden="true" />}
             value={query}
             onChange={(nextValue) => {
