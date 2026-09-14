@@ -2,8 +2,12 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, Loader2, Pencil } from "lucide-react";
+import { AlertTriangle, Check, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
+import { useBoot, useBootHold } from "@/components/layout/boot";
+import { AppLoading } from "@/components/ui/app-loading";
+import { TAX_STEPS } from "./tax-steps";
+import { useLoaderPhase } from "@/components/ui/use-loader-phase";
 import { Select } from "@/components/ui/inputs/Select";
 import { cn, formatCurrency } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -27,7 +31,10 @@ import {
   shortfallCost,
   withheldThrough,
 } from "@/lib/tax/payment-schedule";
-import type { BooksFigure, BooksFigures } from "@/lib/accounting/tax-books-figures";
+import type {
+  BooksFigure,
+  BooksFigures,
+} from "@/lib/accounting/tax-books-figures";
 import { accountingReadJson } from "@/lib/accounting/read-json";
 import { toEstimatorDollars } from "@/lib/accounting/tax-projection";
 import {
@@ -244,7 +251,9 @@ export function TaxEstimatorContent({
     if (businessType === null)
       setBusinessType(businessTypeForYear(businessProfile, selectedYear));
     if (taxClassification === null)
-      setTaxClassification(classificationForYear(businessProfile, selectedYear));
+      setTaxClassification(
+        classificationForYear(businessProfile, selectedYear),
+      );
   }, [businessProfile, selectedYear, businessType, taxClassification]);
   const [dependents, setDependents] = React.useState(0);
   const [otherDependents, setOtherDependents] = React.useState(0);
@@ -948,8 +957,10 @@ export function TaxEstimatorContent({
       setAdditionalDeductions(patch.additionalDeductions);
     if (patch.additionalCredits !== undefined)
       setAdditionalCredits(patch.additionalCredits);
-    if (patch.taxpayerAge65 !== undefined) setTaxpayerAge65(patch.taxpayerAge65);
-    if (patch.taxpayerBlind !== undefined) setTaxpayerBlind(patch.taxpayerBlind);
+    if (patch.taxpayerAge65 !== undefined)
+      setTaxpayerAge65(patch.taxpayerAge65);
+    if (patch.taxpayerBlind !== undefined)
+      setTaxpayerBlind(patch.taxpayerBlind);
     if (patch.spouseAge65 !== undefined) setSpouseAge65(patch.spouseAge65);
     if (patch.spouseBlind !== undefined) setSpouseBlind(patch.spouseBlind);
     if (patch.isSstb !== undefined) setIsSstb(patch.isSstb);
@@ -1011,9 +1022,16 @@ export function TaxEstimatorContent({
     hasBooksRows,
     apply: applyFigures,
   });
+  // A manual refresh re-reads the period figures too; a first load reads both at once.
+  const [periodTick, setPeriodTick] = React.useState(0);
+  const refreshBooks = React.useCallback(() => {
+    booksRefresh.refresh();
+    setPeriodTick((tick) => tick + 1);
+  }, [booksRefresh.refresh]);
 
   const guideKey = `vm-tax-guide:${selectedYear}`;
-  const [guidePrefs, setGuidePrefs] = React.useState<GuidePrefs>(GUIDE_DEFAULTS);
+  const [guidePrefs, setGuidePrefs] =
+    React.useState<GuidePrefs>(GUIDE_DEFAULTS);
   React.useEffect(() => {
     let stored: GuidePrefs = GUIDE_DEFAULTS;
     try {
@@ -1050,8 +1068,7 @@ export function TaxEstimatorContent({
     [breakdown, selectedYear, today, payments],
   );
   const meter = React.useMemo(
-    () =>
-      breakdown ? buildMeter(breakdown, payments) : null,
+    () => (breakdown ? buildMeter(breakdown, payments) : null),
     [breakdown, payments],
   );
 
@@ -1072,16 +1089,18 @@ export function TaxEstimatorContent({
     | null
   >(null);
   const periodEnd = period?.end ?? null;
-  // Waits for the year's own books read to land, so the period read happens
-  // once, after it, rather than racing it on first paint.
-  const booksLanded = booksRefresh.books.through !== null;
+  // Read alongside the year's own figures, not after them: the quarterly
+  // Minimum and Total wait on this read, and two round trips in a row showed.
   React.useEffect(() => {
-    if (!periodEnd || !periodClosed || !accountingAvailable || !hasBooksRows || !booksLanded) {
+    if (!periodEnd || !periodClosed || !accountingAvailable || !hasBooksRows) {
       setPeriodActuals(null);
       return;
     }
     const abort = new AbortController();
-    accountingReadJson<BooksFigures>(booksFiguresUrl(selectedYear, periodEnd), abort.signal)
+    accountingReadJson<BooksFigures>(
+      booksFiguresUrl(selectedYear, periodEnd),
+      abort.signal,
+    )
       .then((figures) => {
         if (abort.signal.aborted) return;
         const values: Record<string, number> = {};
@@ -1098,16 +1117,63 @@ export function TaxEstimatorContent({
         if (!abort.signal.aborted) setPeriodActuals({ status: "error" });
       });
     return () => abort.abort();
-  }, [periodEnd, periodClosed, accountingAvailable, hasBooksRows, booksLanded, selectedYear, booksRefresh.books.through]);
+  }, [
+    periodEnd,
+    periodClosed,
+    accountingAvailable,
+    hasBooksRows,
+    selectedYear,
+    periodTick,
+  ]);
+
+  // The first paint waits for the books: the year's figures, and the period's
+  // that the quarterly Minimum and Total need. A hard load holds the workspace
+  // boot screen for them; an arrival shows the page's own loader. Once they
+  // have landed the page never hides again, whatever refreshes later.
+  const savedYear = estimateCache[selectedYear];
+  const expectBooks =
+    accountingAvailable &&
+    !!savedYear &&
+    [
+      savedYear.income_sources,
+      savedYear.capital_gains,
+      savedYear.payments,
+    ].some((rows) => (rows ?? []).some((row) => !!row.books));
+  const booksPending =
+    expectBooks &&
+    booksRefresh.books.through === null &&
+    booksRefresh.books.status !== "error";
+  const periodPending =
+    expectBooks && periodClosed && periodEnd !== null && periodActuals === null;
+  const [firstReadsDone, setFirstReadsDone] = React.useState(false);
+  React.useEffect(() => {
+    if (!booksPending && !periodPending) setFirstReadsDone(true);
+  }, [booksPending, periodPending]);
+  const firstReads = !firstReadsDone && (booksPending || periodPending);
+  const boot = useBoot();
+  useBootHold(firstReads, TAX_STEPS, 1);
+  const firstReadsLoader = useLoaderPhase(firstReads && !boot.active, {
+    minShowMs: 350,
+  });
 
   const annualized = React.useMemo<AnnualizedState | null>(() => {
-    if (!period || !breakdown || !taxConfig || !schedule?.next || schedule.next.kind !== "quarter")
+    if (
+      !period ||
+      !breakdown ||
+      !taxConfig ||
+      !schedule?.next ||
+      schedule.next.kind !== "quarter"
+    )
       return null;
     if (periodClosed && hasBooksRows && periodActuals?.status !== "ready")
       return periodActuals?.status === "error"
-        ? { kind: "unavailable", reason: "Books figures for the period could not be read." }
+        ? {
+            kind: "unavailable",
+            reason: "Books figures for the period could not be read.",
+          }
         : null;
-    const actuals = periodActuals?.status === "ready" ? periodActuals.values : {};
+    const actuals =
+      periodActuals?.status === "ready" ? periodActuals.values : {};
     const scaled = calculateFullTax(
       annualizeRows(incomeSources, period.factor, actuals),
       annualizeRows(capitalGains, period.factor, actuals),
@@ -1138,7 +1204,9 @@ export function TaxEstimatorContent({
       period,
       annualizedTax: {
         federal: Math.max(
-          scaled.federalLiability - scaled.ficaTax.total - scaled.additionalChildTaxCredit,
+          scaled.federalLiability -
+            scaled.ficaTax.total -
+            scaled.additionalChildTaxCredit,
           0,
         ),
         state: scaled.stateLiability,
@@ -1151,8 +1219,12 @@ export function TaxEstimatorContent({
     const required = annualizedRequirement(basis);
     const full = annualizedRequirement({ ...basis, share: period.paceShare });
     const index = schedule.quarters.findIndex((q) => q.key === period.quarter);
-    const following = schedule.quarters[index + 1]?.deadline ?? `${selectedYear + 1}-04-15`;
-    const gapFederal = Math.max(required.federal - schedule.next.suggestedFederal, 0);
+    const following =
+      schedule.quarters[index + 1]?.deadline ?? `${selectedYear + 1}-04-15`;
+    const gapFederal = Math.max(
+      required.federal - schedule.next.suggestedFederal,
+      0,
+    );
     const gapState = Math.max(required.state - schedule.next.suggestedState, 0);
     const shortfall =
       gapFederal > 0.005 || gapState > 0.005
@@ -1231,7 +1303,7 @@ export function TaxEstimatorContent({
 
   if (isSetupMode) {
     return (
-      <div className="animate-fade-up">
+      <div>
         <TaxSetupCard
           onComplete={handleSetupComplete}
           selectedYear={selectedYear}
@@ -1263,7 +1335,7 @@ export function TaxEstimatorContent({
 
   if (!breakdown || !taxConfig || !schedule || !meter) {
     return (
-      <div className="space-y-5 animate-fade-up">
+      <div className="space-y-5">
         <PageHeader title="Tax Estimator" />
         <p className="text-sm text-muted-foreground">
           Tax tables for {selectedYear} are not available yet.
@@ -1286,8 +1358,10 @@ export function TaxEstimatorContent({
     markDirty();
     const first = result.firstId;
     if (!first) return;
-    if (result.income.some((r) => r.id === first)) setEditing({ mode: "income", id: first });
-    else if (result.gains.some((r) => r.id === first)) setEditing({ mode: "gain", id: first });
+    if (result.income.some((r) => r.id === first))
+      setEditing({ mode: "income", id: first });
+    else if (result.gains.some((r) => r.id === first))
+      setEditing({ mode: "gain", id: first });
     else setEditing({ mode: "withholding", id: first });
   };
   const booksKeys = new Set<string>(
@@ -1296,23 +1370,33 @@ export function TaxEstimatorContent({
     ),
   );
   const setIncomeRest = (id: string, rest: number) => {
-    setIncomeSources((prev) => prev.map((r) => (r.id === id ? withRest(r, rest, state) : r)));
+    setIncomeSources((prev) =>
+      prev.map((r) => (r.id === id ? withRest(r, rest, state) : r)),
+    );
     markDirty();
   };
   const setGainRest = (id: string, rest: number) => {
-    setCapitalGains((prev) => prev.map((r) => (r.id === id ? withRest(r, rest, state) : r)));
+    setCapitalGains((prev) =>
+      prev.map((r) => (r.id === id ? withRest(r, rest, state) : r)),
+    );
     markDirty();
   };
   const setPaymentRest = (id: string, rest: number) => {
-    setPayments((prev) => prev.map((r) => (r.id === id ? withRest(r, rest, state) : r)));
+    setPayments((prev) =>
+      prev.map((r) => (r.id === id ? withRest(r, rest, state) : r)),
+    );
     markDirty();
   };
   const unlinkIncomeBooks = (id: string) => {
-    setIncomeSources((prev) => prev.map((r) => (r.id === id ? unlinkBooks(r) : r)));
+    setIncomeSources((prev) =>
+      prev.map((r) => (r.id === id ? unlinkBooks(r) : r)),
+    );
     markDirty();
   };
   const unlinkGainBooks = (id: string) => {
-    setCapitalGains((prev) => prev.map((r) => (r.id === id ? unlinkBooks(r) : r)));
+    setCapitalGains((prev) =>
+      prev.map((r) => (r.id === id ? unlinkBooks(r) : r)),
+    );
     markDirty();
   };
   const unlinkPaymentBooks = (id: string) => {
@@ -1392,11 +1476,13 @@ export function TaxEstimatorContent({
     },
     openImport: () => setImportOpen(true),
     openBooks: () => setBooksOpen(true),
-    refreshBooks: booksRefresh.refresh,
+    refreshBooks,
     guide: {
       markStep: (step, done) =>
         updateGuidePrefs(
-          step === "paid" ? { paidReviewed: done } : { householdReviewed: done },
+          step === "paid"
+            ? { paidReviewed: done }
+            : { householdReviewed: done },
         ),
       hide: () => updateGuidePrefs({ hidden: true }),
     },
@@ -1404,14 +1490,9 @@ export function TaxEstimatorContent({
 
   // Guided setup. Income can be read from the data; "nothing paid yet" and
   // "household looks right" are answers only the owner can give.
-  const grossIncome = incomeSources.reduce(
-    (sum, row) => sum + row.amount,
-    0,
-  );
+  const grossIncome = incomeSources.reduce((sum, row) => sum + row.amount, 0);
   const paidCash = payments.reduce((sum, row) => sum + (row.amount || 0), 0);
-  const incomeReady = incomeSources.some(
-    (row) => row.amount > CENT,
-  );
+  const incomeReady = incomeSources.some((row) => row.amount > CENT);
   const paidReady = paidCash > CENT || guidePrefs.paidReviewed;
   const householdTouched =
     dependents > 0 ||
@@ -1437,7 +1518,10 @@ export function TaxEstimatorContent({
       question: "Filing status, state and business structure.",
       summary: profileParts.join(" \u00B7 "),
       done: true,
-      action: { label: "Edit", onSelect: () => setEditing({ mode: "profile" }) },
+      action: {
+        label: "Edit",
+        onSelect: () => setEditing({ mode: "profile" }),
+      },
     },
     {
       key: "income",
@@ -1445,16 +1529,28 @@ export function TaxEstimatorContent({
       question: "What did you earn this year?",
       summary: `${incomeSources.length} ${incomeSources.length === 1 ? "source" : "sources"}, ${formatCurrency(grossIncome)}`,
       done: incomeReady,
-      action: { label: "Add income", onSelect: () => setEditing({ mode: "add-income" }) },
+      action: {
+        label: "Add income",
+        onSelect: () => setEditing({ mode: "add-income" }),
+      },
     },
     {
       key: "paid",
       title: "Tax already paid",
       question: "Any paycheck withholding or quarterly estimates so far?",
-      summary: paidCash > CENT ? `${formatCurrency(paidCash)} recorded` : "Nothing paid yet",
+      summary:
+        paidCash > CENT
+          ? `${formatCurrency(paidCash)} recorded`
+          : "Nothing paid yet",
       done: paidReady,
-      action: { label: "Add", onSelect: () => setEditing({ mode: "add-paid" }) },
-      skip: { label: "Nothing yet", onSelect: () => updateGuidePrefs({ paidReviewed: true }) },
+      action: {
+        label: "Add",
+        onSelect: () => setEditing({ mode: "add-paid" }),
+      },
+      skip: {
+        label: "Nothing yet",
+        onSelect: () => updateGuidePrefs({ paidReviewed: true }),
+      },
     },
     {
       key: "household",
@@ -1464,7 +1560,10 @@ export function TaxEstimatorContent({
         ? "Dependents or extra deductions set"
         : "No dependents, standard deduction",
       done: householdReady,
-      action: { label: "Review", onSelect: () => setEditing({ mode: "household" }) },
+      action: {
+        label: "Review",
+        onSelect: () => setEditing({ mode: "household" }),
+      },
       skip: {
         label: "Looks right",
         onSelect: () => updateGuidePrefs({ householdReviewed: true }),
@@ -1481,13 +1580,37 @@ export function TaxEstimatorContent({
       id: addPayment({
         quarter,
         label:
-          quarter === "final" ? "Payment with return" : `${quarter} federal estimate`,
+          quarter === "final"
+            ? "Payment with return"
+            : `${quarter} federal estimate`,
       }),
     });
   };
 
+  // Nothing paints behind the loader on arrival: the page mounts as the loader
+  // starts to leave, or under the boot screen once the books are in.
+  if (!boot.active && firstReadsLoader.phase === "loading")
+    return (
+      <AppLoading
+        steps={TAX_STEPS}
+        step={1}
+        announcement="Loading the estimator"
+        continuing
+      />
+    );
+
   return (
-    <div className="space-y-5 lg:space-y-6 animate-fade-up">
+    <div className="space-y-5 lg:space-y-6">
+      {!boot.active && firstReadsLoader.phase !== "done" && (
+        <AppLoading
+          steps={TAX_STEPS}
+          step={1}
+          announcement="Loading the estimator"
+          continuing
+          leaving={firstReadsLoader.phase === "leaving"}
+          onLeft={firstReadsLoader.onLeft}
+        />
+      )}
       <PageHeader
         title="Tax Estimator"
         subtitle={
@@ -1495,86 +1618,70 @@ export function TaxEstimatorContent({
             Federal and state estimates for {selectedYear}
           </span>
         }
+        actions={
+          <div className="flex items-center gap-3">
+            {/* Save Status */}
+            {saveStatus === "saving" && (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Saving
+              </span>
+            )}
+            {saveStatus === "saved" && (
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Check className="h-3 w-3" />
+                Saved
+              </span>
+            )}
+            {saveStatus === "error" && (
+              <button
+                type="button"
+                onClick={() => void persist()}
+                title={saveError ?? "Save failed"}
+                className="flex items-center gap-1.5 text-xs text-error hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-error rounded"
+              >
+                <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                Not saved. Retry
+              </button>
+            )}
+
+            {/* Year Tabs - dropdown on mobile, buttons on desktop */}
+            <div className="sm:hidden w-28">
+              <Select
+                ariaLabel="Year"
+                value={String(selectedYear)}
+                onChange={(value) => void changeYear(Number(value))}
+                options={yearTabs.map((year) => ({
+                  value: String(year),
+                  label: String(year),
+                }))}
+                size="sm"
+              />
+            </div>
+            <div className="hidden sm:flex gap-0.5 rounded-lg bg-[rgba(var(--ink),0.05)] p-0.5 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]">
+              {yearTabs.map((year) => (
+                <button
+                  key={year}
+                  onClick={() => void changeYear(year)}
+                  className={cn(
+                    "px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200",
+                    selectedYear === year
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {year}
+                </button>
+              ))}
+            </div>
+          </div>
+        }
       />
       <SetupGuide
         year={Math.min(selectedYear, new Date().getFullYear())}
         enabled={accountingAvailable}
-        onApplied={booksRefresh.refresh}
+        onApplied={refreshBooks}
       />
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        {/* Profile summary + settings link */}
-        <button
-          type="button"
-          onClick={() => setEditing({ mode: "profile" })}
-          className="group inline-flex items-center gap-2 rounded-md text-sm font-medium text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {profileParts.join(" \u00B7 ")}
-          <Pencil
-            size={13}
-            aria-hidden="true"
-            className="text-muted-foreground transition-colors group-hover:text-foreground"
-          />
-          <span className="sr-only">Edit filing status and state</span>
-        </button>
-
-        <div className="flex items-center gap-3">
-          {/* Save Status */}
-          {saveStatus === "saving" && (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground animate-pulse">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              Saving
-            </span>
-          )}
-          {saveStatus === "saved" && (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Check className="h-3 w-3" />
-              Saved
-            </span>
-          )}
-          {saveStatus === "error" && (
-            <button
-              type="button"
-              onClick={() => void persist()}
-              title={saveError ?? "Save failed"}
-              className="flex items-center gap-1.5 text-xs text-error hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-error rounded"
-            >
-              <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-              Not saved. Retry
-            </button>
-          )}
-
-          {/* Year Tabs - dropdown on mobile, buttons on desktop */}
-          <div className="sm:hidden w-28">
-            <Select
-              ariaLabel="Year"
-              value={String(selectedYear)}
-              onChange={(value) => void changeYear(Number(value))}
-              options={yearTabs.map((year) => ({
-                value: String(year),
-                label: String(year),
-              }))}
-              size="sm"
-            />
-          </div>
-          <div className="hidden sm:flex gap-0.5 rounded-lg bg-[rgba(var(--ink),0.05)] p-0.5 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]">
-            {yearTabs.map((year) => (
-              <button
-                key={year}
-                onClick={() => void changeYear(year)}
-                className={cn(
-                  "px-3 py-1.5 text-sm font-medium rounded-md transition-all duration-200",
-                  selectedYear === year
-                    ? "bg-primary text-primary-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {year}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
       {guideDensity === "hero" ? (
         <TaxGuide
           year={selectedYear}
@@ -1586,6 +1693,10 @@ export function TaxEstimatorContent({
         <TaxHero
           year={selectedYear}
           breakdown={breakdown}
+          profile={{
+            summary: profileParts.join(" \u00B7 "),
+            onEdit: () => setEditing({ mode: "profile" }),
+          }}
           schedule={schedule}
           meter={meter}
           annualized={annualized}
@@ -1604,7 +1715,7 @@ export function TaxEstimatorContent({
       <TaxBooksCallout
         count={booksRefresh.books.unreviewed}
         refreshing={booksRefresh.books.status === "loading"}
-        onRefresh={booksRefresh.refresh}
+        onRefresh={refreshBooks}
       />
 
       <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-2">

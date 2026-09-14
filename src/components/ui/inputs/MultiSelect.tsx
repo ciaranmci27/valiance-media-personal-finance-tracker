@@ -356,7 +356,7 @@ export const MultiSelect = forwardRef<HTMLButtonElement, MultiSelectProps>(funct
             aria-multiselectable="true"
             aria-labelledby={label ? `${inputId}-label` : undefined}
             onKeyDown={handleDropdownKeyDown}
-            className={`${popupChrome} p-1`}
+            className={`${popupChrome} overflow-auto p-1`}
             style={{
               top: dropdownPos.top,
               left: dropdownPos.left,

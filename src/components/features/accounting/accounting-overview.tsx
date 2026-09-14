@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ArrowDownLeft,
   ArrowRight,
@@ -39,7 +39,13 @@ import {
   presentTransaction,
 } from "@/lib/accounting/transactions";
 import type { BooksMetadata } from "./types";
-import { accountingGet } from "./use-accounting-command";
+import { useAccountingRead } from "./use-accounting-read";
+import {
+  overviewReportFilter,
+  registerQuery,
+  reportQuery,
+} from "@/lib/accounting/preload";
+import type { AccountingView } from "@/lib/accounting/views";
 import {
   countLabel,
   dateShortLabel,
@@ -54,14 +60,6 @@ const ZERO = BigInt(0);
 
 function cents(value: string | null | undefined) {
   return Number(value ?? "0") / 100;
-}
-
-/** First day of the month `months` before the month that holds `date`. */
-function monthsBefore(date: string, months: number) {
-  const year = Number(date.slice(0, 4));
-  const month = Number(date.slice(5, 7)) - 1 - months;
-  const d = new Date(Date.UTC(year, month, 1));
-  return d.toISOString().slice(0, 10);
 }
 
 function RangeToggle({
@@ -163,6 +161,7 @@ export function AccountingOverview({
   onReport,
   onEntry,
   onAdd,
+  onIntent,
 }: {
   data: AccountingWorkspace;
   manage: BooksMetadata;
@@ -178,18 +177,51 @@ export function AccountingOverview({
   onReport: (id: "profit-loss" | "balance-sheet") => void;
   onEntry: (entry: JournalEntry) => void;
   onAdd: (direction: "in" | "out") => void;
+  /** A pointer or focus on a link to another screen: warm it before the click. */
+  onIntent?: (view: AccountingView) => void;
 }) {
   const [range, setRange] = useState<Range>("12mo");
-  const [report, setReport] = useState<ReportData | null>(null);
-  const [feeds, setFeeds] = useState<FeedData | null>(feedsProp ?? null);
-  const fetchFeeds = feedsProp === undefined;
-  useEffect(() => {
-    if (feedsProp !== undefined) setFeeds(feedsProp);
-  }, [feedsProp]);
-  const [drafts, setDrafts] = useState<JournalEntry[] | null>(null);
-  const [recent, setRecent] = useState<JournalEntry[] | null>(null);
-  const [close, setClose] = useState<CloseChecklist | null>(null);
-  const [loaded, setLoaded] = useState(demo);
+  // Every read is keyed exactly as the shell warms it (see lib/accounting/preload),
+  // so on arrival the answers are already here and nothing paints twice.
+  const enabled = !demo;
+  const reportRead = useAccountingRead<ReportData>(
+    reportQuery("profit-loss", overviewReportFilter(data.to)),
+    { enabled, revalidateOnFocus: true },
+  );
+  const feedsRead = useAccountingRead<FeedData>(
+    { view: "feeds" },
+    { enabled: enabled && feedsProp === undefined },
+  );
+  const draftsRead = useAccountingRead<{ entries: JournalEntry[] }>(
+    registerQuery({
+      review: "needs_review",
+      sort: "date_desc",
+      offset: 0,
+      limit: 5,
+    }),
+    { enabled, revalidateOnFocus: true },
+  );
+  const recentRead = useAccountingRead<{ entries: JournalEntry[] }>(
+    registerQuery({ status: "posted", sort: "date_desc", offset: 0, limit: 8 }),
+    { enabled },
+  );
+  const closeRead = useAccountingRead<CloseChecklist>(
+    { view: "close", date: `${data.to.slice(0, 7)}-01` },
+    { enabled },
+  );
+  const report = reportRead.data ?? null;
+  const feeds = feedsProp !== undefined ? feedsProp : (feedsRead.data ?? null);
+  const drafts = demo
+    ? data.entries.filter((e) => !isTransactionReviewed(e)).slice(0, 5)
+    : (draftsRead.data?.entries ?? (draftsRead.error ? [] : null));
+  const recent = demo
+    ? data.entries.filter((e) => e.status === "posted").slice(0, 8)
+    : (recentRead.data?.entries ?? (recentRead.error ? [] : null));
+  const close = closeRead.data ?? null;
+  const intent = (view: AccountingView) => ({
+    onPointerEnter: () => onIntent?.(view),
+    onFocus: () => onIntent?.(view),
+  });
 
   const profiles = manage.profiles;
   const accounts = useMemo(
@@ -224,85 +256,6 @@ export function AccountingOverview({
   const hasBookBalances = cashAccounts.some(
     (a) => currentBalances.get(a.id)?.bank === null,
   );
-
-  useEffect(() => {
-    if (demo) {
-      setDrafts(
-        data.entries.filter((e) => !isTransactionReviewed(e)).slice(0, 5),
-      );
-      setRecent(data.entries.filter((e) => e.status === "posted").slice(0, 8));
-      return;
-    }
-    const controller = new AbortController();
-    const signal = controller.signal;
-    const swallow = () => undefined;
-    const from = monthsBefore(data.to, 11);
-    void Promise.allSettled([
-      accountingGet<ReportData>(
-        {
-          view: "report",
-          report: "profit-loss",
-          filter: JSON.stringify({
-            from,
-            to: data.to,
-            mode: "posted",
-            offset: 0,
-          }),
-        },
-        signal,
-      )
-        .then(setReport)
-        .catch(swallow),
-      ...(fetchFeeds
-        ? [
-            accountingGet<FeedData>({ view: "feeds" }, signal)
-              .then(setFeeds)
-              .catch(swallow),
-          ]
-        : []),
-      accountingGet<{ entries: JournalEntry[] }>(
-        {
-          view: "register",
-          filter: JSON.stringify({
-            review: "needs_review",
-            sort: "date_desc",
-            offset: 0,
-            limit: 5,
-          }),
-        },
-        signal,
-      )
-        .then((r) => setDrafts(r.entries))
-        .catch(() => {
-          if (!signal.aborted) setDrafts([]);
-        }),
-      accountingGet<{ entries: JournalEntry[] }>(
-        {
-          view: "register",
-          filter: JSON.stringify({
-            status: "posted",
-            sort: "date_desc",
-            offset: 0,
-            limit: 8,
-          }),
-        },
-        signal,
-      )
-        .then((r) => setRecent(r.entries))
-        .catch(() => {
-          if (!signal.aborted) setRecent([]);
-        }),
-      accountingGet<CloseChecklist>(
-        { view: "close", date: `${data.to.slice(0, 7)}-01` },
-        signal,
-      )
-        .then(setClose)
-        .catch(swallow),
-    ]).then(() => {
-      if (!signal.aborted) setLoaded(true);
-    });
-    return () => controller.abort();
-  }, [demo, data.revision, data.to, data.entries, fetchFeeds]);
 
   const monthly = useMemo<CashFlowPoint[]>(() => {
     const points = (report?.monthly ?? []).map((m) => ({
@@ -532,7 +485,7 @@ export function AccountingOverview({
           }
         >
           {(isRevealed) =>
-            !loaded && !report ? (
+            reportRead.loading ? (
               <div role="status" aria-label="Loading cash flow">
                 <Skeleton className="h-[220px] w-full rounded-lg" />
               </div>
@@ -546,6 +499,7 @@ export function AccountingOverview({
                   <button
                     type="button"
                     onClick={() => onReport("profit-loss")}
+                    {...intent("reports")}
                     className="inline-flex items-center gap-1 text-teal-light hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     Profit & loss
@@ -554,6 +508,7 @@ export function AccountingOverview({
                   <button
                     type="button"
                     onClick={() => onReport("balance-sheet")}
+                    {...intent("reports")}
                     className="inline-flex items-center gap-1 text-teal-light hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     Balance sheet
@@ -604,6 +559,7 @@ export function AccountingOverview({
                     size="sm"
                     className="w-full"
                     onClick={onReview}
+                    {...intent("journal")}
                   >
                     Review all
                     <ArrowRight size={14} aria-hidden="true" />
@@ -615,7 +571,7 @@ export function AccountingOverview({
         </PanelCard>
       </div>
 
-      <section className="stagger-6 animate-fade-up">
+      <section>
         <SectionHeader
           label="Accounts"
           count={bankAccounts.length}
@@ -642,7 +598,12 @@ export function AccountingOverview({
                 <ArrowRight size={14} aria-hidden="true" />
               </Button>
             ) : (
-              <Button variant="ghost" size="sm" onClick={onAccounts}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onAccounts}
+                {...intent("accounts")}
+              >
                 All accounts
                 <ArrowRight size={14} aria-hidden="true" />
               </Button>
@@ -738,7 +699,12 @@ export function AccountingOverview({
           title="Recent activity"
           className="lg:col-span-2"
           right={
-            <Button variant="ghost" size="sm" onClick={onTransactions}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onTransactions}
+              {...intent("journal")}
+            >
               See all
               <ArrowRight size={14} aria-hidden="true" />
             </Button>
@@ -771,7 +737,7 @@ export function AccountingOverview({
           }
         >
           {() =>
-            !close && !demo && !loaded ? (
+            closeRead.loading ? (
               <RowSkeleton rows={3} />
             ) : (
               <div className="flex h-full flex-col">
@@ -855,6 +821,7 @@ export function AccountingOverview({
                     className="w-full"
                     disabled={demo}
                     onClick={onMonthEnd}
+                    {...intent("close")}
                   >
                     Month end
                     <ArrowRight size={14} aria-hidden="true" />

@@ -49,41 +49,49 @@ import {
 } from "@/lib/accounting/views";
 import type { BooksMetadata } from "./types";
 import { useAccountingCommand } from "./use-accounting-command";
+import { useAccountingCache } from "./accounting-cache";
+import { ManagePanelSkeleton } from "./accounting-skeletons";
 import { enumLabel } from "./format";
+import type { AccountingQuery } from "@/lib/accounting/read-cache";
 
-const loading = () => (
-  <p role="status" className="p-6 text-sm text-muted-foreground">
-    Loading...
-  </p>
-);
+/** Each section's chunk, so the rail can warm one before it is clicked. */
+const SECTION_CHUNKS = {
+  imports: () => import("./accounting-imports"),
+  documents: () => import("./accounting-documents"),
+  rules: () => import("./accounting-rules"),
+  tax: () => import("./accounting-tax-workpapers"),
+  registers: () => import("./accounting-manual-registers"),
+  feeds: () => import("./accounting-feeds"),
+};
+/** The first read of the sections that take one, keyed as they ask for it. */
+const SECTION_READS: Partial<Record<ManageSection, AccountingQuery>> = {
+  documents: { view: "documents" },
+  rules: { view: "rules" },
+  feeds: { view: "feeds" },
+};
+const loading = () => <ManagePanelSkeleton />;
 const AccountingImports = dynamic(
-  () => import("./accounting-imports").then((m) => m.AccountingImports),
+  () => SECTION_CHUNKS.imports().then((m) => m.AccountingImports),
   { loading },
 );
 const AccountingDocuments = dynamic(
-  () => import("./accounting-documents").then((m) => m.AccountingDocuments),
+  () => SECTION_CHUNKS.documents().then((m) => m.AccountingDocuments),
   { loading },
 );
 const AccountingRules = dynamic(
-  () => import("./accounting-rules").then((m) => m.AccountingRules),
+  () => SECTION_CHUNKS.rules().then((m) => m.AccountingRules),
   { loading },
 );
 const AccountingTaxWorkpapers = dynamic(
-  () =>
-    import("./accounting-tax-workpapers").then(
-      (m) => m.AccountingTaxWorkpapers,
-    ),
+  () => SECTION_CHUNKS.tax().then((m) => m.AccountingTaxWorkpapers),
   { loading },
 );
 const AccountingManualRegisters = dynamic(
-  () =>
-    import("./accounting-manual-registers").then(
-      (m) => m.AccountingManualRegisters,
-    ),
+  () => SECTION_CHUNKS.registers().then((m) => m.AccountingManualRegisters),
   { loading },
 );
 const AccountingFeeds = dynamic(
-  () => import("./accounting-feeds").then((m) => m.AccountingFeeds),
+  () => SECTION_CHUNKS.feeds().then((m) => m.AccountingFeeds),
   { loading },
 );
 
@@ -197,6 +205,15 @@ export function AccountingMore({
   }
   const [party, setParty] = useState<Party | null>(null);
   const [query, setQuery] = useState("");
+  const cache = useAccountingCache();
+  // Pointing at a section warms its chunk and its first read.
+  function warm(id: ManageSection) {
+    if (demo) return;
+    if (id in SECTION_CHUNKS)
+      void SECTION_CHUNKS[id as keyof typeof SECTION_CHUNKS]();
+    const read = SECTION_READS[id];
+    if (read) void cache.read(read).catch(() => undefined);
+  }
 
   return (
     <div className="space-y-5">
@@ -247,6 +264,8 @@ export function AccountingMore({
                         setSection(s.id);
                         setQuery("");
                       }}
+                      onPointerEnter={() => warm(s.id)}
+                      onFocus={() => warm(s.id)}
                       className={cn(
                         "flex w-full items-center gap-2.5 rounded-lg border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         section === s.id

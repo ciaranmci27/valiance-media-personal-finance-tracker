@@ -1177,3 +1177,222 @@ a.bg-teal {
   --radius-input: 0.5rem;
   --radius-input-sm: 0.375rem;
 }
+
+/* Brand loader: the one loading screen, shared with the app
+   (components/ui/brand-loader.tsx). The emblem cropped out of the lockup, a
+   hairline orbit with a quarter turn of brand light going round, and a status
+   line beneath that advances through a short sequence. Which lockup shows
+   follows the nearest data-theme through inherited variables. */
+:root,
+[data-theme="dark"] {
+  --loader-mark-dark: block;
+  --loader-mark-light: none;
+}
+[data-theme="light"] {
+  --loader-mark-dark: none;
+  --loader-mark-light: block;
+}
+
+.brand-loader {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.brand-loader-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transform-origin: center;
+}
+/* The page is ready: the stage dissolves before the content takes over. */
+.brand-loader.is-leaving .brand-loader-stage {
+  animation: brand-loader-out 0.32s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+@keyframes brand-loader-out {
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+    filter: blur(4px);
+  }
+}
+
+/* Orbit and mark share one cell so they stay concentric. */
+.brand-splash {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 7.5rem;
+  height: 7.5rem;
+  animation: brand-splash-in 1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.brand-splash > * {
+  grid-area: 1 / 1;
+}
+@keyframes brand-splash-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+.brand-splash-orbit {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+.brand-splash-track {
+  fill: none;
+  stroke: rgba(var(--ink), 0.14);
+  stroke-width: 1.5;
+}
+.brand-splash-arc {
+  fill: none;
+  stroke: var(--teal-light);
+  stroke-width: 2;
+  stroke-linecap: round;
+  transform-origin: 50% 50%;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--teal) 85%, transparent));
+  animation: brand-splash-spin 1.4s linear infinite;
+}
+@keyframes brand-splash-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* The round window the emblem is cropped through; the image inside is
+   positioned by the component from the emblem's measured place in the file. */
+.brand-splash-mark {
+  position: relative;
+  width: 5.25rem;
+  height: 5.25rem;
+  border-radius: 50%;
+  overflow: hidden;
+}
+.brand-splash-mark-img {
+  position: absolute;
+  max-width: none;
+}
+.brand-splash-mark-img.is-dark {
+  display: var(--loader-mark-dark, block);
+}
+.brand-splash-mark-img.is-light {
+  display: var(--loader-mark-light, none);
+}
+
+/* The status sequence: outgoing and incoming lines in one grid cell. */
+.brand-loader-steps {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+  margin-top: 1.25rem;
+  font-size: 15px;
+  color: rgba(var(--ink), 0.62);
+  opacity: 0;
+  animation: fade-in 0.8s ease 0.4s forwards;
+}
+.brand-step {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+.brand-step-in {
+  animation: brand-step-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.brand-step-out {
+  animation: brand-step-out 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  pointer-events: none;
+}
+@keyframes brand-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes brand-step-out {
+  to {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+}
+
+/* A second instance taking over in the same place: no second arrival. */
+.brand-loader.is-continuing .brand-splash,
+.brand-loader.is-continuing .brand-loader-steps {
+  animation: none;
+  opacity: 1;
+}
+
+/* The loader keeps its shape and its dissolve without motion: lines swap in
+   place, the arc stands still, and the dissolve still ends so the page can
+   take over. */
+@media (prefers-reduced-motion: reduce) {
+  .brand-splash,
+  .brand-splash-arc,
+  .brand-step-in,
+  .brand-loader-steps {
+    animation: none !important;
+    opacity: 1;
+  }
+  .brand-step-out {
+    display: none;
+  }
+  .brand-loader.is-leaving .brand-loader-stage {
+    animation-duration: 0.001ms !important;
+  }
+}
+
+/* The loader takes the whole viewport: the page's own canvas and ambient
+   light, above the sidebar, below toasts. It fades as the emblem dissolves,
+   with the finished page already underneath. */
+.brand-loader-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background-color: var(--background);
+  background-image: var(--gradient-bg);
+  animation: fade-in 0.15s ease-out both;
+}
+.brand-loader-overlay.is-leaving {
+  animation: brand-loader-overlay-out 0.32s cubic-bezier(0.22, 1, 0.36, 1)
+    forwards;
+  pointer-events: none;
+}
+@keyframes brand-loader-overlay-out {
+  to {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brand-loader-overlay {
+    animation: none;
+  }
+  .brand-loader-overlay.is-leaving {
+    animation-duration: 0.001ms;
+  }
+}
+
+/* Hydration swaps the server's inline loader for the portalled one; that
+   swap must not replay the fade-in. */
+.brand-loader-overlay.is-continuing {
+  animation: none;
+}
+
+/* A meter filling in from the left, once, when it first appears. */
+@keyframes bar-fill {
+  from {
+    transform: scaleX(0);
+  }
+}
+.animate-bar-fill {
+  transform-origin: left;
+  animation: bar-fill 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-bar-fill {
+    animation: none;
+  }
+}

@@ -1,16 +1,22 @@
 "use client";
 
 import * as React from "react";
-import { Clock, Plus } from "lucide-react";
+import { Clock, Pencil, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useMaskedHover } from "@/components/ui/masked-value";
-import { dateLabel, dateShortLabel } from "@/components/features/accounting/format";
+import {
+  dateLabel,
+  dateShortLabel,
+} from "@/components/features/accounting/format";
 import { cn, formatCurrency } from "@/lib/utils";
 import type { FullTaxBreakdown } from "@/lib/tax/calculations";
-import type { MeterSegments, PaymentSchedule } from "@/lib/tax/payment-schedule";
+import type {
+  MeterSegments,
+  PaymentSchedule,
+} from "@/lib/tax/payment-schedule";
 import type { AnnualizedState } from "./tax-estimator-model";
 
 const MASK = "$•••••";
@@ -26,6 +32,7 @@ export function TaxHero({
   schedule,
   meter,
   annualized,
+  profile,
   onRecordPayment,
 }: {
   year: number;
@@ -33,6 +40,8 @@ export function TaxHero({
   schedule: PaymentSchedule;
   meter: MeterSegments;
   annualized: AnnualizedState | null;
+  /** Filing status, state and structure, with the way to change them. */
+  profile?: { summary: string; onEdit: () => void };
   onRecordPayment: () => void;
 }) {
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
@@ -50,17 +59,40 @@ export function TaxHero({
   const [dollars, cents] = formatCurrency(Math.abs(net)).split(".");
 
   const stateName = breakdown.stateTaxDetail.stateName ?? "State";
-  const showState = breakdown.stateLiability > 0 || breakdown.totalStatePaid > 0;
+  const showState =
+    breakdown.stateLiability > 0 || breakdown.totalStatePaid > 0;
 
   const paid = meter.withheld + meter.estimated + meter.projected;
   const coverage =
-    meter.total > 0 ? Math.min(100, Math.round((paid / meter.total) * 100)) : 100;
+    meter.total > 0
+      ? Math.min(100, Math.round((paid / meter.total) * 100))
+      : 100;
   const share = (v: number) => (meter.total > 0 ? (v / meter.total) * 100 : 0);
   const segments = [
-    { key: "withheld", label: "Withheld", value: meter.withheld, className: "bg-teal-dark" },
-    { key: "estimated", label: "Estimated payments", value: meter.estimated, className: "bg-teal" },
-    { key: "projected", label: "Projected credits", value: meter.projected, className: "meter-hatch" },
-    { key: "remaining", label: "Remaining", value: meter.remaining, className: "bg-[rgba(var(--ink),0.06)]" },
+    {
+      key: "withheld",
+      label: "Withheld",
+      value: meter.withheld,
+      className: "bg-teal-dark",
+    },
+    {
+      key: "estimated",
+      label: "Estimated payments",
+      value: meter.estimated,
+      className: "bg-teal",
+    },
+    {
+      key: "projected",
+      label: "Projected credits",
+      value: meter.projected,
+      className: "meter-hatch",
+    },
+    {
+      key: "remaining",
+      label: "Remaining",
+      value: meter.remaining,
+      className: "bg-[rgba(var(--ink),0.06)]",
+    },
   ].filter((s) => s.value > CENT);
   const meterLabel = masked
     ? "Payment progress, amounts hidden"
@@ -91,13 +123,26 @@ export function TaxHero({
       Math.abs(ready.full.state - next.suggestedState) > CENT);
 
   return (
-    <Card glass className="animate-fade-up">
+    <Card glass>
       <CardContent className="p-5 lg:p-6" {...hoverProps}>
         <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              {eyebrow}
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {eyebrow}
+              </p>
+              {profile && (
+                <button
+                  type="button"
+                  onClick={profile.onEdit}
+                  className="group inline-flex items-center gap-1.5 rounded-md text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {profile.summary}
+                  <Pencil size={12} aria-hidden="true" />
+                  <span className="sr-only">Edit filing status and state</span>
+                </button>
+              )}
+            </div>
             <p className="mt-2 text-4xl font-semibold leading-none tracking-tight lg:text-[56px]">
               {masked ? (
                 MASK
@@ -113,9 +158,17 @@ export function TaxHero({
               )}
             </p>
             <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted-foreground">
-              <SplitAmount name="Federal" amount={breakdown.federalRemaining} display={fmtMasked(Math.abs(breakdown.federalRemaining))} />
+              <SplitAmount
+                name="Federal"
+                amount={breakdown.federalRemaining}
+                display={fmtMasked(Math.abs(breakdown.federalRemaining))}
+              />
               {showState && (
-                <SplitAmount name={stateName} amount={breakdown.stateRemaining} display={fmtMasked(Math.abs(breakdown.stateRemaining))} />
+                <SplitAmount
+                  name={stateName}
+                  amount={breakdown.stateRemaining}
+                  display={fmtMasked(Math.abs(breakdown.stateRemaining))}
+                />
               )}
             </p>
 
@@ -123,13 +176,17 @@ export function TaxHero({
               <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 {breakdown.totalLiability > CENT ? (
                   <span>
-                    <span className="font-semibold text-foreground">{coverage}%</span> of{" "}
-                    {fmtMasked(breakdown.totalLiability)} total tax covered
+                    <span className="font-semibold text-foreground">
+                      {coverage}%
+                    </span>{" "}
+                    of {fmtMasked(breakdown.totalLiability)} total tax covered
                   </span>
                 ) : (
                   <span>No tax projected for {year}</span>
                 )}
-                <span className="tabular-nums">{fmtMasked(breakdown.totalPaid)} paid or credited</span>
+                <span className="tabular-nums">
+                  {fmtMasked(breakdown.totalPaid)} paid or credited
+                </span>
               </div>
               <div
                 role="img"
@@ -139,7 +196,12 @@ export function TaxHero({
                 {segments.map((s) => (
                   <div
                     key={s.key}
-                    className={cn("h-full", s.className)}
+                    className={cn(
+                      "h-full",
+                      s.className,
+                      // The covered part fills in from the left; the remainder is just the track.
+                      s.key !== "remaining" && "animate-bar-fill",
+                    )}
                     style={{ width: `${share(s.value)}%` }}
                   />
                 ))}
@@ -149,10 +211,15 @@ export function TaxHero({
                   <span key={s.key} className="inline-flex items-center gap-2">
                     <span
                       aria-hidden="true"
-                      className={cn("inline-block h-2.5 w-2.5 rounded-sm", s.className)}
+                      className={cn(
+                        "inline-block h-2.5 w-2.5 rounded-sm",
+                        s.className,
+                      )}
                     />
                     <span className="text-muted-foreground">{s.label}</span>
-                    <span className="font-medium tabular-nums">{fmtMasked(s.value)}</span>
+                    <span className="font-medium tabular-nums">
+                      {fmtMasked(s.value)}
+                    </span>
                     {s.key === "projected" && (
                       <span className="text-[10px] uppercase tracking-wider text-muted-foreground/70">
                         assumed
@@ -172,11 +239,15 @@ export function TaxHero({
               <p className="text-sm font-semibold">
                 {next ? (
                   <>
-                    {next.kind === "quarter" ? `${next.quarter} estimate` : `${year} return`}
+                    {next.kind === "quarter"
+                      ? `${next.quarter} estimate`
+                      : `${year} return`}
                     <span className="font-normal text-muted-foreground">
                       {" "}
                       <span aria-hidden="true">·</span>{" "}
-                      {next.kind === "quarter" ? dateShortLabel(next.deadline) : dateLabel(next.deadline)}
+                      {next.kind === "quarter"
+                        ? dateShortLabel(next.deadline)
+                        : dateLabel(next.deadline)}
                     </span>
                   </>
                 ) : (
@@ -197,7 +268,8 @@ export function TaxHero({
                       stateName={showState ? stateName : null}
                       rows={[
                         {
-                          label: next.kind === "return" ? "What is left" : "Actual",
+                          label:
+                            next.kind === "return" ? "What is left" : "Actual",
                           tip: next.kind === "return" ? undefined : tips.actual,
                           federal: fmtMasked(next.suggestedFederal),
                           state: fmtMasked(next.suggestedState),
@@ -224,7 +296,11 @@ export function TaxHero({
                           : []),
                       ]}
                     />
-                    {note && <p className="text-[11px] leading-relaxed text-muted-foreground">{note}</p>}
+                    {note && (
+                      <p className="text-[11px] leading-relaxed text-muted-foreground">
+                        {note}
+                      </p>
+                    )}
                   </>
                 )}
               </>
@@ -266,7 +342,9 @@ function SplitAmount({
     <span>
       {name}
       {amount < 0 ? " refund " : " "}
-      <span className="font-medium tabular-nums text-foreground">{display}</span>
+      <span className="font-medium tabular-nums text-foreground">
+        {display}
+      </span>
     </span>
   );
 }
@@ -282,7 +360,8 @@ export function figureTips(
 ): { actual: string; minimum: string | null; total: string | null } {
   let actual =
     "The tax you owe right now on what you have actually earned. Pay this and you are square on real income.";
-  if (annualized?.kind !== "ready") return { actual, minimum: null, total: null };
+  if (annualized?.kind !== "ready")
+    return { actual, minimum: null, total: null };
   if (fmt && annualized.shortfall)
     actual += ` It is under the IRS minimum, which costs about ${fmt(annualized.shortfall.cost)} in interest.`;
   const minimum =
@@ -335,12 +414,19 @@ function NextTable({
       <tbody>
         {rows.map((row) => (
           <tr key={row.label}>
-            <th scope="row" className="py-0.5 pr-3 text-left text-[11px] font-medium text-muted-foreground">
+            <th
+              scope="row"
+              className="py-0.5 pr-3 text-left text-[11px] font-medium text-muted-foreground"
+            >
               <FigureLabel label={row.label} tip={row.tip} />
             </th>
-            <td className="py-0.5 text-right font-semibold tabular-nums">{row.federal}</td>
+            <td className="py-0.5 text-right font-semibold tabular-nums">
+              {row.federal}
+            </td>
             {stateName && (
-              <td className="py-0.5 pl-4 text-right font-semibold tabular-nums">{row.state}</td>
+              <td className="py-0.5 pl-4 text-right font-semibold tabular-nums">
+                {row.state}
+              </td>
             )}
           </tr>
         ))}

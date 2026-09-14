@@ -45,7 +45,11 @@ import { AccountingSupportReport } from "./accounting-support-report";
 import { AccountingBooksPackage } from "./accounting-books-package";
 import { booksPackageCatalog } from "@/lib/accounting/books-package";
 import { AccountingPicker } from "./accounting-picker";
-import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+import { useAccountingCommand } from "./use-accounting-command";
+import { useAccountingRead } from "./use-accounting-read";
+import { useAccountingCache } from "./accounting-cache";
+import { defaultReportFilter, reportQuery } from "@/lib/accounting/preload";
+import { StatementSkeleton } from "./accounting-skeletons";
 import {
   AccountingReportDetail,
   ReportMoney,
@@ -184,9 +188,6 @@ export function AccountingReports({
   const [draft, setDraft] = useState(applied),
     [advanced, setAdvanced] = useState(false),
     [error, setError] = useState(""),
-    [data, setData] = useState<ReportData | null>(null),
-    [loading, setLoading] = useState(false),
-    [refresh, setRefresh] = useState(0),
     [showZero, setShowZero] = useState(false),
     [detail, setDetail] = useState(true),
     [drill, setDrill] = useState<{
@@ -201,34 +202,30 @@ export function AccountingReports({
     saved: boolean;
   } | null>(null);
   const presets = datePresets(todayInBooks());
+  const reportId = report?.id;
+  const cache = useAccountingCache();
+  // The statement comes from the shared cache: a card that was pointed at
+  // has it ready, and a write elsewhere refreshes it behind the reader.
+  const reportRead = useAccountingRead<ReportData>(
+    reportId ? reportQuery(reportId, applied) : null,
+    { enabled: !demo },
+  );
+  const data = reportRead.data ?? null;
+  const loading = reportRead.loading;
   const model =
     data && report
       ? buildReportModel(report.id, data, showZero, manage.parties)
       : null;
-  const reportId = report?.id;
+  const warm = (id: string) => {
+    if (demo || !reportCatalog.some((r) => r.id === id)) return;
+    void cache
+      .read(reportQuery(id, defaultReportFilter(from, to)))
+      .catch(() => undefined);
+  };
   const activeFilters = draft.payee ? 1 : 0;
   useEffect(() => {
     setDraft(JSON.parse(signature));
   }, [signature]);
-  useEffect(() => {
-    if (!reportId || demo) return;
-    const controller = new AbortController();
-    setLoading(true);
-    setError("");
-    setData(null);
-    accountingGet<ReportData>(
-      { view: "report", report: reportId, filter: signature },
-      controller.signal,
-    )
-      .then(setData)
-      .catch((e) => {
-        if (!controller.signal.aborted) setError(e.message);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [signature, reportId, revision, refresh, demo]);
   function navigate(id?: ReportId | SupportReportId | "books-package") {
     setDrill(null);
     const url = new URL(window.location.href);
@@ -248,7 +245,7 @@ export function AccountingReports({
     const url = new URL(window.location.href);
     url.searchParams.set("report_filter", JSON.stringify(parsed.data));
     window.history.pushState(null, "", url);
-    if (JSON.stringify(parsed.data) === signature) setRefresh((x) => x + 1);
+    if (JSON.stringify(parsed.data) === signature) void reportRead.reload();
   }
   function openDetail(title: string, filter: Partial<ReportFilter>) {
     const parsed = reportFilterSchema.safeParse(filter);
@@ -377,6 +374,8 @@ export function AccountingReports({
                         key={r.id}
                         variant="ghost"
                         onClick={() => navigate(r.id)}
+                        onPointerEnter={() => warm(r.id)}
+                        onFocus={() => warm(r.id)}
                         className="group h-auto w-full justify-between gap-5 rounded-none p-5 text-left font-normal whitespace-normal focus-visible:ring-inset focus-visible:ring-offset-0"
                       >
                         <span className="min-w-0">
@@ -626,15 +625,7 @@ export function AccountingReports({
           Detailed reports are available in configured accounting books.
         </p>
       )}
-      {loading && (
-        <div role="status" className="glass-card space-y-4 rounded-xl p-8">
-          <p className="text-sm text-muted-foreground">
-            Preparing report from the ledger...
-          </p>
-          <div className="h-7 max-w-sm animate-pulse rounded bg-secondary" />
-          <div className="h-40 animate-pulse rounded bg-secondary/40" />
-        </div>
-      )}
+      {loading && <StatementSkeleton />}
       {data && model && !loading && (
         <>
           {(data.filter.mode === "working" ||
@@ -708,7 +699,7 @@ export function AccountingReports({
               revision={data.revision}
               onClose={() => {}}
               onEntry={onEntry}
-              onChanged={() => setRefresh((x) => x + 1)}
+              onChanged={() => void reportRead.reload()}
             />
           ) : (
             <StatementTable
@@ -769,7 +760,7 @@ export function AccountingReports({
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => setRefresh((x) => x + 1)}
+              onClick={() => void reportRead.reload()}
             >
               <RefreshCw aria-hidden="true" />
               Refresh coverage
@@ -788,7 +779,7 @@ export function AccountingReports({
             setDrill(null);
             onEntry(id);
           }}
-          onChanged={() => setRefresh((x) => x + 1)}
+          onChanged={() => void reportRead.reload()}
         />
       )}
     </div>

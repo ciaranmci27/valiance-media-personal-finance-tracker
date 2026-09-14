@@ -652,3 +652,18 @@ Once per January:
 ## Review section (fill after implementation)
 
 _(To be populated as phases complete.)_
+
+## Accounting loading overhaul (2026-09-13, plan: ancient-knitting-wave)
+
+- [x] WP1 read-cache.ts: entry objects, entry/inflight/drop/dropWhere/subscribe, fresh reads, maxAge; extend verify-accounting-read-cache.ts
+- [x] WP2 preload.ts: shared ledger initial state + filter builders, view/boot query lists; verify-accounting-preload.ts
+- [x] WP1 accounting-cache.tsx provider + use-accounting-read.ts hook; shell manage/feeds on the hook; sidebar sign-out reset
+- [x] WP2 accounting-views.tsx registry; data-table skeletonRows; accounting-skeletons.tsx; shell off next/dynamic; setView + sidebar warming
+- [x] WP6 overview, ledger, setup guide on the hook
+- [x] WP3 brand-loader.tsx, use-loader-phase.ts, CSS, accounting-loading.tsx, route loading.tsx; WP4 view gate + syncing line in header
+- [x] WP5 evidence: chunk + query warm on dialog open, one cached read for panel and notes, EvidenceSkeleton
+- [x] WP6 reports, payroll, close, Manage sections + rail warming
+- [x] WP4 mutation paths to dropWhere; remove registerCache/registerEpoch props
+- [x] Verify: tsc, lint:accounting, test:accounting:all (50/52, the two pre-existing DB-shape suites), build:accounting, demo browser sweep (all views, mobile, harness evidence flow)
+- [ ] Verify on the real books (needs a signed-in session): boot loader hand-off, first-paint network set, hover warming, evidence request at dialog open, Manage sections without false empty states
+- [ ] Follow-ups: Imports, Tax workpapers and Manual registers still fetch directly (skeletons only); delete src/app/accounting-picker-preview before commit

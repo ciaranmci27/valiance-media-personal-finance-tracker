@@ -1,12 +1,13 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/inputs/Textarea";
 import { Tooltip } from "@/components/ui/tooltip";
 import type { EntryEvidence } from "@/lib/accounting/workflows";
 import { timestampLabel } from "./format";
-import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+import { useAccountingCommand } from "./use-accounting-command";
+import { useAccountingRead } from "./use-accounting-read";
 
 const NOTE_LIMIT = 3000;
 
@@ -27,32 +28,15 @@ export function EntryNotes({
   pending: string;
   onPending: (note: string) => void;
 }) {
-  const [notes, setNotes] = useState<EntryEvidence["notes"] | null>(null);
+  // The same cached read as the Receipts and history panel: one request per entry.
+  const evidence = useAccountingRead<EntryEvidence>(
+    entryId ? { view: "evidence", entry: entryId } : null,
+  );
+  const notes = evidence.data?.notes ?? null;
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const noteId = useRef<string | null>(null);
-  async function refresh() {
-    if (!entryId) return;
-    const evidence = await accountingGet<EntryEvidence>({
-      view: "evidence",
-      entry: entryId,
-    });
-    setNotes(evidence.notes);
-  }
-  const command = useAccountingCommand(refresh);
-  useEffect(() => {
-    if (!entryId) return;
-    const controller = new AbortController();
-    accountingGet<EntryEvidence>(
-      { view: "evidence", entry: entryId },
-      controller.signal,
-    )
-      .then((evidence) => setNotes(evidence.notes))
-      .catch((e) => {
-        if (!controller.signal.aborted) setError(e.message);
-      });
-    return () => controller.abort();
-  }, [entryId]);
+  const command = useAccountingCommand(evidence.reload);
 
   if (!entryId)
     return (
@@ -137,9 +121,9 @@ export function EntryNotes({
           </Button>
         </Tooltip>
       </div>
-      {(error || command.error) && (
+      {(error || evidence.error || command.error) && (
         <p role="alert" className="text-sm text-error">
-          {error || command.error}
+          {error || evidence.error || command.error}
         </p>
       )}
     </div>

@@ -11,16 +11,31 @@ import {
 import { dateLabel, money } from "@/components/features/accounting/format";
 import { TreatmentReview } from "@/components/features/accounting/tax-treatment-review";
 import { accountingReadJson } from "@/lib/accounting/read-json";
-import type { BooksFigure, BooksFigures } from "@/lib/accounting/tax-books-figures";
+import type {
+  BooksFigure,
+  BooksFigures,
+} from "@/lib/accounting/tax-books-figures";
 import { isDemoMode } from "@/lib/demo";
 import { TAX_CLASSIFICATION_LABELS } from "./tax-setup-card";
 import { booksFiguresUrl } from "./use-books-refresh";
 import type { TaxClassification } from "@/types/database";
 
 const GROUPS: { key: BooksFigure["group"]; title: string; hint: string }[] = [
-  { key: "business", title: "Business", hint: "From the ledger, after tax treatment." },
-  { key: "investments", title: "Investments", hint: "Separately stated income and gains." },
-  { key: "payroll", title: "Payroll", hint: "From the verified register, or posted runs until one exists." },
+  {
+    key: "business",
+    title: "Business",
+    hint: "From the ledger, after tax treatment.",
+  },
+  {
+    key: "investments",
+    title: "Investments",
+    hint: "Separately stated income and gains.",
+  },
+  {
+    key: "payroll",
+    title: "Payroll",
+    hint: "From the verified register, or posted runs until one exists.",
+  },
 ];
 
 /**
@@ -95,14 +110,23 @@ function BooksFiguresDialog({
         setTicked(
           new Set(
             result.figures
-              .filter((f) => f.available && !existingKeys.has(f.key) && offerable(f, state))
+              .filter(
+                (f) =>
+                  f.available &&
+                  !existingKeys.has(f.key) &&
+                  offerable(f, state),
+              )
               .map((f) => f.key),
           ),
         );
       })
       .catch((e: unknown) => {
         if (abort.signal.aborted) return;
-        setError(e instanceof Error && e.message ? e.message : "The books could not be read.");
+        setError(
+          e instanceof Error && e.message
+            ? e.message
+            : "The books could not be read.",
+        );
       })
       .finally(() => {
         if (!abort.signal.aborted) setLoading(false);
@@ -126,7 +150,9 @@ function BooksFiguresDialog({
   // them here, and the figures reload once they are applied.
   const profit = figures.find((f) => f.key === "business_profit");
   const treatmentGap =
-    profit && !profit.available && /need a tax treatment/.test(profit.reason ?? "")
+    profit &&
+    !profit.available &&
+    /need a tax treatment/.test(profit.reason ?? "")
       ? Number(/^(\d+)/.exec(profit.reason ?? "")?.[1] ?? 0)
       : 0;
 
@@ -167,8 +193,8 @@ function BooksFiguresDialog({
       >
         {data && (
           <p className="text-sm text-muted-foreground">
-            Figures through {dateLabel(data.through)}. Each becomes a row you can
-            top up with what you expect for the rest of the year.
+            Figures through {dateLabel(data.through)}. Each becomes a row you
+            can top up with what you expect for the rest of the year.
           </p>
         )}
 
@@ -180,10 +206,18 @@ function BooksFiguresDialog({
         )}
 
         {!loading && error && (
-          <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-error/40 bg-error/5 px-4 py-3 text-sm text-error">
+          <div
+            role="alert"
+            className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-error/40 bg-error/5 px-4 py-3 text-sm text-error"
+          >
             <span>{error}</span>
             {!isDemoMode() && (
-              <Button type="button" size="sm" variant="outline" onClick={() => setAttempt((n) => n + 1)}>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setAttempt((n) => n + 1)}
+              >
                 Retry
               </Button>
             )}
@@ -204,8 +238,12 @@ function BooksFiguresDialog({
             return (
               <fieldset key={group.key} className="space-y-2">
                 <legend className="mb-1">
-                  <span className="block text-sm font-medium">{group.title}</span>
-                  <span className="block text-xs text-muted-foreground">{group.hint}</span>
+                  <span className="block text-sm font-medium">
+                    {group.title}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">
+                    {group.hint}
+                  </span>
                 </legend>
                 {rows.map((figure) => {
                   const added = existingKeys.has(figure.key);
@@ -230,7 +268,9 @@ function BooksFiguresDialog({
                         label={
                           <span className="flex items-center justify-between gap-3">
                             <span>{figure.label}</span>
-                            <span className="tabular-nums">{money(figure.amount_cents)}</span>
+                            <span className="tabular-nums">
+                              {money(figure.amount_cents)}
+                            </span>
                           </span>
                         }
                         description={description}
@@ -256,7 +296,10 @@ function BooksFiguresDialog({
           })}
 
         {(classificationNote || (data && data.notes.length > 0)) && (
-          <div role="status" className="space-y-1 text-xs text-muted-foreground">
+          <div
+            role="status"
+            className="space-y-1 text-xs text-muted-foreground"
+          >
             {classificationNote && <p>{classificationNote}</p>}
             {data?.notes.map((note) => (
               <p key={note}>{note}</p>

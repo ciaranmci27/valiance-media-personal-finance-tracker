@@ -190,9 +190,7 @@ export function IncomeTypePicker({
               onClick={() => handleSelect(opt.value)}
               className={cn(
                 "w-full flex items-start gap-2.5 px-3 py-2 text-left transition-colors cursor-pointer",
-                isSelected
-                  ? "bg-primary/10"
-                  : "hover:bg-secondary"
+                isSelected ? "bg-primary/10" : "hover:bg-secondary",
               )}
             >
               <span
@@ -200,7 +198,7 @@ export function IncomeTypePicker({
                   "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
                   isSelected
                     ? "border-primary bg-primary text-primary-foreground"
-                    : "border-border"
+                    : "border-border",
                 )}
               >
                 {isSelected && <Check className="h-2.5 w-2.5" />}
@@ -210,7 +208,7 @@ export function IncomeTypePicker({
                   <span
                     className={cn(
                       "px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded border",
-                      BADGE_STYLES[opt.value]
+                      BADGE_STYLES[opt.value],
                     )}
                   >
                     {opt.label}
@@ -246,14 +244,14 @@ export function IncomeTypePicker({
           "shrink-0 h-8 inline-flex items-center gap-0.5 px-1.5 text-[10px] font-semibold uppercase tracking-wider rounded cursor-pointer transition-colors border",
           incomeType
             ? BADGE_STYLES[incomeType]
-            : "bg-amber-500/15 text-amber-400 border-amber-400/50 animate-pulse"
+            : "bg-amber-500/15 text-amber-400 border-amber-400/50 animate-pulse",
         )}
       >
         {incomeType ? BADGE_LABELS[incomeType] : "Select"}
         <ChevronDown
           className={cn(
             "h-2.5 w-2.5 transition-transform",
-            isOpen && "rotate-180"
+            isOpen && "rotate-180",
           )}
         />
       </button>

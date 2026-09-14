@@ -1,6 +1,6 @@
 "use client";
 import { FileInput } from "@/components/ui/inputs/FileInput";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   Archive,
   Paperclip,
@@ -27,7 +27,8 @@ import type {
   DocumentList,
 } from "@/lib/accounting/documents";
 import { countLabel, dateLabel, enumLabel } from "./format";
-import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+import { useAccountingCommand } from "./use-accounting-command";
+import { useAccountingRead } from "./use-accounting-read";
 
 export async function uploadEvidence(
   file: File,
@@ -226,9 +227,16 @@ export function AccountingDocuments({
   onEntry: (id: string) => void;
 }) {
   // The read returns every document at once; there is no server paging.
-  const [data, setData] = useState<DocumentList>({ documents: [], total: 0 }),
-    [error, setError] = useState(""),
-    [link, setLink] = useState<AccountingDocument | null>(null),
+  const library = useAccountingRead<DocumentList>(
+    { view: "documents" },
+    { enabled: !demo },
+  );
+  const data: DocumentList = {
+    documents: library.data?.documents ?? [],
+    total: (library.data?.documents ?? []).length,
+  };
+  const error = library.error;
+  const [link, setLink] = useState<AccountingDocument | null>(null),
     [entryId, setEntryId] = useState(""),
     // Archiving a document or detaching one transaction both ask why.
     [reasoned, setReasoned] = useState<{
@@ -237,34 +245,13 @@ export function AccountingDocuments({
       entry?: AccountingDocument["entries"][number];
     } | null>(null),
     [reason, setReason] = useState("");
-  async function refresh() {
-    const list = await accountingGet<DocumentList>({ view: "documents" });
-    setData({
-      documents: list.documents ?? [],
-      total: (list.documents ?? []).length,
-    });
-  }
+  const refresh = library.reload;
   const command = useAccountingCommand(async () => {
     await refresh();
     setLink(null);
     setReasoned(null);
     setReason("");
   });
-  useEffect(() => {
-    if (demo) return;
-    const controller = new AbortController();
-    accountingGet<DocumentList>({ view: "documents" }, controller.signal)
-      .then((list) =>
-        setData({
-          documents: list.documents ?? [],
-          total: (list.documents ?? []).length,
-        }),
-      )
-      .catch((e) => {
-        if (!controller.signal.aborted) setError(e.message);
-      });
-    return () => controller.abort();
-  }, [demo]);
   const meta = (d: AccountingDocument) =>
     `${Math.ceil(Number(d.size_bytes) / 1024)} KB · ${documentStatus(d)}`;
   const entryLinks = (d: AccountingDocument) =>
@@ -377,6 +364,7 @@ export function AccountingDocuments({
       <DataTable
         columns={columns}
         data={data.documents}
+        skeletonRows={library.loading ? 5 : 0}
         keyExtractor={(d) => d.id}
         emptyState="Upload a receipt or source document to start your evidence library."
         mobileCard={(d) => (

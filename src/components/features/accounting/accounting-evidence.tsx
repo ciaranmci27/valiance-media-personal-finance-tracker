@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight, Paperclip } from "lucide-react";
 import { MaskedValue } from "@/components/ui/masked-value";
@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 import type { EntryEvidence, Party } from "@/lib/accounting/workflows";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
 import { dateLabel, enumLabel, originLabel, timestampLabel } from "./format";
-import { accountingGet } from "./use-accounting-command";
+import { useAccountingRead } from "./use-accounting-read";
+import { EvidenceSkeleton } from "./accounting-skeletons";
 import { EvidenceUpload } from "./accounting-documents";
 import { EntryNotes } from "./accounting-entry-notes";
 
@@ -96,28 +97,18 @@ export function AccountingEvidence({
   accounts: AccountingAccount[];
   parties: Party[];
 }) {
-  const [data, setData] = useState<EntryEvidence | null>(null);
-  const [error, setError] = useState("");
-  async function refresh() {
-    setData(
-      await accountingGet<EntryEvidence>({ view: "evidence", entry: entryId }),
-    );
-  }
-  useEffect(() => {
-    const controller = new AbortController();
-    accountingGet<EntryEvidence>(
-      { view: "evidence", entry: entryId },
-      controller.signal,
-    )
-      .then(setData)
-      .catch((e) => {
-        if (!controller.signal.aborted) setError(e.message);
-      });
-    return () => controller.abort();
-  }, [entryId]);
+  // One cached read for this panel and the notes thread, warmed the moment
+  // the transaction opened.
+  const {
+    data,
+    loading,
+    error,
+    reload: refresh,
+  } = useAccountingRead<EntryEvidence>({ view: "evidence", entry: entryId });
   const chain = data?.history?.entries ?? [];
   return (
     <div className="space-y-6">
+      {loading && <EvidenceSkeleton />}
       {error && (
         <p role="alert" className="text-sm text-error">
           {error}

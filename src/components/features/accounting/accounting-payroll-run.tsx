@@ -41,6 +41,8 @@ import { AccountingPicker, type AccountingOption } from "./accounting-picker";
 import { AccountingDocumentPicker } from "./accounting-document-picker";
 import { WorkflowActions, WorkflowDialog, usdCents } from "./accounting-dialog";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+import { useAccountingRead } from "./use-accounting-read";
+import { payrollListFilter } from "@/lib/accounting/preload";
 import { absMoney, dateLabel, enumLabel, money } from "./format";
 
 /** Matches the LIMIT in accounting.payroll. */
@@ -189,9 +191,23 @@ export function AccountingPayrollRuns({
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
   const [tick, setTick] = useState(0);
-  const [data, setData] = useState<PayrollList | null>(null);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // The list is keyed as the shell warms it, so Payroll opens whole; a page
+  // or search change keeps the last rows on screen while the next load.
+  const list = useAccountingRead<PayrollList>(
+    {
+      view: "payroll",
+      filter: payrollListFilter({
+        year: Number(year),
+        today,
+        query: search,
+        offset,
+      }),
+    },
+    { enabled: !demo, keepPrevious: true },
+  );
+  const data = list.data ?? null;
+  const loading = list.loading;
   // A report row links straight to one run.
   const params = useSearchParams();
   const [detailId, setDetailId] = useState<string | null>(params.get("run"));
@@ -242,33 +258,6 @@ export function AccountingPayrollRuns({
     }, 250);
     return () => clearTimeout(t);
   }, [query, search]);
-
-  useEffect(() => {
-    if (demo) return;
-    const abort = new AbortController();
-    setLoading(true);
-    setError("");
-    accountingGet<PayrollList>(
-      {
-        view: "payroll",
-        filter: JSON.stringify({
-          year: Number(year),
-          as_of: today,
-          query: search,
-          offset,
-        }),
-      },
-      abort.signal,
-    )
-      .then(setData)
-      .catch((e) => {
-        if (!abort.signal.aborted) setError(e.message);
-      })
-      .finally(() => {
-        if (!abort.signal.aborted) setLoading(false);
-      });
-    return () => abort.abort();
-  }, [year, today, search, offset, tick, demo]);
 
   useEffect(() => {
     if (!detailId || demo) return;
@@ -521,12 +510,12 @@ export function AccountingPayrollRuns({
             onChange={(nextValue) => setQuery(nextValue)}
           />
         </div>
-        {(error || cmd.error) && (
+        {(error || list.error || cmd.error) && (
           <p
             role="alert"
             className="border-b border-border bg-error/5 px-4 py-3 text-sm text-error"
           >
-            {error || cmd.error}
+            {error || list.error || cmd.error}
           </p>
         )}
         <DataTable<PayrollRun>
@@ -534,17 +523,12 @@ export function AccountingPayrollRuns({
           columns={columns}
           data={data?.runs ?? []}
           keyExtractor={(r) => r.id}
-          busy={loading && !!data}
+          busy={list.isPlaceholder}
+          skeletonRows={loading ? 4 : 0}
           emptyState={
-            demo ? (
-              "Payroll runs appear here once the books are connected."
-            ) : loading ? (
-              <div role="status" aria-label="Loading payroll...">
-                <TableSkeleton rows={4} />
-              </div>
-            ) : (
-              `No payroll runs in ${year}.`
-            )
+            demo
+              ? "Payroll runs appear here once the books are connected."
+              : `No payroll runs in ${year}.`
           }
           mobileCard={(r) => (
             <article className="space-y-2">

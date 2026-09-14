@@ -41,7 +41,7 @@ export function popupPosition(trigger: HTMLElement, maxHeight = 280, minWidth = 
 }
 
 export const popupChrome =
-  'fixed inset-auto m-0 z-[9999] overflow-auto rounded-input border border-input-border bg-surface-overlay text-input-text shadow-[var(--shadow-overlay)]';
+  'fixed inset-auto m-0 z-[9999] rounded-input border border-input-border bg-surface-overlay text-input-text shadow-[var(--shadow-overlay)]';
 
 /** Keep a portal in its dialog's focus scope. The native top layer escapes
  * overflow clipping and transformed ancestors without moving focus outside it. */

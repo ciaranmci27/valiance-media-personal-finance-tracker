@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowUpRight,
@@ -28,6 +28,8 @@ import type {
 } from "@/lib/accounting/close";
 import type { WorkflowCommand } from "@/lib/accounting/workflows";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+import { useAccountingRead } from "./use-accounting-read";
+import { closeQueries } from "@/lib/accounting/preload";
 import { absMoney, countLabel, monthLabel } from "./format";
 
 type Action = "close" | "reopen";
@@ -57,11 +59,18 @@ export function AccountingClose({
       ? requestedMonth
       : date.slice(0, 7),
   );
-  const [data, setData] = useState<CloseChecklist | null>(null);
-  const [history, setHistory] = useState<CloseHistory | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Both reads are keyed as the shell warms them, so Month end opens whole.
+  // A reload keeps the checklist on screen; a month change shows the placeholder.
+  const [checklistQuery, historyQuery] = closeQueries(month);
+  const checklist = useAccountingRead<CloseChecklist>(checklistQuery);
+  const closes = useAccountingRead<CloseHistory>(historyQuery);
+  const data = checklist.data ?? null;
+  const history = closes.data ?? null;
+  const loading = checklist.loading || closes.loading;
+  const reloadAll = () =>
+    Promise.all([checklist.reload(), closes.reload()]).then(() => undefined);
   const [error, setError] = useState("");
-  const [tick, setTick] = useState(0);
+  const shownError = error || checklist.error || closes.error;
   const [action, setAction] = useState<{
     kind: Action;
     id: string;
@@ -70,35 +79,9 @@ export function AccountingClose({
   const year = Number(month.slice(0, 4));
 
   const refresh = async () => {
-    setTick((t) => t + 1);
+    void reloadAll();
     await onRefresh();
   };
-
-  // Reloads keep the previous checklist on screen; only the first load and a
-  // month change show the placeholder.
-  useEffect(() => {
-    const abort = new AbortController();
-    setLoading(true);
-    Promise.all([
-      accountingGet<CloseChecklist>(
-        { view: "close", date: `${month}-01` },
-        abort.signal,
-      ),
-      accountingGet<CloseHistory>({ view: "close-history" }, abort.signal),
-    ])
-      .then(([c, h]) => {
-        setData(c);
-        setHistory(h);
-        setError("");
-      })
-      .catch((e) => {
-        if (!abort.signal.aborted) setError(e.message);
-      })
-      .finally(() => {
-        if (!abort.signal.aborted) setLoading(false);
-      });
-    return () => abort.abort();
-  }, [month, tick]);
 
   const closed = history?.periods.some(
     (p) => p.month_start === `${month}-01` && p.is_locked,
@@ -177,7 +160,6 @@ export function AccountingClose({
           onChange={(nextValue) => {
             if (nextValue) {
               setMonth(nextValue);
-              setData(null);
               const url = new URL(window.location.href);
               url.searchParams.set("month", nextValue);
               window.history.replaceState(null, "", url);
@@ -186,15 +168,15 @@ export function AccountingClose({
         />
       </div>
 
-      {error && (
+      {shownError && (
         <p
           role="alert"
           className="rounded-lg border border-error/30 bg-error/5 p-4 text-sm text-error"
         >
-          {error}
+          {shownError}
         </p>
       )}
-      {!data && !error && (
+      {!data && !shownError && (
         <div
           role="status"
           aria-label="Checking the books..."
@@ -375,7 +357,7 @@ export function AccountingClose({
           onFailed={async () => {
             // Reload the month and the affected periods so a retry carries
             // the current revision instead of the one that was rejected.
-            setTick((t) => t + 1);
+            void reloadAll();
             await open(action.kind, action.id);
           }}
         />

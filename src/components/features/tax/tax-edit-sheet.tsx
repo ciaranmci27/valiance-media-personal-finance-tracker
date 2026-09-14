@@ -36,8 +36,15 @@ import type {
   TaxPaymentEntry,
 } from "@/types/database";
 import { IncomeTypePicker } from "./income-type-picker";
-import { BUSINESS_TYPE_OPTIONS, TAX_CLASSIFICATION_LABELS } from "./tax-setup-card";
-import type { EditTarget, EstimatorActions, EstimatorModel } from "./tax-estimator-model";
+import {
+  BUSINESS_TYPE_OPTIONS,
+  TAX_CLASSIFICATION_LABELS,
+} from "./tax-setup-card";
+import type {
+  EditTarget,
+  EstimatorActions,
+  EstimatorModel,
+} from "./tax-estimator-model";
 
 const QUARTER_OPTIONS = [
   { value: "Q1", label: "Q1" },
@@ -102,7 +109,14 @@ export function TaxEditSheet({
     if (row) {
       title = "Edit income";
       remove = { onSelect: () => actions.income.remove(row.id) };
-      body = <IncomeFields row={row} model={model} actions={actions} contentRef={contentRef} />;
+      body = (
+        <IncomeFields
+          row={row}
+          model={model}
+          actions={actions}
+          contentRef={contentRef}
+        />
+      );
     }
   } else if (target?.mode === "gain") {
     const row = model.capitalGains.find((r) => r.id === target.id);
@@ -117,7 +131,14 @@ export function TaxEditSheet({
       const isPayment = target.mode === "payment";
       title = isPayment ? "Edit payment" : "Edit withholding";
       remove = { onSelect: () => actions.payments.remove(row.id) };
-      body = <PaymentFields row={row} isPayment={isPayment} model={model} actions={actions} />;
+      body = (
+        <PaymentFields
+          row={row}
+          isPayment={isPayment}
+          model={model}
+          actions={actions}
+        />
+      );
     }
   } else if (target?.mode === "household") {
     title = "Household";
@@ -151,7 +172,12 @@ export function TaxEditSheet({
     title = "Tax already paid";
     footerNote = "";
     body = (
-      <AddPaidChooser model={model} actions={actions} onNavigate={onNavigate} onClose={onClose} />
+      <AddPaidChooser
+        model={model}
+        actions={actions}
+        onNavigate={onNavigate}
+        onClose={onClose}
+      />
     );
   }
 
@@ -168,7 +194,9 @@ export function TaxEditSheet({
       >
         <SheetHeader className="shrink-0 space-y-0 border-b border-border px-5 pb-4 pr-12 pt-5 text-left">
           <SheetTitle className="text-base">{title}</SheetTitle>
-          <SheetDescription className="sr-only">Changes save automatically.</SheetDescription>
+          <SheetDescription className="sr-only">
+            Changes save automatically.
+          </SheetDescription>
         </SheetHeader>
         <div
           ref={contentRef}
@@ -194,7 +222,9 @@ export function TaxEditSheet({
           )}
           <div className="flex items-center gap-3">
             {footerNote && (
-              <span className="text-xs text-muted-foreground">{footerNote}</span>
+              <span className="text-xs text-muted-foreground">
+                {footerNote}
+              </span>
             )}
             <Button size="sm" onClick={onClose}>
               Done
@@ -233,9 +263,13 @@ function BooksBlock({
       <div className="flex items-start justify-between gap-3 text-sm">
         <span className="text-muted-foreground">
           So far from the books
-          <span className="block text-xs">through {dateLabel(link.through)}</span>
+          <span className="block text-xs">
+            through {dateLabel(link.through)}
+          </span>
         </span>
-        <span className="font-medium tabular-nums">{formatCurrency(link.actual)}</span>
+        <span className="font-medium tabular-nums">
+          {formatCurrency(link.actual)}
+        </span>
       </div>
       {link.document_id && (
         <a
@@ -264,12 +298,16 @@ function BooksBlock({
           min={allowNegative ? undefined : 0}
           placeholder="0.00"
           value={link.rest || ""}
-          onChange={(value) => onRest(allowNegative ? toNumber(value) : clampZero(value))}
+          onChange={(value) =>
+            onRest(allowNegative ? toNumber(value) : clampZero(value))
+          }
         />
       )}
       <div className="flex items-center justify-between gap-3 border-t border-border pt-3 text-sm">
         <span className="font-medium">Total for {year}</span>
-        <span className="font-semibold tabular-nums">{formatCurrency(total)}</span>
+        <span className="font-semibold tabular-nums">
+          {formatCurrency(total)}
+        </span>
       </div>
       {note && <p className="text-xs text-muted-foreground">{note}</p>}
       <div>
@@ -302,8 +340,7 @@ function IncomeFields({
 
   const isProfit = row.books?.key === "business_profit";
   const showSe =
-    actions.income.canHaveSeToggle(row.income_type) &&
-    (!fromBooks || isProfit);
+    actions.income.canHaveSeToggle(row.income_type) && (!fromBooks || isProfit);
   const showParticipation = row.income_type === "k1" && !row.subject_to_se;
   const showTaxpayer = model.filingStatus === "mfj";
   const hasAdvanced = showSe || showParticipation || showTaxpayer;
@@ -317,7 +354,9 @@ function IncomeFields({
         onChange={(value) => actions.income.update(row.id, "name", value)}
       />
       <div className="space-y-1.5">
-        <span className="block text-sm font-medium text-muted-foreground">Type</span>
+        <span className="block text-sm font-medium text-muted-foreground">
+          Type
+        </span>
         {fromBooks ? (
           <Badge variant="info">
             <BookOpen size={12} aria-hidden="true" />
@@ -352,17 +391,25 @@ function IncomeFields({
             autoFocus={!synced && !row.amount}
             value={row.amount || ""}
             disabled={synced}
-            onChange={(value) => actions.income.update(row.id, "amount", toNumber(value))}
+            onChange={(value) =>
+              actions.income.update(row.id, "amount", toNumber(value))
+            }
           />
           {synced ? (
             <Hint
               text={`Synced from income tracking for ${model.year}.`}
-              action={{ label: "Edit manually", onSelect: () => actions.income.unlink(row.id) }}
+              action={{
+                label: "Edit manually",
+                onSelect: () => actions.income.unlink(row.id),
+              }}
             />
           ) : overridden ? (
             <Hint
               text="Edited by hand. The synced amount is kept in case you want it back."
-              action={{ label: "Restore synced amount", onSelect: () => actions.income.relink(row.id) }}
+              action={{
+                label: "Restore synced amount",
+                onSelect: () => actions.income.relink(row.id),
+              }}
             />
           ) : null}
         </div>
@@ -387,7 +434,9 @@ function IncomeFields({
               label="I materially participate"
               description="Excludes this income from the 3.8% net investment income tax."
               checked={!!row.materially_participates}
-              onChange={() => actions.income.toggleMaterialParticipation(row.id)}
+              onChange={() =>
+                actions.income.toggleMaterialParticipation(row.id)
+              }
             />
           )}
           {showTaxpayer && (
@@ -397,7 +446,8 @@ function IncomeFields({
               orientation="horizontal"
               value={row.taxpayer ?? "self"}
               onChange={(value) => {
-                if (value !== (row.taxpayer ?? "self")) actions.income.toggleTaxpayer(row.id);
+                if (value !== (row.taxpayer ?? "self"))
+                  actions.income.toggleTaxpayer(row.id);
               }}
               options={[
                 { value: "self", label: "You" },
@@ -430,7 +480,9 @@ function GainFields({
       />
       {row.books ? (
         <div className="space-y-1.5">
-          <span className="block text-sm font-medium text-muted-foreground">Holding period</span>
+          <span className="block text-sm font-medium text-muted-foreground">
+            Holding period
+          </span>
           <Badge variant="info">
             <BookOpen size={12} aria-hidden="true" />
             {row.term === "short" ? "Short-term" : "Long-term"} from your books
@@ -443,8 +495,16 @@ function GainFields({
           value={row.term}
           onChange={(value) => actions.gains.update(row.id, "term", value)}
           options={[
-            { value: "short", label: "Short-term", description: "Held one year or less" },
-            { value: "long", label: "Long-term", description: "Held more than a year" },
+            {
+              value: "short",
+              label: "Short-term",
+              description: "Held one year or less",
+            },
+            {
+              value: "long",
+              label: "Long-term",
+              description: "Held more than a year",
+            },
           ]}
         />
       )}
@@ -466,7 +526,9 @@ function GainFields({
           step={0.01}
           placeholder="0.00"
           value={row.amount || ""}
-          onChange={(value) => actions.gains.update(row.id, "amount", toNumber(value))}
+          onChange={(value) =>
+            actions.gains.update(row.id, "amount", toNumber(value))
+          }
         />
       )}
     </>
@@ -488,7 +550,10 @@ function PaymentFields({
   const quarterKey = row.quarter ?? "Q1";
   const dueQuarter = model.schedule.quarters.find((q) => q.status === "due");
   const suggestion =
-    isPayment && dueQuarter && dueQuarter.key === quarterKey && (row.amount || 0) === 0
+    isPayment &&
+    dueQuarter &&
+    dueQuarter.key === quarterKey &&
+    (row.amount || 0) === 0
       ? row.type === "federal"
         ? dueQuarter.suggestedFederal
         : dueQuarter.suggestedState
@@ -508,7 +573,9 @@ function PaymentFields({
       />
       {fromBooks ? (
         <div className="space-y-1.5">
-          <span className="block text-sm font-medium text-muted-foreground">Paid to</span>
+          <span className="block text-sm font-medium text-muted-foreground">
+            Paid to
+          </span>
           <Badge variant="info">
             <BookOpen size={12} aria-hidden="true" />
             {row.type === "federal" ? "Federal" : stateLabel} from your books
@@ -531,7 +598,9 @@ function PaymentFields({
         <Select
           label="Quarter"
           value={quarterKey}
-          onChange={(value) => actions.payments.update(row.id, "quarter", value)}
+          onChange={(value) =>
+            actions.payments.update(row.id, "quarter", value)
+          }
           options={QUARTER_OPTIONS}
         />
       )}
@@ -558,14 +627,18 @@ function PaymentFields({
             placeholder="0.00"
             autoFocus={!row.amount}
             value={row.amount || ""}
-            onChange={(value) => actions.payments.update(row.id, "amount", clampZero(value))}
+            onChange={(value) =>
+              actions.payments.update(row.id, "amount", clampZero(value))
+            }
           />
           {suggestion != null && suggestion > 0 && (
             <div>
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => actions.payments.update(row.id, "amount", suggestion)}
+                onClick={() =>
+                  actions.payments.update(row.id, "amount", suggestion)
+                }
               >
                 Use suggested {formatCurrency(suggestion)}
               </Button>
@@ -666,8 +739,8 @@ function HouseholdFields({
         <Advanced open>
           <p className="text-xs leading-relaxed text-muted-foreground">
             Your income is above the{" "}
-            {formatCurrency(model.taxConfig.qbi.phaseOut[model.filingStatus])} QBI threshold,
-            so the business deduction now depends on these.
+            {formatCurrency(model.taxConfig.qbi.phaseOut[model.filingStatus])}{" "}
+            QBI threshold, so the business deduction now depends on these.
           </p>
           <Checkbox
             label="Service business"
@@ -693,7 +766,9 @@ function HouseholdFields({
                 step={0.01}
                 placeholder="0.00"
                 value={h.businessPropertyBasis || ""}
-                onChange={(value) => set({ businessPropertyBasis: clampZero(value) })}
+                onChange={(value) =>
+                  set({ businessPropertyBasis: clampZero(value) })
+                }
               />
             </>
           )}
@@ -711,10 +786,13 @@ function ProfileFields({
   actions: EstimatorActions;
 }) {
   const businessLabel =
-    BUSINESS_TYPE_OPTIONS.find((o) => o.value === (model.businessType ?? "none"))?.label ??
-    "No business";
+    BUSINESS_TYPE_OPTIONS.find(
+      (o) => o.value === (model.businessType ?? "none"),
+    )?.label ?? "No business";
   const classificationLabel =
-    model.taxClassification && model.businessType && model.businessType !== "none"
+    model.taxClassification &&
+    model.businessType &&
+    model.businessType !== "none"
       ? TAX_CLASSIFICATION_LABELS[model.taxClassification]
       : null;
   return (
@@ -722,7 +800,9 @@ function ProfileFields({
       <Select
         label="Filing status"
         value={model.filingStatus}
-        onChange={(value) => actions.setProfile({ filingStatus: value as FilingStatus })}
+        onChange={(value) =>
+          actions.setProfile({ filingStatus: value as FilingStatus })
+        }
         options={FILING_STATUS_OPTIONS}
       />
       <Select
@@ -748,7 +828,10 @@ function ProfileFields({
         </p>
         <Hint
           text="Set once for the business. Changing it re-templates income."
-          action={{ label: "Change in tax settings", href: `/settings/tax?year=${model.year}` }}
+          action={{
+            label: "Change in tax settings",
+            href: `/settings/tax?year=${model.year}`,
+          }}
         />
       </div>
     </>
@@ -770,7 +853,10 @@ function AddIncomeChooser({
   const business = React.useMemo(
     () =>
       model.businessType && model.businessType !== "none"
-        ? createTemplateIncomeSources(model.businessType, model.taxClassification)
+        ? createTemplateIncomeSources(
+            model.businessType,
+            model.taxClassification,
+          )
         : [],
     [model.businessType, model.taxClassification],
   );
@@ -799,7 +885,13 @@ function AddIncomeChooser({
     <>
       {model.books.available && (
         <ChoiceButton
-          icon={<BookOpen size={16} aria-hidden="true" className="text-teal-light" />}
+          icon={
+            <BookOpen
+              size={16}
+              aria-hidden="true"
+              className="text-teal-light"
+            />
+          }
           title="From your books"
           hint="Profit, investments and payroll so far this year, kept current."
           onSelect={() => {
@@ -816,7 +908,10 @@ function AddIncomeChooser({
           </div>
           <div className="space-y-1">
             {group.rows.map((template) => {
-              const added = isTemplateAlreadyAdded(template, model.incomeSources);
+              const added = isTemplateAlreadyAdded(
+                template,
+                model.incomeSources,
+              );
               return (
                 <button
                   key={template.id}
@@ -830,12 +925,20 @@ function AddIncomeChooser({
                       : "hover:bg-[rgba(var(--ink),0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   )}
                 >
-                  <span className="min-w-0 flex-1 truncate font-medium">{template.name}</span>
-                  <Badge size="sm">{INCOME_TYPE_LABELS[template.income_type]}</Badge>
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {template.name}
+                  </span>
+                  <Badge size="sm">
+                    {INCOME_TYPE_LABELS[template.income_type]}
+                  </Badge>
                   {added ? (
                     <span className="text-xs text-muted-foreground">Added</span>
                   ) : (
-                    <Plus size={14} aria-hidden="true" className="text-muted-foreground" />
+                    <Plus
+                      size={14}
+                      aria-hidden="true"
+                      className="text-muted-foreground"
+                    />
                   )}
                 </button>
               );
@@ -845,7 +948,13 @@ function AddIncomeChooser({
       ))}
       <div className="space-y-1 border-t border-border pt-4">
         <ChoiceButton
-          icon={<Download size={16} aria-hidden="true" className="text-teal-light" />}
+          icon={
+            <Download
+              size={16}
+              aria-hidden="true"
+              className="text-teal-light"
+            />
+          }
           title="Import from income tracking"
           hint="Pull this year's totals from your income sources."
           onSelect={() => {
@@ -854,10 +963,14 @@ function AddIncomeChooser({
           }}
         />
         <ChoiceButton
-          icon={<Plus size={16} aria-hidden="true" className="text-teal-light" />}
+          icon={
+            <Plus size={16} aria-hidden="true" className="text-teal-light" />
+          }
           title="Something else"
           hint="Start a blank row and name it yourself."
-          onSelect={() => onNavigate({ mode: "income", id: actions.income.add() })}
+          onSelect={() =>
+            onNavigate({ mode: "income", id: actions.income.add() })
+          }
         />
       </div>
     </>
@@ -888,7 +1001,13 @@ function AddPaidChooser({
         {model.books.available && (
           <ChoiceButton
             bordered
-            icon={<BookOpen size={16} aria-hidden="true" className="text-teal-light" />}
+            icon={
+              <BookOpen
+                size={16}
+                aria-hidden="true"
+                className="text-teal-light"
+              />
+            }
             title="Withholding from your books"
             hint="Federal and state tax withheld on posted payroll, kept current."
             onSelect={() => {
@@ -902,7 +1021,10 @@ function AddPaidChooser({
           title="Withholding from a paycheck"
           hint="Federal or state tax an employer already took out of your pay this year."
           onSelect={() =>
-            onNavigate({ mode: "withholding", id: actions.payments.addWithholding() })
+            onNavigate({
+              mode: "withholding",
+              id: actions.payments.addWithholding(),
+            })
           }
         />
         <ChoiceButton
@@ -965,7 +1087,11 @@ function ChoiceButton({
         <span className="block font-medium">{title}</span>
         <span className="block text-xs text-muted-foreground">{hint}</span>
       </span>
-      <ArrowRight size={14} aria-hidden="true" className="text-muted-foreground" />
+      <ArrowRight
+        size={14}
+        aria-hidden="true"
+        className="text-muted-foreground"
+      />
     </button>
   );
 }
@@ -1000,7 +1126,13 @@ function Hint({
   );
 }
 
-function Advanced({ children, open }: { children: React.ReactNode; open?: boolean }) {
+function Advanced({
+  children,
+  open,
+}: {
+  children: React.ReactNode;
+  open?: boolean;
+}) {
   return (
     <details className="group rounded-xl border border-border" open={open}>
       <summary className="cursor-pointer select-none px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground group-open:text-foreground">

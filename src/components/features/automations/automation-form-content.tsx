@@ -859,7 +859,6 @@ export function AutomationFormContent() {
           title="Basic Information"
           icon={Zap}
           isComplete={!!name.trim()}
-          className="animate-fade-up stagger-1"
         >
           <div className="space-y-4">
             <TextInput
@@ -886,7 +885,6 @@ export function AutomationFormContent() {
           title="Select Trigger"
           icon={MousePointerClick}
           isComplete={!!triggerType}
-          className="animate-fade-up stagger-2"
         >
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">
@@ -1358,7 +1356,6 @@ export function AutomationFormContent() {
           title="Select Actions"
           icon={Zap}
           isComplete={actions.length > 0}
-          className="animate-fade-up stagger-3"
         >
           <div className="space-y-4">
             <p className="text-sm text-muted-foreground">

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { createAccountingReadCache } from "../src/lib/accounting/read-cache";
+import {
+  accountingQueryKey,
+  createAccountingReadCache,
+} from "../src/lib/accounting/read-cache";
 
 async function main() {
   const requests: { signal: AbortSignal; resolve: (value: unknown) => void }[] =
@@ -104,8 +107,96 @@ async function main() {
     throw new Error("Loader failed before returning a promise");
   });
   await assert.rejects(synchronousFailure.read(query), /Loader failed/);
+
+  // Subscriptions: a request starting, an answer arriving, a drop.
+  const events: string[] = [];
+  const watched = createAccountingReadCache(
+    (_query, signal) =>
+      new Promise((resolve) => requests.push({ signal, resolve })),
+  );
+  const stop = watched.subscribe(query, () => events.push("notified"));
+  const watchedRead = watched.read(query);
+  assert.equal(watched.inflight(query), true, "A started request is in flight");
+  assert.equal(events.length, 1, "Subscribers hear a request start");
+  requests.at(-1)!.resolve({ revision: 10 });
+  await watchedRead;
+  assert.equal(watched.inflight(query), false, "A settled request is done");
+  assert.equal(events.length, 2, "Subscribers hear the answer arrive");
+  const before = watched.entry<{ revision: number }>(query);
+  assert.deepEqual(before?.value, { revision: 10 });
+  assert.equal(before?.stale, false);
+  assert.deepEqual(before?.query, query, "Entries remember their query");
+
+  // A soft drop keeps the value readable, marks it stale and abandons any
+  // request for it, so a pre-write response never lands after the write.
+  const draft = { view: "register", filter: "draft" };
+  const droppedFlight = watched.read(draft);
+  watched.drop(query);
+  watched.drop(draft);
+  assert.deepEqual(
+    watched.peek(query),
+    { revision: 10 },
+    "A dropped answer stays readable",
+  );
+  const after = watched.entry<{ revision: number }>(query);
+  assert.equal(after?.stale, true, "A dropped answer is marked stale");
+  assert.notEqual(after, before, "A drop replaces the entry object");
+  assert.equal(events.length, 3, "Subscribers hear a drop");
+  assert.equal(watched.inflight(draft), false, "A dropped request is gone");
+  requests.at(-1)!.resolve("late");
+  await assert.rejects(droppedFlight, { name: "AbortError" });
+  assert.equal(watched.peek(draft), undefined, "A late answer is discarded");
+  const renewed = watched.read(query);
+  assert.equal(watched.inflight(query), true, "A stale answer is read again");
+  requests.at(-1)!.resolve({ revision: 11 });
+  assert.deepEqual(await renewed, { revision: 11 });
+  assert.equal(
+    watched.entry(query)?.stale,
+    false,
+    "A fresh answer clears the stale mark",
+  );
+
+  // Fresh reads bypass the age check and still share one request.
+  const freshOne = watched.read(query, undefined, { fresh: true });
+  const freshTwo = watched.read(query, undefined, { fresh: true });
+  assert.equal(watched.inflight(query), true, "A fresh read always asks");
+  requests.at(-1)!.resolve({ revision: 12 });
+  assert.deepEqual(await freshOne, await freshTwo);
+
+  // dropWhere touches only the queries its predicate names.
+  const manageRead = watched.read({ view: "manage" });
+  requests.at(-1)!.resolve("metadata");
+  await manageRead;
+  watched.dropWhere((q) => q.view === "register");
+  assert.equal(watched.entry(query)?.stale, true);
+  assert.equal(
+    watched.entry({ view: "manage" })?.stale,
+    false,
+    "dropWhere leaves other queries alone",
+  );
+
+  // A removed listener hears nothing; invalidation reaches every listener.
+  const heard = events.length;
+  stop();
+  watched.invalidate();
+  assert.equal(events.length, heard, "A removed listener hears nothing");
+  const still: string[] = [];
+  const stopAgain = watched.subscribe(query, () => still.push("x"));
+  watched.invalidate();
+  assert.equal(still.length, 1, "Invalidation reaches every listener");
+  stopAgain();
+
+  // Keys ignore property order; answers past maxAge are forgotten.
+  assert.equal(
+    accountingQueryKey({ b: "2", a: "1" }),
+    accountingQueryKey({ a: "1", b: "2" }),
+  );
+  const aged = createAccountingReadCache(async () => "old", 30_000, 24, 0);
+  await aged.read(query);
+  assert.equal(aged.entry(query), undefined, "An old answer is forgotten");
+  assert.equal(aged.peek(query), undefined);
   console.log(
-    "Accounting read cache: deduplication, reuse, cancellation, invalidation races, expiry, bounds, isolation, and retry passed.",
+    "Accounting read cache: deduplication, reuse, cancellation, invalidation races, expiry, bounds, isolation, retry, subscriptions, soft drops, fresh reads and max age passed.",
   );
 }
 void main();

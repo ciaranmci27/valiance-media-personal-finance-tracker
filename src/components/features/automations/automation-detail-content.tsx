@@ -704,7 +704,7 @@ export function AutomationDetailContent({
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="animate-fade-up stagger-1">
+        <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
@@ -729,7 +729,7 @@ export function AutomationDetailContent({
             </div>
           </CardContent>
         </Card>
-        <Card className="animate-fade-up stagger-2">
+        <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-secondary">
@@ -764,7 +764,7 @@ export function AutomationDetailContent({
             </div>
           </CardContent>
         </Card>
-        <Card className="animate-fade-up stagger-3">
+        <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-secondary">
@@ -786,7 +786,7 @@ export function AutomationDetailContent({
         {/* Basic Info Card (when editing) */}
         {isEditing && (
           <>
-            <Card className="animate-fade-up">
+            <Card>
               <CardHeader className="pb-3">
                 <div className="flex items-center gap-3">
                   <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-teal-light text-sm font-medium">
@@ -818,7 +818,7 @@ export function AutomationDetailContent({
         )}
 
         {/* Trigger Card */}
-        <Card className="animate-fade-up">
+        <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center gap-3">
               {isEditing && (
@@ -1130,7 +1130,7 @@ export function AutomationDetailContent({
         <ConnectorLine />
 
         {/* Actions Card */}
-        <Card className="animate-fade-up">
+        <Card>
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1590,7 +1590,7 @@ export function AutomationDetailContent({
       </div>
 
       {/* Run History */}
-      <Card className="animate-fade-up">
+      <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardTitle className="text-base font-semibold flex items-center gap-2">

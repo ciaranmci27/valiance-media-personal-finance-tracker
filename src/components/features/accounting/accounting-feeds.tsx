@@ -39,7 +39,8 @@ import type {
   FeedCanonicalAccount,
 } from "@/lib/accounting/feeds";
 import { dateLabel, enumLabel, money, timestampLabel } from "./format";
-import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+import { useAccountingCommand } from "./use-accounting-command";
+import { useAccountingRead } from "./use-accounting-read";
 /** Feed checkpoints are unix stamps; the date input and `dateLabel` take `YYYY-MM-DD`. */
 const stampDate = (value: string | number | null) =>
   value ? new Date(Number(value) * 1000).toISOString().slice(0, 10) : "Not yet";
@@ -78,8 +79,12 @@ export function AccountingFeeds({
   onRefresh: () => Promise<void>;
   onImports: () => void;
 }) {
-  const [state, setState] = useState<FeedData | null>(null),
-    [config, setConfig] = useState<Configuration | null>(null),
+  const feedsRead = useAccountingRead<FeedData>(
+    { view: "feeds" },
+    { enabled: !demo },
+  );
+  const state = feedsRead.data ?? null;
+  const [config, setConfig] = useState<Configuration | null>(null),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
   const [busy, setBusy] = useState<string | null>(null),
@@ -89,25 +94,22 @@ export function AccountingFeeds({
     [disconnect, setDisconnect] = useState<FeedConnection | null>(null),
     [skip, setSkip] = useState<FeedCanonicalAccount | null>(null);
   async function refresh() {
-    setState(await accountingGet<FeedData>({ view: "feeds" }));
+    await feedsRead.reload();
     await onRefresh();
   }
   const cmd = useAccountingCommand(refresh);
   useEffect(() => {
     if (demo) return;
     const abort = new AbortController();
-    Promise.all([
-      accountingGet<FeedData>({ view: "feeds" }, abort.signal),
-      fetch("/api/accounting/feeds", { cache: "no-store" }).then(async (r) => {
+    fetch("/api/accounting/feeds", { cache: "no-store" })
+      .then(async (r) => {
         if (!r.ok)
           throw new Error("Unable to read bank connection configuration.");
         return r.json() as Promise<Configuration>;
-      }),
-    ])
-      .then(([feed, configuration]) => {
+      })
+      .then((configuration) => {
         // A superseded request is dropped rather than aborted.
         if (abort.signal.aborted) return;
-        setState(feed);
         setConfig(configuration);
       })
       .catch((e) => {

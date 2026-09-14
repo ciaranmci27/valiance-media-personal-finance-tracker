@@ -47,7 +47,10 @@ export function TaxGuide({
           {doneCount} of {steps.length} setup steps done
         </span>
         {open.map((s) => (
-          <span key={s.key} className="inline-flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span
+            key={s.key}
+            className="inline-flex flex-wrap items-center gap-x-2 gap-y-1"
+          >
             <span className="text-muted-foreground">{s.question}</span>
             <Button size="sm" variant="ghost" onClick={s.action.onSelect}>
               {s.action.label}
@@ -75,7 +78,7 @@ export function TaxGuide({
   }
 
   return (
-    <Card glass className="animate-fade-up">
+    <Card glass>
       <CardContent className="p-5 lg:p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -133,13 +136,19 @@ export function TaxGuide({
                   <div className="mt-3 flex flex-wrap items-center gap-2">
                     <Button
                       size="sm"
-                      variant={s.done ? "ghost" : current ? "default" : "outline"}
+                      variant={
+                        s.done ? "ghost" : current ? "default" : "outline"
+                      }
                       onClick={s.action.onSelect}
                     >
                       {s.done ? "Edit" : s.action.label}
                     </Button>
                     {!s.done && s.skip && (
-                      <Button size="sm" variant="ghost" onClick={s.skip.onSelect}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={s.skip.onSelect}
+                      >
                         {s.skip.label}
                       </Button>
                     )}

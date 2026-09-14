@@ -40,7 +40,8 @@ export function TaxReceipt({
   const fica = b.ficaTax;
   const stateDetail = b.stateTaxDetail;
 
-  const hasCapitalGains = gains.grossShortTerm !== 0 || gains.grossLongTerm !== 0;
+  const hasCapitalGains =
+    gains.grossShortTerm !== 0 || gains.grossLongTerm !== 0;
   const showPayroll = se.total > 0 || fica.total > 0;
   const showState = stateDetail.stateName != null || b.stateTax > 0;
   const showStateSplit = b.stateLiability > 0 || b.totalStatePaid > 0;
@@ -69,7 +70,7 @@ export function TaxReceipt({
       : "progressive";
 
   return (
-    <Card glass className="animate-fade-up stagger-2">
+    <Card glass>
       <CardHeader className="flex flex-row items-baseline justify-between gap-3 px-5 pb-1 pt-4">
         <CardTitle className="text-base">How we got here</CardTitle>
         <span className="text-xs text-muted-foreground">
@@ -203,21 +204,37 @@ export function TaxReceipt({
           <Disclosure label="Payroll tax" value={fmtMasked(payrollSubtotal)}>
             {se.total > 0 && (
               <Group title="Self-employment tax">
-                <Sub label="Social Security (12.4%)" value={fmtMasked(se.ssTax)} />
-                <Sub label="Medicare (2.9%)" value={fmtMasked(se.medicareTax)} />
+                <Sub
+                  label="Social Security (12.4%)"
+                  value={fmtMasked(se.ssTax)}
+                />
+                <Sub
+                  label="Medicare (2.9%)"
+                  value={fmtMasked(se.medicareTax)}
+                />
                 {se.additionalMedicare > 0 && (
                   <Sub
                     label="Additional Medicare (0.9%)"
                     value={fmtMasked(se.additionalMedicare)}
                   />
                 )}
-                <Sub label="Total self-employment tax" value={fmtMasked(se.total)} bold />
+                <Sub
+                  label="Total self-employment tax"
+                  value={fmtMasked(se.total)}
+                  bold
+                />
               </Group>
             )}
             {fica.total > 0 && (
               <Group title="W-2 FICA">
-                <Sub label="Social Security (6.2%)" value={fmtMasked(fica.ssTax)} />
-                <Sub label="Medicare (1.45%)" value={fmtMasked(fica.medicareTax)} />
+                <Sub
+                  label="Social Security (6.2%)"
+                  value={fmtMasked(fica.ssTax)}
+                />
+                <Sub
+                  label="Medicare (1.45%)"
+                  value={fmtMasked(fica.medicareTax)}
+                />
                 {fica.additionalMedicare > 0 && (
                   <Sub
                     label="Additional Medicare (0.9%)"
@@ -378,7 +395,9 @@ function Line({
   return (
     <div className="flex items-center justify-between gap-3 border-b border-border/60 py-2">
       <span className={cn(tone && toneClass[tone])}>{label}</span>
-      <span className={cn("tabular-nums", tone && toneClass[tone])}>{value}</span>
+      <span className={cn("tabular-nums", tone && toneClass[tone])}>
+        {value}
+      </span>
     </div>
   );
 }
@@ -409,7 +428,9 @@ function Disclosure({
         <span className="flex min-w-0 items-center gap-1.5">
           <span className="truncate">{label}</span>
           {note && (
-            <span className="shrink-0 text-xs text-muted-foreground">{note}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {note}
+            </span>
           )}
           <ChevronDown
             aria-hidden="true"
@@ -447,12 +468,20 @@ function Sub({
       )}
     >
       <span className={cn(tone && toneClass[tone])}>{label}</span>
-      <span className={cn("tabular-nums", tone && toneClass[tone])}>{value}</span>
+      <span className={cn("tabular-nums", tone && toneClass[tone])}>
+        {value}
+      </span>
     </div>
   );
 }
 
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
+function Group({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="space-y-1 pt-1">
       <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/70">

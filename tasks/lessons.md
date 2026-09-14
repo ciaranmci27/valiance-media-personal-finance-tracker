@@ -141,3 +141,11 @@ Admin's convention (as of `20260319_create_tax_estimates.sql`) is one file per f
 **Do not:** assume a heredoc body is literal on Windows Git Bash.
 
 **Do:** ASCII-only shell scripts; the Edit tool for lines that need other characters; check the echo at the end of a script actually printed.
+
+## Bash tool: keep commands small (2026-09-13)
+
+A Bash tool call above roughly 8 KB on this Windows shell fails to parse before anything runs, reported as an unmatched quote at the last line, even when every quote is balanced. Write large payloads (node edit scripts, CSS blocks, file contents) to the scratchpad with the Write tool and run or `cat` them from a short Bash command. Exact-match node edit scripts that throw on zero or multiple matches are the reliable way to change big files.
+
+## Browser pane: set a viewport before measuring layout (2026-09-13)
+
+When the Browser pane is hidden it lays the page out at width 0, so every fixed or full-width box collapses to its padding and elementFromPoint checks lie. Call resize_window with an explicit size before any getBoundingClientRect or coverage probe, and reset to desktop afterwards. Animations also do not advance in a hidden tab, so opacity and currentTime readings are meaningless there.

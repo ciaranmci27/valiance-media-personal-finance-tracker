@@ -408,7 +408,7 @@ export function TaxSetupCard({
   if (step === 1) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="w-full max-w-2xl mx-auto animate-fade-up space-y-6">
+        <div className="w-full max-w-2xl mx-auto space-y-6">
           {/* Header */}
           <div className="text-center space-y-2">
             <div className="flex justify-center">
@@ -520,7 +520,7 @@ export function TaxSetupCard({
 
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="w-full max-w-2xl mx-auto animate-fade-up space-y-6">
+      <div className="w-full max-w-2xl mx-auto space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
           <div className="flex justify-center">

@@ -1,4 +1,5 @@
 "use client";
+import { ManagePanelSkeleton } from "./accounting-skeletons";
 import { Disclosure } from "@/components/ui/disclosure";
 import { NumberInput } from "@/components/ui/inputs/NumberInput";
 import { DateInput } from "@/components/ui/inputs/DateInput";
@@ -224,6 +225,7 @@ export function AccountingTaxWorkpapers({
           Workpapers are available in your configured company books.
         </p>
       )}
+      {loading && !data && <ManagePanelSkeleton rows={6} />}
       {data && !loading && (
         <>
           <nav aria-label="Tax workpapers" className="overflow-x-auto">

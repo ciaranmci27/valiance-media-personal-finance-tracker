@@ -66,9 +66,12 @@ import {
 } from "./accounting-bank-identity";
 import { accountBalances } from "@/lib/accounting/account-balances";
 import {
-  createAccountingReadCache,
-  type AccountingReadCache,
-} from "@/lib/accounting/read-cache";
+  REGISTER_PAGE,
+  buildRegisterFilter,
+  journalInitialState,
+  registerQuery,
+} from "@/lib/accounting/preload";
+import { useAccountingRead } from "./use-accounting-read";
 import { useAccountingRowCommand } from "./use-accounting-row-command";
 import { AccountingPicker } from "./accounting-picker";
 import {
@@ -113,7 +116,7 @@ export type TransactionAction =
   | "discard"
   | "detail";
 
-const PAGE = 50;
+const PAGE = REGISTER_PAGE;
 
 export function AccountingTransactions({
   data,
@@ -124,8 +127,6 @@ export function AccountingTransactions({
   onAction,
   onRefresh,
   onTransactionSaved = onRefresh,
-  registerCache: sharedCache,
-  registerEpoch = 0,
   actions,
 }: {
   data: AccountingWorkspace;
@@ -136,8 +137,6 @@ export function AccountingTransactions({
   onAction: (action: TransactionAction, entry: JournalEntry) => void;
   onRefresh: () => Promise<void>;
   onTransactionSaved?: () => Promise<void>;
-  registerCache?: AccountingReadCache;
-  registerEpoch?: number;
   actions?: ReactNode;
 }) {
   // The inbox count: drafts plus anything else the books flag for review.
@@ -145,45 +144,37 @@ export function AccountingTransactions({
   // Land on what needs attention. Fall back to everything when the inbox is empty.
   const inboxStatus: RegisterFilter["status"] =
     reviewCount > 0 ? "draft" : "all";
-  const defaultStatus: RegisterFilter["status"] =
-    initialFilter.review === "needs_review"
-      ? "draft"
-      : initialFilter.review === "reviewed" || initialFilter.status === "posted"
-        ? "all"
-        : (initialFilter.status ?? inboxStatus);
-  const [query, setQuery] = useState(initialFilter.query ?? "");
-  const [search, setSearch] = useState(initialFilter.query ?? "");
-  const [account, setAccount] = useState(initialFilter.account ?? "");
-  const [status, setStatus] = useState<RegisterFilter["status"]>(defaultStatus);
-  const [sort, setSort] = useState<NonNullable<RegisterFilter["sort"]>>(
-    initialFilter.sort ?? "date_desc",
+  // The same starting point the shell warms, so the first page is already here.
+  const [initialState] = useState(() =>
+    journalInitialState(initialFilter, reviewCount),
   );
-  const [source, setSource] = useState(initialFilter.source ?? "");
-  const [payee, setPayee] = useState(initialFilter.payee ?? "");
-  const [from, setFrom] = useState(initialFilter.from ?? "");
-  const [to, setTo] = useState(initialFilter.to ?? "");
+  const [query, setQuery] = useState(initialState.search);
+  const [search, setSearch] = useState(initialState.search);
+  const [account, setAccount] = useState(initialState.account);
+  const [status, setStatus] = useState<RegisterFilter["status"]>(
+    initialState.status,
+  );
+  const [sort, setSort] = useState<NonNullable<RegisterFilter["sort"]>>(
+    initialState.sort,
+  );
+  const [source, setSource] = useState(initialState.source);
+  const [payee, setPayee] = useState(initialState.payee);
+  const [from, setFrom] = useState(initialState.from);
+  const [to, setTo] = useState(initialState.to);
   const [minimum, setMinimum] = useState(
-    initialFilter.min_cents ? centsToDecimal(initialFilter.min_cents) : "",
+    initialState.minCents ? centsToDecimal(initialState.minCents) : "",
   );
   const [maximum, setMaximum] = useState(
-    initialFilter.max_cents ? centsToDecimal(initialFilter.max_cents) : "",
+    initialState.maxCents ? centsToDecimal(initialState.maxCents) : "",
   );
-  const [missing, setMissing] = useState(
-    initialFilter.missing_receipt ?? false,
-  );
+  const [missing, setMissing] = useState(initialState.missing);
   const [filters, setFilters] = useState(false);
-  const [offset, setOffset] = useState(initialFilter.offset ?? 0);
-  const [result, setResult] = useState<Result | null>(null);
-  const [localCache] = useState(() => createAccountingReadCache());
-  const registerCache = sharedCache ?? localCache;
-  const [loadedSignature, setLoadedSignature] = useState("");
-  const [focusEpoch, setFocusEpoch] = useState(0);
+  const [offset, setOffset] = useState(initialState.offset);
   const [overrides, setOverrides] = useState<
     Record<string, { entry: JournalEntry; pending: boolean }>
   >({});
   const rowCommand = useAccountingRowCommand();
   const clearRowErrors = rowCommand.clearResolved;
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   // Selected draft ids with the version seen at selection time, so a stale row never posts.
   const [selection, setSelection] = useState<Record<string, number>>({});
@@ -207,15 +198,6 @@ export function AccountingTransactions({
     () => accountBalances(data.balances, manage.profiles, feeds),
     [data.balances, manage.profiles, feeds],
   );
-
-  useEffect(() => {
-    const refresh = () => {
-      if (document.visibilityState !== "visible") return;
-      setFocusEpoch((value) => value + 1);
-    };
-    window.addEventListener("focus", refresh);
-    return () => window.removeEventListener("focus", refresh);
-  }, [registerCache]);
 
   const profiles = manage.profiles;
   const accounts = useMemo(
@@ -245,27 +227,20 @@ export function AccountingTransactions({
   if (from && to && from > to)
     invalid = "The end date must follow the start date.";
 
-  const filter: Partial<RegisterFilter> = {
-    from: from || undefined,
-    to: to || undefined,
-    account: account || undefined,
-    status: status === "discarded" || status === "reversed" ? status : "all",
-    review:
-      status === "draft"
-        ? "needs_review"
-        : status === "posted"
-          ? "reviewed"
-          : undefined,
-    query: search || undefined,
-    source: (source || undefined) as RegisterFilter["source"],
-    payee: payee || undefined,
-    missing_receipt: missing,
-    min_cents: minCents,
-    max_cents: maxCents,
+  const filter = buildRegisterFilter({
+    search,
+    account,
+    status,
     sort,
+    source,
+    payee,
+    from,
+    to,
+    missing,
+    minCents,
+    maxCents,
     offset,
-    limit: PAGE,
-  };
+  });
   const signature = JSON.stringify(filter);
 
   useEffect(() => {
@@ -305,87 +280,58 @@ export function AccountingTransactions({
     window.history.replaceState(null, "", url);
   }, [signature, invalid, demo, isDefaultFilter]);
 
-  useEffect(() => {
-    if (invalid) {
-      setResult(null);
-      setLoading(false);
-      return;
-    }
-    const controller = new AbortController();
-    setLoading(true);
-    setError("");
+  // The page comes from the shared cache: instant when the shell warmed it,
+  // kept on screen (dimmed) while a changed filter loads, and read again
+  // behind itself after any write.
+  const page = useAccountingRead<Result>(registerQuery(filter), {
+    enabled: !demo && !invalid,
+    keepPrevious: true,
+    revalidateOnFocus: true,
+  });
+  const demoResult = useMemo<Result | null>(() => {
+    if (!demo || invalid) return null;
     const f: Partial<RegisterFilter> = JSON.parse(signature);
-    if (demo) {
-      const { status, review, account, query: search, offset = 0 } = f;
-      const list = data.entries.filter(
-        (e) =>
-          (status === "reversed"
-            ? !e.reverses_entry_id && Boolean(e.reversed_by_entry_id)
-            : !isTransactionReversed(e) &&
-              (status === "all"
-                ? e.status !== "discarded"
-                : e.status === status)) &&
-          (!review ||
-            (review === "reviewed"
-              ? isTransactionReviewed(e)
-              : !isTransactionReviewed(e))) &&
-          (!account || e.lines.some((l) => l.account_id === account)) &&
-          (!search || e.memo.toLowerCase().includes(search.toLowerCase())),
-      );
-      setResult({
-        entries: list.slice(offset, offset + PAGE),
-        total: list.length,
-        offset,
-        limit: PAGE,
-        revision: "demo",
-      });
-      setLoading(false);
-      return;
-    }
-    const query = { view: "register", filter: signature };
-    const cached = registerCache.peek<Result>(query);
-    if (cached) {
-      setResult(cached);
-      setLoadedSignature(signature);
-      setLoading(false);
-    }
-    registerCache
-      .read<Result>(query, controller.signal)
-      .then((next) => {
-        if (controller.signal.aborted) return;
-        setResult(next);
-        setLoadedSignature(signature);
-        clearRowErrors(next.entries);
-        setOverrides((previous) =>
-          Object.fromEntries(
-            Object.entries(previous).filter(([id, value]) => {
-              const fresh = next.entries.find((e) => e.id === id);
-              return (
-                value.pending || (fresh && fresh.version < value.entry.version)
-              );
-            }),
-          ),
-        );
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted && e.name !== "AbortError")
-          setError(e.message);
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [
-    signature,
-    data.revision,
-    data.entries,
-    demo,
-    invalid,
-    registerCache,
-    registerEpoch,
-    focusEpoch,
-    clearRowErrors,
-  ]);
+    const list = data.entries.filter(
+      (e) =>
+        (f.status === "reversed"
+          ? !e.reverses_entry_id && Boolean(e.reversed_by_entry_id)
+          : !isTransactionReversed(e) &&
+            (f.status === "all"
+              ? e.status !== "discarded"
+              : e.status === f.status)) &&
+        (!f.review ||
+          (f.review === "reviewed"
+            ? isTransactionReviewed(e)
+            : !isTransactionReviewed(e))) &&
+        (!f.account || e.lines.some((l) => l.account_id === f.account)) &&
+        (!f.query || e.memo.toLowerCase().includes(f.query.toLowerCase())),
+    );
+    const start = f.offset ?? 0;
+    return {
+      entries: list.slice(start, start + PAGE),
+      total: list.length,
+      offset: start,
+      limit: PAGE,
+      revision: "demo",
+    };
+  }, [demo, invalid, signature, data.entries]);
+  const result = demo ? demoResult : (page.data ?? null);
+  const loading = !demo && !invalid && page.loading;
+  useEffect(() => {
+    const next = page.data;
+    if (!next || page.isPlaceholder) return;
+    clearRowErrors(next.entries);
+    setOverrides((previous) =>
+      Object.fromEntries(
+        Object.entries(previous).filter(([id, value]) => {
+          const fresh = next.entries.find((e) => e.id === id);
+          return (
+            value.pending || (fresh && fresh.version < value.entry.version)
+          );
+        }),
+      ),
+    );
+  }, [page.data, page.isPlaceholder, clearRowErrors]);
 
   const bankProfiles = profiles.filter((p) => p.cash_kind !== "none");
   const bankIds = new Set(bankProfiles.map((p) => p.account_id));
@@ -444,7 +390,7 @@ export function AccountingTransactions({
   const visibleDrafts = rows.filter((e) => e.status === "draft");
   const chosen = visibleDrafts.filter((e) => selection[e.id] === e.version);
   const chosenSet = new Set(chosen.map((e) => e.id));
-  const busy = cmd.busy || (loading && loadedSignature !== signature);
+  const busy = cmd.busy || page.isPlaceholder;
   const rowBusy = (id: string) => busy || rowCommand.pending.has(id);
 
   function openAction(action: TransactionAction, entry: JournalEntry) {
@@ -1109,8 +1055,10 @@ export function AccountingTransactions({
     });
   }
 
-  const emptyState = loading ? (
-    <span>Loading transactions...</span>
+  const emptyState = page.error ? (
+    <span role="alert" className="text-error">
+      {page.error}
+    </span>
   ) : (
     <div className="space-y-1.5">
       <p className="font-medium text-foreground">
@@ -1390,6 +1338,7 @@ export function AccountingTransactions({
 
         {(invalid ||
           error ||
+          page.error ||
           cmd.error ||
           Object.keys(rowCommand.errors).length > 0) && (
           <p
@@ -1398,6 +1347,7 @@ export function AccountingTransactions({
           >
             {invalid ||
               error ||
+              page.error ||
               cmd.error ||
               Object.entries(rowCommand.errors)
                 .map(
@@ -1462,7 +1412,8 @@ export function AccountingTransactions({
                 : "bg-card hover:bg-[color-mix(in_srgb,var(--card),var(--foreground)_2%)]"
           }
           onRowClick={(e) => openAction("detail", e)}
-          busy={loading && !!result && loadedSignature !== signature}
+          busy={page.isPlaceholder}
+          skeletonRows={loading ? 12 : 0}
           emptyState={emptyState}
           mobileCard={mobileCard}
           className="lg:[&_table]:min-w-[720px]"
@@ -1497,7 +1448,7 @@ export function AccountingTransactions({
               total={result?.total ?? 0}
               onChange={setOffset}
               noun="transactions"
-              busy={loading}
+              busy={loading || page.isPlaceholder}
             />
           }
         />

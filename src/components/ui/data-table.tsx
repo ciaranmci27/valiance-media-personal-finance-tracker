@@ -4,6 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/components/ui/inputs/Checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export interface DataTableColumn<T> {
   /** Stable key, also the sort key. */
@@ -53,6 +54,8 @@ export interface DataTableProps<T> {
   after?: ReactNode;
   /** Dims the table and marks it busy while data reloads. */
   busy?: boolean;
+  /** Placeholder rows while the first page loads; the empty state waits until then. */
+  skeletonRows?: number;
   fixedLayout?: boolean;
   /**
    * Wraps the table in a glass card. Turn off when the parent already is one:
@@ -102,6 +105,7 @@ export function DataTable<T>({
   footer,
   after,
   busy = false,
+  skeletonRows = 0,
   fixedLayout = false,
   framed = true,
   className,
@@ -147,10 +151,14 @@ export function DataTable<T>({
     !allSelected && selectableKeys.some((k) => selection!.selected.has(k));
   const colSpan = columns.length + (selection ? 1 : 0);
   const empty = emptyState ?? "Nothing here yet.";
+  const placeholders =
+    sorted.length === 0 && skeletonRows > 0
+      ? Array.from({ length: skeletonRows }, (_, i) => i)
+      : [];
 
   return (
     <div
-      aria-busy={busy || undefined}
+      aria-busy={busy || placeholders.length > 0 || undefined}
       className={cn("transition-opacity", busy && "opacity-60", className)}
     >
       {mobileCard && (
@@ -160,7 +168,20 @@ export function DataTable<T>({
             framed ? "space-y-3" : "divide-y divide-border",
           )}
         >
-          {sorted.length === 0 ? (
+          {placeholders.length > 0 ? (
+            placeholders.map((i) => (
+              <div
+                key={i}
+                className={cn(
+                  "space-y-2",
+                  framed ? "glass-card rounded-xl p-4" : "px-4 py-3",
+                )}
+              >
+                <Skeleton className="h-4 w-2/3" />
+                <Skeleton className="h-3 w-1/3" />
+              </div>
+            ))
+          ) : sorted.length === 0 ? (
             <div
               className={cn(
                 "px-4 py-10 text-center text-sm text-muted-foreground",
@@ -279,7 +300,34 @@ export function DataTable<T>({
               </tr>
             </thead>
             <tbody>
-              {sorted.length === 0 ? (
+              {placeholders.length > 0 ? (
+                placeholders.map((i) => (
+                  <tr key={i} className="border-b border-border last:border-0">
+                    {selection && (
+                      <td className="w-10 px-3 py-3">
+                        <Skeleton className="h-4 w-4 rounded" />
+                      </td>
+                    )}
+                    {columns.map((col) => (
+                      <td
+                        key={col.key}
+                        className={cn("px-4 py-3", col.className)}
+                      >
+                        <Skeleton
+                          className={cn(
+                            "h-4",
+                            col.align === "right"
+                              ? "ml-auto w-16"
+                              : col.align === "center"
+                                ? "mx-auto w-10"
+                                : "w-3/4",
+                          )}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : sorted.length === 0 ? (
                 <tr>
                   <td
                     colSpan={colSpan}

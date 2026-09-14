@@ -21,7 +21,8 @@ import type {
 } from "@/lib/accounting/setup-guide";
 import { WorkflowDialog } from "./accounting-dialog";
 import { TreatmentReview } from "./tax-treatment-review";
-import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+import { useAccountingCommand } from "./use-accounting-command";
+import { useAccountingRead } from "./use-accounting-read";
 
 /**
  * The one thing the books need next, wherever the owner is. Bank access
@@ -93,7 +94,9 @@ export function SetupGuide({
               Next step
             </p>
             <p className="text-sm font-medium">{first.title}</p>
-            <p className="mt-0.5 text-sm text-muted-foreground">{first.detail}</p>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              {first.detail}
+            </p>
           </div>
           <div className="flex basis-full items-center justify-end gap-2 self-center sm:ml-auto sm:basis-auto">
             {first.acknowledge && (
@@ -233,36 +236,16 @@ export function SetupGuide({
 
 /** One read per year shown; any command the shell runs refreshes it. */
 export function useSetupGuide(year: number, enabled: boolean) {
-  const [data, setData] = React.useState<SetupGuideData | null>(null);
-  const [attempt, setAttempt] = React.useState(0);
-
-  React.useEffect(() => {
-    if (!enabled) {
-      setData(null);
-      return;
-    }
-    const abort = new AbortController();
-    accountingGet<SetupGuideData>(
-      { view: "setup", year: String(year) },
-      abort.signal,
-    )
-      .then((result) => {
-        if (!abort.signal.aborted) setData(result);
-      })
-      .catch(() => {
-        /* A guide that cannot load shows nothing; the page carries on. */
-      });
-    return () => abort.abort();
-  }, [year, enabled, attempt]);
-
-  React.useEffect(() => {
-    const bump = () => setAttempt((n) => n + 1);
-    window.addEventListener("accounting-refreshed", bump);
-    return () => window.removeEventListener("accounting-refreshed", bump);
-  }, []);
-
-  const refresh = React.useCallback(() => setAttempt((n) => n + 1), []);
-  return { data, refresh };
+  // One of the shell's first reads, so the guide is on the first painted
+  // frame; every write drops it and it reads again behind itself. A guide
+  // that cannot load shows nothing; the page carries on.
+  const read = useAccountingRead<SetupGuideData>(
+    { view: "setup", year: String(year) },
+    { enabled },
+  );
+  const reload = read.reload;
+  const refresh = React.useCallback(() => void reload(), [reload]);
+  return { data: read.data ?? null, refresh };
 }
 
 // ---------------------------------------------------------------------------
@@ -307,7 +290,10 @@ function StepAction({
   );
 }
 
-const STYLE: Record<SetupLevel, { box: string; icon: typeof Info; tone: string }> = {
+const STYLE: Record<
+  SetupLevel,
+  { box: string; icon: typeof Info; tone: string }
+> = {
   critical: {
     box: "border-error/40 bg-error/5",
     icon: OctagonAlert,

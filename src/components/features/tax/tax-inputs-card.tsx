@@ -1,7 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { BookOpen, Check, ChevronRight, Clock, Link2, Plus, RefreshCw } from "lucide-react";
+import {
+  BookOpen,
+  Check,
+  ChevronRight,
+  Clock,
+  Link2,
+  Plus,
+  RefreshCw,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +27,11 @@ import {
 } from "@/lib/tax/templates";
 import type { IncomeType, TaxIncomeSource } from "@/types/database";
 import { AddIncomePopover } from "./add-income-popover";
-import type { EditTarget, EstimatorActions, EstimatorModel } from "./tax-estimator-model";
+import type {
+  EditTarget,
+  EstimatorActions,
+  EstimatorModel,
+} from "./tax-estimator-model";
 
 const CENT = 0.005;
 
@@ -67,8 +79,13 @@ export function TaxInputsCard({
     }
   }, [focusId, model.incomeSources, model.payments]);
 
-  const grossIncome = model.incomeSources.reduce((sum, row) => sum + row.amount, 0);
-  const withholdingRows = model.payments.filter((row) => row.category !== "payment");
+  const grossIncome = model.incomeSources.reduce(
+    (sum, row) => sum + row.amount,
+    0,
+  );
+  const withholdingRows = model.payments.filter(
+    (row) => row.category !== "payment",
+  );
   const hasBooksRows =
     model.incomeSources.some((r) => !!r.books) ||
     model.capitalGains.some((r) => !!r.books) ||
@@ -78,12 +95,21 @@ export function TaxInputsCard({
   const quickAdd = React.useMemo(() => {
     const business =
       model.businessType && model.businessType !== "none"
-        ? createTemplateIncomeSources(model.businessType, model.taxClassification)
+        ? createTemplateIncomeSources(
+            model.businessType,
+            model.taxClassification,
+          )
         : [];
-    return [...business, ...createPersonalTemplateSources(model.filingStatus)].filter(
-      (t) => !isTemplateAlreadyAdded(t, model.incomeSources),
-    );
-  }, [model.businessType, model.taxClassification, model.filingStatus, model.incomeSources]);
+    return [
+      ...business,
+      ...createPersonalTemplateSources(model.filingStatus),
+    ].filter((t) => !isTemplateAlreadyAdded(t, model.incomeSources));
+  }, [
+    model.businessType,
+    model.taxClassification,
+    model.filingStatus,
+    model.incomeSources,
+  ]);
 
   const addTemplate = (template: TaxIncomeSource) => {
     const id = actions.income.addTemplates([template]);
@@ -94,20 +120,30 @@ export function TaxInputsCard({
     setFocusId(
       actions.payments.addPayment({
         quarter,
-        label: quarter === "final" ? "Payment with return" : `${quarter} federal estimate`,
+        label:
+          quarter === "final"
+            ? "Payment with return"
+            : `${quarter} federal estimate`,
       }),
     );
 
-  const booksLine = hasBooksRows && books.available ? renderBooksStatus(books) : null;
+  const booksLine =
+    hasBooksRows && books.available ? renderBooksStatus(books) : null;
 
   return (
-    <Card glass className="animate-fade-up stagger-1">
+    <Card glass>
       <CardHeader className="flex flex-row flex-wrap items-baseline justify-between gap-x-3 gap-y-1 px-5 pb-1 pt-4">
         <CardTitle className="text-base">Your numbers</CardTitle>
         {hasBooksRows && books.available ? (
           <span className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-            <BookOpen size={13} aria-hidden="true" className="text-teal-light" />
-            {books.through ? `Books through ${dateShortLabel(books.through)}` : "Books"}
+            <BookOpen
+              size={13}
+              aria-hidden="true"
+              className="text-teal-light"
+            />
+            {books.through
+              ? `Books through ${dateShortLabel(books.through)}`
+              : "Books"}
             <button
               type="button"
               onClick={actions.refreshBooks}
@@ -150,7 +186,9 @@ export function TaxInputsCard({
               businessType={model.businessType}
               filingStatus={model.filingStatus}
               onAddTemplates={actions.income.addTemplates}
-              onAddCustom={() => onEdit({ mode: "income", id: actions.income.add() })}
+              onAddCustom={() =>
+                onEdit({ mode: "income", id: actions.income.add() })
+              }
               onOpenImport={actions.openImport}
               onOpenBooks={books.available ? actions.openBooks : undefined}
               existingSources={model.incomeSources}
@@ -162,19 +200,44 @@ export function TaxInputsCard({
             const synced = !!row.linked_source_id && !row.is_unlinked;
             const overridden = !!row.linked_source_id && !!row.is_unlinked;
             const chips: React.ReactNode[] = [
-              <Badge key="type" size="sm">{INCOME_TYPE_LABELS[row.income_type]}</Badge>,
+              <Badge key="type" size="sm">
+                {INCOME_TYPE_LABELS[row.income_type]}
+              </Badge>,
             ];
-            if (row.subject_to_se && actions.income.canHaveSeToggle(row.income_type)) {
-              chips.push(<Badge key="se" size="sm" variant="info">SE</Badge>);
+            if (
+              row.subject_to_se &&
+              actions.income.canHaveSeToggle(row.income_type)
+            ) {
+              chips.push(
+                <Badge key="se" size="sm" variant="info">
+                  SE
+                </Badge>,
+              );
             }
-            if (row.income_type === "k1" && !row.subject_to_se && row.materially_participates) {
-              chips.push(<Badge key="active" size="sm" variant="info">Active</Badge>);
+            if (
+              row.income_type === "k1" &&
+              !row.subject_to_se &&
+              row.materially_participates
+            ) {
+              chips.push(
+                <Badge key="active" size="sm" variant="info">
+                  Active
+                </Badge>,
+              );
             }
             if (model.filingStatus === "mfj" && row.taxpayer === "spouse") {
-              chips.push(<Badge key="spouse" size="sm">Spouse</Badge>);
+              chips.push(
+                <Badge key="spouse" size="sm">
+                  Spouse
+                </Badge>,
+              );
             }
             if (overridden) {
-              chips.push(<Badge key="unlinked" size="sm" variant="copper">Unlinked</Badge>);
+              chips.push(
+                <Badge key="unlinked" size="sm" variant="copper">
+                  Unlinked
+                </Badge>,
+              );
             }
             return (
               <EntryRow
@@ -237,7 +300,9 @@ export function TaxInputsCard({
           label="Capital gains and losses"
           description="Sales of stock, crypto or property. Losses count too."
           action={
-            <AddButton onClick={() => onEdit({ mode: "gain", id: actions.gains.add() })} />
+            <AddButton
+              onClick={() => onEdit({ mode: "gain", id: actions.gains.add() })}
+            />
           }
         >
           {model.capitalGains.length === 0 && (
@@ -254,11 +319,17 @@ export function TaxInputsCard({
                   {row.term === "short" ? "Short-term" : "Long-term"}
                 </Badge>,
               ]}
-              source={row.books ? { label: "Books", linked: true } : { label: "Manual" }}
+              source={
+                row.books
+                  ? { label: "Books", linked: true }
+                  : { label: "Manual" }
+              }
               amount={row.amount}
               allowNegative
               onAmount={
-                row.books ? undefined : (value) => actions.gains.update(row.id, "amount", value)
+                row.books
+                  ? undefined
+                  : (value) => actions.gains.update(row.id, "amount", value)
               }
               onOpen={() => onEdit({ mode: "gain", id: row.id })}
             />
@@ -271,7 +342,9 @@ export function TaxInputsCard({
           action={<AddButton onClick={addWithholding} />}
         >
           {withholdingRows.length === 0 && (
-            <EmptyAction onClick={addWithholding}>Add paycheck withholding</EmptyAction>
+            <EmptyAction onClick={addWithholding}>
+              Add paycheck withholding
+            </EmptyAction>
           )}
           {withholdingRows.map((row) => (
             <EntryRow
@@ -280,14 +353,25 @@ export function TaxInputsCard({
               name={row.label}
               placeholder="Untitled withholding"
               chips={[
-                <Badge key="type" size="sm">{row.type === "federal" ? "Federal" : stateCode}</Badge>,
+                <Badge key="type" size="sm">
+                  {row.type === "federal" ? "Federal" : stateCode}
+                </Badge>,
               ]}
-              source={row.books ? { label: "Books", linked: true } : { label: "Manual" }}
+              source={
+                row.books
+                  ? { label: "Books", linked: true }
+                  : { label: "Manual" }
+              }
               amount={row.amount}
               onAmount={
                 row.books
                   ? undefined
-                  : (value) => actions.payments.update(row.id, "amount", Math.max(0, value))
+                  : (value) =>
+                      actions.payments.update(
+                        row.id,
+                        "amount",
+                        Math.max(0, value),
+                      )
               }
               onOpen={() => onEdit({ mode: "withholding", id: row.id })}
             />
@@ -299,7 +383,10 @@ export function TaxInputsCard({
           label="Estimated payments"
           description={`Quarterly payments you sent the IRS${model.state ? ` or ${stateCode}` : ""}. Dates are the federal deadlines.`}
           action={
-            <AddButton label="Add payment" onClick={() => addPayment(dueQuarter?.key ?? "Q1")} />
+            <AddButton
+              label="Add payment"
+              onClick={() => addPayment(dueQuarter?.key ?? "Q1")}
+            />
           }
         >
           <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] lg:mx-0 lg:grid lg:grid-cols-4 lg:overflow-visible lg:px-0 [&::-webkit-scrollbar]:hidden">
@@ -310,15 +397,21 @@ export function TaxInputsCard({
                 stateCode={stateCode}
                 showState={!!model.state}
                 annualized={
-                  model.annualized?.kind === "ready" && model.annualized.quarter === quarter.key
+                  model.annualized?.kind === "ready" &&
+                  model.annualized.quarter === quarter.key
                     ? {
-                        minimum: { federal: model.annualized.federal, state: model.annualized.state },
+                        minimum: {
+                          federal: model.annualized.federal,
+                          state: model.annualized.state,
+                        },
                         total: model.annualized.full,
                       }
                     : null
                 }
                 tips={figureTipText}
-                onAmount={(id, value) => actions.payments.update(id, "amount", Math.max(0, value))}
+                onAmount={(id, value) =>
+                  actions.payments.update(id, "amount", Math.max(0, value))
+                }
                 onOpenRow={(id) => onEdit({ mode: "payment", id })}
                 onAdd={() => addPayment(quarter.key)}
               />
@@ -333,12 +426,22 @@ export function TaxInputsCard({
                   name={row.label}
                   placeholder="Untitled payment"
                   chips={[
-                    <Badge key="type" size="sm">{row.type === "federal" ? "Federal" : stateCode}</Badge>,
-                    <Badge key="when" size="sm">{row.quarter === "final" ? "Final" : "Other"}</Badge>,
+                    <Badge key="type" size="sm">
+                      {row.type === "federal" ? "Federal" : stateCode}
+                    </Badge>,
+                    <Badge key="when" size="sm">
+                      {row.quarter === "final" ? "Final" : "Other"}
+                    </Badge>,
                   ]}
                   source={{ label: "Manual" }}
                   amount={row.amount}
-                  onAmount={(value) => actions.payments.update(row.id, "amount", Math.max(0, value))}
+                  onAmount={(value) =>
+                    actions.payments.update(
+                      row.id,
+                      "amount",
+                      Math.max(0, value),
+                    )
+                  }
                   onOpen={() => onEdit({ mode: "payment", id: row.id })}
                 />
               ))}
@@ -350,7 +453,11 @@ export function TaxInputsCard({
           label="Household"
           description="Dependents, extra deductions or credits, and age."
           action={
-            <Button size="sm" variant="ghost" onClick={() => onEdit({ mode: "household" })}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onEdit({ mode: "household" })}
+            >
               Edit
             </Button>
           }
@@ -361,10 +468,19 @@ export function TaxInputsCard({
         </Section>
       </CardContent>
       <div className="flex items-center justify-between gap-3 border-t border-border px-5 py-3 text-sm">
-        <span className={cn("min-w-0 truncate", !model.notes && "text-muted-foreground")}>
+        <span
+          className={cn(
+            "min-w-0 truncate",
+            !model.notes && "text-muted-foreground",
+          )}
+        >
           {model.notes ? model.notes : `No notes for ${model.year}`}
         </span>
-        <Button size="sm" variant="ghost" onClick={() => onEdit({ mode: "notes" })}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => onEdit({ mode: "notes" })}
+        >
           {model.notes ? "Edit note" : "Add a note"}
         </Button>
       </div>
@@ -375,10 +491,13 @@ export function TaxInputsCard({
 // ---------------------------------------------------------------------------
 
 function renderBooksStatus(books: EstimatorModel["books"]): string | null {
-  if (books.status === "error") return `Couldn't refresh from the books. ${books.error}`.trim();
+  if (books.status === "error")
+    return `Couldn't refresh from the books. ${books.error}`.trim();
   const parts: string[] = [];
   for (const move of books.moved) {
-    parts.push(`${move.name} moved ${formatCurrency(move.from)} to ${formatCurrency(move.to)}`);
+    parts.push(
+      `${move.name} moved ${formatCurrency(move.from)} to ${formatCurrency(move.to)}`,
+    );
   }
   parts.push(...books.problems);
   return parts.length > 0 ? parts.join(". ") + "." : null;
@@ -388,10 +507,14 @@ function householdSummary(model: EstimatorModel): string {
   const h = model.household;
   const parts: string[] = [];
   if (h.dependents > 0) {
-    parts.push(`${h.dependents} ${h.dependents === 1 ? "child" : "children"} under 17`);
+    parts.push(
+      `${h.dependents} ${h.dependents === 1 ? "child" : "children"} under 17`,
+    );
   }
   if (h.otherDependents > 0) {
-    parts.push(`${h.otherDependents} other ${h.otherDependents === 1 ? "dependent" : "dependents"}`);
+    parts.push(
+      `${h.otherDependents} other ${h.otherDependents === 1 ? "dependent" : "dependents"}`,
+    );
   }
   if (parts.length === 0) parts.push("No dependents");
   parts.push(
@@ -399,7 +522,8 @@ function householdSummary(model: EstimatorModel): string {
       ? `${formatCurrency(h.additionalDeductions)} extra deductions`
       : "standard deduction",
   );
-  if (h.additionalCredits > 0) parts.push(`${formatCurrency(h.additionalCredits)} extra credits`);
+  if (h.additionalCredits > 0)
+    parts.push(`${formatCurrency(h.additionalCredits)} extra credits`);
   const flags: string[] = [];
   if (h.taxpayerAge65) flags.push("65 or older");
   if (h.taxpayerBlind) flags.push("blind");
@@ -432,7 +556,12 @@ function Section({
       id={id}
       className="border-t border-border/60 py-3 first:border-t-0 first:pt-1"
     >
-      <SectionHeader label={label} description={description} action={action} className="mb-1 px-2" />
+      <SectionHeader
+        label={label}
+        description={description}
+        action={action}
+        className="mb-1 px-2"
+      />
       <div className="space-y-0.5">{children}</div>
     </section>
   );
@@ -442,7 +571,13 @@ function Empty({ children }: { children: React.ReactNode }) {
   return <p className="px-2 py-2 text-sm text-muted-foreground">{children}</p>;
 }
 
-function EmptyAction({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+function EmptyAction({
+  onClick,
+  children,
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
     <button
       type="button"
@@ -455,7 +590,13 @@ function EmptyAction({ onClick, children }: { onClick: () => void; children: Rea
   );
 }
 
-function AddButton({ onClick, label = "Add" }: { onClick: () => void; label?: string }) {
+function AddButton({
+  onClick,
+  label = "Add",
+}: {
+  onClick: () => void;
+  label?: string;
+}) {
   return (
     <Button size="sm" variant="ghost" onClick={onClick}>
       <Plus size={14} aria-hidden="true" />
@@ -627,7 +768,10 @@ function QuarterTile({
   const status = statusFor(quarter);
   const suggested =
     quarter.status === "due"
-      ? { federal: quarter.suggestedFederal ?? 0, state: quarter.suggestedState ?? 0 }
+      ? {
+          federal: quarter.suggestedFederal ?? 0,
+          state: quarter.suggestedState ?? 0,
+        }
       : null;
 
   return (
@@ -643,7 +787,12 @@ function QuarterTile({
           {dateShortLabel(quarter.deadline)}
         </span>
       </div>
-      <span className={cn("inline-flex items-center gap-1.5 text-xs font-medium", status.className)}>
+      <span
+        className={cn(
+          "inline-flex items-center gap-1.5 text-xs font-medium",
+          status.className,
+        )}
+      >
         {status.icon}
         <span suppressHydrationWarning>{status.label}</span>
       </span>
@@ -651,7 +800,10 @@ function QuarterTile({
         {quarter.rows.map((row) => {
           const jurisdiction = row.type === "federal" ? "Fed" : stateCode;
           return (
-            <div key={row.id} className="flex items-center justify-between gap-2">
+            <div
+              key={row.id}
+              className="flex items-center justify-between gap-2"
+            >
               <button
                 type="button"
                 onClick={() => onOpenRow(row.id)}
@@ -673,22 +825,35 @@ function QuarterTile({
         {due &&
           [
             { label: "Actual", value: suggested, tip: tips.actual },
-            { label: "Minimum", value: annualized?.minimum ?? null, tip: tips.minimum ?? undefined },
+            {
+              label: "Minimum",
+              value: annualized?.minimum ?? null,
+              tip: tips.minimum ?? undefined,
+            },
             {
               label: "Total",
               // Hidden when it equals Actual, as it does in Q4 where nothing is scaled.
               value:
-                annualized && suggested &&
-                (Math.abs(annualized.total.federal - suggested.federal) > CENT ||
+                annualized &&
+                suggested &&
+                (Math.abs(annualized.total.federal - suggested.federal) >
+                  CENT ||
                   Math.abs(annualized.total.state - suggested.state) > CENT)
                   ? annualized.total
                   : null,
               tip: tips.total ?? undefined,
             },
           ]
-            .filter((line) => line.value && (line.value.federal > CENT || line.value.state > CENT))
+            .filter(
+              (line) =>
+                line.value &&
+                (line.value.federal > CENT || line.value.state > CENT),
+            )
             .map((line) => (
-              <div key={line.label} className="px-1 pt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+              <div
+                key={line.label}
+                className="px-1 pt-0.5 text-[11px] leading-relaxed text-muted-foreground"
+              >
                 <FigureLabel label={line.label} tip={line.tip} />{" "}
                 <span className="tabular-nums text-foreground">
                   <MaskedValue value={formatCurrency(line.value!.federal)} />
@@ -737,8 +902,16 @@ function statusFor(quarter: QuarterSchedule): {
         icon: <Clock size={12} aria-hidden="true" />,
       };
     case "past":
-      return { label: "No payment", className: "text-muted-foreground", icon: null };
+      return {
+        label: "No payment",
+        className: "text-muted-foreground",
+        icon: null,
+      };
     default:
-      return { label: "Upcoming", className: "text-muted-foreground", icon: null };
+      return {
+        label: "Upcoming",
+        className: "text-muted-foreground",
+        icon: null,
+      };
   }
 }

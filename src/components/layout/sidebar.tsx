@@ -22,12 +22,14 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
+import { resetAccountingCache } from "@/components/features/accounting/accounting-cache";
 import { PAYROLL_ENABLED, ACCOUNTING_ENABLED } from "@/lib/env";
 import {
   ACCOUNTING_NAV,
   accountingHref,
   accountingNavFor,
   resolveAccountingView,
+  type AccountingView,
 } from "@/lib/accounting/views";
 
 interface NavItem {
@@ -103,6 +105,19 @@ function AccountingLinks({
   const pathname = usePathname();
   const params = useSearchParams();
   const onAccounting = pathname === ACCOUNTING_HREF;
+  // Pointing at a screen is a reliable signal a moment before the click:
+  // warm its chunk and first reads so it opens whole. The books' code is
+  // loaded on demand so the sidebar stays light on every other page.
+  const warm = (view: AccountingView) => {
+    if (isDemoMode()) return;
+    void import("@/components/features/accounting/accounting-views").then((m) =>
+      m.warmAccountingViewFromLocation(
+        view,
+        window.location.search,
+        reviewCount,
+      ),
+    );
+  };
   const current = onAccounting
     ? accountingNavFor(
         resolveAccountingView(params.get("view"), params.get("section")),
@@ -121,6 +136,8 @@ function AccountingLinks({
           <Link
             key={link.view}
             href={href}
+            onPointerEnter={() => warm(link.view)}
+            onFocus={() => warm(link.view)}
             onClick={(e) => {
               onNavigate();
               // Already on the books: swap the view in place instead of a
@@ -214,6 +231,7 @@ export function Sidebar() {
       return;
     }
 
+    resetAccountingCache();
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/login");

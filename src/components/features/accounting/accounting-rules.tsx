@@ -2,7 +2,7 @@
 import { Disclosure } from "@/components/ui/disclosure";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { NumberInput } from "@/components/ui/inputs/NumberInput";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Plus, ArrowRight, SlidersHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,8 @@ import { parseUsd, centsToDecimal } from "@/lib/accounting/money";
 import { AccountingPicker } from "./accounting-picker";
 import { dateLabel, enumLabel, money, timestampLabel } from "./format";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
+import { useAccountingRead } from "./use-accounting-read";
+import { TableSkeleton } from "@/components/ui/skeleton";
 
 const PREVIEW_PAGE = 100;
 const linkClass =
@@ -50,8 +52,12 @@ export function AccountingRules({
   onRefresh: () => Promise<void>;
   onEntry: (id: string) => void;
 }) {
-  const [state, setState] = useState<RulesView | null>(null),
-    [error, setError] = useState(""),
+  const rulesRead = useAccountingRead<RulesView>(
+    { view: "rules" },
+    { enabled: !demo },
+  );
+  const state = rulesRead.data ?? null;
+  const [error, setError] = useState(""),
     [notice, setNotice] = useState("");
   const [applicationId] = useState(() => crypto.randomUUID());
   const [editor, setEditor] = useState<AccountingRule | null>(null),
@@ -66,23 +72,13 @@ export function AccountingRules({
     [reviewed, setReviewed] = useState(false),
     [reason, setReason] = useState("");
   async function refresh() {
-    setState(await accountingGet<RulesView>({ view: "rules" }));
+    await rulesRead.reload();
     setPreview(null);
     setSelected(new Set());
     setReviewed(false);
     await onRefresh();
   }
   const cmd = useAccountingCommand(refresh);
-  useEffect(() => {
-    if (demo) return;
-    const abort = new AbortController();
-    accountingGet<RulesView>({ view: "rules" }, abort.signal)
-      .then(setState)
-      .catch((e) => {
-        if (!abort.signal.aborted) setError(e.message);
-      });
-    return () => abort.abort();
-  }, [demo]);
   function invalidate() {
     setPreview(null);
     setSelected(new Set());
@@ -221,7 +217,11 @@ export function AccountingRules({
             preview is approved.
           </p>
         </div>
-        {!state?.rules.length ? (
+        {rulesRead.loading ? (
+          <div className="p-6">
+            <TableSkeleton rows={4} />
+          </div>
+        ) : !state?.rules.length ? (
           <div className="p-6 text-sm text-muted-foreground">
             <SlidersHorizontal className="mb-3" size={22} aria-hidden="true" />
             Create a rule for a recurring description, bank account, direction,
@@ -636,6 +636,7 @@ export function AccountingRules({
             framed={false}
             columns={aliasColumns}
             data={state?.aliases ?? []}
+            skeletonRows={rulesRead.loading ? 3 : 0}
             keyExtractor={(a) => a.id}
             onRowClick={(a) => setAlias(a)}
             emptyState="No aliases yet. Add a payee under Payees first."

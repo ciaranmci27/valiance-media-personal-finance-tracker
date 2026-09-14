@@ -58,14 +58,12 @@ type SortDirection = "asc" | "desc";
 function ExpenseCard({
   expense,
   monthly,
-  index,
   onToggleStatus,
   isToggling,
   isFirstPaused,
 }: {
   expense: Expense;
   monthly: number;
-  index: number;
   onToggleStatus: (id: string, newStatus: boolean) => void;
   isToggling: boolean;
   isFirstPaused?: boolean;
@@ -123,8 +121,6 @@ function ExpenseCard({
         className={cn(
           "glass-card glass-card-interactive rounded-xl p-4 cursor-pointer transition-all duration-300",
           "hover:border-primary/30 active:scale-[0.98]",
-          "animate-fade-up",
-          `stagger-${Math.min(index + 1, 6)}`,
           isPaused && "opacity-60",
         )}
         {...hoverProps}
@@ -236,14 +232,12 @@ function ExpenseCard({
 function ExpenseRow({
   expense,
   monthly,
-  index,
   onToggleStatus,
   isToggling,
   isFirstPaused,
 }: {
   expense: Expense;
   monthly: number;
-  index: number;
   onToggleStatus: (id: string, newStatus: boolean) => void;
   isToggling: boolean;
   isFirstPaused?: boolean;
@@ -287,8 +281,7 @@ function ExpenseRow({
     <tr
       onClick={handleRowClick}
       className={cn(
-        "transition-all duration-300 hover:bg-secondary cursor-pointer animate-fade-up",
-        `stagger-${Math.min(index + 1, 6)}`,
+        "transition-all duration-300 hover:bg-secondary cursor-pointer",
         isPaused && "bg-[rgba(var(--ink),0.03)] text-muted-foreground",
         isFirstPaused && "relative border-t-border/50",
       )}
@@ -719,7 +712,7 @@ export function ExpensesListContent({
 
             return (
               <>
-                {activeExpenses.map((expense, index) => (
+                {activeExpenses.map((expense) => (
                   <ExpenseCard
                     key={expense.id}
                     expense={expense}
@@ -727,7 +720,6 @@ export function ExpensesListContent({
                       Number(expense.amount),
                       expense.frequency,
                     )}
-                    index={index}
                     onToggleStatus={handleToggleStatus}
                     isToggling={togglingId === expense.id}
                   />
@@ -740,7 +732,6 @@ export function ExpensesListContent({
                       Number(expense.amount),
                       expense.frequency,
                     )}
-                    index={activeExpenses.length + index}
                     onToggleStatus={handleToggleStatus}
                     isToggling={togglingId === expense.id}
                     isFirstPaused={index === 0}
@@ -859,7 +850,7 @@ export function ExpensesListContent({
 
                     return (
                       <>
-                        {activeExpenses.map((expense, index) => (
+                        {activeExpenses.map((expense) => (
                           <ExpenseRow
                             key={expense.id}
                             expense={expense}
@@ -867,7 +858,6 @@ export function ExpensesListContent({
                               Number(expense.amount),
                               expense.frequency,
                             )}
-                            index={index}
                             onToggleStatus={handleToggleStatus}
                             isToggling={togglingId === expense.id}
                           />
@@ -880,7 +870,6 @@ export function ExpensesListContent({
                               Number(expense.amount),
                               expense.frequency,
                             )}
-                            index={activeExpenses.length + index}
                             onToggleStatus={handleToggleStatus}
                             isToggling={togglingId === expense.id}
                             isFirstPaused={index === 0}

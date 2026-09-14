@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import {
@@ -14,8 +13,9 @@ import {
 } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
-import { StatCardSkeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/toast";
+import { useLoaderPhase } from "@/components/ui/use-loader-phase";
+import { useBoot, useBootHold } from "@/components/layout/boot";
 import { defaultChart } from "@/lib/accounting/chart";
 import { parseUsd } from "@/lib/accounting/money";
 import type {
@@ -26,12 +26,17 @@ import type {
   RegisterFilter,
   WorkflowCommand,
 } from "@/lib/accounting/workflows";
-import { registerFilterSchema } from "@/lib/accounting/workflows";
 import {
   isTransactionReviewed,
   presentTransaction,
 } from "@/lib/accounting/transactions";
 import { feedSyncDue, type FeedData } from "@/lib/accounting/feeds";
+import {
+  journalFilterFromLocation,
+  preloadContextFromLocation,
+  registerQuery,
+  type PreloadContext,
+} from "@/lib/accounting/preload";
 import {
   resolveAccountingView,
   type AccountingView,
@@ -58,49 +63,28 @@ import { AccountingBankIdentityProvider } from "./accounting-bank-identity";
 import { ReverseTransfer } from "./accounting-transfer-dialogs";
 import type { TransferGroup, TransfersView } from "@/lib/accounting/transfers";
 import { todayInBooks } from "./format";
-import { createAccountingReadCache } from "@/lib/accounting/read-cache";
+import {
+  AccountingCacheProvider,
+  useAccountingCache,
+} from "./accounting-cache";
+import { useAccountingRead } from "./use-accounting-read";
+import {
+  VIEW_STEPS,
+  peekView,
+  useViewComponent,
+  warmAccountingView,
+} from "./accounting-views";
+import { useViewGate } from "./accounting-view-gate";
+import { AccountingLoading, BOOT_STEPS } from "./accounting-loading";
+import { loadEvidenceChunk } from "./accounting-entry-evidence";
+import type { AccountingOverview } from "./accounting-overview";
+import type { AccountingAccounts } from "./accounting-accounts";
+import type { AccountingClose } from "./accounting-close";
+import type { AccountingPayrollRuns } from "./accounting-payroll-run";
+import type { AccountingMore } from "./accounting-more";
+import type { AccountingReports } from "./accounting-reports";
 
 const ZERO = BigInt(0);
-const loadingView = () => (
-  <p role="status" className="p-6 text-sm text-muted-foreground">
-    Loading...
-  </p>
-);
-const loadingOverview = () => (
-  <div
-    role="status"
-    aria-label="Loading overview"
-    className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 lg:grid-cols-4 lg:gap-4"
-  >
-    {[0, 1, 2, 3].map((i) => (
-      <StatCardSkeleton key={i} />
-    ))}
-  </div>
-);
-const AccountingOverview = dynamic(
-  () => import("./accounting-overview").then((m) => m.AccountingOverview),
-  { loading: loadingOverview },
-);
-const AccountingReports = dynamic(
-  () => import("./accounting-reports").then((m) => m.AccountingReports),
-  { loading: loadingView },
-);
-const AccountingAccounts = dynamic(
-  () => import("./accounting-accounts").then((m) => m.AccountingAccounts),
-  { loading: loadingView },
-);
-const AccountingClose = dynamic(
-  () => import("./accounting-close").then((m) => m.AccountingClose),
-  { loading: loadingView },
-);
-const AccountingMore = dynamic(
-  () => import("./accounting-more").then((m) => m.AccountingMore),
-  { loading: loadingView },
-);
-const AccountingPayrollRuns = dynamic(
-  () => import("./accounting-payroll-run").then((m) => m.AccountingPayrollRuns),
-  { loading: loadingView },
-);
 
 type View = AccountingView;
 
@@ -143,7 +127,21 @@ function demoManage(workspace: AccountingWorkspace): BooksMetadata {
  * State lives in the URL (`view`, `section`, `entry`, `report`) so links
  * and the back button keep working.
  */
-export function AccountingBooks({
+export function AccountingBooks(props: {
+  initial: AccountingWorkspace;
+  demo?: boolean;
+  detailOnly?: boolean;
+  testing?: boolean;
+}) {
+  const mode = props.demo ? "demo" : props.testing ? "test" : "live";
+  return (
+    <AccountingCacheProvider scope={`${mode}:${props.initial.legal_name}`}>
+      <AccountingBooksInner {...props} />
+    </AccountingCacheProvider>
+  );
+}
+
+function AccountingBooksInner({
   initial,
   demo = false,
   detailOnly = false,
@@ -157,6 +155,31 @@ export function AccountingBooks({
   const [data, setData] = useState<Workspace>(initial);
   const params = useSearchParams();
   const view = resolveAccountingView(params.get("view"), params.get("section"));
+  const cache = useAccountingCache();
+
+  const [accountFilter, setAccountFilter] = useState("");
+  // Bumped whenever a filter link is applied so the list remounts even when
+  // the new filter equals the current one.
+  const [listKey, setListKey] = useState(0);
+  const [registerFilter, setRegisterFilter] =
+    useState<Partial<RegisterFilter> | null>(null);
+
+  // What the screens read first, keyed exactly as they will ask for it, so
+  // a warmed screen finds its answers waiting.
+  const today = todayInBooks();
+  const reviewCount = data.needs_review_count ?? data.draft_count;
+  const urlFilter = journalFilterFromLocation(params);
+  const ledgerFilter: Partial<RegisterFilter> = {
+    ...(registerFilter ?? urlFilter),
+    ...(accountFilter ? { account: accountFilter } : {}),
+  };
+  const ledgerKey = `${listKey}:${accountFilter}:${JSON.stringify(registerFilter)}`;
+  const ctx: PreloadContext = {
+    ...preloadContextFromLocation(params, today, reviewCount),
+    from: data.from,
+    to: data.to,
+    entry: detailOnly ? (initial.entries[0]?.id ?? null) : null,
+  };
 
   function setView(
     next: View,
@@ -167,6 +190,12 @@ export function AccountingBooks({
       setRegisterFilter(null);
       setAccountFilter("");
     }
+    void warmAccountingView(
+      next,
+      ctx,
+      cache,
+      next === "journal" ? ledgerFilter : undefined,
+    );
     const url = new URL(window.location.href);
     url.searchParams.set("view", next);
     url.searchParams.delete("entry");
@@ -177,24 +206,34 @@ export function AccountingBooks({
     window.history.pushState(null, "", url);
   }
 
-  const [manage, setManage] = useState<BooksMetadata>(() =>
-    demo ? demoManage(initial) : EMPTY_MANAGE,
+  // Metadata and feed state come from the cache: instant on a return visit,
+  // kept on screen while a write refreshes them.
+  const manageRead = useAccountingRead<BooksMetadata>(
+    { view: "manage" },
+    { enabled: !demo },
   );
-  const [manageLoaded, setManageLoaded] = useState(demo);
+  const feedsRead = useAccountingRead<FeedData>(
+    { view: "feeds" },
+    { enabled: !demo },
+  );
+  const demoMetadata = useMemo(
+    () => (demo ? demoManage(initial) : null),
+    [demo, initial],
+  );
+  const manage = demoMetadata ?? manageRead.data ?? EMPTY_MANAGE;
+  const manageLoaded = demo || manageRead.data !== undefined;
+  const feeds = feedsRead.data ?? null;
+
   const [error, setError] = useState("");
   const [simpleEditor, setSimpleEditor] = useState<{
     entry?: JournalEntry;
     direction?: "in" | "out";
   } | null>(null);
-  const [accountFilter, setAccountFilter] = useState("");
-  // Bumped whenever a filter link is applied so the list remounts even when
-  // the new filter equals the current one.
-  const [listKey, setListKey] = useState(0);
-  const [registerFilter, setRegisterFilter] =
-    useState<Partial<RegisterFilter> | null>(null);
   const [selected, setSelected] = useState<JournalEntry | null>(
     detailOnly ? (initial.entries[0] ?? null) : null,
   );
+  // An entry asked for by id alone: the dialog opens at once and fills in.
+  const [opening, setOpening] = useState(false);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [replacementReview, setReplacementReview] = useState<Extract<
     WorkflowCommand,
@@ -207,10 +246,6 @@ export function AccountingBooks({
   );
   const [syncing, setSyncing] = useState(false);
   const syncRequested = useRef(false);
-  // Bank feed state drives the notices under the header and the Overview.
-  const [feeds, setFeeds] = useState<FeedData | null>(null);
-  const [registerCache] = useState(() => createAccountingReadCache());
-  const [registerEpoch, setRegisterEpoch] = useState(0);
   const balanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const balanceRequest = useRef<AbortController | null>(null);
   const entryRequest = useRef(0);
@@ -219,39 +254,83 @@ export function AccountingBooks({
     () => () => {
       if (balanceTimer.current) clearTimeout(balanceTimer.current);
       balanceRequest.current?.abort();
-      registerCache.invalidate();
     },
-    [registerCache],
+    [],
   );
 
-  function invalidateRegister() {
-    registerCache.invalidate();
-    setRegisterEpoch((value) => value + 1);
-  }
+  // The screen the URL names mounts only once its chunk and first reads are
+  // in memory. Until then the loader stands where it will: the whole page on
+  // the first visit, the content area on a later switch.
+  const gate = useViewGate({
+    view,
+    mountKey: view === "journal" ? ledgerKey : "",
+    ctx,
+    initialFilter: ledgerFilter,
+    demo,
+    cache,
+  });
+  // A hard load arrives under the workspace boot screen: hold it open until
+  // the first screen is ready and let it dissolve over the finished page. A
+  // later arrival, or an uncached switch, runs the books' own loader.
+  const boot = useBoot();
+  useBootHold(!gate.ready, BOOT_STEPS, gate.step);
+  const { phase, onLeft } = useLoaderPhase(!gate.ready && !boot.active, {
+    minShowMs: 350,
+  });
+  const [booted, setBooted] = useState(false);
+  useEffect(() => {
+    if (gate.ready && (boot.active || phase === "done")) setBooted(true);
+  }, [gate.ready, boot.active, phase]);
+  useViewComponent(view);
+  const Overview = peekView("overview") as
+    | typeof AccountingOverview
+    | undefined;
+  const Accounts = peekView("accounts") as
+    | typeof AccountingAccounts
+    | undefined;
+  const Close = peekView("close") as typeof AccountingClose | undefined;
+  const Payroll = peekView("payroll") as
+    | typeof AccountingPayrollRuns
+    | undefined;
+  const More = peekView("manage") as typeof AccountingMore | undefined;
+  const Reports = peekView("reports") as typeof AccountingReports | undefined;
+
+  // Receipts and history are warmed the moment a transaction opens, so the
+  // disclosure has them before anyone reaches for it.
+  const openEntryId =
+    selected?.id ??
+    simpleEditor?.entry?.id ??
+    (editor && editor.version > 0 ? editor.id : null);
+  useEffect(() => {
+    if (!openEntryId || demo) return;
+    void loadEvidenceChunk();
+    void cache
+      .read({ view: "evidence", entry: openEntryId })
+      .catch(() => undefined);
+  }, [openEntryId, demo, cache]);
 
   async function refreshTransactionBooks(command?: WorkflowCommand) {
-    invalidateRegister();
+    // Every page of the ledger and every report is out of date; the screens
+    // showing them keep their rows while the fresh ones load.
+    cache.dropWhere((q) => q.view !== "manage" && q.view !== "feeds");
     // New payees are the exceptional transaction edit that changes shared metadata.
     if (
       command &&
       "context" in command &&
       command.context?.payee_id &&
       !manage.parties.some((party) => party.id === command.context?.payee_id)
-    ) {
-      void accountingGet<BooksMetadata>({ view: "manage" })
-        .then(setManage)
-        .catch(() => toast("error", "Saved. Reload to update the payee list."));
-    }
+    )
+      cache.drop({ view: "manage" });
     if (balanceTimer.current) clearTimeout(balanceTimer.current);
     balanceRequest.current?.abort();
     // Coalesce rapid row edits; neither the save nor the next row waits for reports.
     balanceTimer.current = setTimeout(() => {
       const controller = new AbortController();
       balanceRequest.current = controller;
-      void accountingGet<Workspace>(
-        { from: data.from, to: data.to },
-        controller.signal,
-      )
+      void cache
+        .read<Workspace>({ from: data.from, to: data.to }, controller.signal, {
+          fresh: true,
+        })
         .then((next) => {
           if (controller.signal.aborted) return;
           setData(next);
@@ -267,32 +346,25 @@ export function AccountingBooks({
     }, 350);
   }
 
-  let urlFilter: Partial<RegisterFilter> = {};
-  try {
-    const parsed = registerFilterSchema.safeParse(
-      JSON.parse(params.get("transactions") ?? "{}"),
-    );
-    if (parsed.success) urlFilter = parsed.data;
-  } catch {
-    /* Ignore malformed filter links. */
-  }
-
   const range = `from=${data.from}&to=${data.to}`;
   const accountMap = new Map(data.accounts.map((a) => [a.id, a]));
 
   async function refreshBooks() {
     if (balanceTimer.current) clearTimeout(balanceTimer.current);
     balanceRequest.current?.abort();
-    invalidateRegister();
-    const [next, metadata, feedState] = await Promise.all([
-      accountingGet<Workspace>({ from: data.from, to: data.to }),
-      accountingGet<BooksMetadata>({ view: "manage" }),
-      accountingGet<FeedData>({ view: "feeds" }).catch(() => null),
+    cache.dropWhere(() => true);
+    const [next] = await Promise.all([
+      cache.read<Workspace>({ from: data.from, to: data.to }, undefined, {
+        fresh: true,
+      }),
+      cache
+        .read<BooksMetadata>({ view: "manage" }, undefined, { fresh: true })
+        .catch(() => null),
+      cache
+        .read<FeedData>({ view: "feeds" }, undefined, { fresh: true })
+        .catch(() => null),
     ]);
     setData(next);
-    setManage(metadata);
-    setManageLoaded(true);
-    if (feedState) setFeeds(feedState);
     setSelected(null);
     // The sidebar's review badge follows the books.
     window.dispatchEvent(new Event("accounting-refreshed"));
@@ -309,26 +381,6 @@ export function AccountingBooks({
   const cmd = useAccountingCommand(refreshBooks);
   const detailCommand = useAccountingCommand(refreshTransactionBooks);
 
-  useEffect(() => {
-    if (demo) return;
-    const controller = new AbortController();
-    registerCache
-      .read<BooksMetadata>({ view: "manage" }, controller.signal)
-      .then((value) => {
-        setManage(value);
-        setManageLoaded(true);
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted && e.name !== "AbortError")
-          setError(e.message);
-      });
-    registerCache
-      .read<FeedData>({ view: "feeds" }, controller.signal)
-      .then(setFeeds)
-      .catch(() => undefined);
-    return () => controller.abort();
-  }, [demo, initial.revision, registerCache]);
-
   // Sync on open: when the books report the newest feed run is stale, run
   // each due connection in the background, the same way Sync now does, and
   // refresh once new activity has landed.
@@ -337,7 +389,7 @@ export function AccountingBooks({
     syncRequested.current = true;
     setSyncing(true);
     (async () => {
-      const feeds = await registerCache.read<FeedData>({ view: "feeds" });
+      const feeds = await cache.read<FeedData>({ view: "feeds" });
       // Only a connection with at least one mapped account can sync; the
       // Overview explains the mapping step for the rest.
       const mapped = new Set(
@@ -400,15 +452,17 @@ export function AccountingBooks({
       setSelected(loaded ?? null);
       return;
     }
+    setOpening(true);
     try {
-      const result = await registerCache.read<{ entries: JournalEntry[] }>({
-        view: "register",
-        filter: JSON.stringify({ entry_id: id }),
-      });
+      const result = await cache.read<{ entries: JournalEntry[] }>(
+        registerQuery({ entry_id: id }),
+      );
       if (request === entryRequest.current)
         setSelected(result.entries[0] ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to load entry.");
+    } finally {
+      if (request === entryRequest.current) setOpening(false);
     }
   }
 
@@ -616,301 +670,335 @@ export function AccountingBooks({
     </Menu.Root>
   );
 
+  const shownError = error || manageRead.error;
+
+  // The loader takes the whole viewport while a screen is on its way. On the
+  // first visit nothing renders behind it until it starts to leave; the page
+  // then mounts under the dissolve and is complete when the overlay clears.
+  const overlay = !boot.active && phase !== "done" && (
+    <AccountingLoading
+      continuing={!booted}
+      steps={booted ? [VIEW_STEPS[view]] : BOOT_STEPS}
+      step={booted ? 0 : gate.step}
+      announcement={booted ? VIEW_STEPS[view] : "Loading the books"}
+      leaving={phase === "leaving"}
+      onLeft={onLeft}
+    />
+  );
+  // Nothing renders behind a loader on the first load; the page mounts as
+  // the loader starts to leave, or under the boot screen as soon as it is ready.
+  const ready = boot.active ? gate.ready : phase !== "loading";
+  if (!booted && !ready) return overlay || null;
+
   return (
-    <AccountingBankIdentityProvider
-      feeds={feeds}
-      profiles={manage.profiles}
-      className="space-y-5 lg:space-y-6"
-    >
-      <PageHeader
-        title="Accounting"
-        subtitle={
-          demo ? "Synthetic company, read-only demonstration" : data.legal_name
-        }
-      />
-
-      {syncing && (
-        <p
-          role="status"
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
-        >
-          <RefreshCw size={13} aria-hidden="true" className="animate-spin" />
-          Syncing bank feeds
-        </p>
-      )}
-
-      <SetupGuide
-        year={new Date().getFullYear()}
-        enabled={!demo}
-        onApplied={() => void refreshBooks()}
-      />
-
-      {(testing || demo) && (
-        <p className="glass-card rounded-xl bg-[rgba(var(--ink),0.03)] px-3 py-2 text-xs text-muted-foreground">
-          {testing
-            ? "Isolated test books. All entries on this server are synthetic."
-            : "Demo transactions are synthetic. Real books show your own accounts here."}
-        </p>
-      )}
-      {error && !editor && !replacementReview && !approval && (
-        <p
-          role="alert"
-          className="rounded-lg border border-error/30 bg-error/5 p-3 text-sm text-error"
-        >
-          {error}
-        </p>
-      )}
-
-      {view === "overview" && (
-        <AccountingOverview
-          data={data}
-          manage={manage}
-          feeds={feeds}
-          metadataLoading={!manageLoaded}
-          demo={demo}
-          onReview={() => {
-            setRegisterFilter({ status: "draft" });
-            setAccountFilter("");
-            setListKey((k) => k + 1);
-            setView("journal");
-          }}
-          onTransactions={() => setView("journal")}
-          onAccounts={() => setView("accounts")}
-          onFeeds={() => setView("manage", "feeds")}
-          onMonthEnd={() => setView("close")}
-          onReport={(id) => setView("reports", undefined, { report: id })}
-          onEntry={(entry) =>
-            void transactionAction(
-              entry.status === "draft" ? "edit" : "detail",
-              entry,
-            )
+    <>
+      {overlay}
+      <AccountingBankIdentityProvider
+        feeds={feeds}
+        profiles={manage.profiles}
+        className="space-y-5 lg:space-y-6"
+      >
+        <PageHeader
+          title="Accounting"
+          subtitle={
+            demo
+              ? "Synthetic company, read-only demonstration"
+              : data.legal_name
           }
-          onAdd={(direction) => setSimpleEditor({ direction })}
-        />
-      )}
-      {view === "journal" && (
-        <AccountingTransactions
-          key={`${listKey}:${accountFilter}:${JSON.stringify(registerFilter)}`}
-          data={data}
-          manage={manage}
-          metadataLoading={!manageLoaded}
-          demo={demo}
-          initialFilter={{
-            ...(registerFilter ?? urlFilter),
-            ...(accountFilter ? { account: accountFilter } : {}),
-          }}
-          onRefresh={refreshBooks}
-          onTransactionSaved={refreshTransactionBooks}
-          registerCache={registerCache}
-          registerEpoch={registerEpoch}
-          actions={transactionAddMenu}
-          onAction={(action, entry) => void transactionAction(action, entry)}
-        />
-      )}
-      {view === "accounts" && (
-        <AccountingAccounts
-          data={data}
-          profiles={manage.profiles}
-          demo={demo}
-          onRefresh={refreshBooks}
-          onAdd={() => setAddAccount(true)}
-          onFeeds={() => setView("manage", "feeds")}
-          onEntry={(id) => void openEntry(id)}
-        />
-      )}
-      {view === "close" && !demo && (
-        <AccountingClose
-          date={data.to}
-          onRefresh={refreshBooks}
-          onEntry={openEntry}
-          onAccounts={() => setView("accounts")}
-          onTransactions={() => setView("journal")}
-          onImports={() => setView("manage", "imports")}
-        />
-      )}
-      {view === "payroll" && (
-        <AccountingPayrollRuns
-          accounts={data.accounts}
-          manage={manage}
-          today={todayInBooks()}
-          demo={demo}
-          onRefresh={refreshBooks}
-          onEntry={(id) => void openEntry(id)}
-        />
-      )}
-      {view === "manage" && (
-        <AccountingMore
-          initialSection={params.get("section") ?? undefined}
-          data={data}
-          manage={manage}
-          demo={demo}
-          onRefresh={refreshBooks}
-          onEntry={openEntry}
-          onFilter={(filter) => {
-            setRegisterFilter(filter);
-            setAccountFilter("");
-            setListKey((k) => k + 1);
-            setView("journal");
-          }}
-        />
-      )}
-      {view === "reports" && (
-        <AccountingReports
-          accounts={data.accounts}
-          from={data.from}
-          to={data.to}
-          revision={data.revision}
-          manage={manage}
-          onEntry={openEntry}
-          demo={demo}
-        />
-      )}
-
-      {simpleEditor && (
-        <AccountingTransactionEditor
-          entry={simpleEditor.entry}
-          initialDirection={simpleEditor.direction}
-          date={data.to}
-          accounts={data.accounts}
-          manage={manage}
-          onClose={() => setSimpleEditor(null)}
-          onSaved={refreshTransactionBooks}
-          onJournal={() => {
-            const e = simpleEditor.entry;
-            setSimpleEditor(null);
-            // The same escape hatch for every state: a posted entry lands in the correction mode.
-            if (e?.status === "posted") openCorrection(e);
-            else void openEditor(e);
-          }}
-        />
-      )}
-
-      <EntryDetailDialog
-        entry={selected}
-        accounts={accountMap}
-        parties={manage.parties}
-        demo={demo}
-        range={range}
-        busy={detailCommand.busy}
-        error={detailCommand.error}
-        canReview={
-          !!selected &&
-          presentTransaction(selected, manage.profiles).categorized
-        }
-        onClose={() => {
-          entryRequest.current++;
-          setSelected(null);
-          detailCommand.setError("");
-        }}
-        onEdit={(e) => {
-          setSelected(null);
-          void transactionAction("edit", e);
-        }}
-        onPost={async (e) => {
-          const reviewed = !isTransactionReviewed(e);
-          const saved = await detailCommand.execute({
-            type: "entry.review",
-            id: e.id,
-            expected_version: e.version,
-            reviewed,
-          });
-          if (saved) {
-            setSelected((current) =>
-              current?.id === e.id
-                ? {
-                    ...current,
-                    status: "posted",
-                    review_pending: !reviewed,
-                    version: saved.version ?? e.version + 1,
-                  }
-                : current,
-            );
-            toast(
-              "success",
-              reviewed ? "Transaction reviewed." : "Marked as unreviewed.",
-            );
+          actions={
+            syncing ? (
+              <p
+                role="status"
+                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+              >
+                <RefreshCw
+                  size={13}
+                  aria-hidden="true"
+                  className="animate-spin"
+                />
+                Syncing bank feeds
+              </p>
+            ) : undefined
           }
-        }}
-        onDiscard={(e) => {
-          setApproval({ entry: e, type: "draft.discard" });
-          setSelected(null);
-        }}
-        onRestore={(e) => {
-          setApproval({ entry: e, type: "entry.restore" });
-          setSelected(null);
-        }}
-        onReverse={(e) => {
-          if (e.payroll_run_id) {
+        />
+
+        <SetupGuide
+          year={Number(today.slice(0, 4))}
+          enabled={!demo}
+          onApplied={() => void refreshBooks()}
+        />
+
+        {(testing || demo) && (
+          <p className="glass-card rounded-xl bg-[rgba(var(--ink),0.03)] px-3 py-2 text-xs text-muted-foreground">
+            {testing
+              ? "Isolated test books. All entries on this server are synthetic."
+              : "Demo transactions are synthetic. Real books show your own accounts here."}
+          </p>
+        )}
+        {shownError && !editor && !replacementReview && !approval && (
+          <p
+            role="alert"
+            className="rounded-lg border border-error/30 bg-error/5 p-3 text-sm text-error"
+          >
+            {shownError}
+          </p>
+        )}
+
+        {ready && (
+          <>
+            {view === "overview" && Overview && (
+              <Overview
+                data={data}
+                manage={manage}
+                feeds={feeds}
+                metadataLoading={!manageLoaded}
+                demo={demo}
+                onIntent={(next) => void warmAccountingView(next, ctx, cache)}
+                onReview={() => {
+                  setRegisterFilter({ status: "draft" });
+                  setAccountFilter("");
+                  setListKey((k) => k + 1);
+                  setView("journal");
+                }}
+                onTransactions={() => setView("journal")}
+                onAccounts={() => setView("accounts")}
+                onFeeds={() => setView("manage", "feeds")}
+                onMonthEnd={() => setView("close")}
+                onReport={(id) => setView("reports", undefined, { report: id })}
+                onEntry={(entry) =>
+                  void transactionAction(
+                    entry.status === "draft" ? "edit" : "detail",
+                    entry,
+                  )
+                }
+                onAdd={(direction) => setSimpleEditor({ direction })}
+              />
+            )}
+            {view === "journal" && (
+              <AccountingTransactions
+                key={ledgerKey}
+                data={data}
+                manage={manage}
+                metadataLoading={!manageLoaded}
+                demo={demo}
+                initialFilter={ledgerFilter}
+                onRefresh={refreshBooks}
+                onTransactionSaved={refreshTransactionBooks}
+                actions={transactionAddMenu}
+                onAction={(action, entry) =>
+                  void transactionAction(action, entry)
+                }
+              />
+            )}
+            {view === "accounts" && Accounts && (
+              <Accounts
+                data={data}
+                profiles={manage.profiles}
+                demo={demo}
+                onRefresh={refreshBooks}
+                onAdd={() => setAddAccount(true)}
+                onFeeds={() => setView("manage", "feeds")}
+                onEntry={(id) => void openEntry(id)}
+              />
+            )}
+            {view === "close" && !demo && Close && (
+              <Close
+                date={data.to}
+                onRefresh={refreshBooks}
+                onEntry={openEntry}
+                onAccounts={() => setView("accounts")}
+                onTransactions={() => setView("journal")}
+                onImports={() => setView("manage", "imports")}
+              />
+            )}
+            {view === "payroll" && Payroll && (
+              <Payroll
+                accounts={data.accounts}
+                manage={manage}
+                today={today}
+                demo={demo}
+                onRefresh={refreshBooks}
+                onEntry={(id) => void openEntry(id)}
+              />
+            )}
+            {view === "manage" && More && (
+              <More
+                initialSection={params.get("section") ?? undefined}
+                data={data}
+                manage={manage}
+                demo={demo}
+                onRefresh={refreshBooks}
+                onEntry={openEntry}
+                onFilter={(filter) => {
+                  setRegisterFilter(filter);
+                  setAccountFilter("");
+                  setListKey((k) => k + 1);
+                  setView("journal");
+                }}
+              />
+            )}
+            {view === "reports" && Reports && (
+              <Reports
+                accounts={data.accounts}
+                from={data.from}
+                to={data.to}
+                revision={data.revision}
+                manage={manage}
+                onEntry={openEntry}
+                demo={demo}
+              />
+            )}
+          </>
+        )}
+
+        {simpleEditor && (
+          <AccountingTransactionEditor
+            entry={simpleEditor.entry}
+            initialDirection={simpleEditor.direction}
+            date={data.to}
+            accounts={data.accounts}
+            manage={manage}
+            onClose={() => setSimpleEditor(null)}
+            onSaved={refreshTransactionBooks}
+            onJournal={() => {
+              const e = simpleEditor.entry;
+              setSimpleEditor(null);
+              // The same escape hatch for every state: a posted entry lands in the correction mode.
+              if (e?.status === "posted") openCorrection(e);
+              else void openEditor(e);
+            }}
+          />
+        )}
+
+        <EntryDetailDialog
+          entry={selected}
+          opening={opening}
+          accounts={accountMap}
+          parties={manage.parties}
+          demo={demo}
+          range={range}
+          busy={detailCommand.busy}
+          error={detailCommand.error}
+          canReview={
+            !!selected &&
+            presentTransaction(selected, manage.profiles).categorized
+          }
+          onClose={() => {
+            entryRequest.current++;
             setSelected(null);
-            setView("payroll");
-            return;
-          }
-          if (e.transfer_group_id) {
+            setOpening(false);
+            detailCommand.setError("");
+          }}
+          onEdit={(e) => {
             setSelected(null);
-            void openReverseTransfer(e.transfer_group_id);
-            return;
-          }
-          setApproval({ entry: e, type: "entry.reverse" });
-          setSelected(null);
-        }}
-        onCopy={(e) => void openEditor(e, true)}
-        onCorrect={openCorrection}
-      />
+            void transactionAction("edit", e);
+          }}
+          onPost={async (e) => {
+            const reviewed = !isTransactionReviewed(e);
+            const saved = await detailCommand.execute({
+              type: "entry.review",
+              id: e.id,
+              expected_version: e.version,
+              reviewed,
+            });
+            if (saved) {
+              setSelected((current) =>
+                current?.id === e.id
+                  ? {
+                      ...current,
+                      status: "posted",
+                      review_pending: !reviewed,
+                      version: saved.version ?? e.version + 1,
+                    }
+                  : current,
+              );
+              toast(
+                "success",
+                reviewed ? "Transaction reviewed." : "Marked as unreviewed.",
+              );
+            }
+          }}
+          onDiscard={(e) => {
+            setApproval({ entry: e, type: "draft.discard" });
+            setSelected(null);
+          }}
+          onRestore={(e) => {
+            setApproval({ entry: e, type: "entry.restore" });
+            setSelected(null);
+          }}
+          onReverse={(e) => {
+            if (e.payroll_run_id) {
+              setSelected(null);
+              setView("payroll");
+              return;
+            }
+            if (e.transfer_group_id) {
+              setSelected(null);
+              void openReverseTransfer(e.transfer_group_id);
+              return;
+            }
+            setApproval({ entry: e, type: "entry.reverse" });
+            setSelected(null);
+          }}
+          onCopy={(e) => void openEditor(e, true)}
+          onCorrect={openCorrection}
+        />
 
-      <JournalEditorDialog
-        editor={replacementReview ? null : editor}
-        setEditor={setEditor}
-        accounts={data.accounts}
-        manage={manage}
-        busy={cmd.busy}
-        error={error}
-        onSave={() => void saveDraft()}
-        onClose={() => setEditor(null)}
-      />
-
-      <ReplacementReviewDialog
-        review={replacementReview}
-        original={editor?.corrects ?? null}
-        accounts={accountMap}
-        busy={cmd.busy}
-        error={error}
-        onBack={() => setReplacementReview(null)}
-        onApply={async () => {
-          if (replacementReview && (await mutate(replacementReview))) {
-            if (editor) await saveEditorNote(editor);
-            setReplacementReview(null);
-            setEditor(null);
-            toast("success", "Correction applied.");
-          }
-        }}
-      />
-
-      <ApprovalDialog
-        approval={approval}
-        accounts={accountMap}
-        busy={cmd.busy}
-        error={error}
-        defaultDate={data.to}
-        onSubmit={mutate}
-        onClose={() => setApproval(null)}
-      />
-
-      {addAccount && (
-        <AccountingAccountCreate
+        <JournalEditorDialog
+          editor={replacementReview ? null : editor}
+          setEditor={setEditor}
           accounts={data.accounts}
-          profiles={manage.profiles}
-          onClose={() => setAddAccount(false)}
-          onSaved={refreshBooks}
+          manage={manage}
+          busy={cmd.busy}
+          error={error}
+          onSave={() => void saveDraft()}
+          onClose={() => setEditor(null)}
         />
-      )}
-      {reverseTransfer && (
-        <ReverseTransfer
-          group={reverseTransfer}
-          revision={data.revision}
-          onClose={() => setReverseTransfer(null)}
-          onSaved={refreshBooks}
+
+        <ReplacementReviewDialog
+          review={replacementReview}
+          original={editor?.corrects ?? null}
+          accounts={accountMap}
+          busy={cmd.busy}
+          error={error}
+          onBack={() => setReplacementReview(null)}
+          onApply={async () => {
+            if (replacementReview && (await mutate(replacementReview))) {
+              if (editor) await saveEditorNote(editor);
+              setReplacementReview(null);
+              setEditor(null);
+              toast("success", "Correction applied.");
+            }
+          }}
         />
-      )}
-    </AccountingBankIdentityProvider>
+
+        <ApprovalDialog
+          approval={approval}
+          accounts={accountMap}
+          busy={cmd.busy}
+          error={error}
+          defaultDate={data.to}
+          onSubmit={mutate}
+          onClose={() => setApproval(null)}
+        />
+
+        {addAccount && (
+          <AccountingAccountCreate
+            accounts={data.accounts}
+            profiles={manage.profiles}
+            onClose={() => setAddAccount(false)}
+            onSaved={refreshBooks}
+          />
+        )}
+        {reverseTransfer && (
+          <ReverseTransfer
+            group={reverseTransfer}
+            revision={data.revision}
+            onClose={() => setReverseTransfer(null)}
+            onSaved={refreshBooks}
+          />
+        )}
+      </AccountingBankIdentityProvider>
+    </>
   );
 }

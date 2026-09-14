@@ -87,7 +87,7 @@ export function StatCard({
   return (
     <div
       className={cn(
-        "glass-card rounded-xl p-4 lg:p-5 animate-fade-up transition-opacity",
+        "glass-card rounded-xl p-4 lg:p-5 transition-opacity",
         isHidden && "cursor-default",
         className,
       )}

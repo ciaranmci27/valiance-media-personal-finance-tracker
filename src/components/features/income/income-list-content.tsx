@@ -49,7 +49,6 @@ function IncomeCard({
   sources,
   getSourceAmount,
   total,
-  index,
   onHoverStart,
   onHoverEnd,
 }: {
@@ -57,7 +56,6 @@ function IncomeCard({
   sources: IncomeSource[];
   getSourceAmount: (entryId: string, sourceId: string) => number;
   total: number;
-  index: number;
   onHoverStart: () => void;
   onHoverEnd: () => void;
 }) {
@@ -93,8 +91,6 @@ function IncomeCard({
       className={cn(
         "glass-card glass-card-interactive rounded-xl p-4 cursor-pointer transition-all duration-300",
         "hover:border-primary/30 active:scale-[0.98]",
-        "animate-fade-up",
-        `stagger-${Math.min(index + 1, 6)}`,
       )}
     >
       {/* Header: Month and Total */}
@@ -173,7 +169,6 @@ function IncomeRow({
   sources,
   getSourceAmount,
   total,
-  index,
   onHoverStart,
   onHoverEnd,
 }: {
@@ -181,7 +176,6 @@ function IncomeRow({
   sources: IncomeSource[];
   getSourceAmount: (entryId: string, sourceId: string) => number;
   total: number;
-  index: number;
   onHoverStart: () => void;
   onHoverEnd: () => void;
 }) {
@@ -205,8 +199,7 @@ function IncomeRow({
         hoverProps.onMouseLeave?.();
       }}
       className={cn(
-        "transition-all duration-300 hover:bg-secondary cursor-pointer animate-fade-up",
-        `stagger-${Math.min(index + 1, 6)}`,
+        "transition-all duration-300 hover:bg-secondary cursor-pointer",
       )}
     >
       <td className="px-4 py-3 align-middle">
@@ -576,14 +569,13 @@ export function IncomeListContent({
           </div>
 
           {/* Cards */}
-          {filteredEntries.map((entry, index) => (
+          {filteredEntries.map((entry) => (
             <IncomeCard
               key={entry.id}
               entry={entry}
               sources={activeSources}
               getSourceAmount={getSourceAmount}
               total={getEntryTotal(entry.id)}
-              index={index}
               onHoverStart={() => setHoveredEntryId(entry.id)}
               onHoverEnd={() => setHoveredEntryId(null)}
             />
@@ -670,14 +662,13 @@ export function IncomeListContent({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filteredEntries.map((entry, index) => (
+                  {filteredEntries.map((entry) => (
                     <IncomeRow
                       key={entry.id}
                       entry={entry}
                       sources={activeSources}
                       getSourceAmount={getSourceAmount}
                       total={getEntryTotal(entry.id)}
-                      index={index}
                       onHoverStart={() => setHoveredEntryId(entry.id)}
                       onHoverEnd={() => setHoveredEntryId(null)}
                     />

@@ -53,7 +53,7 @@ function SummaryCard({
   primary?: boolean;
 }) {
   return (
-    <Card className={cn("animate-fade-up", className)}>
+    <Card className={className}>
       <CardContent className="pt-6">
         <div className="flex items-center gap-3">
           <div
@@ -170,12 +170,10 @@ const getScheduleDetail = (triggerConfig: ScheduleTriggerConfig) => {
 // Mobile card component for automations
 function AutomationCard({
   automation,
-  index,
   onToggle,
   onDelete,
 }: {
   automation: AutomationWithActions;
-  index: number;
   onToggle: (id: string, isActive: boolean) => void;
   onDelete: (id: string) => void;
 }) {
@@ -238,8 +236,7 @@ function AutomationCard({
       className={cn(
         "glass-card glass-card-interactive rounded-xl p-4 cursor-pointer transition-all duration-300",
         "hover:border-primary/30 active:scale-[0.98]",
-        "animate-fade-up relative",
-        `stagger-${Math.min(index + 1, 6)}`,
+        "relative",
       )}
     >
       {/* Header: Name and Menu */}
@@ -423,12 +420,10 @@ function AutomationCard({
 
 function AutomationRow({
   automation,
-  index,
   onToggle,
   onDelete,
 }: {
   automation: AutomationWithActions;
-  index: number;
   onToggle: (id: string, isActive: boolean) => void;
   onDelete: (id: string) => void;
 }) {
@@ -478,12 +473,7 @@ function AutomationRow({
   ).length;
 
   return (
-    <tr
-      className={cn(
-        "transition-colors hover:bg-secondary cursor-pointer animate-fade-up",
-        `stagger-${Math.min(index + 1, 6)}`,
-      )}
-    >
+    <tr className={cn("transition-colors hover:bg-secondary cursor-pointer")}>
       <td className="px-4 py-3">
         <Link
           href={`/automations/${automation.id}`}
@@ -783,11 +773,10 @@ export function AutomationsListContent({
         <>
           {/* Mobile: Card Layout */}
           <div className="lg:hidden space-y-3">
-            {automations.map((automation, index) => (
+            {automations.map((automation) => (
               <AutomationCard
                 key={automation.id}
                 automation={automation}
-                index={index}
                 onToggle={handleToggle}
                 onDelete={handleDelete}
               />
@@ -823,11 +812,10 @@ export function AutomationsListContent({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {automations.map((automation, index) => (
+                    {automations.map((automation) => (
                       <AutomationRow
                         key={automation.id}
                         automation={automation}
-                        index={index}
                         onToggle={handleToggle}
                         onDelete={handleDelete}
                       />
@@ -839,7 +827,7 @@ export function AutomationsListContent({
           </Card>
         </>
       ) : (
-        <Card className="animate-fade-up">
+        <Card>
           <CardContent className="py-12 text-center">
             <div className="flex justify-center mb-4">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">

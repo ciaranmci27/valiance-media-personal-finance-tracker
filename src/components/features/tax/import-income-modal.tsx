@@ -282,13 +282,10 @@ export function ImportIncomeModal({
                   }}
                   className={cn(
                     "w-full flex items-center gap-3 glass-card rounded-xl p-3 transition-all duration-200 text-left cursor-pointer",
-                    "opacity-0 animate-fade-up",
-                    `stagger-${Math.min(i + 1, 6)}`,
                     source.selected
                       ? "bg-primary/5 border-primary/20"
                       : "opacity-50",
                   )}
-                  style={{ animationFillMode: "forwards" }}
                 >
                   {/* Checkbox */}
                   <span

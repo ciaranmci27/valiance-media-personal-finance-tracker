@@ -46,11 +46,9 @@ type SortDirection = "asc" | "desc";
 function NetWorthCard({
   entry,
   prevEntry,
-  index,
 }: {
   entry: NetWorth;
   prevEntry: NetWorth | undefined;
-  index: number;
 }) {
   const router = useRouter();
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
@@ -90,8 +88,6 @@ function NetWorthCard({
       className={cn(
         "glass-card glass-card-interactive rounded-xl p-4 cursor-pointer transition-all duration-300",
         "hover:border-primary/30 active:scale-[0.98]",
-        "animate-fade-up",
-        `stagger-${Math.min(index + 1, 6)}`,
       )}
     >
       {/* Header: Month and Amount */}
@@ -156,11 +152,9 @@ function NetWorthCard({
 function NetWorthRow({
   entry,
   prevEntry,
-  index,
 }: {
   entry: NetWorth;
   prevEntry: NetWorth | undefined;
-  index: number;
 }) {
   const router = useRouter();
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
@@ -199,8 +193,7 @@ function NetWorthRow({
     <tr
       onClick={handleRowClick}
       className={cn(
-        "transition-all duration-300 hover:bg-secondary cursor-pointer animate-fade-up",
-        `stagger-${Math.min(index + 1, 6)}`,
+        "transition-all duration-300 hover:bg-secondary cursor-pointer",
       )}
       {...hoverProps}
     >
@@ -575,12 +568,11 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
           </div>
 
           {/* Cards */}
-          {filteredEntries.map((entry, index) => (
+          {filteredEntries.map((entry) => (
             <NetWorthCard
               key={entry.id}
               entry={entry}
               prevEntry={entryToPrevMap.get(entry.id)}
-              index={index}
             />
           ))}
 
@@ -682,12 +674,11 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {filteredEntries.map((entry, index) => (
+                  {filteredEntries.map((entry) => (
                     <NetWorthRow
                       key={entry.id}
                       entry={entry}
                       prevEntry={entryToPrevMap.get(entry.id)}
-                      index={index}
                     />
                   ))}
                 </tbody>

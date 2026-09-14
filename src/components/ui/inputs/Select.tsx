@@ -15,7 +15,6 @@ import {
 import { createPortal } from 'react-dom';
 import { Check, ChevronDown } from 'lucide-react';
 import { mergeRefs, labelSizeClass } from './_shared';
-import { TextInput } from './TextInput';
 export interface SelectOption {
   value: string;
   label: string;
@@ -38,6 +37,7 @@ export interface SelectProps {
   value?: string;
   onChange?: (value: string) => void;
   options: SelectOption[];
+  /** The field itself takes the search while open: typing narrows the list. */
   searchable?: boolean;
   placeholder?: string;
   emptyText?: string;
@@ -103,9 +103,11 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
     maxHeight: 300,
     openAbove: false,
   });
-  const trigger = useRef<HTMLButtonElement>(null),
+  // The field: the closed button, or the search box that stands in for it while open.
+  const trigger = useRef<HTMLElement | null>(null),
     popup = useRef<HTMLDivElement>(null),
-    search = useRef<HTMLInputElement>(null);
+    search = useRef<HTMLInputElement>(null),
+    refocus = useRef(false);
 
   const { host: popupHost, prepare: preparePopup } = useInputPopup(open, trigger, popup);
   const selected = options.find((option) => !option.isGroupHeader && option.value === value);
@@ -159,9 +161,10 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
   const updatePosition = useCallback(() => {
     if (trigger.current) setPosition(popupPosition(trigger.current, 320, 220));
   }, []);
+  // The button is back on the next render; focus returns to it then.
   const close = () => {
     setOpen(false);
-    trigger.current?.focus();
+    refocus.current = true;
   };
   const choose = (option: SelectOption) => {
     if (!option.disabled) {
@@ -207,6 +210,12 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
     setOpen(true);
   };
   useEffect(() => {
+    if (open) return;
+    if (!refocus.current) return;
+    refocus.current = false;
+    trigger.current?.focus();
+  }, [open]);
+  useEffect(() => {
     if (!open) return;
     (search.current || popup.current?.querySelector<HTMLElement>('[role="listbox"]'))?.focus();
     const outside = (event: PointerEvent) => {
@@ -235,8 +244,9 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
       event.stopPropagation();
       close();
     } else if (event.key === 'Tab') {
+      // From the field itself focus moves on naturally; from the list it returns to the field.
       setOpen(false);
-      trigger.current?.focus();
+      if (event.target !== search.current) refocus.current = true;
     } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
       if (searchable && (event.key === 'Home' || event.key === 'End')) return;
       event.preventDefault();
@@ -270,6 +280,9 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
       if (index >= 0) setActive(index);
     }
   };
+  const chevronSize = size === 'sm' ? 14 : 16;
+  // One chrome for the closed button and the open search box, so nothing shifts between them.
+  const fieldClass = `w-full flex items-center justify-between gap-2 text-left rounded-input transition-colors motion-reduce:transition-none ${triggerClassName || (compact ? 'px-2 py-1 text-sm hover:bg-input-bg-hover' : `${fieldSize(size)} ${size === 'sm' ? 'px-2.5' : size === 'lg' ? 'px-3.5' : 'px-3'} ${fieldChrome(error, disabled)}`)}`;
   return (
     <div className={`space-y-1.5 ${className}`}>
       {fieldLabel && (
@@ -295,43 +308,89 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
           onInvalid={() => trigger.current?.focus()}
         />
       )}
-      <button
-        ref={mergeRefs(trigger, forwardedRef)}
-        id={inputId}
-        type="button"
-        role="combobox"
-        aria-label={accessibleLabel}
-        aria-haspopup="listbox"
-        aria-required={required}
-        aria-expanded={open}
-        aria-controls={open ? listId : undefined}
-        aria-describedby={describedBy}
-        aria-invalid={!!error || undefined}
-        disabled={disabled}
-        onClick={() => (open ? close() : show())}
-        onKeyDown={(event) => {
-          if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
-            event.preventDefault();
-            show();
-          }
-        }}
-        className={`w-full flex items-center justify-between gap-2 text-left rounded-input transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-ring disabled:opacity-50 disabled:cursor-not-allowed ${triggerClassName || (compact ? 'px-2 py-1 text-sm hover:bg-input-bg-hover' : `${fieldSize(size)} ${size === 'sm' ? 'px-2.5' : size === 'lg' ? 'px-3.5' : 'px-3'} ${fieldChrome(error, disabled)}`)} ${open ? 'ring-2 ring-input-ring' : ''}`}
-      >
-        {children || (
-          <span
-            className={`flex min-w-0 items-center gap-2 ${selected ? 'text-input-text' : 'text-input-text-placeholder'}`}
-          >
-            {selected?.icon}
-            <span className="truncate">{selected?.label || placeholder}</span>
-          </span>
-        )}
-        {showChevron && (
-          <ChevronDown
-            size={size === 'sm' ? 14 : 16}
-            className={`shrink-0 text-input-text-placeholder transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+      {searchable && open ? (
+        <div
+          ref={(node) => {
+            trigger.current = node;
+          }}
+          onClick={() => search.current?.focus()}
+          className={`${fieldClass} cursor-text ring-2 ring-input-ring`}
+        >
+          {selected?.icon}
+          <input
+            ref={search}
+            id={inputId}
+            type="text"
+            role="combobox"
+            aria-label={accessibleLabel}
+            aria-expanded={true}
+            aria-controls={listId}
+            aria-autocomplete="list"
+            aria-activedescendant={activeRow ? `${listId}-${active}` : undefined}
+            aria-describedby={describedBy}
+            autoComplete="off"
+            placeholder={selected?.label || placeholder}
+            value={query}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setActive(0);
+            }}
+            onKeyDown={navigate}
+            className="min-w-0 flex-1 bg-transparent text-input-text outline-none placeholder:text-input-text-placeholder"
           />
-        )}
-      </button>
+          {showChevron && (
+            <ChevronDown
+              size={chevronSize}
+              aria-hidden="true"
+              onClick={(event) => {
+                event.stopPropagation();
+                close();
+              }}
+              className="shrink-0 rotate-180 cursor-pointer text-input-text-placeholder"
+            />
+          )}
+        </div>
+      ) : (
+        <button
+          ref={mergeRefs<HTMLButtonElement>((node) => {
+            trigger.current = node;
+          }, forwardedRef)}
+          id={inputId}
+          type="button"
+          role="combobox"
+          aria-label={accessibleLabel}
+          aria-haspopup="listbox"
+          aria-required={required}
+          aria-expanded={open}
+          aria-controls={open ? listId : undefined}
+          aria-describedby={describedBy}
+          aria-invalid={!!error || undefined}
+          disabled={disabled}
+          onClick={() => (open ? close() : show())}
+          onKeyDown={(event) => {
+            if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) {
+              event.preventDefault();
+              show();
+            }
+          }}
+          className={`${fieldClass} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-ring disabled:opacity-50 disabled:cursor-not-allowed ${open ? 'ring-2 ring-input-ring' : ''}`}
+        >
+          {children || (
+            <span
+              className={`flex min-w-0 items-center gap-2 ${selected ? 'text-input-text' : 'text-input-text-placeholder'}`}
+            >
+              {selected?.icon}
+              <span className="truncate">{selected?.label || placeholder}</span>
+            </span>
+          )}
+          {showChevron && (
+            <ChevronDown
+              size={chevronSize}
+              className={`shrink-0 text-input-text-placeholder transition-transform motion-reduce:transition-none ${open ? 'rotate-180' : ''}`}
+            />
+          )}
+        </button>
+      )}
       {help && (
         <p id={`${inputId}-help`} className="text-xs text-input-text-subtle">
           {help}
@@ -353,42 +412,24 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(function Select
             // The popup is portaled, but React still bubbles its clicks to the
             // trigger's ancestors (a table row, a card); a choice is not a row click.
             onClick={(event) => event.stopPropagation()}
-            className={`${popupChrome} ${searchable ? 'px-1 pb-1' : 'p-1'}`}
+            className={`${popupChrome} p-1`}
             style={{
               top: position.top,
               left: position.left,
               width: position.width,
-              maxHeight: position.maxHeight,
               transform: position.openAbove ? 'translateY(-100%)' : undefined,
               pointerEvents: 'auto',
             }}
           >
-            {searchable && (
-              <div className="sticky top-0 z-10 mb-1 border-b border-input-border-divider bg-surface-overlay px-1 pb-1.5 pt-1">
-                <TextInput
-                  ref={search}
-                  aria-label={`Search ${accessibleLabel || 'options'}`}
-                  role="combobox"
-                  aria-expanded={true}
-                  aria-controls={listId}
-                  aria-autocomplete="list"
-                  aria-activedescendant={activeRow ? `${listId}-${active}` : undefined}
-                  placeholder="Search..."
-                  value={query}
-                  onChange={(value) => {
-                    setQuery(value);
-                    setActive(0);
-                  }}
-                  size="sm"
-                />
-              </div>
-            )}
+            {/* Only the list scrolls, inside the rounded frame, on a thin bar. */}
             <div
               id={listId}
               role="listbox"
               aria-label={accessibleLabel}
               tabIndex={searchable ? undefined : 0}
               aria-activedescendant={!searchable && activeRow ? `${listId}-${active}` : undefined}
+              className="overflow-y-auto [scrollbar-width:thin] [scrollbar-color:var(--color-input-border-hover)_transparent]"
+              style={{ maxHeight: position.maxHeight - 8 }}
             >
               {groups.map((group, groupIndex) => {
                 const headerIndex = group ? rowIndex.get(`header:${group}`) : undefined;

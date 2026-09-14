@@ -2,7 +2,17 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { Plus, FileText, Link2, Pencil, Check, ChevronLeft, Briefcase, User, BookOpen } from "lucide-react";
+import {
+  Plus,
+  FileText,
+  Link2,
+  Pencil,
+  Check,
+  ChevronLeft,
+  Briefcase,
+  User,
+  BookOpen,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -88,7 +98,7 @@ function TemplateRow({
           ? "opacity-40 cursor-default"
           : selected
             ? "bg-primary/10"
-            : "hover:bg-secondary cursor-pointer"
+            : "hover:bg-secondary cursor-pointer",
       )}
     >
       <span
@@ -98,7 +108,7 @@ function TemplateRow({
             ? "border-border bg-secondary"
             : selected
               ? "border-primary bg-primary text-primary-foreground"
-              : "border-border"
+              : "border-border",
         )}
       >
         {(alreadyAdded || selected) && <Check className="h-2.5 w-2.5" />}
@@ -114,7 +124,7 @@ function TemplateRow({
         <span
           className={cn(
             "px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider rounded border",
-            BADGE_STYLES[template.income_type]
+            BADGE_STYLES[template.income_type],
           )}
         >
           {BADGE_LABELS[template.income_type]}
@@ -154,7 +164,7 @@ export function AddIncomePopover({
   // Personal templates (tailored to filing status)
   const personalTemplates = React.useMemo(
     () => createPersonalTemplateSources(filingStatus),
-    [filingStatus]
+    [filingStatus],
   );
 
   // Determine which templates are already added
@@ -267,14 +277,15 @@ export function AddIncomePopover({
   };
 
   const selectedCount = [...selectedIds].filter(
-    (id) => !allTemplates.find((t) => t.template.id === id)?.alreadyAdded
+    (id) => !allTemplates.find((t) => t.template.id === id)?.alreadyAdded,
   ).length;
 
   const classificationLabel = taxClassification
     ? TAX_CLASSIFICATION_LABELS[taxClassification]
     : null;
 
-  const allBusinessAdded = businessStates.length > 0 && businessStates.every((t) => t.alreadyAdded);
+  const allBusinessAdded =
+    businessStates.length > 0 && businessStates.every((t) => t.alreadyAdded);
   const allPersonalAdded = personalStates.every((t) => t.alreadyAdded);
 
   // Render
@@ -318,7 +329,10 @@ export function AddIncomePopover({
               <div className="border-t border-white/[0.06]">
                 <button
                   type="button"
-                  onClick={() => { setIsOpen(false); onOpenBooks(); }}
+                  onClick={() => {
+                    setIsOpen(false);
+                    onOpenBooks();
+                  }}
                   className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-secondary transition-colors cursor-pointer"
                 >
                   <BookOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -330,7 +344,9 @@ export function AddIncomePopover({
                       Profit, investments and payroll so far
                     </span>
                   </div>
-                  <span className="text-muted-foreground/40 text-xs">&rsaquo;</span>
+                  <span className="text-muted-foreground/40 text-xs">
+                    &rsaquo;
+                  </span>
                 </button>
               </div>
             )}
@@ -339,7 +355,10 @@ export function AddIncomePopover({
             <div className="border-t border-white/[0.06]">
               <button
                 type="button"
-                onClick={() => { setIsOpen(false); onOpenImport(); }}
+                onClick={() => {
+                  setIsOpen(false);
+                  onOpenImport();
+                }}
                 className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-secondary transition-colors cursor-pointer"
               >
                 <Link2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -351,7 +370,9 @@ export function AddIncomePopover({
                     Import from revenue tracker
                   </span>
                 </div>
-                <span className="text-muted-foreground/40 text-xs">&rsaquo;</span>
+                <span className="text-muted-foreground/40 text-xs">
+                  &rsaquo;
+                </span>
               </button>
             </div>
 
@@ -359,7 +380,10 @@ export function AddIncomePopover({
             <div className="border-t border-white/[0.06]">
               <button
                 type="button"
-                onClick={() => { setIsOpen(false); onAddCustom(); }}
+                onClick={() => {
+                  setIsOpen(false);
+                  onAddCustom();
+                }}
                 className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-secondary transition-colors cursor-pointer"
               >
                 <Pencil className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -371,7 +395,9 @@ export function AddIncomePopover({
                     Add a blank row
                   </span>
                 </div>
-                <span className="text-muted-foreground/40 text-xs">&rsaquo;</span>
+                <span className="text-muted-foreground/40 text-xs">
+                  &rsaquo;
+                </span>
               </button>
             </div>
           </>

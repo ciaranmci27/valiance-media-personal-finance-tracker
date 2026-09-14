@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import {
   ArrowUpRight,
   CheckCircle2,
@@ -17,7 +17,7 @@ import { cn } from "@/lib/utils";
 import type { BalanceRow } from "@/lib/accounting/contracts";
 import type { FeedData } from "@/lib/accounting/feeds";
 import { bankIdentitiesByAccount } from "@/lib/accounting/bank-identity";
-import { accountingGet } from "./use-accounting-command";
+import { useAccountingRead } from "./use-accounting-read";
 import { money, timestampLabel } from "./format";
 
 type Status = "connected" | "reconnect" | "disconnected" | "unmapped" | "none";
@@ -57,24 +57,16 @@ export function AccountingBankPanel({
   onReconcile: (a: BalanceRow) => void;
   onRefresh: () => Promise<void>;
 }) {
-  const [feeds, setFeeds] = useState<FeedData | null>(null);
+  // The same cached feed the shell already holds, so bank balances are on
+  // the first paint instead of replacing book balances a moment later. A
+  // feed that cannot load leaves the book balances standing.
+  const feedsRead = useAccountingRead<FeedData>(
+    { view: "feeds" },
+    { enabled: !demo },
+  );
+  const feeds = feedsRead.data ?? null;
   const [syncing, setSyncing] = useState<string | null>(null);
   const inFlight = useRef(false);
-
-  async function load(signal?: AbortSignal) {
-    try {
-      setFeeds(await accountingGet<FeedData>({ view: "feeds" }, signal));
-    } catch {
-      /* Book balances still render without feed data. */
-    }
-  }
-
-  useEffect(() => {
-    if (demo) return;
-    const abort = new AbortController();
-    void load(abort.signal);
-    return () => abort.abort();
-  }, [demo]);
 
   async function sync(connectionId: string) {
     if (inFlight.current) return;
@@ -93,7 +85,7 @@ export function AccountingBankPanel({
       if (!response.ok)
         throw new Error(result.error ?? "The sync could not finish.");
       toast("success", result.message ?? "Bank feed synced.");
-      await load();
+      // The refresh drops every cached read, the feed included.
       await onRefresh();
     } catch (e) {
       toast(

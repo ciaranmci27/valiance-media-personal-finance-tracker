@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/row-actions-menu";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Select } from "@/components/ui/inputs/Select";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
@@ -147,8 +148,11 @@ export function EntryDetailDialog({
   busy = false,
   error = "",
   canReview = true,
+  opening = false,
 }: {
   entry: JournalEntry | null;
+  /** The entry is still being fetched: open at once with a placeholder body. */
+  opening?: boolean;
   accounts: Map<string, AccountingAccount>;
   parties: Party[];
   demo: boolean;
@@ -216,14 +220,16 @@ export function EntryDetailDialog({
     : [];
   return (
     <Dialog
-      open={entry !== null}
+      open={entry !== null || opening}
       onOpenChange={(open) => {
         if (!open && !busy) onClose();
       }}
     >
       <DialogContent className="flex max-h-[90dvh] max-w-xl flex-col overflow-hidden p-0">
         <DialogHeader className="shrink-0 px-6 pb-2 pt-6 pr-12">
-          <DialogTitle className="leading-snug">{entry?.memo}</DialogTitle>
+          <DialogTitle className="leading-snug">
+            {entry ? entry.memo : opening ? "Loading transaction" : ""}
+          </DialogTitle>
           <DialogDescription asChild>
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
               <span>{dateLabel(entry?.entry_date)}</span>
@@ -249,6 +255,23 @@ export function EntryDetailDialog({
             </div>
           </DialogDescription>
         </DialogHeader>
+        {!entry && opening && (
+          <div
+            role="status"
+            aria-label="Loading transaction"
+            className="space-y-4 px-6 pb-6 pt-3"
+          >
+            <Skeleton className="h-9 w-40" />
+            <div className="space-y-3">
+              {[0, 1].map((i) => (
+                <div key={i} className="flex items-center justify-between">
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-4 w-20" />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {entry && (
           <>
             <div className="min-h-0 space-y-5 overflow-y-auto px-6 pb-6 pt-3 [scrollbar-gutter:stable]">

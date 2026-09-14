@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Sidebar } from "@/components/layout/sidebar";
+import { BootProvider } from "@/components/layout/boot";
 import { DemoBanner } from "@/components/ui/demo-banner";
 import { ToastContainer } from "@/components/ui/toast";
 import { PrivacyProvider } from "@/contexts/privacy-context";
@@ -18,28 +19,30 @@ interface DashboardLayoutProps {
 export function DashboardLayout({
   children,
   initialPrivacyHidden,
-  accountingTestMode=false,
+  accountingTestMode = false,
 }: DashboardLayoutProps) {
   const isDemo = isDemoMode();
 
   return (
     <PrivacyProvider initialHidden={initialPrivacyHidden}>
-      <div className="min-h-screen">
-        <Sidebar />
-        <div className="relative z-10 lg:ml-60">
-          {isDemo && !accountingTestMode && <DemoBanner />}
-          <main
-            className={cn(
-              "px-4 lg:px-6 pb-6 pt-5 lg:pt-7",
-              // Clear the fixed h-9 announcement bar
-              isDemo && !accountingTestMode && "pt-14 lg:pt-16"
-            )}
-          >
-            {children}
-          </main>
+      <BootProvider>
+        <div className="min-h-screen">
+          <Sidebar />
+          <div className="relative z-10 lg:ml-60">
+            {isDemo && !accountingTestMode && <DemoBanner />}
+            <main
+              className={cn(
+                "px-4 lg:px-6 pb-6 pt-5 lg:pt-7",
+                // Clear the fixed h-9 announcement bar
+                isDemo && !accountingTestMode && "pt-14 lg:pt-16",
+              )}
+            >
+              {children}
+            </main>
+          </div>
+          <ToastContainer />
         </div>
-        <ToastContainer />
-      </div>
+      </BootProvider>
     </PrivacyProvider>
   );
 }
