@@ -15,7 +15,6 @@ import {
   Users2,
   Users,
   Zap,
-  Layers,
   LogOut,
   X,
   ChevronDown,
@@ -105,12 +104,6 @@ const navItems: NavItem[] = [
     href: "/automations",
     icon: Zap,
     permission: "automations.manage",
-  },
-  {
-    title: "Sources",
-    href: "/income/sources",
-    icon: Layers,
-    permission: "income.read",
   },
   {
     title: "Team",

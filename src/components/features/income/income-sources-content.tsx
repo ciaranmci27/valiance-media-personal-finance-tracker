@@ -6,8 +6,18 @@ import {
   MobileMenuButton,
   HeaderControls,
 } from "@/components/layout/page-header";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Plus, Pencil, Trash2, Save, X, Loader2, Layers } from "lucide-react";
+import {
+  ArrowLeft,
+  Plus,
+  Pencil,
+  Trash2,
+  Save,
+  X,
+  Loader2,
+  Layers,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { TextInput } from "@/components/ui/inputs/TextInput";
@@ -192,7 +202,15 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
             Manage your revenue categories
           </p>
         </div>
-        <HeaderControls className="ml-auto" />
+        <div className="ml-auto flex items-center gap-2">
+          <Link href="/income">
+            <Button size="sm" className="rounded-xl gap-1">
+              <ArrowLeft className="h-4 w-4" />
+              Back
+            </Button>
+          </Link>
+          <HeaderControls />
+        </div>
       </div>
 
       {/* Sources List */}

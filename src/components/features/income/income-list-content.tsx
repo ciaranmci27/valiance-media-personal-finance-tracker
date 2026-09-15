@@ -521,14 +521,22 @@ export function IncomeListContent({
           )}
         </div>
 
-        {canManage && (
-          <Link href="/income/new">
-            <Button>
-              <Plus className="h-4 w-4" />
-              Add Item
+        <div className="flex items-center gap-2">
+          <Link href="/income/sources">
+            <Button variant="secondary">
+              <Layers className="h-4 w-4" />
+              Sources
             </Button>
           </Link>
-        )}
+          {canManage && (
+            <Link href="/income/new">
+              <Button>
+                <Plus className="h-4 w-4" />
+                Add Item
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Table and Chart Layout */}
