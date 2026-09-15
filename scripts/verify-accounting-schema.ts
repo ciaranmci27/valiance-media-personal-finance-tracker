@@ -11,19 +11,19 @@ async function main() {
     await canonical.exec("RESET ROLE");
     const queries = {
       tables:
-        "SELECT relname,relkind,relrowsecurity,relforcerowsecurity,relacl::text FROM pg_class WHERE (relnamespace='accounting'::regnamespace OR (relnamespace='public'::regnamespace AND relname='business_profile')) ORDER BY relname",
+        "SELECT relname,relkind,relrowsecurity,relforcerowsecurity,relacl::text FROM pg_class WHERE (relnamespace='accounting'::regnamespace OR (relnamespace='public'::regnamespace AND relname IN ('business_profile','team_members','role_permissions','team_member_permissions'))) ORDER BY relname",
       columns:
-        "SELECT c.relname,a.attname,a.attnum,format_type(a.atttypid,a.atttypmod) type,a.attnotnull,pg_get_expr(d.adbin,d.adrelid) default_value FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum WHERE (c.relnamespace='accounting'::regnamespace OR (c.relnamespace='public'::regnamespace AND c.relname='business_profile')) AND c.relkind='r' AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum",
+        "SELECT c.relname,a.attname,a.attnum,format_type(a.atttypid,a.atttypmod) type,a.attnotnull,pg_get_expr(d.adbin,d.adrelid) default_value FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum WHERE (c.relnamespace='accounting'::regnamespace OR (c.relnamespace='public'::regnamespace AND c.relname IN ('business_profile','team_members','role_permissions','team_member_permissions'))) AND c.relkind='r' AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum",
       constraints:
-        "SELECT c.relname,k.conname,k.contype,k.condeferrable,k.condeferred,pg_get_constraintdef(k.oid) definition FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid WHERE (c.relnamespace='accounting'::regnamespace OR (c.relnamespace='public'::regnamespace AND c.relname='business_profile')) ORDER BY c.relname,k.conname",
+        "SELECT c.relname,k.conname,k.contype,k.condeferrable,k.condeferred,pg_get_constraintdef(k.oid) definition FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid WHERE (c.relnamespace='accounting'::regnamespace OR (c.relnamespace='public'::regnamespace AND c.relname IN ('business_profile','team_members','role_permissions','team_member_permissions'))) ORDER BY c.relname,k.conname",
       indexes:
-        "SELECT tablename,indexname,indexdef FROM pg_indexes WHERE (schemaname='accounting' OR (schemaname='public' AND tablename='business_profile')) ORDER BY tablename,indexname",
+        "SELECT tablename,indexname,indexdef FROM pg_indexes WHERE (schemaname='accounting' OR (schemaname='public' AND tablename IN ('business_profile','team_members','role_permissions','team_member_permissions'))) ORDER BY tablename,indexname",
       functions:
-        "SELECT proname,pg_get_function_identity_arguments(oid) args,pg_get_functiondef(oid) definition,proacl::text FROM pg_proc WHERE (pronamespace='accounting'::regnamespace OR (pronamespace='public'::regnamespace AND proname LIKE 'business_profile%')) ORDER BY proname,args",
+        "SELECT proname,pg_get_function_identity_arguments(oid) args,pg_get_functiondef(oid) definition,proacl::text FROM pg_proc WHERE (pronamespace='accounting'::regnamespace OR (pronamespace='public'::regnamespace AND (proname LIKE 'business_profile%' OR proname IN ('has_permission','current_team_member_id','current_team_member_role','my_access','bootstrap_team_owner','team_members_guard')))) ORDER BY proname,args",
       triggers:
-        "SELECT c.relname,t.tgname,t.tgenabled,pg_get_triggerdef(t.oid) definition FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid WHERE NOT t.tgisinternal AND (c.relnamespace='accounting'::regnamespace OR (c.relnamespace='public'::regnamespace AND c.relname='business_profile')) ORDER BY c.relname,t.tgname",
+        "SELECT c.relname,t.tgname,t.tgenabled,pg_get_triggerdef(t.oid) definition FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid WHERE NOT t.tgisinternal AND (c.relnamespace='accounting'::regnamespace OR (c.relnamespace='public'::regnamespace AND c.relname IN ('business_profile','team_members','role_permissions','team_member_permissions'))) ORDER BY c.relname,t.tgname",
       policies:
-        "SELECT schemaname,tablename,policyname,permissive,roles,cmd,qual,with_check FROM pg_policies WHERE schemaname='accounting' OR tablename='business_profile' OR policyname LIKE 'accounting_%' ORDER BY schemaname,tablename,policyname",
+        "SELECT schemaname,tablename,policyname,permissive,roles,cmd,qual,with_check FROM pg_policies WHERE schemaname='accounting' OR tablename IN ('business_profile','team_members','role_permissions','team_member_permissions') OR policyname LIKE 'accounting_%' ORDER BY schemaname,tablename,policyname",
       seed_chart:
         "SELECT name,type,subtype,system_purpose,external_names FROM accounting.accounts ORDER BY name",
       seed_profile:

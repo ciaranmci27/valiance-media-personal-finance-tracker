@@ -32,6 +32,7 @@ import {
   parseLocalDate,
   cn,
 } from "@/lib/utils";
+import { useAccess } from "@/contexts/access-context";
 import type { IncomeEntry, IncomeSource, IncomeAmount } from "@/types/database";
 
 interface IncomeListContentProps {
@@ -256,6 +257,9 @@ export function IncomeListContent({
   sources,
   amounts,
 }: IncomeListContentProps) {
+  const { hasPermission } = useAccess();
+  const canManage = hasPermission("income.manage");
+
   // Get unique years from entries (only years with data)
   const years = React.useMemo(() => {
     const uniqueYears = new Set(
@@ -517,12 +521,14 @@ export function IncomeListContent({
           )}
         </div>
 
-        <Link href="/income/new">
-          <Button>
-            <Plus className="h-4 w-4" />
-            Add Item
-          </Button>
-        </Link>
+        {canManage && (
+          <Link href="/income/new">
+            <Button>
+              <Plus className="h-4 w-4" />
+              Add Item
+            </Button>
+          </Link>
+        )}
       </div>
 
       {/* Table and Chart Layout */}

@@ -10,12 +10,15 @@ import {
   demoDeletedExpenseHistory,
   demoDeletedTaxEstimates,
 } from "@/lib/demo/data";
+import { AccessDenied } from "@/components/features/access-denied";
+import { canAccess } from "@/lib/team/access";
 
 export const metadata = {
   title: "Trash",
 };
 
 export default async function TrashSettingsPage() {
+  if (!(await canAccess("settings.manage"))) return <AccessDenied area="Trash" />;
   // Return demo data if in demo mode
   if (isDemoMode()) {
     return (

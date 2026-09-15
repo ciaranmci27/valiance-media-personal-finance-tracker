@@ -23,6 +23,7 @@
     "test:accounting:documents": "tsx scripts/verify-accounting-documents.ts",
     "test:accounting:close": "tsx scripts/verify-accounting-close.ts && tsx scripts/verify-accounting-periods.ts",
     "test:accounting:schema": "tsx scripts/verify-accounting-schema.ts",
+    "test:team": "tsx scripts/verify-team.ts",
     "test:accounting:concurrency": "tsx scripts/verify-accounting-concurrency.ts",
     "test:accounting:http": "tsx scripts/verify-accounting-http.ts",
     "build:accounting": "tsx scripts/build-accounting.ts",

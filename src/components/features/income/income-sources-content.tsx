@@ -25,6 +25,7 @@ import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
+import { useAccess } from "@/contexts/access-context";
 import type { IncomeSource } from "@/types/database";
 
 interface IncomeSourcesContentProps {
@@ -48,6 +49,8 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
   const [isAddOpen, setIsAddOpen] = React.useState(false);
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = React.useState(false);
+  const { hasPermission } = useAccess();
+  const canManage = hasPermission("income.manage");
 
   // Add form state
   const [newName, setNewName] = React.useState("");
@@ -206,12 +209,14 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
               if (!open) setAddError(null);
             }}
           >
-            <DialogTrigger asChild>
-              <Button size="sm" className="gap-1 h-7 text-xs">
-                <Plus className="h-3 w-3" />
-                Add
-              </Button>
-            </DialogTrigger>
+            {canManage && (
+              <DialogTrigger asChild>
+                <Button size="sm" className="gap-1 h-7 text-xs">
+                  <Plus className="h-3 w-3" />
+                  Add
+                </Button>
+              </DialogTrigger>
+            )}
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Add Income Source</DialogTitle>
@@ -403,25 +408,29 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
                       style={{ backgroundColor: source.color || "#5B8A8A" }}
                     />
                     <span className="flex-1 font-medium">{source.name}</span>
-                    <Tooltip content="Edit source">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => handleEdit(source)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                    </Tooltip>
-                    <Tooltip content="Delete source">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="text-error hover:text-error"
-                        onClick={() => handleDelete(source.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </Tooltip>
+                    {canManage && (
+                      <>
+                        <Tooltip content="Edit source">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            onClick={() => handleEdit(source)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                        </Tooltip>
+                        <Tooltip content="Delete source">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="text-error hover:text-error"
+                            onClick={() => handleDelete(source.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </Tooltip>
+                      </>
+                    )}
                   </>
                 )}
               </div>
@@ -429,7 +438,9 @@ export function IncomeSourcesContent({ sources }: IncomeSourcesContentProps) {
 
             {sources.length === 0 && (
               <div className="py-12 text-center text-muted-foreground">
-                No income sources found. Add one to get started.
+                {canManage
+                  ? "No income sources found. Add one to get started."
+                  : "No income sources yet."}
               </div>
             )}
           </div>

@@ -5,12 +5,15 @@ import {
   demoIncomeSources,
   demoIncomeLineItems,
 } from "@/lib/demo/data";
+import { AccessDenied } from "@/components/features/access-denied";
+import { canAccess } from "@/lib/team/access";
 
 export const metadata = {
   title: "Add Income Entry",
 };
 
 export default async function AddIncomePage() {
+  if (!(await canAccess("income.manage"))) return <AccessDenied area="Income" />;
   // Handle demo mode
   if (isDemoMode()) {
     return (

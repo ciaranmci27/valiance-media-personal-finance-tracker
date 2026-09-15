@@ -33,6 +33,7 @@ import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
+import { useAccess } from "@/contexts/access-context";
 import type { NetWorth } from "@/types/database";
 
 interface NetWorthDetailContentProps {
@@ -53,6 +54,8 @@ export function NetWorthDetailContent({
   const [isEditing, setIsEditing] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
+  const { hasPermission } = useAccess();
+  const canManage = hasPermission("net_worth.manage");
 
   // Form state
   const [amount, setAmount] = React.useState(entry.amount);
@@ -195,13 +198,15 @@ export function NetWorthDetailContent({
               </Button>
             </>
           ) : (
-            <Button
-              onClick={() => setIsEditing(true)}
-              className="bg-teal text-white hover:bg-teal/90"
-            >
-              <Pencil className="h-4 w-4 sm:mr-1" />
-              <span className="sm:inline">Edit</span>
-            </Button>
+            canManage && (
+              <Button
+                onClick={() => setIsEditing(true)}
+                className="bg-teal text-white hover:bg-teal/90"
+              >
+                <Pencil className="h-4 w-4 sm:mr-1" />
+                <span className="sm:inline">Edit</span>
+              </Button>
+            )
           )}
         </div>
       </div>
@@ -307,8 +312,12 @@ export function NetWorthDetailContent({
           />
         ) : (
           <div
-            className="rounded-xl glass-card min-h-[150px] px-4 py-4 cursor-pointer hover:bg-secondary transition-colors"
-            onClick={() => setIsEditing(true)}
+            className={cn(
+              "rounded-xl glass-card min-h-[150px] px-4 py-4",
+              canManage &&
+                "cursor-pointer hover:bg-secondary transition-colors",
+            )}
+            onClick={canManage ? () => setIsEditing(true) : undefined}
           >
             <p
               className={cn(
@@ -316,7 +325,8 @@ export function NetWorthDetailContent({
                 !entry.notes && "text-muted-foreground italic",
               )}
             >
-              {entry.notes || "Click to add notes..."}
+              {entry.notes ||
+                (canManage ? "Click to add notes..." : "No notes")}
             </p>
           </div>
         )}
@@ -344,29 +354,31 @@ export function NetWorthDetailContent({
           </Button>
         </div>
       ) : (
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="ghost"
-            className="text-error hover:text-error hover:bg-error/10"
-            onClick={handleDelete}
-            disabled={isDeleting}
-          >
-            {isDeleting ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-            ) : (
-              <Trash2 className="h-4 w-4 mr-1" />
-            )}
-            {isDeleting ? "Deleting..." : "Delete"}
-          </Button>
-          <Button
-            className="md:hidden bg-teal text-white hover:bg-teal/90"
-            size="sm"
-            onClick={() => setIsEditing(true)}
-          >
-            <Pencil className="h-4 w-4 mr-1" />
-            Edit
-          </Button>
-        </div>
+        canManage && (
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="ghost"
+              className="text-error hover:text-error hover:bg-error/10"
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-1" />
+              )}
+              {isDeleting ? "Deleting..." : "Delete"}
+            </Button>
+            <Button
+              className="md:hidden bg-teal text-white hover:bg-teal/90"
+              size="sm"
+              onClick={() => setIsEditing(true)}
+            >
+              <Pencil className="h-4 w-4 mr-1" />
+              Edit
+            </Button>
+          </div>
+        )
       )}
     </div>
   );

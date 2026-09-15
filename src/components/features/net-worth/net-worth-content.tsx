@@ -33,6 +33,7 @@ import {
   formatPercentage,
   cn,
 } from "@/lib/utils";
+import { useAccess } from "@/contexts/access-context";
 import type { NetWorth } from "@/types/database";
 
 interface NetWorthContentProps {
@@ -239,6 +240,8 @@ function NetWorthRow({
 }
 
 export function NetWorthContent({ entries }: NetWorthContentProps) {
+  const { hasPermission } = useAccess();
+  const canManage = hasPermission("net_worth.manage");
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = React.useState<string>("all");
   const [sortColumn, setSortColumn] = React.useState<SortColumn>("date");
@@ -499,12 +502,14 @@ export function NetWorthContent({ entries }: NetWorthContentProps) {
           )}
         </div>
 
-        <Link href="/net-worth/new">
-          <Button>
-            <Plus className="h-4 w-4" />
-            Add Entry
-          </Button>
-        </Link>
+        {canManage && (
+          <Link href="/net-worth/new">
+            <Button>
+              <Plus className="h-4 w-4" />
+              Add Entry
+            </Button>
+          </Link>
+        )}
       </div>
 
       {/* Table and Chart Layout */}

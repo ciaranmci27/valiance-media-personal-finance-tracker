@@ -2,12 +2,15 @@ import { createClient } from "@/lib/supabase/server";
 import { AddNetWorthContent } from "@/components/features/net-worth/add-net-worth-content";
 import { isDemoMode } from "@/lib/demo";
 import { demoNetWorth } from "@/lib/demo/data";
+import { AccessDenied } from "@/components/features/access-denied";
+import { canAccess } from "@/lib/team/access";
 
 export const metadata = {
   title: "Add Net Worth Entry",
 };
 
 export default async function AddNetWorthPage() {
+  if (!(await canAccess("net_worth.manage"))) return <AccessDenied area="Net Worth" />;
   // Handle demo mode
   if (isDemoMode()) {
     const sorted = [...demoNetWorth].sort((a, b) => b.date.localeCompare(a.date));

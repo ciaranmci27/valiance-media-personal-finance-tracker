@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { AutomationDetailContent } from "@/components/features/automations/automation-detail-content";
 import { isDemoMode } from "@/lib/demo";
 import { getDemoAutomation } from "@/lib/demo/data";
+import { AccessDenied } from "@/components/features/access-denied";
+import { canAccess } from "@/lib/team/access";
 
 export async function generateMetadata({
   params,
@@ -40,6 +42,7 @@ export default async function AutomationDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  if (!(await canAccess("automations.manage"))) return <AccessDenied area="Automations" />;
   const { id } = await params;
 
   // Handle demo mode

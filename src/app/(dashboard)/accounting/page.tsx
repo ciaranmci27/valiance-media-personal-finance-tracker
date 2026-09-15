@@ -13,6 +13,9 @@ import { AccountingBooks } from "@/components/features/accounting/accounting-she
 import { PageHeader } from "@/components/layout/page-header";
 import { AccountingSetup } from "@/components/features/accounting/accounting-setup";
 import { createClient } from "@/lib/supabase/server";
+import { AccessDenied } from "@/components/features/access-denied";
+import { resolveAccess } from "@/lib/team/access";
+import { hasPermission } from "@/lib/access-control";
 
 export const metadata = { title: "Accounting" };
 export const dynamic = "force-dynamic";
@@ -23,6 +26,10 @@ export default async function AccountingPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   if (!ACCOUNTING_ENABLED) notFound();
+  const resolved = await resolveAccess();
+  if (resolved.state !== "ok" || !hasPermission(resolved.access, "accounting.manage"))
+    return <AccessDenied area="Accounting" />;
+  const isTeamOwner = resolved.access.member.role === "owner";
   const testing =
     isLocalOrTestEnv && Boolean(process.env.ACCOUNTING_TEST_DATABASE_URL);
   if (isDemoMode() && !testing)
@@ -59,9 +66,10 @@ export default async function AccountingPage({
       if (result.error) problem = accountingError(result.error.message);
       else data = result.data as AccountingWorkspace;
     } catch {
-      problem =
-        "Accounting is not configured for this signed-in owner. Complete the accounting setup before opening the books.";
-      if (!testing) {
+      problem = isTeamOwner
+        ? "The books are not set up yet. Finish the setup below before opening them."
+        : "The books are not set up yet. Ask the owner to finish the accounting setup.";
+      if (!testing && isTeamOwner) {
         const client = await createClient();
         const {
           data: { user },

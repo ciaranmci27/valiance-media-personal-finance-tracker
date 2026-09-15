@@ -13,6 +13,7 @@ import {
   PiggyBank,
   BookOpen,
   Users2,
+  Users,
   Zap,
   Layers,
   LogOut,
@@ -24,6 +25,12 @@ import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
 import { resetAccountingCache } from "@/components/features/accounting/accounting-cache";
 import { PAYROLL_ENABLED, ACCOUNTING_ENABLED } from "@/lib/env";
+import { useAccess } from "@/contexts/access-context";
+import {
+  initialsOf,
+  ROLE_LABELS,
+  type PermissionKey,
+} from "@/lib/access-control";
 import {
   ACCOUNTING_NAV,
   accountingHref,
@@ -40,6 +47,8 @@ interface NavItem {
     className?: string;
     "aria-hidden"?: boolean;
   }>;
+  /** Hidden from members without this key; the page itself gates too. */
+  permission?: PermissionKey;
 }
 
 const navItems: NavItem[] = [
@@ -52,16 +61,19 @@ const navItems: NavItem[] = [
     title: "Income",
     href: "/income",
     icon: CircleDollarSign,
+    permission: "income.read",
   },
   {
     title: "Expenses",
     href: "/expenses",
     icon: ReceiptText,
+    permission: "expenses.read",
   },
   {
     title: "Net Worth",
     href: "/net-worth",
     icon: PiggyBank,
+    permission: "net_worth.read",
   },
   ...(PAYROLL_ENABLED
     ? [
@@ -73,22 +85,38 @@ const navItems: NavItem[] = [
       ]
     : []),
   ...(ACCOUNTING_ENABLED
-    ? [{ title: "Accounting", href: "/accounting", icon: BookOpen }]
+    ? [
+        {
+          title: "Accounting",
+          href: "/accounting",
+          icon: BookOpen,
+          permission: "accounting.manage" as PermissionKey,
+        },
+      ]
     : []),
   {
     title: "Tax Estimator",
     href: "/tax-payments",
     icon: Landmark,
+    permission: "tax.read",
   },
   {
     title: "Automations",
     href: "/automations",
     icon: Zap,
+    permission: "automations.manage",
   },
   {
     title: "Sources",
     href: "/income/sources",
     icon: Layers,
+    permission: "income.read",
+  },
+  {
+    title: "Team",
+    href: "/team",
+    icon: Users,
+    permission: "team.read",
   },
 ];
 
@@ -269,12 +297,12 @@ export function Sidebar() {
 
   const settingsActive =
     pathname === "/settings" || pathname.startsWith("/settings/");
-  const initials = siteConfig.realName
-    .split(" ")
-    .map((word) => word[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase();
+  // The signed-in member: their name in the footer, their keys on the rail.
+  const { member, hasPermission } = useAccess();
+  const initials = initialsOf(member.name) || "?";
+  const visibleItems = navItems.filter(
+    (item) => !item.permission || hasPermission(item.permission),
+  );
 
   return (
     <>
@@ -324,7 +352,7 @@ export function Sidebar() {
 
         {/* Navigation */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto sidebar-scroll">
-          {navItems.map((item) => {
+          {visibleItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item.href);
 
@@ -419,7 +447,7 @@ export function Sidebar() {
             </span>
             <span className="flex-1 min-w-0">
               <span className="block text-sm font-medium text-zinc-200 truncate">
-                {siteConfig.realName}
+                {member.name}
               </span>
               <span
                 className={cn(
@@ -427,7 +455,7 @@ export function Sidebar() {
                   settingsActive ? "text-teal-light" : "text-zinc-500",
                 )}
               >
-                Owner
+                {member.title || ROLE_LABELS[member.role]}
               </span>
             </span>
           </Link>

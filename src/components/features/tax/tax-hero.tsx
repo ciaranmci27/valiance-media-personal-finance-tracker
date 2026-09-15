@@ -40,9 +40,10 @@ export function TaxHero({
   schedule: PaymentSchedule;
   meter: MeterSegments;
   annualized: AnnualizedState | null;
-  /** Filing status, state and structure, with the way to change them. */
-  profile?: { summary: string; onEdit: () => void };
-  onRecordPayment: () => void;
+  /** Filing status, state and structure, with the way to change them. Without onEdit it reads as plain text. */
+  profile?: { summary: string; onEdit?: () => void };
+  /** Absent for read-only members; the button is then left out. */
+  onRecordPayment?: () => void;
 }) {
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
   const masked = isHidden && !isRevealed;
@@ -131,7 +132,7 @@ export function TaxHero({
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                 {eyebrow}
               </p>
-              {profile && (
+              {profile && profile.onEdit ? (
                 <button
                   type="button"
                   onClick={profile.onEdit}
@@ -141,7 +142,11 @@ export function TaxHero({
                   <Pencil size={12} aria-hidden="true" />
                   <span className="sr-only">Edit filing status and state</span>
                 </button>
-              )}
+              ) : profile ? (
+                <span className="text-xs text-muted-foreground">
+                  {profile.summary}
+                </span>
+              ) : null}
             </div>
             <p className="mt-2 text-4xl font-semibold leading-none tracking-tight lg:text-[56px]">
               {masked ? (
@@ -309,12 +314,14 @@ export function TaxHero({
                 No payments scheduled. Every {year} deadline has passed.
               </p>
             )}
-            <div className="flex justify-end">
-              <Button size="sm" onClick={onRecordPayment}>
-                <Plus size={14} aria-hidden="true" />
-                Record payment
-              </Button>
-            </div>
+            {onRecordPayment && (
+              <div className="flex justify-end">
+                <Button size="sm" onClick={onRecordPayment}>
+                  <Plus size={14} aria-hidden="true" />
+                  Record payment
+                </Button>
+              </div>
+            )}
           </section>
         </div>
       </CardContent>

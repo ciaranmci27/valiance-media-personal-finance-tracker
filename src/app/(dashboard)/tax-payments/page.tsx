@@ -3,6 +3,8 @@ import { TaxEstimatorContent } from "@/components/features/tax/tax-estimator-con
 import { isDemoMode } from "@/lib/demo";
 import { demoTaxEstimates } from "@/lib/demo/data";
 import { accountingClient } from "@/lib/accounting/server/access";
+import { AccessDenied } from "@/components/features/access-denied";
+import { canAccess } from "@/lib/team/access";
 
 export const metadata = {
   title: "Tax Estimator",
@@ -13,6 +15,7 @@ export default async function TaxPaymentsPage({
 }: {
   searchParams: Promise<{ year?: string }>;
 }) {
+  if (!(await canAccess("tax.read"))) return <AccessDenied area="Tax Estimator" />;
   const requestedYear = Number((await searchParams).year);
   if (isDemoMode()) {
     return (

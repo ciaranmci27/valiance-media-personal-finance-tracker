@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server';
+import { resolveAccess } from '@/lib/team/access';
 import {
-  ADMIN_ALLOWED_EMAILS,
-  APP_ENV,
-  DISABLE_ADMIN_AUTH,
-  isLocalOrTestEnv,
-} from '@/lib/env';
+  hasPermission,
+  type AccessContext,
+  type PermissionKey,
+} from '@/lib/access-control';
 
 interface AuthSuccess {
   authenticated: true;
-  user: { email?: string; username?: string };
+  user: { id: string | null; email: string | null };
+  access: AccessContext;
 }
 
 interface AuthFailure {
@@ -23,60 +24,41 @@ type RequireAuthResult = AuthSuccess | AuthFailure;
  *
  * Call at the top of every admin API handler:
  * ```ts
- * const auth = await requireAuth();
+ * const auth = await requireAuth({ permission: 'settings.manage' });
  * if (!auth.authenticated) return auth.response;
  * ```
  *
  * Safety model
  * ------------
- * 1. `DISABLE_ADMIN_AUTH=true` only bypasses auth when `APP_ENV` is in the
- *    explicit local/test allow-list. Preview, staging, and production deploys
- *    ignore the flag even if it slips into their env.
- * 2. When the user is authenticated but `ADMIN_ALLOWED_EMAILS` is unset,
- *    access is granted only in local/test envs. Production/preview/staging
- *    fail closed to prevent any Supabase-authenticated user from reaching
- *    admin routes just because the allow-list wasn't configured.
+ * 1. The signed-in user must be an active team member (`team_members`).
+ *    Strangers and suspended accounts get 403. The first person to sign in
+ *    becomes the owner (see `resolveAccess`).
+ * 2. `ADMIN_ALLOWED_EMAILS`, when set, still applies on top of membership.
+ * 3. `DISABLE_ADMIN_AUTH=true` and demo mode act as a synthetic owner, and
+ *    only when `APP_ENV` is in the explicit local/test allow-list.
+ * 4. An optional `permission` is checked against the member's resolved keys.
  */
-export async function requireAuth(): Promise<RequireAuthResult> {
-  if (DISABLE_ADMIN_AUTH && isLocalOrTestEnv) {
-    return { authenticated: true, user: { username: 'dev' } };
-  }
-
-  const { createClient } = await import('@/lib/supabase/server');
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
-    return deny();
-  }
-
-  if (ADMIN_ALLOWED_EMAILS) {
-    const emailList = ADMIN_ALLOWED_EMAILS.split(',')
-      .map((e) => e.trim().toLowerCase())
-      .filter(Boolean);
-    if (!emailList.includes(user.email?.toLowerCase() ?? '')) {
-      return deny();
-    }
-    return { authenticated: true, user: { email: user.email } };
-  }
-
-  if (!isLocalOrTestEnv) {
-    console.error(
-      `[require-auth] ADMIN_ALLOWED_EMAILS is unset in APP_ENV="${APP_ENV}"; denying admin access. Configure the allow-list or set APP_ENV to local/ci/test.`,
-    );
-    return deny();
-  }
-
-  return { authenticated: true, user: { email: user.email } };
+export async function requireAuth(
+  options: { permission?: PermissionKey } = {},
+): Promise<RequireAuthResult> {
+  const resolved = await resolveAccess();
+  if (resolved.state === 'signed_out') return deny(401, 'Unauthorized');
+  if (resolved.state === 'not_member')
+    return deny(403, 'Your account is not part of this workspace.');
+  if (resolved.state === 'suspended')
+    return deny(403, 'Your access is suspended.');
+  if (options.permission && !hasPermission(resolved.access, options.permission))
+    return deny(403, 'You do not have permission for this.');
+  return {
+    authenticated: true,
+    user: { id: resolved.userId, email: resolved.access.member.email },
+    access: resolved.access,
+  };
 }
 
-function deny(): AuthFailure {
+function deny(status: number, error: string): AuthFailure {
   return {
     authenticated: false,
-    response: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }),
+    response: NextResponse.json({ error }, { status }),
   };
 }

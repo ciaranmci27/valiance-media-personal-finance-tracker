@@ -134,6 +134,12 @@
   --card: #16171d;
   --card-foreground: #f4f4f5;
   --card-border: rgba(255, 255, 255, 0.08);
+  /* Ledger rows that are reviewed sit on this shade; rows still to review
+     stay on the bare card. Same relationship as light mode: the filed rows
+     recede toward the canvas and the raised card tone marks the work. A
+     lighter grey here reads as a slab, so the shade goes down, not up. */
+  --row-settled: color-mix(in srgb, var(--card), var(--background) 55%);
+  --row-settled-hover: color-mix(in srgb, var(--card), var(--background) 35%);
 
   --popover: #16171d;
   --popover-foreground: #f4f4f5;
@@ -260,6 +266,15 @@
   --card: #ffffff; /* app light surface-overlay */
   --card-foreground: #18181b;
   --card-border: rgba(0, 0, 0, 0.1);
+  /* The old 4% shade matched the #f4f5f7 canvas exactly, so reviewed rows
+     vanished into the page. Eight points reads as a distinct filed grey
+     against both the white pending rows and the canvas. */
+  --row-settled: color-mix(in srgb, var(--card), var(--card-foreground) 8%);
+  --row-settled-hover: color-mix(
+    in srgb,
+    var(--card),
+    var(--card-foreground) 11%
+  );
 
   --popover: #ffffff;
   --popover-foreground: #18181b;

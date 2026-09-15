@@ -8,6 +8,8 @@ import {
   getDemoAdjacentIncomeEntries,
   demoIncomeSources,
 } from "@/lib/demo/data";
+import { AccessDenied } from "@/components/features/access-denied";
+import { canAccess } from "@/lib/team/access";
 
 export async function generateMetadata({
   params,
@@ -56,6 +58,7 @@ export default async function IncomeDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  if (!(await canAccess("income.read"))) return <AccessDenied area="Income" />;
   const { id } = await params;
 
   // Handle demo mode

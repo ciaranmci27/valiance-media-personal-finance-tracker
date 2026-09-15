@@ -9,12 +9,32 @@ import Link from "next/link";
 import Image from "next/image";
 import { ArrowLeft, Check, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "@/components/ui/toast";
+import { useAccess } from "@/contexts/access-context";
+import { teamError } from "@/lib/team/errors";
 import { cn } from "@/lib/utils";
 
 type Theme = "light" | "dark";
 
+function applyTheme(theme: Theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+  try {
+    localStorage.setItem("theme", theme);
+  } catch {
+    /* Private mode: the account still remembers. */
+  }
+}
+
+/**
+ * Theme choice. The account (team_members.theme_preference) is the source of
+ * truth so the choice follows the person to every device; the DOM attribute
+ * and localStorage are updated first so the switch is instant, and reverted
+ * if the save fails.
+ */
 export function AppearanceSettingsContent() {
+  const { member, updateMe, synthetic } = useAccess();
   const [theme, setTheme] = React.useState<Theme | null>(null);
+  const [saving, setSaving] = React.useState(false);
 
   React.useEffect(() => {
     const currentTheme = document.documentElement.getAttribute(
@@ -36,13 +56,28 @@ export function AppearanceSettingsContent() {
     return () => observer.disconnect();
   }, []);
 
-  const handleThemeChange = (newTheme: Theme) => {
+  const handleThemeChange = async (newTheme: Theme) => {
+    const previous = theme ?? "dark";
+    if (newTheme === previous && member.theme_preference === newTheme) return;
     setTheme(newTheme);
-    localStorage.setItem("theme", newTheme);
-    document.documentElement.setAttribute("data-theme", newTheme);
+    applyTheme(newTheme);
+    setSaving(true);
+    try {
+      await updateMe({ theme_preference: newTheme });
+    } catch (error) {
+      setTheme(previous);
+      applyTheme(previous);
+      toast(
+        "error",
+        teamError(error, "The theme could not be saved to your account."),
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   const displayTheme = theme ?? "dark";
+  const savedToAccount = member.theme_preference !== null;
 
   const themes: {
     value: Theme;
@@ -101,6 +136,9 @@ export function AppearanceSettingsContent() {
         </div>
 
         <div
+          role="radiogroup"
+          aria-label="Theme"
+          aria-busy={saving || undefined}
           className={cn(
             "grid grid-cols-1 min-[440px]:grid-cols-2 gap-4",
             !theme && "opacity-0",
@@ -111,9 +149,12 @@ export function AppearanceSettingsContent() {
             return (
               <button
                 key={t.value}
-                onClick={() => handleThemeChange(t.value)}
+                type="button"
+                role="radio"
+                aria-checked={isSelected}
+                onClick={() => void handleThemeChange(t.value)}
                 className={cn(
-                  "group relative glass-card glass-card-interactive rounded-xl p-5 text-left",
+                  "group relative glass-card glass-card-interactive rounded-xl p-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                   isSelected
                     ? "border-primary/50 bg-primary/5"
                     : "hover:border-primary/30 hover:scale-[1.01]",
@@ -130,7 +171,7 @@ export function AppearanceSettingsContent() {
                 <div className="flex items-center gap-4">
                   <Image
                     src={t.image}
-                    alt={t.label}
+                    alt=""
                     width={t.value === "light" ? 384 : 373}
                     height={377}
                     sizes="48px"
@@ -154,6 +195,13 @@ export function AppearanceSettingsContent() {
             );
           })}
         </div>
+        <p className="px-1 text-xs text-muted-foreground">
+          {synthetic
+            ? "Demo mode: the choice stays on this device."
+            : savedToAccount
+              ? "Saved to your account. Every device you sign in on follows it."
+              : "Pick one to save it to your account. Until then each device keeps its own."}
+        </p>
       </div>
 
       {/* Preview Section */}

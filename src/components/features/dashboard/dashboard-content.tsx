@@ -12,7 +12,7 @@ import { formatCurrency, toMonthlyAmount, cn, formatMonth } from "@/lib/utils";
 import { MaskedValue, useMaskedHover } from "@/components/ui/masked-value";
 import { PageHeader } from "@/components/layout/page-header";
 import { SetupGuide } from "@/components/features/accounting/setup-guide";
-import { siteConfig } from "@/config/site";
+import { useAccess } from "@/contexts/access-context";
 import type { IncomeEntry, IncomeSource, IncomeAmount, Expense, ExpenseHistory, NetWorth } from "@/types/database";
 
 // Chart range options
@@ -262,7 +262,12 @@ export function DashboardContent({
   const hour = new Date().getHours();
   const greeting =
     hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  const firstName = siteConfig.realName.split(" ")[0];
+  const { member, hasPermission } = useAccess();
+  const firstName = member.name.split(" ")[0];
+  const canIncome = hasPermission("income.read");
+  const canExpenses = hasPermission("expenses.read");
+  const canNetWorth = hasPermission("net_worth.read");
+  const canBooks = hasPermission("accounting.manage");
 
   return (
     <div className="space-y-5 lg:space-y-6">
@@ -271,142 +276,158 @@ export function DashboardContent({
         subtitle="Here's where things stand today."
       />
 
-      <SetupGuide year={new Date().getFullYear()} />
+      {canBooks && <SetupGuide year={new Date().getFullYear()} />}
 
       {/* Stat Cards */}
       <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 lg:gap-4 lg:grid-cols-4">
-        <StatCard
-          title="Monthly Income"
-          value={selectedMonthTotal}
-          previousValue={previousMonthTotal}
-          icon={<TrendingUp className="h-5 w-5" />}
-          className="stagger-1"
-        />
-        <StatCard
-          title="Monthly Expenses"
-          value={totalMonthlyExpenses}
-          previousValue={previousMonthExpenses}
-          invertTrend
-          icon={<Wallet className="h-5 w-5" />}
-          className="stagger-2"
-        />
-        <StatCard
-          title="Net Position"
-          value={netPosition}
-          previousValue={previousNetPosition}
-          icon={<DollarSign className="h-5 w-5" />}
-          className="stagger-3"
-        />
-        <StatCard
-          title="Net Worth"
-          value={Number(currentNetWorth)}
-          previousValue={Number(previousNetWorth)}
-          icon={<PiggyBank className="h-5 w-5" />}
-          className="stagger-4"
-        />
+        {canIncome && (
+          <StatCard
+            title="Monthly Income"
+            value={selectedMonthTotal}
+            previousValue={previousMonthTotal}
+            icon={<TrendingUp className="h-5 w-5" />}
+            className="stagger-1"
+          />
+        )}
+        {canExpenses && (
+          <StatCard
+            title="Monthly Expenses"
+            value={totalMonthlyExpenses}
+            previousValue={previousMonthExpenses}
+            invertTrend
+            icon={<Wallet className="h-5 w-5" />}
+            className="stagger-2"
+          />
+        )}
+        {canIncome && canExpenses && (
+          <StatCard
+            title="Net Position"
+            value={netPosition}
+            previousValue={previousNetPosition}
+            icon={<DollarSign className="h-5 w-5" />}
+            className="stagger-3"
+          />
+        )}
+        {canNetWorth && (
+          <StatCard
+            title="Net Worth"
+            value={Number(currentNetWorth)}
+            previousValue={Number(previousNetWorth)}
+            icon={<PiggyBank className="h-5 w-5" />}
+            className="stagger-4"
+          />
+        )}
       </div>
 
       {/* Charts Row */}
-      <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
-        {/* Income Trend - Takes 2 columns */}
-        <ChartCard
-          title="Income Trend"
-          className="lg:col-span-2 stagger-5"
-          rightContent={
-            <ChartRangeToggle
-              value={incomeChartRange}
-              onChange={setIncomeChartRange}
-            />
-          }
-        >
-          {(isRevealed) => (
-            <IncomeChart
-              data={incomeChartData}
-              sources={incomeSources}
-              isRevealed={isRevealed}
-            />
-          )}
-        </ChartCard>
+      {canIncome && (
+        <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
+          {/* Income Trend - Takes 2 columns */}
+          <ChartCard
+            title="Income Trend"
+            className="lg:col-span-2 stagger-5"
+            rightContent={
+              <ChartRangeToggle
+                value={incomeChartRange}
+                onChange={setIncomeChartRange}
+              />
+            }
+          >
+            {(isRevealed) => (
+              <IncomeChart
+                data={incomeChartData}
+                sources={incomeSources}
+                isRevealed={isRevealed}
+              />
+            )}
+          </ChartCard>
 
-        {/* Income Breakdown */}
-        <ChartCard
-          title={formatMonthDisplay(selectedMonth)}
-          className="stagger-6"
-        >
-          {(isRevealed) => (
-            <IncomeBreakdownChart
-              data={selectedMonthBreakdown}
-              isRevealed={isRevealed}
-            />
-          )}
-        </ChartCard>
-      </div>
+          {/* Income Breakdown */}
+          <ChartCard
+            title={formatMonthDisplay(selectedMonth)}
+            className="stagger-6"
+          >
+            {(isRevealed) => (
+              <IncomeBreakdownChart
+                data={selectedMonthBreakdown}
+                isRevealed={isRevealed}
+              />
+            )}
+          </ChartCard>
+        </div>
+      )}
 
       {/* Bottom Row */}
-      <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
-        {/* Net Worth Chart */}
-        <ChartCard
-          title="Net Worth Over Time"
-          rightContent={
-            <ChartRangeToggle
-              value={netWorthChartRange}
-              onChange={setNetWorthChartRange}
-            />
-          }
-        >
-          {(isRevealed) => (
-            <NetWorthChart data={netWorthChartData} isRevealed={isRevealed} />
+      {(canNetWorth || canExpenses) && (
+        <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
+          {/* Net Worth Chart */}
+          {canNetWorth && (
+            <ChartCard
+              title="Net Worth Over Time"
+              rightContent={
+                <ChartRangeToggle
+                  value={netWorthChartRange}
+                  onChange={setNetWorthChartRange}
+                />
+              }
+            >
+              {(isRevealed) => (
+                <NetWorthChart data={netWorthChartData} isRevealed={isRevealed} />
+              )}
+            </ChartCard>
           )}
-        </ChartCard>
 
-        {/* Expense Summary */}
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-baseline justify-between">
-              <CardTitle className="text-base font-semibold">Expense Summary</CardTitle>
-              <span className="text-xs text-muted-foreground">per month</span>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between py-3 border-b border-border">
-                <div>
-                  <p className="font-medium">Personal</p>
-                  <p className="text-sm text-muted-foreground">
-                    {expenses.filter((e) => e.expense_type === "personal").length} expenses
-                  </p>
+          {/* Expense Summary */}
+          {canExpenses && (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-baseline justify-between">
+                  <CardTitle className="text-base font-semibold">Expense Summary</CardTitle>
+                  <span className="text-xs text-muted-foreground">per month</span>
                 </div>
-                <p className="text-lg font-semibold currency">
-                  <MaskedValue value={formatCurrency(personalExpenses)} />
-                </p>
-              </div>
-              <div className="flex items-center justify-between py-3 border-b border-border">
-                <div>
-                  <p className="font-medium">Business</p>
-                  <p className="text-sm text-muted-foreground">
-                    {expenses.filter((e) => e.expense_type === "business").length} expenses
-                  </p>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between py-3 border-b border-border">
+                    <div>
+                      <p className="font-medium">Personal</p>
+                      <p className="text-sm text-muted-foreground">
+                        {expenses.filter((e) => e.expense_type === "personal").length} expenses
+                      </p>
+                    </div>
+                    <p className="text-lg font-semibold currency">
+                      <MaskedValue value={formatCurrency(personalExpenses)} />
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between py-3 border-b border-border">
+                    <div>
+                      <p className="font-medium">Business</p>
+                      <p className="text-sm text-muted-foreground">
+                        {expenses.filter((e) => e.expense_type === "business").length} expenses
+                      </p>
+                    </div>
+                    <p className="text-lg font-semibold currency">
+                      <MaskedValue value={formatCurrency(businessExpenses)} />
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between pt-2">
+                    <p className="font-medium text-muted-foreground">Total Monthly</p>
+                    <p className="text-xl font-bold currency text-teal-light">
+                      <MaskedValue value={formatCurrency(totalMonthlyExpenses)} />
+                    </p>
+                  </div>
+                  <div className="flex items-center justify-between text-sm">
+                    <p className="text-muted-foreground">Annual Projection</p>
+                    <p className="font-medium currency">
+                      <MaskedValue value={formatCurrency(totalMonthlyExpenses * 12)} />
+                    </p>
+                  </div>
                 </div>
-                <p className="text-lg font-semibold currency">
-                  <MaskedValue value={formatCurrency(businessExpenses)} />
-                </p>
-              </div>
-              <div className="flex items-center justify-between pt-2">
-                <p className="font-medium text-muted-foreground">Total Monthly</p>
-                <p className="text-xl font-bold currency text-teal-light">
-                  <MaskedValue value={formatCurrency(totalMonthlyExpenses)} />
-                </p>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <p className="text-muted-foreground">Annual Projection</p>
-                <p className="font-medium currency">
-                  <MaskedValue value={formatCurrency(totalMonthlyExpenses * 12)} />
-                </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
     </div>
   );
 }

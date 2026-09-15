@@ -99,62 +99,24 @@ ALTER TABLE automation_actions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE automation_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
 
--- Automations policies
-CREATE POLICY "Users can view their own automations"
-  ON automations FOR SELECT
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can insert their own automations"
-  ON automations FOR INSERT
-  WITH CHECK (auth.uid() = user_id);
-
-CREATE POLICY "Users can update their own automations"
-  ON automations FOR UPDATE
-  USING (auth.uid() = user_id);
-
-CREATE POLICY "Users can delete their own automations"
-  ON automations FOR DELETE
-  USING (auth.uid() = user_id);
+-- Automations policies: the person's own rows, and only with automations.manage.
+-- has_permission() is defined in schema.sql (TEAM ACCESS block).
+CREATE POLICY automations_select ON public.automations FOR SELECT TO authenticated USING (auth.uid() = user_id AND (SELECT public.has_permission('automations.manage')));
+CREATE POLICY automations_insert ON public.automations FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id AND (SELECT public.has_permission('automations.manage')));
+CREATE POLICY automations_update ON public.automations FOR UPDATE TO authenticated USING (auth.uid() = user_id AND (SELECT public.has_permission('automations.manage'))) WITH CHECK (auth.uid() = user_id AND (SELECT public.has_permission('automations.manage')));
+CREATE POLICY automations_delete ON public.automations FOR DELETE TO authenticated USING (auth.uid() = user_id AND (SELECT public.has_permission('automations.manage')));
 
 -- Automation actions policies (access through automation ownership)
-CREATE POLICY "Users can view actions of their automations"
-  ON automation_actions FOR SELECT
-  USING (EXISTS (
-    SELECT 1 FROM automations WHERE automations.id = automation_actions.automation_id AND automations.user_id = auth.uid()
-  ));
-
-CREATE POLICY "Users can insert actions for their automations"
-  ON automation_actions FOR INSERT
-  WITH CHECK (EXISTS (
-    SELECT 1 FROM automations WHERE automations.id = automation_actions.automation_id AND automations.user_id = auth.uid()
-  ));
-
-CREATE POLICY "Users can update actions of their automations"
-  ON automation_actions FOR UPDATE
-  USING (EXISTS (
-    SELECT 1 FROM automations WHERE automations.id = automation_actions.automation_id AND automations.user_id = auth.uid()
-  ));
-
-CREATE POLICY "Users can delete actions of their automations"
-  ON automation_actions FOR DELETE
-  USING (EXISTS (
-    SELECT 1 FROM automations WHERE automations.id = automation_actions.automation_id AND automations.user_id = auth.uid()
-  ));
+CREATE POLICY automation_actions_select ON public.automation_actions FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.automations a WHERE a.id = automation_actions.automation_id AND a.user_id = auth.uid()) AND (SELECT public.has_permission('automations.manage')));
+CREATE POLICY automation_actions_insert ON public.automation_actions FOR INSERT TO authenticated WITH CHECK (EXISTS (SELECT 1 FROM public.automations a WHERE a.id = automation_actions.automation_id AND a.user_id = auth.uid()) AND (SELECT public.has_permission('automations.manage')));
+CREATE POLICY automation_actions_update ON public.automation_actions FOR UPDATE TO authenticated USING (EXISTS (SELECT 1 FROM public.automations a WHERE a.id = automation_actions.automation_id AND a.user_id = auth.uid()) AND (SELECT public.has_permission('automations.manage'))) WITH CHECK (EXISTS (SELECT 1 FROM public.automations a WHERE a.id = automation_actions.automation_id AND a.user_id = auth.uid()) AND (SELECT public.has_permission('automations.manage')));
+CREATE POLICY automation_actions_delete ON public.automation_actions FOR DELETE TO authenticated USING (EXISTS (SELECT 1 FROM public.automations a WHERE a.id = automation_actions.automation_id AND a.user_id = auth.uid()) AND (SELECT public.has_permission('automations.manage')));
 
 -- Automation runs policies (access through automation ownership)
-CREATE POLICY "Users can view runs of their automations"
-  ON automation_runs FOR SELECT
-  USING (EXISTS (
-    SELECT 1 FROM automations WHERE automations.id = automation_runs.automation_id AND automations.user_id = auth.uid()
-  ));
+CREATE POLICY automation_runs_select ON public.automation_runs FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.automations a WHERE a.id = automation_runs.automation_id AND a.user_id = auth.uid()) AND (SELECT public.has_permission('automations.manage')));
+CREATE POLICY automation_runs_insert ON public.automation_runs FOR INSERT TO authenticated WITH CHECK (EXISTS (SELECT 1 FROM public.automations a WHERE a.id = automation_runs.automation_id AND a.user_id = auth.uid()) AND (SELECT public.has_permission('automations.manage')));
 
-CREATE POLICY "Users can insert runs for their automations"
-  ON automation_runs FOR INSERT
-  WITH CHECK (EXISTS (
-    SELECT 1 FROM automations WHERE automations.id = automation_runs.automation_id AND automations.user_id = auth.uid()
-  ));
-
--- Notifications policies
+-- Notifications policies (per person; the edge function inserts them with the service role)
 CREATE POLICY "Users can view their own notifications"
   ON notifications FOR SELECT
   USING (auth.uid() = user_id);
@@ -166,36 +128,6 @@ CREATE POLICY "Users can update their own notifications"
 CREATE POLICY "Users can delete their own notifications"
   ON notifications FOR DELETE
   USING (auth.uid() = user_id);
-
--- ============================================
--- SERVICE ROLE POLICIES
--- Allow service role to process automations
--- ============================================
-
--- Service role bypass for automation processing
-CREATE POLICY "Service role can select all automations"
-  ON automations FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'service_role');
-
-CREATE POLICY "Service role can update all automations"
-  ON automations FOR UPDATE
-  USING (auth.jwt() ->> 'role' = 'service_role');
-
-CREATE POLICY "Service role can select all automation actions"
-  ON automation_actions FOR SELECT
-  USING (auth.jwt() ->> 'role' = 'service_role');
-
-CREATE POLICY "Service role can insert automation runs"
-  ON automation_runs FOR INSERT
-  WITH CHECK (auth.jwt() ->> 'role' = 'service_role');
-
-CREATE POLICY "Service role can update automation runs"
-  ON automation_runs FOR UPDATE
-  USING (auth.jwt() ->> 'role' = 'service_role');
-
-CREATE POLICY "Service role can insert notifications"
-  ON notifications FOR INSERT
-  WITH CHECK (auth.jwt() ->> 'role' = 'service_role');
 
 -- ============================================
 -- UPDATED_AT TRIGGER

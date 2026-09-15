@@ -19,7 +19,7 @@ export async function accountingMigrations() {
   const names = (await readdir(directory))
     // Deliberately non-recursive: historical migrations are never applied.
     .filter((name) =>
-      /^\d{14}_(?:accounting_.*|business_profile)\.sql$/.test(name),
+      /^\d{14}_(?:accounting_.*|business_profile|team_access)\.sql$/.test(name),
     )
     .sort();
   const migrations = await Promise.all(

@@ -36,6 +36,7 @@ import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
+import { useAccess } from "@/contexts/access-context";
 import {
   defaultDateForMonth,
   ensureIncomeEntryForDate,
@@ -156,6 +157,8 @@ export function IncomeDetailContent({
 }: IncomeDetailContentProps) {
   const router = useRouter();
   const { confirm, dialog: confirmDialog } = useConfirmationDialog();
+  const { hasPermission } = useAccess();
+  const canManage = hasPermission("income.manage");
   const [isDeletingMonth, setIsDeletingMonth] = React.useState(false);
   const [isAdding, setIsAdding] = React.useState(false);
   const [isSavingNotes, setIsSavingNotes] = React.useState(false);
@@ -587,63 +590,65 @@ export function IncomeDetailContent({
         </div>
       </div>
 
-      <div className="space-y-3">
-        <div className="flex items-center gap-2 px-1 text-muted-foreground">
-          <Plus className="h-4 w-4" />
-          <h2 className="text-sm font-medium uppercase tracking-wider">
-            Add Income Item
-          </h2>
-        </div>
-
-        <div className="rounded-xl glass-card p-4 sm:p-5 space-y-4">
-          <div className="grid gap-3 md:grid-cols-[160px_minmax(0,1fr)_140px]">
-            <DateInput
-              label="Date"
-              value={addDate}
-              onChange={(value) => value && setAddDate(value)}
-              size="sm"
-            />
-            <Select
-              label="Source"
-              value={addSourceId}
-              onChange={setAddSourceId}
-              options={activeSourceOptions}
-              placeholder="Select source"
-              size="sm"
-            />
-            <NumberInput
-              step={0.01}
-              label="Amount"
-              value={addAmount}
-              onChange={(nextValue) => setAddAmount(String(nextValue))}
-              placeholder="0.00"
-              className="tabular-nums"
-            />
+      {canManage && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 px-1 text-muted-foreground">
+            <Plus className="h-4 w-4" />
+            <h2 className="text-sm font-medium uppercase tracking-wider">
+              Add Income Item
+            </h2>
           </div>
-          <div className="space-y-3">
-            <Textarea
-              aria-label="Notes"
-              value={addNotes}
-              onChange={(nextValue) => setAddNotes(nextValue)}
-              placeholder="Notes for this item..."
-            />
-            <div className="flex justify-end">
-              <Button
-                onClick={handleAddItem}
-                disabled={!canAdd || isAdding}
-                className="w-full sm:w-32"
-              >
-                {isAdding ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                {isAdding ? "Saving..." : "Add"}
-              </Button>
+
+          <div className="rounded-xl glass-card p-4 sm:p-5 space-y-4">
+            <div className="grid gap-3 md:grid-cols-[160px_minmax(0,1fr)_140px]">
+              <DateInput
+                label="Date"
+                value={addDate}
+                onChange={(value) => value && setAddDate(value)}
+                size="sm"
+              />
+              <Select
+                label="Source"
+                value={addSourceId}
+                onChange={setAddSourceId}
+                options={activeSourceOptions}
+                placeholder="Select source"
+                size="sm"
+              />
+              <NumberInput
+                step={0.01}
+                label="Amount"
+                value={addAmount}
+                onChange={(nextValue) => setAddAmount(String(nextValue))}
+                placeholder="0.00"
+                className="tabular-nums"
+              />
+            </div>
+            <div className="space-y-3">
+              <Textarea
+                aria-label="Notes"
+                value={addNotes}
+                onChange={(nextValue) => setAddNotes(nextValue)}
+                placeholder="Notes for this item..."
+              />
+              <div className="flex justify-end">
+                <Button
+                  onClick={handleAddItem}
+                  disabled={!canAdd || isAdding}
+                  className="w-full sm:w-32"
+                >
+                  {isAdding ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  {isAdding ? "Saving..." : "Add"}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
@@ -832,37 +837,39 @@ export function IncomeDetailContent({
                                   >
                                     {displayItemAmount}
                                   </p>
-                                  <div className="flex items-center gap-1">
-                                    <Tooltip content="Edit item">
-                                      <Button
-                                        size="icon-sm"
-                                        variant="ghost"
-                                        aria-label="Edit income item"
-                                        onClick={() => startEditItem(item)}
-                                        disabled={
-                                          Boolean(editingItemId) || isDeleting
-                                        }
-                                      >
-                                        <Pencil className="h-4 w-4" />
-                                      </Button>
-                                    </Tooltip>
-                                    <Tooltip content="Delete item">
-                                      <Button
-                                        size="icon-sm"
-                                        variant="ghost"
-                                        aria-label="Delete income item"
-                                        className="text-error hover:text-error"
-                                        onClick={() => handleDeleteItem(item)}
-                                        disabled={isDeleting}
-                                      >
-                                        {isDeleting ? (
-                                          <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                          <Trash2 className="h-4 w-4" />
-                                        )}
-                                      </Button>
-                                    </Tooltip>
-                                  </div>
+                                  {canManage && (
+                                    <div className="flex items-center gap-1">
+                                      <Tooltip content="Edit item">
+                                        <Button
+                                          size="icon-sm"
+                                          variant="ghost"
+                                          aria-label="Edit income item"
+                                          onClick={() => startEditItem(item)}
+                                          disabled={
+                                            Boolean(editingItemId) || isDeleting
+                                          }
+                                        >
+                                          <Pencil className="h-4 w-4" />
+                                        </Button>
+                                      </Tooltip>
+                                      <Tooltip content="Delete item">
+                                        <Button
+                                          size="icon-sm"
+                                          variant="ghost"
+                                          aria-label="Delete income item"
+                                          className="text-error hover:text-error"
+                                          onClick={() => handleDeleteItem(item)}
+                                          disabled={isDeleting}
+                                        >
+                                          {isDeleting ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                          ) : (
+                                            <Trash2 className="h-4 w-4" />
+                                          )}
+                                        </Button>
+                                      </Tooltip>
+                                    </div>
+                                  )}
                                 </div>
                               );
                             })}
@@ -904,7 +911,7 @@ export function IncomeDetailContent({
                   Month Notes
                 </span>
               </div>
-              {!isEditingNotes && (
+              {!isEditingNotes && canManage && (
                 <Button
                   size="sm"
                   variant="ghost"
@@ -949,7 +956,7 @@ export function IncomeDetailContent({
                   </Button>
                 </div>
               </div>
-            ) : (
+            ) : canManage ? (
               <button
                 type="button"
                 className="rounded-xl glass-card flex min-h-[160px] w-full items-start justify-start px-4 py-4 text-left cursor-pointer hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
@@ -964,26 +971,39 @@ export function IncomeDetailContent({
                   {entry.notes || "Click to add notes..."}
                 </p>
               </button>
+            ) : (
+              <div className="rounded-xl glass-card flex min-h-[160px] w-full items-start justify-start px-4 py-4 text-left">
+                <p
+                  className={cn(
+                    "text-sm whitespace-pre-wrap",
+                    !entry.notes && "text-muted-foreground italic",
+                  )}
+                >
+                  {entry.notes || "No notes"}
+                </p>
+              </div>
             )}
           </div>
         </div>
       </div>
 
-      <div className="flex items-center justify-end">
-        <Button
-          variant="ghost"
-          className="text-error hover:text-error hover:bg-error/10"
-          onClick={handleDeleteMonth}
-          disabled={isDeletingMonth}
-        >
-          {isDeletingMonth ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Trash2 className="h-4 w-4" />
-          )}
-          {isDeletingMonth ? "Deleting..." : "Delete Month"}
-        </Button>
-      </div>
+      {canManage && (
+        <div className="flex items-center justify-end">
+          <Button
+            variant="ghost"
+            className="text-error hover:text-error hover:bg-error/10"
+            onClick={handleDeleteMonth}
+            disabled={isDeletingMonth}
+          >
+            {isDeletingMonth ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+            {isDeletingMonth ? "Deleting..." : "Delete Month"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

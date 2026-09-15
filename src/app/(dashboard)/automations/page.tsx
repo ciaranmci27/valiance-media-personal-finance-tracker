@@ -2,12 +2,15 @@ import { createClient } from "@/lib/supabase/server";
 import { AutomationsListContent } from "@/components/features/automations/automations-list-content";
 import { isDemoMode } from "@/lib/demo";
 import { demoAutomations, demoAutomationRuns } from "@/lib/demo/data";
+import { AccessDenied } from "@/components/features/access-denied";
+import { canAccess } from "@/lib/team/access";
 
 export const metadata = {
   title: "Automations",
 };
 
 export default async function AutomationsPage() {
+  if (!(await canAccess("automations.manage"))) return <AccessDenied area="Automations" />;
   // Return demo data if in demo mode
   if (isDemoMode()) {
     // Add automation_runs for each automation (list page only needs id for counting)

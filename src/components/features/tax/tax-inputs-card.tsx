@@ -56,10 +56,13 @@ export function TaxInputsCard({
   model,
   actions,
   onEdit,
+  readOnly = false,
 }: {
   model: EstimatorModel;
   actions: EstimatorActions;
   onEdit: (target: EditTarget) => void;
+  /** Members with tax.read only: figures stay, every way to change them goes. */
+  readOnly?: boolean;
 }) {
   const { schedule, books } = model;
   const stateCode = model.state ?? "State";
@@ -144,24 +147,28 @@ export function TaxInputsCard({
             {books.through
               ? `Books through ${dateShortLabel(books.through)}`
               : "Books"}
-            <button
-              type="button"
-              onClick={actions.refreshBooks}
-              disabled={books.status === "loading"}
-              aria-busy={books.status === "loading"}
-              className="inline-flex items-center gap-1 rounded font-medium text-teal-light hover:underline disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <RefreshCw
-                size={12}
-                aria-hidden="true"
-                className={cn(books.status === "loading" && "animate-spin")}
-              />
-              Refresh
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={actions.refreshBooks}
+                disabled={books.status === "loading"}
+                aria-busy={books.status === "loading"}
+                className="inline-flex items-center gap-1 rounded font-medium text-teal-light hover:underline disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <RefreshCw
+                  size={12}
+                  aria-hidden="true"
+                  className={cn(books.status === "loading" && "animate-spin")}
+                />
+                Refresh
+              </button>
+            )}
           </span>
         ) : (
           <span className="text-xs text-muted-foreground">
-            Type an amount, or open a row for details
+            {readOnly
+              ? "View only"
+              : "Type an amount, or open a row for details"}
           </span>
         )}
       </CardHeader>
@@ -181,18 +188,20 @@ export function TaxInputsCard({
           label="Income"
           description="What you earned this year, before tax."
           action={
-            <AddIncomePopover
-              taxClassification={model.taxClassification}
-              businessType={model.businessType}
-              filingStatus={model.filingStatus}
-              onAddTemplates={actions.income.addTemplates}
-              onAddCustom={() =>
-                onEdit({ mode: "income", id: actions.income.add() })
-              }
-              onOpenImport={actions.openImport}
-              onOpenBooks={books.available ? actions.openBooks : undefined}
-              existingSources={model.incomeSources}
-            />
+            readOnly ? undefined : (
+              <AddIncomePopover
+                taxClassification={model.taxClassification}
+                businessType={model.businessType}
+                filingStatus={model.filingStatus}
+                onAddTemplates={actions.income.addTemplates}
+                onAddCustom={() =>
+                  onEdit({ mode: "income", id: actions.income.add() })
+                }
+                onOpenImport={actions.openImport}
+                onOpenBooks={books.available ? actions.openBooks : undefined}
+                existingSources={model.incomeSources}
+              />
+            )
           }
         >
           {model.incomeSources.map((row) => {
@@ -255,15 +264,22 @@ export function TaxInputsCard({
                 }
                 amount={row.amount}
                 onAmount={
-                  fromBooks || synced
+                  readOnly || fromBooks || synced
                     ? undefined
                     : (value) => actions.income.update(row.id, "amount", value)
                 }
-                onOpen={() => onEdit({ mode: "income", id: row.id })}
+                onOpen={
+                  readOnly
+                    ? undefined
+                    : () => onEdit({ mode: "income", id: row.id })
+                }
               />
             );
           })}
-          {quickAdd.length > 0 && (
+          {readOnly && model.incomeSources.length === 0 && (
+            <Empty>No income recorded for this year.</Empty>
+          )}
+          {!readOnly && quickAdd.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 px-2 pb-1 pt-1.5">
               <span className="mr-1 text-xs text-muted-foreground">
                 {model.incomeSources.length === 0 ? "Start with" : "Quick add"}
@@ -300,13 +316,21 @@ export function TaxInputsCard({
           label="Capital gains and losses"
           description="Sales of stock, crypto or property. Losses count too."
           action={
-            <AddButton
-              onClick={() => onEdit({ mode: "gain", id: actions.gains.add() })}
-            />
+            readOnly ? undefined : (
+              <AddButton
+                onClick={() =>
+                  onEdit({ mode: "gain", id: actions.gains.add() })
+                }
+              />
+            )
           }
         >
           {model.capitalGains.length === 0 && (
-            <Empty>None this year. Add one if you sold something.</Empty>
+            <Empty>
+              {readOnly
+                ? "None this year."
+                : "None this year. Add one if you sold something."}
+            </Empty>
           )}
           {model.capitalGains.map((row) => (
             <EntryRow
@@ -327,11 +351,15 @@ export function TaxInputsCard({
               amount={row.amount}
               allowNegative
               onAmount={
-                row.books
+                readOnly || row.books
                   ? undefined
                   : (value) => actions.gains.update(row.id, "amount", value)
               }
-              onOpen={() => onEdit({ mode: "gain", id: row.id })}
+              onOpen={
+                readOnly
+                  ? undefined
+                  : () => onEdit({ mode: "gain", id: row.id })
+              }
             />
           ))}
         </Section>
@@ -339,13 +367,16 @@ export function TaxInputsCard({
         <Section
           label="Withholding"
           description="Tax an employer already took out of paychecks this year."
-          action={<AddButton onClick={addWithholding} />}
+          action={readOnly ? undefined : <AddButton onClick={addWithholding} />}
         >
-          {withholdingRows.length === 0 && (
-            <EmptyAction onClick={addWithholding}>
-              Add paycheck withholding
-            </EmptyAction>
-          )}
+          {withholdingRows.length === 0 &&
+            (readOnly ? (
+              <Empty>No withholding recorded.</Empty>
+            ) : (
+              <EmptyAction onClick={addWithholding}>
+                Add paycheck withholding
+              </EmptyAction>
+            ))}
           {withholdingRows.map((row) => (
             <EntryRow
               key={row.id}
@@ -364,7 +395,7 @@ export function TaxInputsCard({
               }
               amount={row.amount}
               onAmount={
-                row.books
+                readOnly || row.books
                   ? undefined
                   : (value) =>
                       actions.payments.update(
@@ -373,7 +404,11 @@ export function TaxInputsCard({
                         Math.max(0, value),
                       )
               }
-              onOpen={() => onEdit({ mode: "withholding", id: row.id })}
+              onOpen={
+                readOnly
+                  ? undefined
+                  : () => onEdit({ mode: "withholding", id: row.id })
+              }
             />
           ))}
         </Section>
@@ -383,10 +418,12 @@ export function TaxInputsCard({
           label="Estimated payments"
           description={`Quarterly payments you sent the IRS${model.state ? ` or ${stateCode}` : ""}. Dates are the federal deadlines.`}
           action={
-            <AddButton
-              label="Add payment"
-              onClick={() => addPayment(dueQuarter?.key ?? "Q1")}
-            />
+            readOnly ? undefined : (
+              <AddButton
+                label="Add payment"
+                onClick={() => addPayment(dueQuarter?.key ?? "Q1")}
+              />
+            )
           }
         >
           <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] lg:mx-0 lg:grid lg:grid-cols-4 lg:overflow-visible lg:px-0 [&::-webkit-scrollbar]:hidden">
@@ -409,11 +446,20 @@ export function TaxInputsCard({
                     : null
                 }
                 tips={figureTipText}
-                onAmount={(id, value) =>
-                  actions.payments.update(id, "amount", Math.max(0, value))
+                onAmount={
+                  readOnly
+                    ? undefined
+                    : (id, value) =>
+                        actions.payments.update(
+                          id,
+                          "amount",
+                          Math.max(0, value),
+                        )
                 }
-                onOpenRow={(id) => onEdit({ mode: "payment", id })}
-                onAdd={() => addPayment(quarter.key)}
+                onOpenRow={
+                  readOnly ? undefined : (id) => onEdit({ mode: "payment", id })
+                }
+                onAdd={readOnly ? undefined : () => addPayment(quarter.key)}
               />
             ))}
           </div>
@@ -435,14 +481,21 @@ export function TaxInputsCard({
                   ]}
                   source={{ label: "Manual" }}
                   amount={row.amount}
-                  onAmount={(value) =>
-                    actions.payments.update(
-                      row.id,
-                      "amount",
-                      Math.max(0, value),
-                    )
+                  onAmount={
+                    readOnly
+                      ? undefined
+                      : (value) =>
+                          actions.payments.update(
+                            row.id,
+                            "amount",
+                            Math.max(0, value),
+                          )
                   }
-                  onOpen={() => onEdit({ mode: "payment", id: row.id })}
+                  onOpen={
+                    readOnly
+                      ? undefined
+                      : () => onEdit({ mode: "payment", id: row.id })
+                  }
                 />
               ))}
             </div>
@@ -453,13 +506,15 @@ export function TaxInputsCard({
           label="Household"
           description="Dependents, extra deductions or credits, and age."
           action={
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => onEdit({ mode: "household" })}
-            >
-              Edit
-            </Button>
+            readOnly ? undefined : (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => onEdit({ mode: "household" })}
+              >
+                Edit
+              </Button>
+            )
           }
         >
           <p className="px-2 pb-1 text-sm text-muted-foreground">
@@ -476,13 +531,15 @@ export function TaxInputsCard({
         >
           {model.notes ? model.notes : `No notes for ${model.year}`}
         </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => onEdit({ mode: "notes" })}
-        >
-          {model.notes ? "Edit note" : "Add a note"}
-        </Button>
+        {!readOnly && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onEdit({ mode: "notes" })}
+          >
+            {model.notes ? "Edit note" : "Add a note"}
+          </Button>
+        )}
       </div>
     </Card>
   );
@@ -760,9 +817,10 @@ function QuarterTile({
     total: { federal: number; state: number };
   } | null;
   tips: { actual: string; minimum: string | null; total: string | null };
-  onAmount: (id: string, value: number) => void;
-  onOpenRow: (id: string) => void;
-  onAdd: () => void;
+  /** All three absent for read-only members: rows show as figures. */
+  onAmount?: (id: string, value: number) => void;
+  onOpenRow?: (id: string) => void;
+  onAdd?: () => void;
 }) {
   const due = quarter.status === "due";
   const status = statusFor(quarter);
@@ -804,21 +862,33 @@ function QuarterTile({
               key={row.id}
               className="flex items-center justify-between gap-2"
             >
-              <button
-                type="button"
-                onClick={() => onOpenRow(row.id)}
-                aria-label={`Open ${row.label || jurisdiction} payment`}
-                className="inline-flex items-center gap-1.5 rounded px-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {jurisdiction}
-              </button>
-              <AmountField
-                id={row.id}
-                label={row.label || `${quarter.key} ${jurisdiction}`}
-                amount={row.amount}
-                onChange={(value) => onAmount(row.id, value)}
-                className="w-28"
-              />
+              {onOpenRow ? (
+                <button
+                  type="button"
+                  onClick={() => onOpenRow(row.id)}
+                  aria-label={`Open ${row.label || jurisdiction} payment`}
+                  className="inline-flex items-center gap-1.5 rounded px-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {jurisdiction}
+                </button>
+              ) : (
+                <span className="px-1 text-xs text-muted-foreground">
+                  {jurisdiction}
+                </span>
+              )}
+              {onAmount ? (
+                <AmountField
+                  id={row.id}
+                  label={row.label || `${quarter.key} ${jurisdiction}`}
+                  amount={row.amount}
+                  onChange={(value) => onAmount(row.id, value)}
+                  className="w-28"
+                />
+              ) : (
+                <span className="text-sm font-medium tabular-nums">
+                  <MaskedValue value={formatCurrency(row.amount)} />
+                </span>
+              )}
             </div>
           );
         })}
@@ -871,14 +941,16 @@ function QuarterTile({
               </div>
             ))}
       </div>
-      <button
-        type="button"
-        onClick={onAdd}
-        className="mt-auto inline-flex items-center gap-1 self-start rounded-md px-1.5 py-1 text-xs font-medium text-teal-light hover:bg-[rgba(var(--ink),0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <Plus size={12} aria-hidden="true" />
-        {quarter.rows.length > 0 ? "Add another" : "Add payment"}
-      </button>
+      {onAdd && (
+        <button
+          type="button"
+          onClick={onAdd}
+          className="mt-auto inline-flex items-center gap-1 self-start rounded-md px-1.5 py-1 text-xs font-medium text-teal-light hover:bg-[rgba(var(--ink),0.06)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <Plus size={12} aria-hidden="true" />
+          {quarter.rows.length > 0 ? "Add another" : "Add payment"}
+        </button>
+      )}
     </div>
   );
 }

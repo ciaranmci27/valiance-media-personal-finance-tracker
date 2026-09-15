@@ -4,6 +4,8 @@ import { NetWorthDetailContent } from "@/components/features/net-worth/net-worth
 import { parseLocalDate } from "@/lib/utils";
 import { isDemoMode } from "@/lib/demo";
 import { getDemoNetWorthEntry, demoNetWorth } from "@/lib/demo/data";
+import { AccessDenied } from "@/components/features/access-denied";
+import { canAccess } from "@/lib/team/access";
 
 export async function generateMetadata({
   params,
@@ -52,6 +54,7 @@ export default async function NetWorthDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  if (!(await canAccess("net_worth.read"))) return <AccessDenied area="Net Worth" />;
   const { id } = await params;
 
   // Handle demo mode

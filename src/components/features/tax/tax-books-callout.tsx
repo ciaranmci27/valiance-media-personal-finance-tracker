@@ -18,7 +18,8 @@ export function TaxBooksCallout({
 }: {
   count: number;
   refreshing: boolean;
-  onRefresh: () => void;
+  /** Absent for read-only members: the message stays, the actions go. */
+  onRefresh?: () => void;
 }) {
   if (count <= 0) return null;
   const noun = count === 1 ? "transaction" : "transactions";
@@ -44,28 +45,30 @@ export function TaxBooksCallout({
           {count === 1 ? "it" : "them"} in Transactions, then refresh here.
         </p>
       </div>
-      <div className="flex basis-full items-center justify-end gap-2 self-center sm:ml-auto sm:basis-auto">
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={onRefresh}
-          disabled={refreshing}
-          aria-busy={refreshing}
-        >
-          <RefreshCw
-            size={14}
-            aria-hidden="true"
-            className={cn(refreshing && "animate-spin")}
-          />
-          Refresh
-        </Button>
-        <Button size="sm" variant="outline" asChild>
-          <Link href="/accounting?view=journal">
-            Review
-            <ArrowRight size={14} aria-hidden="true" />
-          </Link>
-        </Button>
-      </div>
+      {onRefresh && (
+        <div className="flex basis-full items-center justify-end gap-2 self-center sm:ml-auto sm:basis-auto">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={onRefresh}
+            disabled={refreshing}
+            aria-busy={refreshing}
+          >
+            <RefreshCw
+              size={14}
+              aria-hidden="true"
+              className={cn(refreshing && "animate-spin")}
+            />
+            Refresh
+          </Button>
+          <Button size="sm" variant="outline" asChild>
+            <Link href="/accounting?view=journal">
+              Review
+              <ArrowRight size={14} aria-hidden="true" />
+            </Link>
+          </Button>
+        </div>
+      )}
     </section>
   );
 }

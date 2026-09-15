@@ -12,6 +12,7 @@ import { Select } from "@/components/ui/inputs/Select";
 import { cn, formatCurrency } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
+import { useAccess } from "@/contexts/access-context";
 import { calculateFullTax } from "@/lib/tax/calculations";
 import type { FullTaxBreakdown } from "@/lib/tax/calculations";
 import {
@@ -151,6 +152,7 @@ export function TaxEstimatorContent({
   initialYear,
 }: TaxEstimatorContentProps) {
   const router = useRouter();
+  const { hasPermission } = useAccess();
 
   // `estimates` is a server-render snapshot that never refreshes: there is no
   // router.refresh() after a save and no realtime subscription. Reading it
@@ -1298,10 +1300,26 @@ export function TaxEstimatorContent({
   // Render
   // ============================================================================
 
+  // Read-only members see the estimate; every way to change it is left out.
+  const canEdit = hasPermission("tax.manage");
+
   // Setup mode: no data for any year
   const isSetupMode = Object.keys(estimateCache).length === 0;
 
   if (isSetupMode) {
+    if (!canEdit)
+      return (
+        <div className="space-y-5">
+          <PageHeader title="Tax Estimator" />
+          <div className="glass-card rounded-xl p-6 max-w-md">
+            <p className="font-medium">No estimates yet</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              An owner or admin sets up the tax years. They will show here once
+              that is done.
+            </p>
+          </div>
+        </div>
+      );
     return (
       <div>
         <TaxSetupCard
@@ -1633,7 +1651,7 @@ export function TaxEstimatorContent({
                 Saved
               </span>
             )}
-            {saveStatus === "error" && (
+            {saveStatus === "error" && canEdit && (
               <button
                 type="button"
                 onClick={() => void persist()}
@@ -1682,7 +1700,7 @@ export function TaxEstimatorContent({
         enabled={accountingAvailable}
         onApplied={refreshBooks}
       />
-      {guideDensity === "hero" ? (
+      {guideDensity === "hero" && canEdit ? (
         <TaxGuide
           year={selectedYear}
           density="hero"
@@ -1695,15 +1713,15 @@ export function TaxEstimatorContent({
           breakdown={breakdown}
           profile={{
             summary: profileParts.join(" \u00B7 "),
-            onEdit: () => setEditing({ mode: "profile" }),
+            onEdit: canEdit ? () => setEditing({ mode: "profile" }) : undefined,
           }}
           schedule={schedule}
           meter={meter}
           annualized={annualized}
-          onRecordPayment={recordPayment}
+          onRecordPayment={canEdit ? recordPayment : undefined}
         />
       )}
-      {guideDensity === "strip" && (
+      {guideDensity === "strip" && canEdit && (
         <TaxGuide
           year={selectedYear}
           density="strip"
@@ -1715,11 +1733,16 @@ export function TaxEstimatorContent({
       <TaxBooksCallout
         count={booksRefresh.books.unreviewed}
         refreshing={booksRefresh.books.status === "loading"}
-        onRefresh={refreshBooks}
+        onRefresh={canEdit ? refreshBooks : undefined}
       />
 
       <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-2">
-        <TaxInputsCard model={model} actions={actions} onEdit={setEditing} />
+        <TaxInputsCard
+          model={model}
+          actions={actions}
+          onEdit={setEditing}
+          readOnly={!canEdit}
+        />
         <TaxReceipt year={selectedYear} breakdown={breakdown} />
       </div>
 

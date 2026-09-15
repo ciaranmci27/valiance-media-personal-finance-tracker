@@ -22,7 +22,7 @@ export async function accountingClient() {
     params: {},
   });
   if (error)
-    throw new Error("Accounting is not configured for this signed-in owner.");
+    throw new Error("The books are not set up for this account.");
   return accounting;
 }
 
@@ -104,7 +104,7 @@ export function accountingError(message: string): string {
     ACCT_BANK_SOURCE_CHANGED:
       "The bank side of this transaction (date, account and amount) comes from the bank and cannot change. Edit the category, description or payee instead.",
     ACCT_REASON_REQUIRED: "Provide a reason for this change.",
-    ACCT_FORBIDDEN: "Accounting is restricted to its configured owner.",
+    ACCT_FORBIDDEN: "Your account does not have access to the books.",
   };
   for (const [code, text] of Object.entries(known))
     if (message.includes(code)) return text;

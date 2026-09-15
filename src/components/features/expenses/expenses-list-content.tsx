@@ -37,6 +37,7 @@ import {
   cn,
 } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
+import { useAccess } from "@/contexts/access-context";
 import type {
   Expense,
   ExpenseHistory,
@@ -61,12 +62,15 @@ function ExpenseCard({
   onToggleStatus,
   isToggling,
   isFirstPaused,
+  canToggle = true,
 }: {
   expense: Expense;
   monthly: number;
   onToggleStatus: (id: string, newStatus: boolean) => void;
   isToggling: boolean;
   isFirstPaused?: boolean;
+  /** Read-only members see the status without the pause control. */
+  canToggle?: boolean;
 }) {
   const router = useRouter();
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
@@ -161,25 +165,47 @@ function ExpenseCard({
               )}
             </div>
           </div>
-          <button
-            onClick={handleToggle}
-            disabled={isToggling}
-            className={cn(
-              "p-2 rounded-lg transition-colors shrink-0",
-              expense.is_active
-                ? "bg-success/10 text-success hover:bg-success/20"
-                : "bg-copper/10 text-copper hover:bg-copper/20",
-              isToggling && "opacity-50 cursor-not-allowed",
-            )}
-          >
-            {isToggling ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : expense.is_active ? (
-              <Play className="h-4 w-4" />
-            ) : (
-              <Pause className="h-4 w-4" />
-            )}
-          </button>
+          {canToggle ? (
+            <button
+              onClick={handleToggle}
+              disabled={isToggling}
+              aria-label={
+                expense.is_active ? "Pause expense" : "Activate expense"
+              }
+              className={cn(
+                "p-2 rounded-lg transition-colors shrink-0",
+                expense.is_active
+                  ? "bg-success/10 text-success hover:bg-success/20"
+                  : "bg-copper/10 text-copper hover:bg-copper/20",
+                isToggling && "opacity-50 cursor-not-allowed",
+              )}
+            >
+              {isToggling ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : expense.is_active ? (
+                <Play className="h-4 w-4" />
+              ) : (
+                <Pause className="h-4 w-4" />
+              )}
+            </button>
+          ) : (
+            <span
+              role="img"
+              aria-label={expense.is_active ? "Active" : "Paused"}
+              className={cn(
+                "p-2 rounded-lg shrink-0",
+                expense.is_active
+                  ? "bg-success/10 text-success"
+                  : "bg-copper/10 text-copper",
+              )}
+            >
+              {expense.is_active ? (
+                <Play className="h-4 w-4" />
+              ) : (
+                <Pause className="h-4 w-4" />
+              )}
+            </span>
+          )}
         </div>
 
         {/* Amount Details */}
@@ -235,12 +261,15 @@ function ExpenseRow({
   onToggleStatus,
   isToggling,
   isFirstPaused,
+  canToggle = true,
 }: {
   expense: Expense;
   monthly: number;
   onToggleStatus: (id: string, newStatus: boolean) => void;
   isToggling: boolean;
   isFirstPaused?: boolean;
+  /** Read-only members see the status without the pause control. */
+  canToggle?: boolean;
 }) {
   const router = useRouter();
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
@@ -348,28 +377,47 @@ function ExpenseRow({
       </td>
       <td className="px-4 py-3 align-middle">
         <div className="flex items-center justify-center">
-          <Tooltip
-            content={expense.is_active ? "Click to pause" : "Click to activate"}
-            position="top"
-          >
-            <button
-              onClick={handleToggle}
-              disabled={isToggling}
-              className={cn(
-                "p-1.5 rounded-md transition-colors",
-                "hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-primary/50",
-                isToggling && "opacity-50 cursor-not-allowed",
-              )}
+          {canToggle ? (
+            <Tooltip
+              content={
+                expense.is_active ? "Click to pause" : "Click to activate"
+              }
+              position="top"
             >
-              {isToggling ? (
-                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              ) : expense.is_active ? (
+              <button
+                onClick={handleToggle}
+                disabled={isToggling}
+                aria-label={
+                  expense.is_active ? "Pause expense" : "Activate expense"
+                }
+                className={cn(
+                  "p-1.5 rounded-md transition-colors",
+                  "hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-primary/50",
+                  isToggling && "opacity-50 cursor-not-allowed",
+                )}
+              >
+                {isToggling ? (
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                ) : expense.is_active ? (
+                  <Play className="h-4 w-4 text-success" />
+                ) : (
+                  <Pause className="h-4 w-4 text-copper" />
+                )}
+              </button>
+            </Tooltip>
+          ) : (
+            <span
+              role="img"
+              aria-label={expense.is_active ? "Active" : "Paused"}
+              className="p-1.5"
+            >
+              {expense.is_active ? (
                 <Play className="h-4 w-4 text-success" />
               ) : (
                 <Pause className="h-4 w-4 text-copper" />
               )}
-            </button>
-          </Tooltip>
+            </span>
+          )}
         </div>
       </td>
     </tr>
@@ -387,6 +435,8 @@ export function ExpensesListContent({
     React.useState<SortDirection>("desc");
   const [sortByName, setSortByName] = React.useState(false);
   const [togglingId, setTogglingId] = React.useState<string | null>(null);
+  const { hasPermission } = useAccess();
+  const canManage = hasPermission("expenses.manage");
 
   // Toggle expense active status
   const handleToggleStatus = async (id: string, newStatus: boolean) => {
@@ -640,12 +690,14 @@ export function ExpensesListContent({
           ))}
         </div>
 
-        <Link href="/expenses/new">
-          <Button>
-            <Plus className="h-4 w-4" />
-            Add Expense
-          </Button>
-        </Link>
+        {canManage && (
+          <Link href="/expenses/new">
+            <Button>
+              <Plus className="h-4 w-4" />
+              Add Expense
+            </Button>
+          </Link>
+        )}
       </div>
 
       {/* Table and Chart Layout */}
@@ -722,6 +774,7 @@ export function ExpensesListContent({
                     )}
                     onToggleStatus={handleToggleStatus}
                     isToggling={togglingId === expense.id}
+                    canToggle={canManage}
                   />
                 ))}
                 {pausedExpenses.map((expense, index) => (
@@ -735,6 +788,7 @@ export function ExpensesListContent({
                     onToggleStatus={handleToggleStatus}
                     isToggling={togglingId === expense.id}
                     isFirstPaused={index === 0}
+                    canToggle={canManage}
                   />
                 ))}
               </>
@@ -860,6 +914,7 @@ export function ExpensesListContent({
                             )}
                             onToggleStatus={handleToggleStatus}
                             isToggling={togglingId === expense.id}
+                            canToggle={canManage}
                           />
                         ))}
                         {pausedExpenses.map((expense, index) => (
@@ -873,6 +928,7 @@ export function ExpensesListContent({
                             onToggleStatus={handleToggleStatus}
                             isToggling={togglingId === expense.id}
                             isFirstPaused={index === 0}
+                            canToggle={canManage}
                           />
                         ))}
                       </>

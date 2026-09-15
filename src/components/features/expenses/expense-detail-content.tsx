@@ -41,6 +41,7 @@ import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
+import { useAccess } from "@/contexts/access-context";
 import type {
   Expense,
   ExpenseHistory,
@@ -64,6 +65,8 @@ export function ExpenseDetailContent({
   const [isSaving, setIsSaving] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [isTogglingStatus, setIsTogglingStatus] = React.useState(false);
+  const { hasPermission } = useAccess();
+  const canManage = hasPermission("expenses.manage");
 
   // Form state
   const [name, setName] = React.useState(expense.name);
@@ -369,36 +372,38 @@ export function ExpenseDetailContent({
               </Button>
             </>
           ) : (
-            <>
-              <Button
-                variant="ghost"
-                onClick={handleToggleStatus}
-                disabled={isTogglingStatus}
-                className={
-                  isActive
-                    ? "text-copper hover:text-copper hover:bg-transparent"
-                    : "text-success hover:text-success hover:bg-transparent"
-                }
-              >
-                {isTogglingStatus ? (
-                  <Loader2 className="h-4 w-4 sm:mr-1 animate-spin" />
-                ) : isActive ? (
-                  <Pause className="h-4 w-4 sm:mr-1" />
-                ) : (
-                  <Play className="h-4 w-4 sm:mr-1" />
-                )}
-                <span className="sm:inline">
-                  {isActive ? "Pause" : "Activate"}
-                </span>
-              </Button>
-              <Button
-                onClick={() => setIsEditing(true)}
-                className="bg-teal text-white hover:bg-teal/90"
-              >
-                <Pencil className="h-4 w-4 sm:mr-1" />
-                <span className="sm:inline">Edit</span>
-              </Button>
-            </>
+            canManage && (
+              <>
+                <Button
+                  variant="ghost"
+                  onClick={handleToggleStatus}
+                  disabled={isTogglingStatus}
+                  className={
+                    isActive
+                      ? "text-copper hover:text-copper hover:bg-transparent"
+                      : "text-success hover:text-success hover:bg-transparent"
+                  }
+                >
+                  {isTogglingStatus ? (
+                    <Loader2 className="h-4 w-4 sm:mr-1 animate-spin" />
+                  ) : isActive ? (
+                    <Pause className="h-4 w-4 sm:mr-1" />
+                  ) : (
+                    <Play className="h-4 w-4 sm:mr-1" />
+                  )}
+                  <span className="sm:inline">
+                    {isActive ? "Pause" : "Activate"}
+                  </span>
+                </Button>
+                <Button
+                  onClick={() => setIsEditing(true)}
+                  className="bg-teal text-white hover:bg-teal/90"
+                >
+                  <Pencil className="h-4 w-4 sm:mr-1" />
+                  <span className="sm:inline">Edit</span>
+                </Button>
+              </>
+            )
           )}
         </div>
       </div>
@@ -542,8 +547,12 @@ export function ExpenseDetailContent({
           />
         ) : (
           <div
-            className="px-4 py-4 rounded-xl glass-card min-h-[100px] cursor-pointer hover:bg-secondary transition-colors"
-            onClick={() => setIsEditing(true)}
+            className={cn(
+              "px-4 py-4 rounded-xl glass-card min-h-[100px]",
+              canManage &&
+                "cursor-pointer hover:bg-secondary transition-colors",
+            )}
+            onClick={canManage ? () => setIsEditing(true) : undefined}
           >
             <p
               className={cn(
@@ -551,7 +560,8 @@ export function ExpenseDetailContent({
                 !expense.notes && "text-muted-foreground italic",
               )}
             >
-              {expense.notes || "Click to add notes..."}
+              {expense.notes ||
+                (canManage ? "Click to add notes..." : "No notes")}
             </p>
           </div>
         )}
@@ -588,6 +598,7 @@ export function ExpenseDetailContent({
                       entry={entry}
                       onDelete={handleDeleteHistory}
                       isLatest={index === 0}
+                      canDelete={canManage}
                     />
                   ))}
                 </div>
@@ -633,46 +644,48 @@ export function ExpenseDetailContent({
           </Button>
         </div>
       ) : (
-        <div className="flex items-center justify-end gap-2">
-          <Button
-            variant="ghost"
-            className="text-error hover:text-error hover:bg-error/10"
-            onClick={handleDelete}
-            disabled={isDeleting}
-          >
-            <Trash2 className="h-4 w-4 mr-1" />
-            Delete
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              "md:hidden",
-              isActive
-                ? "text-copper hover:text-copper"
-                : "text-success hover:text-success",
-            )}
-            onClick={handleToggleStatus}
-            disabled={isTogglingStatus}
-          >
-            {isTogglingStatus ? (
-              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-            ) : isActive ? (
-              <Pause className="h-4 w-4 mr-1" />
-            ) : (
-              <Play className="h-4 w-4 mr-1" />
-            )}
-            {isActive ? "Pause" : "Activate"}
-          </Button>
-          <Button
-            className="md:hidden bg-teal text-white hover:bg-teal/90"
-            size="sm"
-            onClick={() => setIsEditing(true)}
-          >
-            <Pencil className="h-4 w-4 mr-1" />
-            Edit
-          </Button>
-        </div>
+        canManage && (
+          <div className="flex items-center justify-end gap-2">
+            <Button
+              variant="ghost"
+              className="text-error hover:text-error hover:bg-error/10"
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              <Trash2 className="h-4 w-4 mr-1" />
+              Delete
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                "md:hidden",
+                isActive
+                  ? "text-copper hover:text-copper"
+                  : "text-success hover:text-success",
+              )}
+              onClick={handleToggleStatus}
+              disabled={isTogglingStatus}
+            >
+              {isTogglingStatus ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : isActive ? (
+                <Pause className="h-4 w-4 mr-1" />
+              ) : (
+                <Play className="h-4 w-4 mr-1" />
+              )}
+              {isActive ? "Pause" : "Activate"}
+            </Button>
+            <Button
+              className="md:hidden bg-teal text-white hover:bg-teal/90"
+              size="sm"
+              onClick={() => setIsEditing(true)}
+            >
+              <Pencil className="h-4 w-4 mr-1" />
+              Edit
+            </Button>
+          </div>
+        )
       )}
     </div>
   );
@@ -692,10 +705,13 @@ function HistoryRow({
   entry,
   onDelete,
   isLatest = false,
+  canDelete = true,
 }: {
   entry: ExpenseHistory;
   onDelete: (id: string) => void;
   isLatest?: boolean;
+  /** Read-only members see the history without the delete affordance. */
+  canDelete?: boolean;
 }) {
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
   const { confirm: confirmDelete, dialog: confirmDeleteDialog } =
@@ -742,7 +758,7 @@ function HistoryRow({
             <span className="text-muted-foreground">({entry.frequency})</span>
           </>
         )}
-        {!isLatest && (
+        {!isLatest && canDelete && (
           <Tooltip content="Delete history entry">
             <button
               onClick={handleDelete}

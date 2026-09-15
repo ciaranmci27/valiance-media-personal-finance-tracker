@@ -51,6 +51,10 @@ export async function accountingTestDb(
       "INSERT INTO accounting.settings(owner_user_id) VALUES($1)",
       [fixtureOwner],
     );
+    await db.query(
+      "INSERT INTO public.team_members(auth_user_id,name,email,role) VALUES($1,'Fixture Owner','owner@fixture.test','owner')",
+      [fixtureOwner],
+    );
     await db.exec("SET ROLE authenticated;");
     await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [
       fixtureOwner,

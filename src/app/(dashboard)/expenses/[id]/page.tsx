@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { ExpenseDetailContent } from "@/components/features/expenses/expense-detail-content";
 import { isDemoMode } from "@/lib/demo";
 import { getDemoExpense, getDemoExpenseHistory } from "@/lib/demo/data";
+import { AccessDenied } from "@/components/features/access-denied";
+import { canAccess } from "@/lib/team/access";
 
 export async function generateMetadata({
   params,
@@ -40,6 +42,7 @@ export default async function ExpenseDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  if (!(await canAccess("expenses.read"))) return <AccessDenied area="Expenses" />;
   const { id } = await params;
 
   // Handle demo mode

@@ -15,12 +15,25 @@ import {
   Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { resolveAccess } from "@/lib/team/access";
+import { hasPermission, type PermissionKey } from "@/lib/access-control";
 
 export const metadata = {
   title: "Settings",
 };
 
-const settingsSections = [
+interface SettingsItem {
+  title: string;
+  description: string;
+  href: string;
+  icon: typeof User;
+  iconBg: string;
+  iconColor: string;
+  /** Hidden without this key; the page behind it gates too. */
+  permission?: PermissionKey;
+}
+
+const settingsSections: { title: string; items: SettingsItem[] }[] = [
   {
     title: "Business",
     items: [
@@ -32,6 +45,7 @@ const settingsSections = [
         icon: Building2,
         iconBg: "bg-primary/10",
         iconColor: "text-teal-light",
+        permission: "settings.manage",
       },
       {
         title: "Tax years",
@@ -40,6 +54,7 @@ const settingsSections = [
         icon: Calculator,
         iconBg: "bg-copper/10",
         iconColor: "text-copper",
+        permission: "settings.manage",
       },
     ],
   },
@@ -56,7 +71,7 @@ const settingsSections = [
       },
       {
         title: "Appearance",
-        description: "Theme and display customization",
+        description: "Theme, saved to your account",
         href: "/settings/appearance",
         icon: Palette,
         iconBg: "bg-[#C5A68F]/10",
@@ -74,6 +89,7 @@ const settingsSections = [
         icon: Mail,
         iconBg: "bg-emerald-500/10",
         iconColor: "text-emerald-500",
+        permission: "settings.manage",
       },
     ],
   },
@@ -87,6 +103,7 @@ const settingsSections = [
         icon: Database,
         iconBg: "bg-sky-500/10",
         iconColor: "text-sky-500",
+        permission: "settings.manage",
       },
       {
         title: "Trash",
@@ -95,12 +112,24 @@ const settingsSections = [
         icon: Trash2,
         iconBg: "bg-error/10",
         iconColor: "text-error",
+        permission: "settings.manage",
       },
     ],
   },
 ];
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const resolved = await resolveAccess();
+  const access = resolved.state === "ok" ? resolved.access : null;
+  const sections = settingsSections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(
+        (item) => !item.permission || hasPermission(access, item.permission),
+      ),
+    }))
+    .filter((section) => section.items.length > 0);
+
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <div className="space-y-1">
@@ -121,7 +150,7 @@ export default function SettingsPage() {
 
       {/* Settings Sections */}
       <div className="space-y-6">
-        {settingsSections.map((section, sectionIndex) => (
+        {sections.map((section) => (
           <div key={section.title} className="space-y-3">
             {/* Section Header */}
             <div className="flex items-center gap-2 px-1">

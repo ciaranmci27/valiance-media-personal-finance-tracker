@@ -668,6 +668,54 @@ export type Database = {
         };
         Update: Partial<Database["public"]["Tables"]["business_profile"]["Row"]>;
       };
+      team_members: {
+        Row: {
+          id: string;
+          auth_user_id: string | null;
+          name: string;
+          email: string;
+          title: string | null;
+          role: "owner" | "admin" | "member";
+          status: "active" | "suspended";
+          suspended_at: string | null;
+          theme_preference: "light" | "dark" | null;
+          privacy_hidden: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["team_members"]["Row"]> & {
+          name: string;
+          email: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["team_members"]["Row"]>;
+      };
+      role_permissions: {
+        Row: {
+          role: "admin" | "member";
+          permission_key: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["role_permissions"]["Row"]> & {
+          role: "admin" | "member";
+          permission_key: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["role_permissions"]["Row"]>;
+      };
+      team_member_permissions: {
+        Row: {
+          member_id: string;
+          permission_key: string;
+          effect: "allow" | "deny";
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["team_member_permissions"]["Row"]> & {
+          member_id: string;
+          permission_key: string;
+          effect: "allow" | "deny";
+        };
+        Update: Partial<Database["public"]["Tables"]["team_member_permissions"]["Row"]>;
+      };
       tax_estimates: {
         Row: {
           id: string;
@@ -779,7 +827,16 @@ export type Database = {
         };
       };
     };
-    Functions: Record<string, never>;
+    Functions: {
+      /** The signed-in person's team row and resolved permission keys, or null. */
+      my_access: { Args: Record<string, never>; Returns: Json };
+      /** First sign-in claims the workspace as owner; later callers get TEAM_NOT_MEMBER. */
+      bootstrap_team_owner: {
+        Args: { p_name: string; p_email: string };
+        Returns: Json;
+      };
+      has_permission: { Args: { p_key: string }; Returns: boolean };
+    };
     Enums: Record<string, never>;
   };
 };
@@ -840,3 +897,9 @@ export type AutomationFull = Automation & {
 
 // Tax estimate types
 export type TaxEstimate = Database["public"]["Tables"]["tax_estimates"]["Row"];
+
+// Team types (the vocabulary and helpers live in src/lib/access-control.ts)
+export type TeamMemberRow = Database["public"]["Tables"]["team_members"]["Row"];
+export type TeamMemberInsert = Database["public"]["Tables"]["team_members"]["Insert"];
+export type RolePermissionRow = Database["public"]["Tables"]["role_permissions"]["Row"];
+export type TeamMemberPermissionRow = Database["public"]["Tables"]["team_member_permissions"]["Row"];

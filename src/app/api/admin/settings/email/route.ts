@@ -32,7 +32,7 @@ function toSafe(row: EmailAccountRow): EmailAccountSafe {
 }
 
 export async function GET() {
-  const auth = await requireAuth();
+  const auth = await requireAuth({ permission: "settings.manage" });
   if (!auth.authenticated) return auth.response;
 
   const supabase = await createClient();
@@ -52,7 +52,7 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireAuth();
+  const auth = await requireAuth({ permission: "settings.manage" });
   if (!auth.authenticated) return auth.response;
 
   if (!isEncryptionConfigured()) {

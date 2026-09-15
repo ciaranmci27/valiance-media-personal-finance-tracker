@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest) {
-  const auth = await requireAuth();
+  const auth = await requireAuth({ permission: "settings.manage" });
   if (!auth.authenticated) return auth.response;
 
   if (!isEncryptionConfigured()) {

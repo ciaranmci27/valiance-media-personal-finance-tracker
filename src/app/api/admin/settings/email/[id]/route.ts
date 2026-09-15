@@ -34,7 +34,7 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireAuth();
+  const auth = await requireAuth({ permission: "settings.manage" });
   if (!auth.authenticated) return auth.response;
 
   if (!isEncryptionConfigured()) {
@@ -205,7 +205,7 @@ export async function DELETE(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await requireAuth();
+  const auth = await requireAuth({ permission: "settings.manage" });
   if (!auth.authenticated) return auth.response;
 
   const { id } = await params;

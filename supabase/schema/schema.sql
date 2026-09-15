@@ -303,8 +303,7 @@ CREATE TRIGGER webhook_receipts_updated_at
 
 ALTER TABLE webhook_receipts ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Authenticated users can view webhook_receipts"
-  ON webhook_receipts FOR SELECT TO authenticated USING (true);
+CREATE POLICY webhook_receipts_select ON public.webhook_receipts FOR SELECT TO authenticated USING ((SELECT public.has_permission('income.read')));
 
 -- ============================================================================
 -- TABLE 5: expenses
@@ -494,71 +493,43 @@ ALTER TABLE expenses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE expense_history ENABLE ROW LEVEL SECURITY;
 ALTER TABLE net_worth ENABLE ROW LEVEL SECURITY;
 
--- Policies: Allow authenticated users full access
--- (This is a single-user internal tool)
+-- Policies: reads need the module's read key, writes its manage key.
+-- has_permission() lives in the TEAM ACCESS block below.
 
-CREATE POLICY "Authenticated users can view income_sources"
-  ON income_sources FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Authenticated users can insert income_sources"
-  ON income_sources FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Authenticated users can update income_sources"
-  ON income_sources FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated users can delete income_sources"
-  ON income_sources FOR DELETE TO authenticated USING (true);
+CREATE POLICY income_sources_select ON public.income_sources FOR SELECT TO authenticated USING ((SELECT public.has_permission('income.read')));
+CREATE POLICY income_sources_insert ON public.income_sources FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('income.manage')));
+CREATE POLICY income_sources_update ON public.income_sources FOR UPDATE TO authenticated USING ((SELECT public.has_permission('income.manage'))) WITH CHECK ((SELECT public.has_permission('income.manage')));
+CREATE POLICY income_sources_delete ON public.income_sources FOR DELETE TO authenticated USING ((SELECT public.has_permission('income.manage')));
 
-CREATE POLICY "Authenticated users can view income_entries"
-  ON income_entries FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Authenticated users can insert income_entries"
-  ON income_entries FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Authenticated users can update income_entries"
-  ON income_entries FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated users can delete income_entries"
-  ON income_entries FOR DELETE TO authenticated USING (true);
+CREATE POLICY income_entries_select ON public.income_entries FOR SELECT TO authenticated USING ((SELECT public.has_permission('income.read')));
+CREATE POLICY income_entries_insert ON public.income_entries FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('income.manage')));
+CREATE POLICY income_entries_update ON public.income_entries FOR UPDATE TO authenticated USING ((SELECT public.has_permission('income.manage'))) WITH CHECK ((SELECT public.has_permission('income.manage')));
+CREATE POLICY income_entries_delete ON public.income_entries FOR DELETE TO authenticated USING ((SELECT public.has_permission('income.manage')));
 
-CREATE POLICY "Authenticated users can view income_amounts"
-  ON income_amounts FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Authenticated users can insert income_amounts"
-  ON income_amounts FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Authenticated users can update income_amounts"
-  ON income_amounts FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated users can delete income_amounts"
-  ON income_amounts FOR DELETE TO authenticated USING (true);
+CREATE POLICY income_amounts_select ON public.income_amounts FOR SELECT TO authenticated USING ((SELECT public.has_permission('income.read')));
+CREATE POLICY income_amounts_insert ON public.income_amounts FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('income.manage')));
+CREATE POLICY income_amounts_update ON public.income_amounts FOR UPDATE TO authenticated USING ((SELECT public.has_permission('income.manage'))) WITH CHECK ((SELECT public.has_permission('income.manage')));
+CREATE POLICY income_amounts_delete ON public.income_amounts FOR DELETE TO authenticated USING ((SELECT public.has_permission('income.manage')));
 
-CREATE POLICY "Authenticated users can view income_line_items"
-  ON income_line_items FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Authenticated users can insert income_line_items"
-  ON income_line_items FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Authenticated users can update income_line_items"
-  ON income_line_items FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated users can delete income_line_items"
-  ON income_line_items FOR DELETE TO authenticated USING (true);
+CREATE POLICY income_line_items_select ON public.income_line_items FOR SELECT TO authenticated USING ((SELECT public.has_permission('income.read')));
+CREATE POLICY income_line_items_insert ON public.income_line_items FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('income.manage')));
+CREATE POLICY income_line_items_update ON public.income_line_items FOR UPDATE TO authenticated USING ((SELECT public.has_permission('income.manage'))) WITH CHECK ((SELECT public.has_permission('income.manage')));
+CREATE POLICY income_line_items_delete ON public.income_line_items FOR DELETE TO authenticated USING ((SELECT public.has_permission('income.manage')));
 
-CREATE POLICY "Authenticated users can view expenses"
-  ON expenses FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Authenticated users can insert expenses"
-  ON expenses FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Authenticated users can update expenses"
-  ON expenses FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated users can delete expenses"
-  ON expenses FOR DELETE TO authenticated USING (true);
+CREATE POLICY expenses_select ON public.expenses FOR SELECT TO authenticated USING ((SELECT public.has_permission('expenses.read')));
+CREATE POLICY expenses_insert ON public.expenses FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('expenses.manage')));
+CREATE POLICY expenses_update ON public.expenses FOR UPDATE TO authenticated USING ((SELECT public.has_permission('expenses.manage'))) WITH CHECK ((SELECT public.has_permission('expenses.manage')));
+CREATE POLICY expenses_delete ON public.expenses FOR DELETE TO authenticated USING ((SELECT public.has_permission('expenses.manage')));
 
-CREATE POLICY "Authenticated users can view expense_history"
-  ON expense_history FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Authenticated users can insert expense_history"
-  ON expense_history FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Authenticated users can update expense_history"
-  ON expense_history FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated users can delete expense_history"
-  ON expense_history FOR DELETE TO authenticated USING (true);
+CREATE POLICY expense_history_select ON public.expense_history FOR SELECT TO authenticated USING ((SELECT public.has_permission('expenses.read')));
+CREATE POLICY expense_history_insert ON public.expense_history FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('expenses.manage')));
+CREATE POLICY expense_history_update ON public.expense_history FOR UPDATE TO authenticated USING ((SELECT public.has_permission('expenses.manage'))) WITH CHECK ((SELECT public.has_permission('expenses.manage')));
+CREATE POLICY expense_history_delete ON public.expense_history FOR DELETE TO authenticated USING ((SELECT public.has_permission('expenses.manage')));
 
-CREATE POLICY "Authenticated users can view net_worth"
-  ON net_worth FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Authenticated users can insert net_worth"
-  ON net_worth FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Authenticated users can update net_worth"
-  ON net_worth FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated users can delete net_worth"
-  ON net_worth FOR DELETE TO authenticated USING (true);
+CREATE POLICY net_worth_select ON public.net_worth FOR SELECT TO authenticated USING ((SELECT public.has_permission('net_worth.read')));
+CREATE POLICY net_worth_insert ON public.net_worth FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('net_worth.manage')));
+CREATE POLICY net_worth_update ON public.net_worth FOR UPDATE TO authenticated USING ((SELECT public.has_permission('net_worth.manage'))) WITH CHECK ((SELECT public.has_permission('net_worth.manage')));
+CREATE POLICY net_worth_delete ON public.net_worth FOR DELETE TO authenticated USING ((SELECT public.has_permission('net_worth.manage')));
 
 -- ============================================================================
 -- TABLE 7: tax_estimates
@@ -628,14 +599,10 @@ COMMENT ON COLUMN tax_estimates.additional_deductions IS 'Additional deductions 
 -- RLS for tax_estimates
 ALTER TABLE tax_estimates ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Authenticated users can view tax_estimates"
-  ON tax_estimates FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Authenticated users can insert tax_estimates"
-  ON tax_estimates FOR INSERT TO authenticated WITH CHECK (true);
-CREATE POLICY "Authenticated users can update tax_estimates"
-  ON tax_estimates FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "Authenticated users can delete tax_estimates"
-  ON tax_estimates FOR DELETE TO authenticated USING (true);
+CREATE POLICY tax_estimates_select ON public.tax_estimates FOR SELECT TO authenticated USING ((SELECT public.has_permission('tax.read')));
+CREATE POLICY tax_estimates_insert ON public.tax_estimates FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('tax.manage')));
+CREATE POLICY tax_estimates_update ON public.tax_estimates FOR UPDATE TO authenticated USING ((SELECT public.has_permission('tax.manage'))) WITH CHECK ((SELECT public.has_permission('tax.manage')));
+CREATE POLICY tax_estimates_delete ON public.tax_estimates FOR DELETE TO authenticated USING ((SELECT public.has_permission('tax.manage')));
 
 -- ============================================================================
 -- EMAIL ACCOUNTS
@@ -670,8 +637,10 @@ CREATE TRIGGER email_accounts_updated_at
 
 ALTER TABLE email_accounts ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY email_accounts_all ON email_accounts
-  FOR ALL TO authenticated USING (TRUE) WITH CHECK (TRUE);
+CREATE POLICY email_accounts_select ON public.email_accounts FOR SELECT TO authenticated USING ((SELECT public.has_permission('settings.manage')));
+CREATE POLICY email_accounts_insert ON public.email_accounts FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('settings.manage')));
+CREATE POLICY email_accounts_update ON public.email_accounts FOR UPDATE TO authenticated USING ((SELECT public.has_permission('settings.manage'))) WITH CHECK ((SELECT public.has_permission('settings.manage')));
+CREATE POLICY email_accounts_delete ON public.email_accounts FOR DELETE TO authenticated USING ((SELECT public.has_permission('settings.manage')));
 
 -- ============================================================================
 -- PAYROLL FEATURE (11 tables)
@@ -1382,6 +1351,212 @@ BEGIN
     EXECUTE format('CREATE POLICY "Authenticated users can delete %I" ON %I FOR DELETE TO authenticated USING (true)', tbl, tbl);
   END LOOP;
 END $$;
+
+-- ============================================================================
+-- TEAM ACCESS: team_members, role_permissions, team_member_permissions
+-- Who may sign in and what each person may touch. Mirrors the migration of
+-- the same name; the isolated accounting fixtures load this region too.
+-- ============================================================================
+
+-- ACCOUNTING TEAM BEGIN
+CREATE TABLE IF NOT EXISTS public.team_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  auth_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  title TEXT,
+  role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner','admin','member')),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended')),
+  suspended_at TIMESTAMPTZ,
+  theme_preference TEXT CHECK (theme_preference IN ('light','dark')),
+  privacy_hidden BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_team_members_auth_user_id ON public.team_members(auth_user_id) WHERE auth_user_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_team_members_email ON public.team_members(lower(email));
+
+CREATE TABLE IF NOT EXISTS public.role_permissions (
+  role TEXT NOT NULL CHECK (role IN ('admin','member')),
+  permission_key TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (role, permission_key)
+);
+
+CREATE TABLE IF NOT EXISTS public.team_member_permissions (
+  member_id UUID NOT NULL REFERENCES public.team_members(id) ON DELETE CASCADE,
+  permission_key TEXT NOT NULL,
+  effect TEXT NOT NULL CHECK (effect IN ('allow','deny')),
+  created_by UUID REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (member_id, permission_key)
+);
+CREATE INDEX IF NOT EXISTS idx_team_member_permissions_member ON public.team_member_permissions(member_id);
+
+ALTER TABLE public.team_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.role_permissions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.team_member_permissions ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.team_members, public.role_permissions, public.team_member_permissions FROM PUBLIC, anon;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.team_members, public.role_permissions, public.team_member_permissions TO authenticated, service_role;
+
+-- The active member behind the session, or NULL for strangers and suspended accounts.
+CREATE OR REPLACE FUNCTION public.current_team_member_id() RETURNS uuid LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $fn$
+ SELECT id FROM public.team_members WHERE auth_user_id = auth.uid() AND status = 'active' LIMIT 1
+$fn$;
+
+CREATE OR REPLACE FUNCTION public.current_team_member_role() RETURNS text LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $fn$
+ SELECT role FROM public.team_members WHERE auth_user_id = auth.uid() AND status = 'active' LIMIT 1
+$fn$;
+
+-- Owner: everything. Otherwise the person's own exception decides, and the
+-- role default applies when there is none.
+CREATE OR REPLACE FUNCTION public.has_permission(p_key text) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $fn$
+ WITH actor AS (SELECT id, role FROM public.team_members WHERE auth_user_id = auth.uid() AND status = 'active' LIMIT 1)
+ SELECT coalesce((SELECT role = 'owner' FROM actor), false)
+  OR coalesce(
+   (SELECT o.effect = 'allow' FROM public.team_member_permissions o, actor WHERE o.member_id = actor.id AND o.permission_key = p_key),
+   EXISTS (SELECT 1 FROM public.role_permissions r, actor WHERE r.role = actor.role AND r.permission_key = p_key)
+  )
+$fn$;
+
+-- The session's account and resolved permission list, for the layout and the
+-- API guard. Suspended members get their row and no permissions; a signed-in
+-- person with no row gets NULL.
+CREATE OR REPLACE FUNCTION public.my_access() RETURNS jsonb LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $fn$
+DECLARE m public.team_members; perms jsonb;
+BEGIN
+ IF auth.uid() IS NULL THEN RETURN NULL; END IF;
+ SELECT * INTO m FROM public.team_members WHERE auth_user_id = auth.uid() LIMIT 1;
+ IF NOT FOUND THEN RETURN NULL; END IF;
+ IF m.status <> 'active' THEN perms := '[]'::jsonb;
+ ELSIF m.role = 'owner' THEN perms := '["*"]'::jsonb;
+ ELSE
+  SELECT coalesce(jsonb_agg(k.key ORDER BY k.key), '[]'::jsonb) INTO perms FROM (
+   SELECT r.permission_key AS key FROM public.role_permissions r
+   WHERE r.role = m.role
+    AND NOT EXISTS (SELECT 1 FROM public.team_member_permissions d WHERE d.member_id = m.id AND d.permission_key = r.permission_key AND d.effect = 'deny')
+   UNION
+   SELECT a.permission_key FROM public.team_member_permissions a WHERE a.member_id = m.id AND a.effect = 'allow'
+  ) k;
+ END IF;
+ RETURN jsonb_build_object('member', to_jsonb(m), 'permissions', perms);
+END $fn$;
+
+-- First sign-in claims the workspace. Any later caller without a row is a
+-- stranger and is refused, so the client can tell "not a member" from "empty".
+CREATE OR REPLACE FUNCTION public.bootstrap_team_owner(p_name text, p_email text) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $fn$
+DECLARE actor uuid := auth.uid(); m public.team_members;
+BEGIN
+ IF actor IS NULL THEN RAISE EXCEPTION 'TEAM_FORBIDDEN'; END IF;
+ PERFORM pg_catalog.pg_advisory_xact_lock(64219072);
+ IF EXISTS (SELECT 1 FROM public.team_members) THEN RAISE EXCEPTION 'TEAM_NOT_MEMBER'; END IF;
+ IF length(btrim(coalesce(p_name, ''))) = 0 OR length(btrim(coalesce(p_email, ''))) = 0 THEN RAISE EXCEPTION 'TEAM_INVALID'; END IF;
+ PERFORM set_config('team.bootstrap', '1', true);
+ INSERT INTO public.team_members(auth_user_id, name, email, role) VALUES (actor, btrim(p_name), lower(btrim(p_email)), 'owner') RETURNING * INTO m;
+ PERFORM set_config('team.bootstrap', '', true);
+ RETURN to_jsonb(m);
+END $fn$;
+
+-- Column-level rules for team_members. Owners may do anything except remove
+-- the last active owner. People with team.manage may add members and edit or
+-- suspend non-owners. Everyone may edit their own name, title, theme and
+-- privacy eye.
+-- The service role (invite route), the bootstrap function and a direct database
+-- session (migrations, the SQL editor) skip the actor rules; the last-owner rule
+-- holds for them too.
+CREATE OR REPLACE FUNCTION public.team_members_guard() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $fn$
+DECLARE actor_id uuid; actor_role text; manager boolean; others integer;
+BEGIN
+ IF TG_LEVEL = 'STATEMENT' THEN
+  PERFORM pg_catalog.pg_advisory_xact_lock(64219072);
+  RETURN NULL;
+ END IF;
+ IF TG_OP <> 'DELETE' THEN
+  NEW.email := lower(btrim(NEW.email));
+  NEW.name := btrim(NEW.name);
+  IF length(NEW.name) = 0 OR length(NEW.email) = 0 THEN RAISE EXCEPTION 'TEAM_INVALID'; END IF;
+ END IF;
+ IF TG_OP = 'UPDATE' THEN
+  NEW.updated_at := now();
+  IF NEW.status = 'suspended' AND OLD.status <> 'suspended' THEN NEW.suspended_at := now(); END IF;
+  IF NEW.status = 'active' THEN NEW.suspended_at := NULL; END IF;
+ END IF;
+ IF TG_OP IN ('UPDATE', 'DELETE') AND OLD.role = 'owner' AND OLD.status = 'active'
+    AND (TG_OP = 'DELETE' OR NEW.role <> 'owner' OR NEW.status <> 'active') THEN
+  SELECT count(*) INTO others FROM public.team_members WHERE role = 'owner' AND status = 'active' AND id <> OLD.id;
+  IF others = 0 THEN RAISE EXCEPTION 'TEAM_LAST_OWNER'; END IF;
+ END IF;
+ IF current_setting('role', true) = 'service_role' OR current_setting('team.bootstrap', true) = '1'
+    OR (auth.uid() IS NULL AND coalesce(current_setting('role', true), 'none') NOT IN ('authenticated', 'anon')) THEN
+  RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END;
+ END IF;
+ actor_id := public.current_team_member_id();
+ actor_role := coalesce(public.current_team_member_role(), '');
+ IF actor_role = 'owner' THEN RETURN CASE WHEN TG_OP = 'DELETE' THEN OLD ELSE NEW END; END IF;
+ IF actor_id IS NULL THEN RAISE EXCEPTION 'TEAM_FORBIDDEN'; END IF;
+ manager := public.has_permission('team.manage');
+ IF TG_OP = 'INSERT' THEN
+  IF NOT manager OR NEW.role <> 'member' THEN RAISE EXCEPTION 'TEAM_FORBIDDEN'; END IF;
+  RETURN NEW;
+ END IF;
+ IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'TEAM_FORBIDDEN'; END IF;
+ IF OLD.id = actor_id THEN
+  IF NEW.auth_user_id IS DISTINCT FROM OLD.auth_user_id OR NEW.email IS DISTINCT FROM OLD.email OR NEW.role IS DISTINCT FROM OLD.role
+     OR NEW.status IS DISTINCT FROM OLD.status OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+   RAISE EXCEPTION 'TEAM_FORBIDDEN';
+  END IF;
+  RETURN NEW;
+ END IF;
+ IF manager AND OLD.role <> 'owner' THEN
+  IF NEW.auth_user_id IS DISTINCT FROM OLD.auth_user_id OR NEW.email IS DISTINCT FROM OLD.email OR NEW.role IS DISTINCT FROM OLD.role
+     OR NEW.theme_preference IS DISTINCT FROM OLD.theme_preference OR NEW.privacy_hidden IS DISTINCT FROM OLD.privacy_hidden
+     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+   RAISE EXCEPTION 'TEAM_FORBIDDEN';
+  END IF;
+  RETURN NEW;
+ END IF;
+ RAISE EXCEPTION 'TEAM_FORBIDDEN';
+END $fn$;
+
+REVOKE ALL ON FUNCTION public.team_members_guard() FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.current_team_member_id(), public.current_team_member_role(), public.has_permission(text), public.my_access(), public.bootstrap_team_owner(text, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.current_team_member_id(), public.current_team_member_role(), public.has_permission(text), public.my_access(), public.bootstrap_team_owner(text, text) TO authenticated, service_role;
+
+CREATE OR REPLACE TRIGGER team_members_lock BEFORE INSERT OR UPDATE OR DELETE ON public.team_members
+  FOR EACH STATEMENT EXECUTE FUNCTION public.team_members_guard();
+CREATE OR REPLACE TRIGGER team_members_guard BEFORE INSERT OR UPDATE OR DELETE ON public.team_members
+  FOR EACH ROW EXECUTE FUNCTION public.team_members_guard();
+
+DROP POLICY IF EXISTS team_members_select ON public.team_members;
+DROP POLICY IF EXISTS team_members_insert ON public.team_members;
+DROP POLICY IF EXISTS team_members_update ON public.team_members;
+DROP POLICY IF EXISTS team_members_delete ON public.team_members;
+CREATE POLICY team_members_select ON public.team_members FOR SELECT TO authenticated USING (auth_user_id = auth.uid() OR (SELECT public.has_permission('team.read')));
+CREATE POLICY team_members_insert ON public.team_members FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY team_members_update ON public.team_members FOR UPDATE TO authenticated USING (true) WITH CHECK (true);
+CREATE POLICY team_members_delete ON public.team_members FOR DELETE TO authenticated USING (true);
+
+DROP POLICY IF EXISTS role_permissions_select ON public.role_permissions;
+DROP POLICY IF EXISTS role_permissions_owner ON public.role_permissions;
+CREATE POLICY role_permissions_select ON public.role_permissions FOR SELECT TO authenticated USING (public.current_team_member_id() IS NOT NULL);
+CREATE POLICY role_permissions_owner ON public.role_permissions FOR ALL TO authenticated USING (public.current_team_member_role() = 'owner') WITH CHECK (public.current_team_member_role() = 'owner');
+
+DROP POLICY IF EXISTS team_member_permissions_select ON public.team_member_permissions;
+DROP POLICY IF EXISTS team_member_permissions_owner ON public.team_member_permissions;
+CREATE POLICY team_member_permissions_select ON public.team_member_permissions FOR SELECT TO authenticated USING (member_id = public.current_team_member_id() OR (SELECT public.has_permission('team.read')));
+CREATE POLICY team_member_permissions_owner ON public.team_member_permissions FOR ALL TO authenticated USING (public.current_team_member_role() = 'owner') WITH CHECK (public.current_team_member_role() = 'owner');
+
+INSERT INTO public.role_permissions(role, permission_key) VALUES
+  ('admin', 'team.read'), ('admin', 'team.manage'),
+  ('admin', 'income.read'), ('admin', 'income.manage'),
+  ('admin', 'expenses.read'), ('admin', 'expenses.manage'),
+  ('admin', 'net_worth.read'), ('admin', 'net_worth.manage'),
+  ('admin', 'tax.read'), ('admin', 'tax.manage'),
+  ('admin', 'automations.manage'), ('admin', 'settings.manage'), ('admin', 'accounting.manage'),
+  ('member', 'team.read'), ('member', 'income.read'), ('member', 'expenses.read'),
+  ('member', 'net_worth.read'), ('member', 'tax.read')
+ON CONFLICT DO NOTHING;
+-- ACCOUNTING TEAM END
 
 -- ACCOUNTING CATALOG BEGIN
 
@@ -2832,6 +3007,7 @@ CREATE OR REPLACE FUNCTION public.business_profile_get()
 AS $function$
 BEGIN
   IF auth.uid() IS NULL THEN RAISE EXCEPTION 'ACCT_AUTH_REQUIRED'; END IF;
+  IF public.current_team_member_id() IS NULL THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
   RETURN (SELECT to_jsonb(p) FROM public.business_profile p WHERE id=1);
 END
 $function$
@@ -3150,7 +3326,7 @@ CREATE OR REPLACE FUNCTION accounting.document_access(path text, uploading boole
  STABLE SECURITY DEFINER
  SET search_path TO ''
 AS $function$
- SELECT EXISTS(SELECT 1 FROM accounting.settings WHERE owner_user_id=auth.uid()) AND EXISTS(SELECT 1 FROM accounting.documents WHERE storage_path=path AND status<>'archived') AND (NOT uploading OR NOT EXISTS(SELECT 1 FROM storage.objects WHERE bucket_id='accounting-private' AND name=path))
+ SELECT EXISTS(SELECT 1 FROM accounting.settings WHERE id=1 AND (owner_user_id=auth.uid() OR public.has_permission('accounting.manage'))) AND EXISTS(SELECT 1 FROM accounting.documents WHERE storage_path=path AND status<>'archived') AND (NOT uploading OR NOT EXISTS(SELECT 1 FROM storage.objects WHERE bucket_id='accounting-private' AND name=path))
 $function$
 ;
 
@@ -4091,7 +4267,7 @@ BEGIN
  PERFORM set_config('accounting.operation_id',key::text,true); PERFORM set_config('accounting.actor_kind','owner',true);
  PERFORM set_config('accounting.action',t,true); PERFORM set_config('accounting.reason',coalesce(c->>'reason',''),true);
  IF t='settings.save' AND NOT EXISTS(SELECT 1 FROM accounting.settings) THEN
-  IF actor IS NULL THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
+  IF actor IS NULL OR (EXISTS(SELECT 1 FROM public.team_members) AND coalesce(public.current_team_member_role(),'')<>'owner') THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
   INSERT INTO accounting.settings(owner_user_id) VALUES(actor); initialized:=true;
  END IF;
  actor:=accounting.require_owner(); hash:=encode(sha256(convert_to(c::text,'UTF8')),'hex');
@@ -4762,7 +4938,8 @@ CREATE OR REPLACE FUNCTION accounting.require_owner()
 AS $function$
 DECLARE actor uuid:=auth.uid();
 BEGIN
- IF actor IS NULL OR NOT EXISTS(SELECT 1 FROM accounting.settings WHERE id=1 AND owner_user_id=actor) THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
+ IF actor IS NULL THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM accounting.settings WHERE id=1 AND (owner_user_id=actor OR public.has_permission('accounting.manage'))) THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
  RETURN actor;
 END $function$
 ;
@@ -4829,6 +5006,27 @@ BEGIN
  WHERE (filter->>'from' IS NULL OR e.entry_date>=(filter->>'from')::date) AND (filter->>'to' IS NULL OR e.entry_date<=(filter->>'to')::date)) q WHERE candidate IS NOT NULL;
  RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'total',jsonb_array_length(result),'rows',result);
 END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.search_terms(query text)
+ RETURNS TABLE(kind text, pattern text, cents bigint, op text)
+ LANGUAGE sql
+ IMMUTABLE STRICT SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ WITH raw AS (
+  SELECT lower(btrim(coalesce(m.groups[1],m.groups[2]),' "')) term,m.ordinality
+  FROM regexp_matches(left(query,200),'"([^"]*)"|(\S+)','g') WITH ORDINALITY m(groups,ordinality)
+ ), terms AS (
+  SELECT term,ordinality,substring(term FROM '^([<>]=?)') op,
+   CASE WHEN term ~ '^([<>]=?|[-+])?\$?(\d{1,3}(,\d{3})+|\d{1,15})(\.\d{1,2})?$' THEN replace(regexp_replace(term,'^([<>]=?|[-+])?\$?',''),',','') END number
+  FROM raw WHERE term<>'' AND ordinality<=12
+ )
+ SELECT CASE WHEN number IS NULL THEN 'text' WHEN op IS NOT NULL THEN 'compare' WHEN position('.' IN number)>0 THEN 'amount' ELSE 'dollars' END,
+  CASE WHEN number IS NULL THEN replace(replace(replace(term,'\','\\'),'%','\%'),'_','\_') ELSE '(^|[^0-9])'||replace(number,'.','\.')||'([^0-9]|$)' END,
+  CASE WHEN number IS NULL THEN NULL ELSE round(number::numeric*100)::bigint END,op
+ FROM terms ORDER BY ordinality
+$function$
 ;
 
 CREATE OR REPLACE FUNCTION accounting.setup_status(year integer, cutoff date DEFAULT NULL::date)
@@ -5247,16 +5445,23 @@ CREATE OR REPLACE FUNCTION accounting.transactions(filter jsonb DEFAULT '{}'::js
  STABLE SECURITY DEFINER
  SET search_path TO ''
 AS $function$
-DECLARE f jsonb:=filter||page; result jsonb; start_at integer:=coalesce((f->>'offset')::integer,0); page_size integer:=coalesce((f->>'limit')::integer,50); sort_by text:=coalesce(f->>'sort','date_desc');
+DECLARE f jsonb:=filter||page; result jsonb; start_at integer:=coalesce((f->>'offset')::integer,0); page_size integer:=coalesce((f->>'limit')::integer,50); sort_by text:=coalesce(f->>'sort','date_desc'); q text:=nullif(btrim(coalesce(f->>'query','')),'');
 BEGIN
  PERFORM accounting.require_owner();
  IF start_at<0 OR page_size NOT BETWEEN 1 AND 100 OR sort_by NOT IN ('date_desc','date_asc','amount_desc','amount_asc','description') OR coalesce(f->>'status','all') NOT IN ('all','draft','posted','discarded','reversed') OR (f->>'review' IS NOT NULL AND f->>'review' NOT IN ('needs_review','reviewed')) OR (f->>'from')::date>(f->>'to')::date THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER'; END IF;
- WITH candidates AS (
- SELECT e.*,CASE WHEN f->>'account' IS NOT NULL THEN abs(coalesce(m.selected_amount,0)) WHEN m.bank_count=1 THEN abs(m.bank_amount) ELSE coalesce(m.debits,0) END magnitude
+ WITH terms AS MATERIALIZED (SELECT kind,pattern,cents,op FROM accounting.search_terms(q)),
+ candidates AS (
+ SELECT e.*,CASE WHEN f->>'account' IS NOT NULL THEN abs(coalesce(m.selected_amount,0)) WHEN m.bank_count=1 THEN abs(m.bank_amount) ELSE coalesce(m.debits,0) END magnitude,m.amounts,
+ CASE WHEN q IS NULL THEN NULL ELSE lower(concat_ws(' ',e.memo,e.source_description,e.kind,to_char(e.entry_date,'YYYY-MM-DD'),to_char(e.entry_date,'Mon FMDD, YYYY'),to_char(e.entry_date,'FMMonth FMDD, YYYY'),to_char(e.entry_date,'FMMM/FMDD/YYYY'),
+  (SELECT p.name FROM accounting.parties p WHERE p.id=e.payee_id),m.labels,
+  (SELECT string_agg(bt.description,' ') FROM accounting.bank_matches bm JOIN accounting.journal_lines bl ON bl.id=bm.journal_line_id JOIN accounting.bank_transactions bt ON bt.id=bm.bank_transaction_id WHERE bl.entry_id=e.id))) END document
  FROM accounting.journal_entries e CROSS JOIN LATERAL (
  SELECT sum(l.amount_cents) FILTER(WHERE l.account_id=(f->>'account')::uuid) selected_amount,
   count(*) FILTER(WHERE a.subtype IN ('bank','cash','card')) bank_count,sum(l.amount_cents) FILTER(WHERE a.subtype IN ('bank','cash','card')) bank_amount,
-  sum(l.amount_cents) FILTER(WHERE l.amount_cents>0) debits FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id) m
+  sum(l.amount_cents) FILTER(WHERE l.amount_cents>0) debits,array_agg(abs(l.amount_cents)) amounts,
+  CASE WHEN q IS NULL THEN NULL ELSE string_agg(concat_ws(' ',a.code,a.name,l.memo,to_char(abs(l.amount_cents)/100.0,'FM999999999999990.00'),to_char(abs(l.amount_cents)/100.0,'FM999,999,999,999,990.00'),
+   (SELECT string_agg(concat_ws(' ',b.institution,b.mask),' ') FROM accounting.bank_accounts b WHERE b.account_id=a.id)),' ') END labels
+  FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id) m
  ), matches AS (
  SELECT e.* FROM candidates e WHERE (f->>'from' IS NULL OR e.entry_date>=(f->>'from')::date) AND (f->>'to' IS NULL OR e.entry_date<=(f->>'to')::date)
  AND (f->>'entry_id' IS NOT NULL OR CASE WHEN f->>'status'='reversed' THEN e.reverses_entry_id IS NULL AND EXISTS(SELECT 1 FROM accounting.journal_entries re WHERE re.reverses_entry_id=e.id) ELSE e.reverses_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries re WHERE re.reverses_entry_id=e.id) END)
@@ -5267,7 +5472,11 @@ BEGIN
  AND (f->>'source' IS NULL OR e.origin=f->>'source') AND (f->>'payee' IS NULL OR e.payee_id=(f->>'payee')::uuid)
  AND (NOT coalesce((f->>'missing_receipt')::boolean,false) OR NOT EXISTS(SELECT 1 FROM accounting.document_links dl JOIN accounting.documents d ON d.id=dl.document_id WHERE dl.entry_id=e.id AND d.status<>'archived' AND EXISTS(SELECT 1 FROM storage.objects o WHERE o.bucket_id='accounting-private' AND o.name=d.storage_path)))
  AND (f->>'descriptor_key' IS NULL OR e.descriptor_key=f->>'descriptor_key')
- AND (f->>'query' IS NULL OR e.memo ILIKE '%'||(f->>'query')||'%' OR e.source_description ILIKE '%'||(f->>'query')||'%')
+ AND (q IS NULL OR (SELECT coalesce(bool_and(coalesce(CASE t.kind
+  WHEN 'compare' THEN CASE t.op WHEN '>' THEN e.magnitude>t.cents WHEN '>=' THEN e.magnitude>=t.cents WHEN '<' THEN e.magnitude<t.cents ELSE e.magnitude<=t.cents END
+  WHEN 'amount' THEN t.cents=ANY(e.amounts) OR t.cents=e.magnitude OR e.document ~ t.pattern
+  WHEN 'dollars' THEN EXISTS(SELECT 1 FROM unnest(e.amounts||e.magnitude) v WHERE v/100=t.cents/100) OR e.document ~ t.pattern
+  ELSE e.document LIKE '%'||t.pattern||'%' END,false)),true) FROM terms t))
  AND (f->>'min_cents' IS NULL OR e.magnitude>=(f->>'min_cents')::bigint) AND (f->>'max_cents' IS NULL OR e.magnitude<=(f->>'max_cents')::bigint)
  ), ordered AS (
  SELECT *,row_number() OVER(ORDER BY CASE WHEN sort_by='date_asc' THEN entry_date END ASC,CASE WHEN sort_by='date_desc' THEN entry_date END DESC,
@@ -6045,6 +6254,10 @@ GRANT EXECUTE ON FUNCTION accounting.rules_preview(jsonb) TO "postgres";
 
 GRANT EXECUTE ON FUNCTION accounting.rules_preview(jsonb) TO "authenticated";
 
+REVOKE ALL ON FUNCTION accounting.search_terms(text) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.search_terms(text) TO "postgres";
+
 REVOKE ALL ON FUNCTION accounting.setup_status(integer,date) FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION accounting.setup_status(integer,date) TO "postgres";
@@ -6285,13 +6498,13 @@ CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.tax_mappings
 
 CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.tax_mappings FOR EACH ROW EXECUTE FUNCTION accounting.tax_guard();
 
-CREATE POLICY "business_profile_delete" ON public.business_profile AS PERMISSIVE FOR DELETE TO "authenticated" USING (true);
+CREATE POLICY "business_profile_delete" ON public.business_profile AS PERMISSIVE FOR DELETE TO "authenticated" USING ((SELECT public.has_permission('settings.manage')));
 
-CREATE POLICY "business_profile_insert" ON public.business_profile AS PERMISSIVE FOR INSERT TO "authenticated" WITH CHECK (true);
+CREATE POLICY "business_profile_insert" ON public.business_profile AS PERMISSIVE FOR INSERT TO "authenticated" WITH CHECK ((SELECT public.has_permission('settings.manage')));
 
-CREATE POLICY "business_profile_read" ON public.business_profile AS PERMISSIVE FOR SELECT TO "authenticated" USING (true);
+CREATE POLICY "business_profile_read" ON public.business_profile AS PERMISSIVE FOR SELECT TO "authenticated" USING ((public.current_team_member_id() IS NOT NULL));
 
-CREATE POLICY "business_profile_update" ON public.business_profile AS PERMISSIVE FOR UPDATE TO "authenticated" USING (true) WITH CHECK (true);
+CREATE POLICY "business_profile_update" ON public.business_profile AS PERMISSIVE FOR UPDATE TO "authenticated" USING ((SELECT public.has_permission('settings.manage'))) WITH CHECK ((SELECT public.has_permission('settings.manage')));
 
 CREATE POLICY "accounting_private_read" ON storage.objects AS PERMISSIVE FOR SELECT TO "authenticated" USING (((bucket_id = 'accounting-private'::text) AND accounting.document_access(name)));
 

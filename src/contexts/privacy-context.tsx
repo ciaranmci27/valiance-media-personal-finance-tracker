@@ -7,12 +7,16 @@ interface PrivacyContextType {
   toggleHidden: () => void;
 }
 
-const PrivacyContext = React.createContext<PrivacyContextType | undefined>(undefined);
+const PrivacyContext = React.createContext<PrivacyContextType | undefined>(
+  undefined,
+);
 
 interface PrivacyProviderProps {
   children: React.ReactNode;
-  /** Initial hidden state from server (read from cookie during SSR) */
+  /** The account's saved choice (team_members.privacy_hidden), resolved server-side. */
   initialHidden?: boolean;
+  /** Saves the choice to the account. Absent in demo mode: the choice stays on the device. */
+  persist?: (hidden: boolean) => Promise<unknown>;
 }
 
 /**
@@ -23,17 +27,34 @@ function setCookie(name: string, value: string, days: number = 365) {
   document.cookie = `${name}=${value}; expires=${expires}; path=/; SameSite=Lax`;
 }
 
-export function PrivacyProvider({ children, initialHidden = false }: PrivacyProviderProps) {
+/** The DOM attribute, cookie and localStorage mirror one value. */
+function applyHidden(hidden: boolean) {
+  document.documentElement.setAttribute("data-hidden", String(hidden));
+  try {
+    localStorage.setItem("data-hidden", String(hidden));
+  } catch {
+    /* Private mode: the account still remembers. */
+  }
+  setCookie("data-hidden", String(hidden));
+}
+
+/**
+ * The privacy eye. The account is the source of truth so the choice follows
+ * the person to every device; the cookie and localStorage are a mirror so the
+ * root blocking script and the server render can hide figures before React
+ * mounts. On mount the account value wins over whatever the device last had.
+ */
+export function PrivacyProvider({
+  children,
+  initialHidden = false,
+  persist,
+}: PrivacyProviderProps) {
   // Initialize with the server-provided value so SSR renders correctly
   const [isHidden, setIsHidden] = React.useState<boolean>(initialHidden);
 
-  // On mount, sync with DOM attribute (set by blocking script from localStorage)
   React.useEffect(() => {
-    // Only override server value if localStorage explicitly set a value
-    const domAttr = document.documentElement.getAttribute("data-hidden");
-    if (domAttr !== null) {
-      setIsHidden(domAttr === "true");
-    }
+    setIsHidden(initialHidden);
+    applyHidden(initialHidden);
 
     // Mark that React privacy system is now active
     // This allows CSS fallback rules to stop hiding values
@@ -43,7 +64,8 @@ export function PrivacyProvider({ children, initialHidden = false }: PrivacyProv
     const observer = new MutationObserver((mutations) => {
       mutations.forEach((mutation) => {
         if (mutation.attributeName === "data-hidden") {
-          const newState = document.documentElement.getAttribute("data-hidden") === "true";
+          const newState =
+            document.documentElement.getAttribute("data-hidden") === "true";
           setIsHidden(newState);
         }
       });
@@ -64,25 +86,23 @@ export function PrivacyProvider({ children, initialHidden = false }: PrivacyProv
       observer.disconnect();
       window.removeEventListener("storage", handleStorage);
     };
-  }, []);
+  }, [initialHidden]);
 
   const toggleHidden = React.useCallback(() => {
     const newState = !isHidden;
     setIsHidden(newState);
-    // Store in localStorage for blocking script on next page load
-    localStorage.setItem("data-hidden", String(newState));
-    // Store in cookie for SSR on next page load
-    setCookie("data-hidden", String(newState));
-    // Update DOM attribute for CSS and cross-component sync
-    document.documentElement.setAttribute("data-hidden", String(newState));
-  }, [isHidden]);
+    applyHidden(newState);
+    // The account keeps the choice; a failed save leaves the device as it is
+    // and the next load restores the saved value.
+    void persist?.(newState).catch(() => undefined);
+  }, [isHidden, persist]);
 
   const contextValue = React.useMemo(
     () => ({
       isHidden,
       toggleHidden,
     }),
-    [isHidden, toggleHidden]
+    [isHidden, toggleHidden],
   );
 
   return (

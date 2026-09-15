@@ -6,12 +6,15 @@ import {
   demoIncomeSources,
   demoIncomeAmountsPlain,
 } from "@/lib/demo/data";
+import { AccessDenied } from "@/components/features/access-denied";
+import { canAccess } from "@/lib/team/access";
 
 export const metadata = {
   title: "Income",
 };
 
 export default async function IncomePage() {
+  if (!(await canAccess("income.read"))) return <AccessDenied area="Income" />;
   // Return demo data if in demo mode
   if (isDemoMode()) {
     return (

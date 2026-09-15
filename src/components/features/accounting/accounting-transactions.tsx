@@ -61,6 +61,7 @@ import {
   useAccountingBankIdentity,
 } from "./accounting-bank-identity";
 import { accountBalances } from "@/lib/accounting/account-balances";
+import { entryMatchesSearch, parseSearchTerms } from "@/lib/accounting/search";
 import {
   REGISTER_PAGE,
   buildRegisterFilter,
@@ -342,6 +343,13 @@ export function AccountingTransactions({
   const demoResult = useMemo<Result | null>(() => {
     if (!demo || invalid) return null;
     const f: Partial<RegisterFilter> = JSON.parse(signature);
+    // The same search the database runs, over the demo books.
+    const terms = parseSearchTerms(f.query ?? "");
+    const lookups = {
+      partyName: (id: string) =>
+        manage.parties.find((party) => party.id === id)?.name,
+      account: (id: string) => accounts.get(id),
+    };
     const list = data.entries.filter(
       (e) =>
         (f.status === "reversed"
@@ -357,7 +365,12 @@ export function AccountingTransactions({
             ? isTransactionReviewed(e)
             : !isTransactionReviewed(e))) &&
         (!f.account || e.lines.some((l) => l.account_id === f.account)) &&
-        (!f.query || e.memo.toLowerCase().includes(f.query.toLowerCase())),
+        entryMatchesSearch(
+          e,
+          terms,
+          lookups,
+          presentTransaction(e, profiles, f.account).amount,
+        ),
     );
     const start = f.offset ?? 0;
     return {
@@ -367,7 +380,15 @@ export function AccountingTransactions({
       limit: PAGE,
       revision: "demo",
     };
-  }, [demo, invalid, signature, data.entries]);
+  }, [
+    demo,
+    invalid,
+    signature,
+    data.entries,
+    manage.parties,
+    accounts,
+    profiles,
+  ]);
   const result = demo ? demoResult : (page.data ?? null);
   const loading = !demo && !invalid && page.loading;
   useEffect(() => {
@@ -1237,16 +1258,20 @@ export function AccountingTransactions({
   ) : (
     <div className="space-y-1.5">
       <p className="font-medium text-foreground">
-        {status === "draft" && !activeFilters && !query
-          ? "Nothing needs review"
-          : "No transactions in this view"}
+        {search
+          ? `No matches for "${search}"`
+          : status === "draft" && !activeFilters
+            ? "Nothing needs review"
+            : "No transactions in this view"}
       </p>
       <p>
-        {activeFilters || query
-          ? "Try adjusting your filters."
-          : status === "draft"
-            ? "New bank activity lands here for a quick category check."
-            : "Add a transaction or connect your accounts to start your books."}
+        {search
+          ? "Try fewer words, an amount like 42.50, a card's last four digits, or >100."
+          : activeFilters
+            ? "Try adjusting your filters."
+            : status === "draft"
+              ? "New bank activity lands here for a quick category check."
+              : "Add a transaction or connect your accounts to start your books."}
       </p>
     </div>
   );
@@ -1534,7 +1559,7 @@ export function AccountingTransactions({
               </FilterPopover>
               <TextInput
                 aria-label="Search transactions"
-                placeholder="Search transactions"
+                placeholder="Search descriptions, contacts, amounts"
                 clearable
                 prefix={<Search size={15} aria-hidden="true" />}
                 value={query}
@@ -1573,11 +1598,15 @@ export function AccountingTransactions({
           columns={columns}
           data={rows}
           keyExtractor={(e) => e.id}
+          // A reviewed row is filed: it sits on the settled shade. A row still
+          // to review stays on the bare card, so the unshaded rows are the
+          // work. The shade is a theme token, set far enough from the page
+          // and card surfaces that the two states read apart at a glance.
           rowClassName={(e) =>
             chosenSet.has(e.id)
               ? "bg-primary/[0.06]"
               : isTransactionReviewed(e)
-                ? "bg-[color-mix(in_srgb,var(--card),var(--foreground)_4%)] hover:bg-[color-mix(in_srgb,var(--card),var(--foreground)_7%)]"
+                ? "bg-[var(--row-settled)] hover:bg-[var(--row-settled-hover)]"
                 : "bg-card hover:bg-[color-mix(in_srgb,var(--card),var(--foreground)_2%)]"
           }
           onRowClick={(e) => openAction(transactionRowAction(e), e)}
