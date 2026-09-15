@@ -1128,9 +1128,9 @@ export function AccountingTransactions({
             <MaskedValue
               value={p.movement ? signedMoney(p.amount) : money(p.amount)}
             />
-            {!p.movement && (
+            {!p.movement && p.transfer && (
               <span className="mt-0.5 block text-[11px] font-normal text-muted-foreground">
-                {p.transfer ? "Transfer" : "Journal"}
+                Transfer
               </span>
             )}
           </span>
