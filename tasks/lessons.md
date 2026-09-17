@@ -159,3 +159,15 @@ When the Browser pane is hidden it lays the page out at width 0, so every fixed 
 ## Strict command schemas and read-back records (2026-09-13)
 
 Records read from the books carry raw table columns (to_jsonb) beyond their client type, and every workflow command schema is strict. Spreading a read-back record into a command therefore answers 400 while the type check stays green. Build commands field by field, and when unifying forms check what the submit actually sends against the schema with a quick zod parse of a read-back record.
+
+## Migrations must be Postgres 17 SQL, not the snapshot's Postgres 18 dump form (2026-09-17)
+
+The canonical `supabase/schema/schema.sql` writes NOT NULL as named constraints
+(`CONSTRAINT "t_col_not_null" NOT NULL col`). That is Postgres 18 syntax; the
+finance project runs 17.6 and rejected a migration that copied it. PGlite in
+the test suites accepts both, so the parity suite does not catch it.
+
+Rule: when generating a migration from the snapshot, write tables with inline
+`NOT NULL` (as every earlier migration does) and keep the named form only in
+schema.sql. Function bodies can be copied verbatim. Before handing over a
+migration, scan it for `NOT NULL <column>` after a CONSTRAINT keyword.

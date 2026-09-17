@@ -15,7 +15,7 @@ import {
   sourceHash,
   syncWindow,
   SYNC_WINDOW_SECONDS,
-} from "../src/lib/accounting/server/simplefin-data";
+} from "../supabase/functions/_shared/feeds/data.ts";
 async function main() {
   let checks = 0;
   const check = (a: unknown, b: unknown) => {

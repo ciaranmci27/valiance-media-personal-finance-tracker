@@ -33,11 +33,12 @@ import {
 } from "@/components/ui/dialog";
 import type { AccountingWorkspace } from "@/lib/accounting/contracts";
 import type { BooksMetadata } from "./types";
-import type {
-  FeedData,
-  FeedConnection,
-  FeedIdentity,
-  FeedCanonicalAccount,
+import {
+  feedWorkerAlive,
+  type FeedData,
+  type FeedConnection,
+  type FeedIdentity,
+  type FeedCanonicalAccount,
 } from "@/lib/accounting/feeds";
 import { dateLabel, enumLabel, money, timestampLabel } from "./format";
 import { useAccountingCommand } from "./use-accounting-command";
@@ -151,6 +152,12 @@ export function AccountingFeeds({
   }
   const ready = state?.queue.reduce((n, q) => n + Number(q.ready), 0) ?? 0,
     pending = state?.queue.reduce((n, q) => n + Number(q.pending), 0) ?? 0;
+  // The heartbeat is the only proof a scheduler is calling; the env flag alone
+  // used to print a "next sync" time that nothing was going to honour.
+  const workerAlive = feedWorkerAlive(state),
+    workerCheckedIn = state?.worker
+      ? timestampLabel(state.worker.last_tick_at)
+      : "";
   const accountName = (id: string) =>
     data.accounts.find((a) => a.id === id)?.name ?? "Unknown account";
   const unreviewed =
@@ -313,13 +320,11 @@ export function AccountingFeeds({
                   ·{" "}
                   {leased(connection)
                     ? `Sync lease held until ${timestampLabel(connection.lease_until)}`
-                    : connection.scheduled
-                      ? `Next background sync: ${
-                          connection.next_sync_at
-                            ? timestampLabel(connection.next_sync_at)
-                            : "when the worker next runs"
-                        }`
-                      : "Background sync off"}
+                    : !connection.scheduled
+                      ? "Background sync off"
+                      : workerAlive
+                        ? `Background sync every 2 hours · worker checked in ${workerCheckedIn}`
+                        : "Background worker not running · syncs when you open the books"}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -617,13 +622,15 @@ export function AccountingFeeds({
               <div>
                 <Toggle
                   checked={connection.scheduled}
-                  label="Daily background sync"
+                  label="Background sync"
                   disabled={
                     demo ||
                     cmd.busy ||
                     running ||
                     connection.status !== "active" ||
-                    (!config?.workerEnabled && !connection.scheduled)
+                    (!config?.workerEnabled &&
+                      !workerAlive &&
+                      !connection.scheduled)
                   }
                   onChange={(enabled) =>
                     void cmd.execute({
@@ -635,9 +642,11 @@ export function AccountingFeeds({
                   }
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {config?.workerEnabled
-                    ? "The worker resumes from saved checkpoints when the next sync is due."
-                    : "The background worker must be configured before it can be enabled."}
+                  {workerAlive
+                    ? "Runs every 2 hours from saved checkpoints. Opening the books also syncs after six hours."
+                    : config?.workerEnabled
+                      ? "Enabled here, but no scheduler has checked in yet. Opening the books still syncs after six hours."
+                      : "The background worker must be configured before it can be enabled."}
                 </p>
               </div>
               {connection.status !== "disconnected" && (

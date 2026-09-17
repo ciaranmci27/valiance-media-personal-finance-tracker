@@ -128,4 +128,18 @@ export interface FeedData {
     error: string;
   }[];
   queue: { feed_account_id: string; ready: number; pending: number }[];
+  /** Last scheduler tick (any host); null until a worker has called. */
+  worker?: {
+    last_tick_at: string;
+    last_tick_due: number;
+    source: string;
+  } | null;
+}
+/** The scheduler ticks hourly; past three hours the worker is treated as not running. */
+export const FEED_WORKER_STALE_MS = 3 * 60 * 60 * 1000;
+export function feedWorkerAlive(feeds: FeedData | null, now = Date.now()) {
+  return (
+    !!feeds?.worker &&
+    Date.parse(feeds.worker.last_tick_at) > now - FEED_WORKER_STALE_MS
+  );
 }

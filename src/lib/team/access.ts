@@ -38,6 +38,7 @@ const SYNTHETIC_OWNER: TeamMember = {
   suspended_at: null,
   theme_preference: null,
   privacy_hidden: false,
+  show_net_worth: true,
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };

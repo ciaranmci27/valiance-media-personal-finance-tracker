@@ -1371,7 +1371,9 @@ CREATE TABLE IF NOT EXISTS public.team_members (
   theme_preference TEXT CHECK (theme_preference IN ('light','dark')),
   privacy_hidden BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- Added after the first release, so it sits last like the live table.
+  show_net_worth BOOLEAN NOT NULL DEFAULT true
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_team_members_auth_user_id ON public.team_members(auth_user_id) WHERE auth_user_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_team_members_email ON public.team_members(lower(email));
@@ -1459,8 +1461,8 @@ END $fn$;
 
 -- Column-level rules for team_members. Owners may do anything except remove
 -- the last active owner. People with team.manage may add members and edit or
--- suspend non-owners. Everyone may edit their own name, title, theme and
--- privacy eye.
+-- suspend non-owners. Everyone may edit their own name, title, theme,
+-- privacy eye and display preferences.
 -- The service role (invite route), the bootstrap function and a direct database
 -- session (migrations, the SQL editor) skip the actor rules; the last-owner rule
 -- holds for them too.
@@ -1510,7 +1512,7 @@ BEGIN
  IF manager AND OLD.role <> 'owner' THEN
   IF NEW.auth_user_id IS DISTINCT FROM OLD.auth_user_id OR NEW.email IS DISTINCT FROM OLD.email OR NEW.role IS DISTINCT FROM OLD.role
      OR NEW.theme_preference IS DISTINCT FROM OLD.theme_preference OR NEW.privacy_hidden IS DISTINCT FROM OLD.privacy_hidden
-     OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+     OR NEW.show_net_worth IS DISTINCT FROM OLD.show_net_worth OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
    RAISE EXCEPTION 'TEAM_FORBIDDEN';
   END IF;
   RETURN NEW;
@@ -1713,6 +1715,21 @@ CREATE TABLE accounting.bank_accounts (
 );
 
 ALTER TABLE accounting.bank_accounts ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.feed_worker (
+  "id" smallint DEFAULT 1 NOT NULL,
+  "last_tick_at" timestamp with time zone NOT NULL,
+  "last_tick_due" smallint DEFAULT 0 NOT NULL,
+  "source" text DEFAULT ''::text NOT NULL,
+  CONSTRAINT "feed_worker_id_check" CHECK ((id = 1)),
+  CONSTRAINT "feed_worker_id_not_null" NOT NULL id,
+  CONSTRAINT "feed_worker_last_tick_at_not_null" NOT NULL last_tick_at,
+  CONSTRAINT "feed_worker_last_tick_due_not_null" NOT NULL last_tick_due,
+  CONSTRAINT "feed_worker_pkey" PRIMARY KEY (id),
+  CONSTRAINT "feed_worker_source_not_null" NOT NULL source
+);
+
+ALTER TABLE accounting.feed_worker ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE accounting.command_receipts (
   "idempotency_key" uuid NOT NULL,
@@ -3219,7 +3236,8 @@ BEGIN
     'account',CASE WHEN b.id IS NULL THEN NULL ELSE to_jsonb(b)||jsonb_build_object('history_start',extract(epoch FROM (b.coverage_from::timestamp AT TIME ZONE p.books_timezone))::bigint::text,'checkpoint',c.checkpoint->>b.provider_account_id,'posting_timezone',p.books_timezone,'balance_sign',coalesce(c.checkpoint->'balance_signs'->b.id::text,'1'),'can_edit_settings',NOT EXISTS(SELECT 1 FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id)) END,
     'balance',jsonb_build_object('balance_cents',d.value->'balance_cents','available_cents',d.value->'available_cents','balance_at',d.value->'balance_at','issues','[]'::jsonb,'created_at',c.updated_at)) ORDER BY c.created_at,d.key),'[]') FROM accounting.bank_connections c CROSS JOIN public.business_profile p CROSS JOIN LATERAL jsonb_each(coalesce(c.checkpoint->'discovery','{}')) d LEFT JOIN accounting.bank_accounts b ON b.id=d.key::uuid),
    'runs',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',a.operation_id,'connection_id',a.row_id,'actor_kind',a.actor_kind,'status',CASE WHEN (a.after->>'errors')::int>0 THEN 'incomplete' ELSE 'saved' END,'started_at',a.at,'finished_at',a.at,'error','') ORDER BY a.at DESC),'[]') FROM (SELECT * FROM accounting.audit_log WHERE table_name='bank_connections' AND action='sync' AND after ? 'accounts' ORDER BY at DESC LIMIT 100) a),
-   'queue',(SELECT coalesce(jsonb_agg(jsonb_build_object('feed_account_id',b.id,'ready',(SELECT count(*) FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id AND o.review='unmatched' AND state='posted'),'pending',(SELECT count(*) FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id AND state='pending'))),'[]') FROM accounting.bank_accounts b));
+   'queue',(SELECT coalesce(jsonb_agg(jsonb_build_object('feed_account_id',b.id,'ready',(SELECT count(*) FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id AND o.review='unmatched' AND state='posted'),'pending',(SELECT count(*) FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id AND state='pending'))),'[]') FROM accounting.bank_accounts b),
+   'worker',(SELECT jsonb_build_object('last_tick_at',w.last_tick_at,'last_tick_due',w.last_tick_due,'source',w.source) FROM accounting.feed_worker w WHERE w.id=1));
  ELSIF view='rules' THEN
   RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'rules',(SELECT coalesce(jsonb_agg(to_jsonb(r)||jsonb_build_object('description_mode',coalesce(r.conditions->>'description_mode',(SELECT d.key FROM jsonb_each(coalesce(r.conditions->'descriptor_key','{}')) d LIMIT 1)),'description',coalesce(r.conditions->>'description',(SELECT value#>>'{}' FROM jsonb_each(coalesce(r.conditions->'descriptor_key','{}')) LIMIT 1)),'bank_account_id',r.conditions->'bank_account_id','direction',r.conditions->'direction','min_cents',coalesce(r.conditions->>'amount_min','0'),'max_cents',coalesce(r.conditions->>'amount_max','9223372036854775807'),'match_payee_id',r.conditions->'payee_id','category_account_id',r.actions->'account_id','assign_payee_id',r.actions->'payee_id','reason','') ORDER BY priority,id),'[]') FROM accounting.rules r),'aliases',(SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('party_name',p.name,'match_mode',a.match_kind,'description',a.pattern) ORDER BY a.pattern),'[]') FROM accounting.payee_aliases a JOIN accounting.parties p ON p.id=a.party_id));
  ELSIF view='history' THEN
@@ -5132,7 +5150,7 @@ CREATE OR REPLACE FUNCTION accounting.sync_server(command jsonb)
  SET search_path TO ''
 AS $function$
 DECLARE c accounting.bank_connections; ba accounting.bank_accounts; observation accounting.bank_transactions; a jsonb; tx jsonb; normalized jsonb;
- provider_key text; discover_id uuid; new_checkpoint jsonb; discovered jsonb; zone text; run uuid:=coalesce((command->>'run_id')::uuid,gen_random_uuid());
+ provider_key text; discover_id uuid; new_checkpoint jsonb; discovered jsonb; due_list jsonb; zone text; run uuid:=coalesce((command->>'run_id')::uuid,gen_random_uuid());
  run_complete boolean:=coalesce((command->>'complete')::boolean,true);count_new integer:=0;count_pending integer:=0;count_drafts integer:=0;count_conflicts integer:=0; book_date date; amount bigint; existing_id uuid;
  candidate_id uuid; candidate_count integer; allocation bigint; draft jsonb; bank_line uuid; category uuid; account_complete boolean; balance_sign smallint; seen jsonb; blocked jsonb; conflicts_before integer; partial boolean:=coalesce((command->>'partial')::boolean,false); discovery_only boolean:=coalesce((command->>'discovery')::boolean,false);
 BEGIN
@@ -5140,7 +5158,11 @@ BEGIN
  PERFORM accounting.write_lock();
  PERFORM set_config('accounting.operation_id',run::text,true);PERFORM set_config('accounting.actor_kind','worker',true);PERFORM set_config('accounting.action','sync',true);
  IF command->>'action'='due' THEN
-  RETURN coalesce((SELECT jsonb_agg(id ORDER BY next_sync_at NULLS FIRST,id) FROM accounting.bank_connections WHERE status='active' AND scheduled AND (next_sync_at IS NULL OR next_sync_at<=now()) AND (lease_until IS NULL OR lease_until<=now())),'[]');
+  due_list:=coalesce((SELECT jsonb_agg(id ORDER BY next_sync_at NULLS FIRST,id) FROM accounting.bank_connections WHERE status='active' AND scheduled AND (next_sync_at IS NULL OR next_sync_at<=now()) AND (lease_until IS NULL OR lease_until<=now())),'[]');
+  -- The heartbeat tells the Feeds screen a scheduler is really calling; sync on open never asks what is due.
+  INSERT INTO accounting.feed_worker(id,last_tick_at,last_tick_due,source) VALUES(1,now(),jsonb_array_length(due_list),left(coalesce(command->>'source',''),40))
+   ON CONFLICT (id) DO UPDATE SET last_tick_at=excluded.last_tick_at,last_tick_due=excluded.last_tick_due,source=excluded.source;
+  RETURN due_list;
  END IF;
  SELECT * INTO c FROM accounting.bank_connections WHERE id=(command->>'id')::uuid FOR UPDATE;
  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
@@ -5169,7 +5191,7 @@ BEGIN
  IF command->>'action'='fail' THEN
   UPDATE accounting.bank_connections SET last_error=left(coalesce(command->>'error','Bank sync failed'),1000),
    status=CASE WHEN coalesce((command->>'reconnect_required')::boolean,false) THEN 'reconnect_required' ELSE status END,
-   next_sync_at=now()+interval '1 hour',lease_run_id=NULL,lease_until=NULL WHERE id=c.id;
+   next_sync_at=now()+greatest(interval '1 hour',make_interval(secs=>least(coalesce((command->>'retry_seconds')::numeric,0),86400))),lease_run_id=NULL,lease_until=NULL WHERE id=c.id;
   RETURN jsonb_build_object('id',c.id,'status','error');
  END IF;
  IF command->>'action'<>'complete' OR jsonb_typeof(command->'accounts') IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
@@ -5241,9 +5263,10 @@ BEGIN
  IF NOT partial AND NOT discovery_only AND EXISTS(SELECT 1 FROM accounting.bank_accounts b WHERE b.connection_id=c.id AND NOT b.is_closed AND NOT seen ? b.provider_account_id) THEN run_complete:=false; END IF;
  new_checkpoint:=jsonb_set(new_checkpoint,ARRAY['discovery'],discovered);
  new_checkpoint:=jsonb_set(new_checkpoint,ARRAY['sync_run'],jsonb_build_object('seen',seen,'blocked',blocked,'complete',run_complete AND count_conflicts=0));
+ -- 110 minutes lands the two-hour cadence on the next hourly worker tick; an incomplete run retries at the following tick.
  UPDATE accounting.bank_connections SET checkpoint=new_checkpoint,last_success_at=CASE WHEN NOT partial AND NOT discovery_only AND count_conflicts=0 AND run_complete THEN now() ELSE last_success_at END,
   last_error=CASE WHEN count_conflicts>0 THEN 'Provider records changed. Original evidence was retained; review before advancing coverage.' WHEN NOT run_complete THEN 'The provider reported incomplete account data.' ELSE '' END,
-  lease_run_id=CASE WHEN partial THEN run ELSE NULL END,lease_until=CASE WHEN partial THEN c.lease_until ELSE NULL END,next_sync_at=now()+CASE WHEN run_complete AND count_conflicts=0 THEN interval '6 hours' ELSE interval '1 hour' END WHERE id=c.id;
+  lease_run_id=CASE WHEN partial THEN run ELSE NULL END,lease_until=CASE WHEN partial THEN c.lease_until ELSE NULL END,next_sync_at=now()+CASE WHEN run_complete AND count_conflicts=0 THEN interval '110 minutes' ELSE interval '1 hour' END WHERE id=c.id;
  INSERT INTO accounting.audit_log(actor_kind,operation_id,table_name,row_id,action,after)
   VALUES('worker',run,'bank_connections',c.id,'sync',jsonb_build_object('accounts',jsonb_array_length(command->'accounts'),'new',count_new,'pending',count_pending,'drafts',count_drafts,'errors',count_conflicts));
  RETURN jsonb_build_object('id',c.id,'new',count_new,'pending',count_pending,'drafts',count_drafts,'conflicts',count_conflicts,'complete',run_complete AND count_conflicts=0);
@@ -5677,6 +5700,24 @@ GRANT REFERENCES ON TABLE accounting.documents TO "postgres";
 GRANT TRIGGER ON TABLE accounting.documents TO "postgres";
 
 GRANT MAINTAIN ON TABLE accounting.documents TO "postgres";
+
+REVOKE ALL ON TABLE accounting.feed_worker FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.feed_worker TO "postgres";
+
+GRANT SELECT ON TABLE accounting.feed_worker TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.feed_worker TO "postgres";
+
+GRANT DELETE ON TABLE accounting.feed_worker TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.feed_worker TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.feed_worker TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.feed_worker TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.feed_worker TO "postgres";
 
 REVOKE ALL ON TABLE accounting.history_checks FROM PUBLIC, anon, authenticated, service_role;
 

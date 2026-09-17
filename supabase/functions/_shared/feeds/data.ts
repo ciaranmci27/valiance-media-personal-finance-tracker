@@ -1,7 +1,12 @@
+/**
+ * SimpleFIN response parsing and sync windows, shared by the Next.js routes
+ * (Node) and the sync-feeds edge function (Deno). Pure: no network, no env.
+ */
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import { parseUsd } from "../money";
-import { safeProviderMessage, SimpleFinError } from "./simplefin-transport";
+import { parseUsd } from "./money.ts";
+import { safeProviderMessage, SimpleFinError } from "./protocol.ts";
+const encoder = new TextEncoder();
 
 export const SIMPLEFIN_PROTOCOL = "2.0.0-draft-2026-03-19";
 export const SIMPLEFIN_V1_PROTOCOL = "1.0.7";
@@ -359,7 +364,9 @@ export function parseSimpleFin(
     for (const sourceTransaction of balancesOnly
       ? []
       : (a.transactions ?? [])) {
-      if (Buffer.byteLength(JSON.stringify(sourceTransaction)) > 25000) {
+      if (
+        encoder.encode(JSON.stringify(sourceTransaction)).byteLength > 25000
+      ) {
         add(
           "transaction_size",
           "A provider movement contains too much attached data to retain safely. Review the source account.",

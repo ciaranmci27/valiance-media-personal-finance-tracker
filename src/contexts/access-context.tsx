@@ -11,7 +11,10 @@ import {
 } from "@/lib/access-control";
 
 type ProfilePatch = Partial<
-  Pick<TeamMember, "name" | "title" | "theme_preference" | "privacy_hidden">
+  Pick<
+    TeamMember,
+    "name" | "title" | "theme_preference" | "privacy_hidden" | "show_net_worth"
+  >
 >;
 
 interface AccessContextValue {

@@ -53,6 +53,7 @@ async function main() {
       "bank_accounts",
       "bank_transactions",
       "bank_matches",
+      "feed_worker",
       "import_batches",
       "import_rows",
       "history_checks",

@@ -91,7 +91,7 @@ import { AccountingContextEditor } from "./accounting-context-editor";
 import { FilterPopover } from "./accounting-filter-popover";
 import { contactAffiliation } from "./accounting-party-form";
 import { Select } from "@/components/ui/inputs/Select";
-import { dateLabel, money, signedMoney, timestampLabel } from "./format";
+import { dateLabel, money, signedMoney } from "./format";
 
 type Result = {
   entries: JournalEntry[];
@@ -1278,10 +1278,10 @@ export function AccountingTransactions({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="w-full sm:max-w-xl">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1 sm:max-w-xl">
           <AccountingPicker
-            label="Accounts"
+            ariaLabel="Accounts"
             value={account}
             options={[
               {
@@ -1333,34 +1333,28 @@ export function AccountingTransactions({
             ]}
             onChange={(v) => changed(() => setAccount(v))}
             className="w-full"
-            triggerClassName="glass-card min-h-[60px] rounded-xl px-4 hover:border-[rgba(var(--ink),0.18)]"
+            // The same height and corner as the New button beside it: one line,
+            // name and figure. Where the figure comes from is told in the menu rows.
+            triggerClassName="glass-card h-10 min-h-0 rounded-lg px-3 hover:border-[rgba(var(--ink),0.18)]"
           >
-            <div className="flex min-w-0 flex-1 items-center gap-3">
-              {account ? (
-                <AccountingAccountLogo
-                  accountId={account}
-                  name={accounts.get(account)?.name}
-                  size={36}
-                />
-              ) : (
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-teal-light">
-                  <Wallet size={17} aria-hidden="true" />
-                </span>
-              )}
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">
-                  {accounts.get(account)?.name ?? "All accounts"}
-                </p>
-                <p className="mt-0.5 text-[11px] text-muted-foreground">
-                  {balanceLabel}
-                  {account && balances.get(account)?.observedAt
-                    ? ` · ${timestampLabel(new Date(balances.get(account)!.observedAt! * 1000).toISOString())}`
-                    : bankBalanceCount === 0
-                      ? ` · through ${dateLabel(data.to)}`
-                      : ""}
-                </p>
-              </div>
-              <span className="shrink-0 text-lg font-semibold tabular-nums">
+            <div className="flex min-w-0 flex-1 items-center gap-2.5">
+              <span className="hidden shrink-0 sm:block" title={balanceLabel}>
+                {account ? (
+                  <AccountingAccountLogo
+                    accountId={account}
+                    name={accounts.get(account)?.name}
+                    size={22}
+                  />
+                ) : (
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-teal-light">
+                    <Wallet size={13} aria-hidden="true" />
+                  </span>
+                )}
+              </span>
+              <p className="min-w-0 flex-1 truncate text-sm font-semibold">
+                {accounts.get(account)?.name ?? "All accounts"}
+              </p>
+              <span className="shrink-0 text-sm font-semibold tabular-nums">
                 {metadataLoading ? (
                   <span className="text-xs text-muted-foreground">
                     Loading balance...
@@ -1372,9 +1366,7 @@ export function AccountingTransactions({
             </div>
           </AccountingPicker>
         </div>
-        {actions && (
-          <div className="shrink-0 self-end sm:self-auto">{actions}</div>
-        )}
+        {actions && <div className="shrink-0">{actions}</div>}
       </div>
 
       <section

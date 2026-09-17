@@ -21,7 +21,20 @@ Both specifications define `posted` as Unix seconds representing an instant. Con
 
 ## Security and deployment
 
-Transport retains HTTPS host allowlisting, public-address DNS checks, pinned addresses, no redirects, time/size limits and redacted errors. AES-GCM uses the existing versioned encryption helper with `SIMPLEFIN_ENCRYPTION_KEY`, independently from other app secrets. Worker bearer authentication remains on the existing route. Full environment and scheduler instructions will be finalized in Phase 2 after the route port; no scheduler is deployed during this build.
+Transport retains HTTPS host allowlisting, public-address DNS checks, pinned addresses, no redirects, time/size limits and redacted errors. AES-GCM uses the existing versioned encryption helper with `SIMPLEFIN_ENCRYPTION_KEY`, independently from other app secrets. Worker bearer authentication remains on the existing route.
+
+## Shared core and scheduler (2026-09-17)
+
+The parser, sync windows, request grouping and the run loop live in `supabase/functions/_shared/feeds/` and are imported by both the Next.js routes (alias `@feeds/*`) and the `sync-feeds` edge function. One run makes one all-accounts request per connection (accounts whose windows fit in 90 days share it), so a connection costs one SimpleFIN request per run against the 24-per-day guidance. The Node transport (DNS pinning) stays in `src/lib/accounting/server/simplefin-transport.ts`; the edge function uses `fetch` with the same host allowlist, no redirects, a 25s limit and a 20MB cap.
+
+Schedule: pg_cron job `accounting-sync-feeds` runs hourly at :17 and posts to the edge function through pg_net (installed by `20260917075356_accounting_feed_cadence.sql`, skipped where pg_cron is unavailable). A complete run is due again after 110 minutes, so the effective cadence is two hours; a failed run waits an hour or the provider's Retry-After. SimpleFIN Bridge itself refreshes each bank about once a day at a drifting hour, which is the floor. Every tick stamps `accounting.feed_worker`; the Feeds card shows "worker checked in" from it and says so when no scheduler is calling. Sync on open (six-hour rule) is unchanged and remains the fallback.
+
+Deploy, once, with the Supabase CLI signed in to the finance project:
+
+1. Vault secrets in the SQL editor: `select vault.create_secret('https://kedxsjrbnrffrzdoyveh.supabase.co','accounting_project_url'); select vault.create_secret('<ACCOUNTING_WORKER_SECRET>','accounting_worker_secret');` (optionally `accounting_publishable_key`).
+2. Edge secrets: `npx supabase@latest secrets set --project-ref kedxsjrbnrffrzdoyveh SIMPLEFIN_ENCRYPTION_KEY=<value> ACCOUNTING_WORKER_SECRET=<value>` (same values as `admin/.env`).
+3. Deploy: `npx supabase@latest functions deploy sync-feeds --project-ref kedxsjrbnrffrzdoyveh` (`verify_jwt = false` comes from `supabase/config.toml`).
+4. Apply the migration, then check `select * from cron.job;` and, after :17, `select id,status_code,content from net._http_response order by id desc limit 3;` and the Feeds card.
 
 ## Validation
 

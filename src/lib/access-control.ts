@@ -74,6 +74,7 @@ export const PROFILE_FIELDS = [
   "title",
   "theme_preference",
   "privacy_hidden",
+  "show_net_worth",
 ] as const;
 
 export const PERMISSION_GROUPS: Array<{

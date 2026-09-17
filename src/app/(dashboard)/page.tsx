@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { DashboardContent } from "@/components/features/dashboard/dashboard-content";
 import { isDemoMode } from "@/lib/demo";
+import { accountingClient } from "@/lib/accounting/server/access";
 import {
   demoIncomeEntries,
   demoIncomeSources,
@@ -24,11 +25,22 @@ export default async function DashboardPage() {
         expenses={demoExpenses.filter((e) => e.is_active)}
         expenseHistory={demoExpenseHistory}
         netWorthEntries={demoNetWorth}
+        booksAvailable
       />
     );
   }
 
   const supabase = await createClient();
+
+  // Are the books there for this session? One light probe; the dashboard
+  // works without them.
+  let booksAvailable = false;
+  try {
+    await accountingClient();
+    booksAvailable = true;
+  } catch {
+    /* Personal finance pages carry the dashboard on their own. */
+  }
 
   // Fetch all data in parallel
   const [
@@ -79,6 +91,7 @@ export default async function DashboardPage() {
       expenses={expenses || []}
       expenseHistory={expenseHistory || []}
       netWorthEntries={netWorthEntries || []}
+      booksAvailable={booksAvailable}
     />
   );
 }

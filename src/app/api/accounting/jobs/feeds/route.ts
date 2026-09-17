@@ -5,10 +5,16 @@ import {
   feedServer,
   decryptFeed,
 } from "@/lib/accounting/server/feed-service";
-import { syncSimpleFin } from "@/lib/accounting/server/simplefin-sync";
+import { secureProviderTransport } from "@/lib/accounting/server/simplefin-transport";
+import { runDueFeeds } from "@feeds/sync.ts";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 240;
+/**
+ * One worker tick: every due connection in turn, inside the route's time
+ * budget. Production runs the same logic from the sync-feeds edge function on
+ * Supabase cron; this route stays for a host that can call it directly.
+ */
 export async function POST(req: NextRequest) {
   const secret = process.env.ACCOUNTING_WORKER_SECRET,
     received = req.headers.get("authorization") ?? "";
@@ -25,22 +31,16 @@ export async function POST(req: NextRequest) {
       { status: 503 },
     );
   try {
-    const due = (await feedServer({ action: "due" })) as string[];
-    if (!due.length)
-      return NextResponse.json(
-        { processed: 0 },
-        { headers: { "Cache-Control": "no-store" } },
-      );
-    const result = await syncSimpleFin({
-      connectionId: due[0],
-      actorId: null,
+    const result = await runDueFeeds({
       rpc: feedServer,
       decrypt: decryptFeed,
+      transport: secureProviderTransport,
+      source: "next",
+      budgetSeconds: 150,
     });
-    return NextResponse.json(
-      { processed: 1, ...result },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+    return NextResponse.json(result, {
+      headers: { "Cache-Control": "no-store" },
+    });
   } catch {
     return NextResponse.json(
       {

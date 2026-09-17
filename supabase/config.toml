@@ -1,0 +1,9 @@
+# Supabase CLI settings for the finance project (ref kedxsjrbnrffrzdoyveh).
+# Only what the edge function deploy needs; the database is managed through
+# supabase/migrations and the hand-mirrored supabase/schema/schema.sql.
+project_id = "kedxsjrbnrffrzdoyveh"
+
+[functions.sync-feeds]
+# pg_cron calls this with the shared worker secret (x-worker-secret), which
+# the function checks itself. The gateway JWT check would refuse that call.
+verify_jwt = false

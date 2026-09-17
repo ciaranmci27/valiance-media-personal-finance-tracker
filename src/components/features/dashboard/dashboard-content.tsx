@@ -1,93 +1,151 @@
 "use client";
 
 import * as React from "react";
-import { TrendingUp, Wallet, PiggyBank, DollarSign, Plus } from "lucide-react";
+import {
+  ArrowDownLeft,
+  Building2,
+  ChevronLeft,
+  ChevronRight,
+  DollarSign,
+  Landmark,
+  PiggyBank,
+  TrendingUp,
+  Wallet,
+} from "lucide-react";
 import { StatCard } from "@/components/ui/stat-card";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { IncomeChart } from "@/components/charts/income-chart";
-import { NetWorthChart } from "@/components/charts/net-worth-chart";
-import { IncomeBreakdownChart } from "@/components/charts/income-breakdown-chart";
-import { formatCurrency, toMonthlyAmount, cn, formatMonth } from "@/lib/utils";
-import { MaskedValue, useMaskedHover } from "@/components/ui/masked-value";
+import { formatCurrency, toMonthlyAmount, cn } from "@/lib/utils";
+import { MaskedValue } from "@/components/ui/masked-value";
 import { PageHeader } from "@/components/layout/page-header";
 import { SetupGuide } from "@/components/features/accounting/setup-guide";
+import {
+  BooksRecent,
+  CashFlowCard,
+  Panel,
+  RangeToggle,
+  cents,
+  useDashboardBooks,
+} from "@/components/features/dashboard/books-panel";
 import { useAccess } from "@/contexts/access-context";
-import type { IncomeEntry, IncomeSource, IncomeAmount, Expense, ExpenseHistory, NetWorth } from "@/types/database";
+import { isDemoMode } from "@/lib/demo";
+import type {
+  IncomeEntry,
+  IncomeSource,
+  IncomeAmount,
+  Expense,
+  ExpenseHistory,
+  NetWorth,
+} from "@/types/database";
 
-// Chart range options
 type ChartRange = "6mo" | "12mo" | "all";
 
-// Chart range toggle component
-function ChartRangeToggle({
-  value,
-  onChange,
-}: {
-  value: ChartRange;
-  onChange: (range: ChartRange) => void;
-}) {
-  const options: { value: ChartRange; label: string }[] = [
-    { value: "6mo", label: "6mo" },
-    { value: "12mo", label: "12mo" },
-    { value: "all", label: "All" },
-  ];
+/**
+ * One row of stat cards that scrolls sideways when the permissions grant more
+ * cards than fit. No scrollbar; arrows on desktop, a swipe on phones.
+ */
+function StatStrip({ children }: { children: React.ReactNode }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [canLeft, setCanLeft] = React.useState(false);
+  const [canRight, setCanRight] = React.useState(false);
+
+  const update = React.useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    setCanLeft(el.scrollLeft > 4);
+    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }, []);
+
+  React.useEffect(() => {
+    update();
+    const el = ref.current;
+    if (!el) return;
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [update, children]);
+
+  // One card at a time, so the half card at the edge becomes the next full one.
+  const scroll = (direction: -1 | 1) => {
+    const el = ref.current;
+    if (!el) return;
+    const card = el.firstElementChild as HTMLElement | null;
+    const step = card ? card.offsetWidth + 16 : el.clientWidth * 0.5;
+    el.scrollBy({ left: direction * step, behavior: "smooth" });
+  };
+
+  const scrollable = canLeft || canRight;
+  // Soft edges where more cards wait, instead of a hard cut through a card.
+  const fade = 40;
+  const mask = !scrollable
+    ? undefined
+    : canLeft && canRight
+      ? `linear-gradient(to right, transparent, black ${fade}px, black calc(100% - ${fade}px), transparent)`
+      : canRight
+        ? `linear-gradient(to right, black calc(100% - ${fade}px), transparent)`
+        : `linear-gradient(to right, transparent, black ${fade}px)`;
+
+  // Small solid discs sitting on the faded edge, in line with the cards.
+  const arrowClass =
+    "absolute top-1/2 z-10 hidden h-7 w-7 -translate-y-1/2 place-items-center rounded-full border border-border bg-card text-foreground shadow-md transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary lg:grid";
 
   return (
-    <div className="flex items-center gap-0.5 rounded-lg bg-[rgba(var(--ink),0.05)] p-0.5 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]">
-      {options.map((option) => (
+    <div className="relative">
+      <div
+        ref={ref}
+        onScroll={update}
+        style={{ maskImage: mask, WebkitMaskImage: mask }}
+        className="-mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden px-1 py-1 lg:gap-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        {children}
+      </div>
+      {canLeft && (
         <button
-          key={option.value}
-          onClick={() => onChange(option.value)}
-          className={cn(
-            "px-2 py-1 text-xs font-medium rounded-md transition-colors",
-            value === option.value
-              ? "bg-[rgba(var(--ink),0.09)] text-foreground shadow-[inset_0_1px_0_rgba(var(--ink),0.16)]"
-              : "text-muted-foreground hover:text-foreground"
-          )}
+          type="button"
+          aria-label="Show earlier stats"
+          onClick={() => scroll(-1)}
+          className={cn(arrowClass, "left-2")}
         >
-          {option.label}
+          <ChevronLeft aria-hidden="true" className="size-4" />
         </button>
-      ))}
+      )}
+      {canRight && (
+        <button
+          type="button"
+          aria-label="Show more stats"
+          onClick={() => scroll(1)}
+          className={cn(arrowClass, "right-2")}
+        >
+          <ChevronRight aria-hidden="true" className="size-4" />
+        </button>
+      )}
     </div>
   );
 }
 
-// Chart card wrapper with hover-to-reveal
-function ChartCard({
-  title,
-  children,
-  rightContent,
-  className,
-}: {
-  title: string;
-  children: (isRevealed: boolean) => React.ReactNode;
-  rightContent?: React.ReactNode;
-  className?: string;
-}) {
-  const { isHidden, isRevealed, hoverProps } = useMaskedHover();
-
+/**
+ * Each stat takes an even share of the row. From desktop width the row shows
+ * five and a half cards at most, so the cut card says there is more to the
+ * right; fewer cards grow to fill the row.
+ */
+function Stat({ children }: { children: React.ReactNode }) {
   return (
-    <Card className={className} {...hoverProps}>
-      <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-semibold">{title}</CardTitle>
-          {rightContent}
-        </div>
-      </CardHeader>
-      <CardContent>
-        {children(isRevealed)}
-      </CardContent>
-    </Card>
+    <div className="flex min-w-0 grow shrink-0 basis-[240px] snap-start lg:basis-[calc((100%-5rem)/5.5)] [&>*]:h-full [&>*]:w-full">
+      {children}
+    </div>
   );
 }
 
 interface DashboardContentProps {
   incomeEntries: IncomeEntry[];
   incomeSources: IncomeSource[];
-  incomeAmounts: (IncomeAmount & { income_entries: { month: string; deleted_at: string | null } })[];
+  incomeAmounts: (IncomeAmount & {
+    income_entries: { month: string; deleted_at: string | null };
+  })[];
   expenses: Expense[];
   expenseHistory: ExpenseHistory[];
   netWorthEntries: NetWorth[];
+  /** The books answered for this session (server probe); false hides every books figure. */
+  booksAvailable?: boolean;
 }
 
 export function DashboardContent({
@@ -97,177 +155,229 @@ export function DashboardContent({
   expenses,
   expenseHistory,
   netWorthEntries,
+  booksAvailable = false,
 }: DashboardContentProps) {
-  // Available months from income entries
+  const { member, hasPermission } = useAccess();
+  const canIncome = hasPermission("income.read");
+  const canExpenses = hasPermission("expenses.read");
+  const canNetWorth = hasPermission("net_worth.read") && member.show_net_worth;
+  const canBooks = hasPermission("accounting.manage");
+  const demo = isDemoMode();
+  const showBooks = canBooks && (booksAvailable || demo);
+  const books = useDashboardBooks({ demo, enabled: showBooks });
+  const haveBooks = showBooks && !books.unavailable;
+
+  // --- Income tracking -----------------------------------------------------
   const availableMonths = React.useMemo(
     () => incomeEntries.map((e) => e.month),
-    [incomeEntries]
+    [incomeEntries],
   );
-
-  // Stats always show the latest month (the period selector was removed)
   const selectedMonth = availableMonths[0] || "";
-  const [incomeChartRange, setIncomeChartRange] = React.useState<ChartRange>("12mo");
-  const [netWorthChartRange, setNetWorthChartRange] = React.useState<ChartRange>("12mo");
+  const previousMonth = availableMonths[1];
+  const [incomeChartRange, setIncomeChartRange] =
+    React.useState<ChartRange>("6mo");
 
-  // Get previous month for comparison
-  const selectedMonthIndex = availableMonths.indexOf(selectedMonth);
-  const previousMonth = availableMonths[selectedMonthIndex + 1];
-
-  // Calculate month total helper
-  const calculateMonthTotal = (month: string) => {
-    return incomeAmounts
-      .filter((a) => a.income_entries?.month === month)
-      .reduce((sum, a) => sum + Number(a.amount), 0);
-  };
-
-  // Selected month totals
-  const selectedMonthTotal = selectedMonth ? calculateMonthTotal(selectedMonth) : 0;
-  const previousMonthTotal = previousMonth ? calculateMonthTotal(previousMonth) : 0;
-
-  // Calculate monthly expenses at a specific point in time
-  // If asOfDate is provided, use historical values; otherwise use current values
-  const calculateExpensesAtDate = React.useCallback(
-    (asOfDate?: Date) => {
-      return expenses.reduce((sum, expense) => {
-        let amount = Number(expense.amount);
-        let frequency = expense.frequency;
-
-        if (asOfDate) {
-          // Find the earliest history entry AFTER asOfDate for this expense
-          // That history entry contains what the values were BEFORE the change
-          const historyAfterDate = expenseHistory
-            .filter(
-              (h) =>
-                h.expense_id === expense.id &&
-                new Date(h.changed_at) > asOfDate
-            )
-            .sort(
-              (a, b) =>
-                new Date(a.changed_at).getTime() - new Date(b.changed_at).getTime()
-            )[0];
-
-          if (historyAfterDate) {
-            // Use the historical values (what it was before the change)
-            amount = Number(historyAfterDate.amount);
-            frequency = historyAfterDate.frequency as typeof expense.frequency;
-          }
-          // If no history after asOfDate, the expense hasn't changed since then
-          // so current values are correct
-        }
-
-        return sum + toMonthlyAmount(amount, frequency);
-      }, 0);
-    },
-    [expenses, expenseHistory]
+  const monthTotal = React.useCallback(
+    (month: string) =>
+      incomeAmounts
+        .filter((a) => a.income_entries?.month === month)
+        .reduce((sum, a) => sum + Number(a.amount), 0),
+    [incomeAmounts],
   );
+  const trackedIncome = selectedMonth ? monthTotal(selectedMonth) : 0;
+  const previousTrackedIncome = previousMonth ? monthTotal(previousMonth) : 0;
 
-  // Current monthly expenses
-  const totalMonthlyExpenses = calculateExpensesAtDate();
-
-  // Previous month's expenses (first day of previous month)
-  const previousMonthExpenses = React.useMemo(() => {
-    if (!previousMonth) return totalMonthlyExpenses;
-    // Parse the previous month and get the first day
-    const [year, month] = previousMonth.split("-").map(Number);
-    const previousMonthStart = new Date(year, month - 1, 1);
-    return calculateExpensesAtDate(previousMonthStart);
-  }, [previousMonth, calculateExpensesAtDate, totalMonthlyExpenses]);
-
-  const personalExpenses = expenses
-    .filter((e) => e.expense_type === "personal")
-    .reduce((sum, e) => sum + toMonthlyAmount(Number(e.amount), e.frequency), 0);
-
-  const businessExpenses = expenses
-    .filter((e) => e.expense_type === "business")
-    .reduce((sum, e) => sum + toMonthlyAmount(Number(e.amount), e.frequency), 0);
-
-  // Net position (income - expenses)
-  const netPosition = selectedMonthTotal - totalMonthlyExpenses;
-  const previousNetPosition = previousMonthTotal - previousMonthExpenses;
-
-  // Current net worth (always latest)
-  const currentNetWorth = netWorthEntries[0]?.amount ?? 0;
-  const previousNetWorth = netWorthEntries[1]?.amount ?? 0;
-
-  // Get range limit based on chart range setting
-  const getRangeLimit = (range: ChartRange, totalEntries: number) => {
-    switch (range) {
-      case "6mo":
-        return 6;
-      case "12mo":
-        return 12;
-      case "all":
-        return totalEntries;
-    }
-  };
-
-  // Prepare income chart data based on range
   const incomeChartData = React.useMemo(() => {
-    const limit = getRangeLimit(incomeChartRange, incomeEntries.length);
-    const entriesToShow = incomeEntries.slice(0, limit).reverse();
-
-    return entriesToShow.map((entry) => {
-      const monthAmounts = incomeAmounts.filter(
-        (a) => a.income_entries?.month === entry.month
-      );
-      const total = monthAmounts.reduce((sum, a) => sum + Number(a.amount), 0);
-      const bySource: Record<string, number> = {};
-
-      incomeSources.forEach((source) => {
-        const amount = monthAmounts.find((a) => a.source_id === source.id);
-        bySource[source.slug] = Number(amount?.amount ?? 0);
+    const limit =
+      incomeChartRange === "6mo"
+        ? 6
+        : incomeChartRange === "12mo"
+          ? 12
+          : incomeEntries.length;
+    return incomeEntries
+      .slice(0, limit)
+      .reverse()
+      .map((entry) => {
+        const monthAmounts = incomeAmounts.filter(
+          (a) => a.income_entries?.month === entry.month,
+        );
+        const total = monthAmounts.reduce(
+          (sum, a) => sum + Number(a.amount),
+          0,
+        );
+        const bySource: Record<string, number> = {};
+        incomeSources.forEach((source) => {
+          const amount = monthAmounts.find((a) => a.source_id === source.id);
+          bySource[source.slug] = Number(amount?.amount ?? 0);
+        });
+        return { month: entry.month, total, ...bySource };
       });
-
-      return {
-        month: entry.month,
-        total,
-        ...bySource,
-      };
-    });
   }, [incomeEntries, incomeAmounts, incomeSources, incomeChartRange]);
 
-  // Selected month breakdown for donut chart
-  const selectedMonthBreakdown = React.useMemo(() => {
-    if (!selectedMonth) return [];
-    const monthAmounts = incomeAmounts.filter(
-      (a) => a.income_entries?.month === selectedMonth
+  // --- Fixed expenses -------------------------------------------------------
+  // Monthly cost of the expenses of one type, as they stood on a given date.
+  // History rows record the values a change replaced, so the first change
+  // after the date tells us what the expense was on that date.
+  const expensesAt = React.useCallback(
+    (type: Expense["expense_type"] | "all", asOfDate?: Date) =>
+      expenses
+        .filter((e) => type === "all" || e.expense_type === type)
+        .reduce((sum, expense) => {
+          let amount = Number(expense.amount);
+          let frequency = expense.frequency;
+          if (asOfDate) {
+            const later = expenseHistory
+              .filter(
+                (h) =>
+                  h.expense_id === expense.id &&
+                  new Date(h.changed_at) > asOfDate,
+              )
+              .sort(
+                (a, b) =>
+                  new Date(a.changed_at).getTime() -
+                  new Date(b.changed_at).getTime(),
+              )[0];
+            if (later) {
+              amount = Number(later.amount);
+              frequency = later.frequency as typeof expense.frequency;
+            }
+          }
+          return sum + toMonthlyAmount(amount, frequency);
+        }, 0),
+    [expenses, expenseHistory],
+  );
+  const previousMonthStart = React.useMemo(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  }, []);
+  const personalExpenses = expensesAt("personal");
+  const previousPersonalExpenses = expensesAt("personal", previousMonthStart);
+  const businessExpenses = expensesAt("business");
+  const totalMonthlyExpenses = expensesAt("all");
+
+  // --- Net worth ------------------------------------------------------------
+  const currentNetWorth = Number(netWorthEntries[0]?.amount ?? 0);
+  const previousNetWorth = Number(netWorthEntries[1]?.amount ?? 0);
+
+  // --- Books figures ----------------------------------------------------------
+  const booksIncome = books.current
+    ? cents(books.current.income_cents)
+    : cents(books.workspace?.reports.income_cents);
+  const booksExpenses = Math.abs(
+    books.current
+      ? cents(books.current.expense_cents)
+      : cents(books.workspace?.reports.expense_cents),
+  );
+  const booksNet = books.current
+    ? cents(books.current.net_cents)
+    : cents(books.workspace?.reports.net_income_cents);
+  const previousBooksIncome = books.previous
+    ? cents(books.previous.income_cents)
+    : undefined;
+  const previousBooksExpenses = books.previous
+    ? Math.abs(cents(books.previous.expense_cents))
+    : undefined;
+  const previousBooksNet = books.previous
+    ? cents(books.previous.net_cents)
+    : undefined;
+
+  // --- Stat cards, in the order the owner reads them ---------------------------
+  const stats: React.ReactNode[] = [];
+  if (haveBooks || canIncome)
+    stats.push(
+      <Stat key="income">
+        <StatCard
+          title="Income this month"
+          value={haveBooks ? booksIncome : trackedIncome}
+          previousValue={
+            haveBooks ? previousBooksIncome : previousTrackedIncome
+          }
+          icon={<TrendingUp className="h-5 w-5" />}
+          subtitle={haveBooks ? "From the books" : "From income tracking"}
+        />
+      </Stat>,
     );
-    return incomeSources
-      .map((source) => {
-        const amount = monthAmounts.find((a) => a.source_id === source.id);
-        return {
-          name: source.name,
-          value: Number(amount?.amount ?? 0),
-          color: source.color,
-        };
-      })
-      .filter((item) => item.value !== 0);
-  }, [selectedMonth, incomeAmounts, incomeSources]);
+  if (haveBooks)
+    stats.push(
+      <Stat key="business-expenses">
+        <StatCard
+          title="Business expenses"
+          value={booksExpenses}
+          previousValue={previousBooksExpenses}
+          invertTrend
+          icon={<Building2 className="h-5 w-5" />}
+          subtitle="This month, from the books"
+        />
+      </Stat>,
+      <Stat key="net-profit">
+        <StatCard
+          title="Net profit"
+          value={booksNet}
+          previousValue={previousBooksNet}
+          icon={<ArrowDownLeft className="h-5 w-5" />}
+          subtitle="This month, from the books"
+        />
+      </Stat>,
+    );
+  if (canExpenses)
+    stats.push(
+      <Stat key="personal-expenses">
+        <StatCard
+          title="Personal expenses"
+          value={personalExpenses}
+          previousValue={previousPersonalExpenses}
+          invertTrend
+          icon={<Wallet className="h-5 w-5" />}
+          subtitle="Fixed expenses per month"
+        />
+      </Stat>,
+    );
+  if (haveBooks && canExpenses)
+    stats.push(
+      <Stat key="net-position">
+        <StatCard
+          title="Net position"
+          value={booksNet - personalExpenses}
+          previousValue={
+            previousBooksNet === undefined
+              ? undefined
+              : previousBooksNet - previousPersonalExpenses
+          }
+          icon={<DollarSign className="h-5 w-5" />}
+          subtitle="Net profit less personal expenses"
+        />
+      </Stat>,
+    );
+  if (haveBooks)
+    stats.push(
+      <Stat key="cash">
+        <StatCard
+          title="Cash in bank"
+          value={books.cash === null ? 0 : Number(books.cash) / 100}
+          icon={<Landmark className="h-5 w-5" />}
+          subtitle={books.cashLabel}
+        />
+      </Stat>,
+    );
+  if (canNetWorth)
+    stats.push(
+      <Stat key="net-worth">
+        <StatCard
+          title="Net worth"
+          value={currentNetWorth}
+          previousValue={previousNetWorth}
+          icon={<PiggyBank className="h-5 w-5" />}
+        />
+      </Stat>,
+    );
 
-  // Net worth chart data based on range
-  const netWorthChartData = React.useMemo(() => {
-    const limit = getRangeLimit(netWorthChartRange, netWorthEntries.length);
-    return netWorthEntries.slice(0, limit).reverse().map((entry) => ({
-      date: entry.date,
-      amount: Number(entry.amount),
-    }));
-  }, [netWorthEntries, netWorthChartRange]);
-
-  // Format selected month for display
-  const formatMonthDisplay = (month: string) => {
-    if (!month) return "";
-    return formatMonth(month);
-  };
+  const middleCount = (haveBooks ? 1 : 0) + (canIncome ? 1 : 0);
+  const bottomCount = (haveBooks ? 1 : 0) + (canExpenses ? 1 : 0);
 
   const hour = new Date().getHours();
   const greeting =
     hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
-  const { member, hasPermission } = useAccess();
   const firstName = member.name.split(" ")[0];
-  const canIncome = hasPermission("income.read");
-  const canExpenses = hasPermission("expenses.read");
-  const canNetWorth = hasPermission("net_worth.read");
-  const canBooks = hasPermission("accounting.manage");
 
   return (
     <div className="space-y-5 lg:space-y-6">
@@ -278,132 +388,84 @@ export function DashboardContent({
 
       {canBooks && <SetupGuide year={new Date().getFullYear()} />}
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-3 lg:gap-4 lg:grid-cols-4">
-        {canIncome && (
-          <StatCard
-            title="Monthly Income"
-            value={selectedMonthTotal}
-            previousValue={previousMonthTotal}
-            icon={<TrendingUp className="h-5 w-5" />}
-            className="stagger-1"
-          />
-        )}
-        {canExpenses && (
-          <StatCard
-            title="Monthly Expenses"
-            value={totalMonthlyExpenses}
-            previousValue={previousMonthExpenses}
-            invertTrend
-            icon={<Wallet className="h-5 w-5" />}
-            className="stagger-2"
-          />
-        )}
-        {canIncome && canExpenses && (
-          <StatCard
-            title="Net Position"
-            value={netPosition}
-            previousValue={previousNetPosition}
-            icon={<DollarSign className="h-5 w-5" />}
-            className="stagger-3"
-          />
-        )}
-        {canNetWorth && (
-          <StatCard
-            title="Net Worth"
-            value={Number(currentNetWorth)}
-            previousValue={Number(previousNetWorth)}
-            icon={<PiggyBank className="h-5 w-5" />}
-            className="stagger-4"
-          />
-        )}
-      </div>
+      {stats.length > 0 && <StatStrip>{stats}</StatStrip>}
 
-      {/* Charts Row */}
-      {canIncome && (
-        <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
-          {/* Income Trend - Takes 2 columns */}
-          <ChartCard
-            title="Income Trend"
-            className="lg:col-span-2 stagger-5"
-            rightContent={
-              <ChartRangeToggle
-                value={incomeChartRange}
-                onChange={setIncomeChartRange}
-              />
-            }
-          >
-            {(isRevealed) => (
-              <IncomeChart
-                data={incomeChartData}
-                sources={incomeSources}
-                isRevealed={isRevealed}
-              />
-            )}
-          </ChartCard>
-
-          {/* Income Breakdown */}
-          <ChartCard
-            title={formatMonthDisplay(selectedMonth)}
-            className="stagger-6"
-          >
-            {(isRevealed) => (
-              <IncomeBreakdownChart
-                data={selectedMonthBreakdown}
-                isRevealed={isRevealed}
-              />
-            )}
-          </ChartCard>
-        </div>
-      )}
-
-      {/* Bottom Row */}
-      {(canNetWorth || canExpenses) && (
-        <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
-          {/* Net Worth Chart */}
-          {canNetWorth && (
-            <ChartCard
-              title="Net Worth Over Time"
-              rightContent={
-                <ChartRangeToggle
-                  value={netWorthChartRange}
-                  onChange={setNetWorthChartRange}
+      {middleCount > 0 && (
+        <div
+          className={cn(
+            "grid gap-4 sm:gap-6",
+            middleCount === 2 && "lg:grid-cols-2",
+          )}
+        >
+          {haveBooks && <CashFlowCard books={books} />}
+          {canIncome && (
+            <Panel
+              title="Income trend"
+              right={
+                <RangeToggle
+                  value={incomeChartRange}
+                  onChange={setIncomeChartRange}
+                  options={[
+                    { value: "6mo", label: "6mo" },
+                    { value: "12mo", label: "12mo" },
+                    { value: "all", label: "All" },
+                  ]}
                 />
               }
             >
               {(isRevealed) => (
-                <NetWorthChart data={netWorthChartData} isRevealed={isRevealed} />
+                <IncomeChart
+                  data={incomeChartData}
+                  sources={incomeSources}
+                  isRevealed={isRevealed}
+                />
               )}
-            </ChartCard>
+            </Panel>
           )}
+        </div>
+      )}
 
-          {/* Expense Summary */}
+      {bottomCount > 0 && (
+        <div
+          className={cn(
+            "grid gap-4 sm:gap-6",
+            bottomCount === 2 && "lg:grid-cols-2",
+          )}
+        >
+          {haveBooks && <BooksRecent books={books} />}
           {canExpenses && (
-            <Card>
-              <CardHeader className="pb-2">
-                <div className="flex items-baseline justify-between">
-                  <CardTitle className="text-base font-semibold">Expense Summary</CardTitle>
-                  <span className="text-xs text-muted-foreground">per month</span>
-                </div>
-              </CardHeader>
-              <CardContent>
+            <Panel
+              title="Expense summary"
+              right={
+                <span className="text-xs text-muted-foreground">per month</span>
+              }
+            >
+              {() => (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between py-3 border-b border-border">
+                  <div className="flex items-center justify-between border-b border-border py-3">
                     <div>
                       <p className="font-medium">Personal</p>
                       <p className="text-sm text-muted-foreground">
-                        {expenses.filter((e) => e.expense_type === "personal").length} expenses
+                        {
+                          expenses.filter((e) => e.expense_type === "personal")
+                            .length
+                        }{" "}
+                        expenses
                       </p>
                     </div>
                     <p className="text-lg font-semibold currency">
                       <MaskedValue value={formatCurrency(personalExpenses)} />
                     </p>
                   </div>
-                  <div className="flex items-center justify-between py-3 border-b border-border">
+                  <div className="flex items-center justify-between border-b border-border py-3">
                     <div>
                       <p className="font-medium">Business</p>
                       <p className="text-sm text-muted-foreground">
-                        {expenses.filter((e) => e.expense_type === "business").length} expenses
+                        {
+                          expenses.filter((e) => e.expense_type === "business")
+                            .length
+                        }{" "}
+                        expenses
                       </p>
                     </div>
                     <p className="text-lg font-semibold currency">
@@ -411,20 +473,26 @@ export function DashboardContent({
                     </p>
                   </div>
                   <div className="flex items-center justify-between pt-2">
-                    <p className="font-medium text-muted-foreground">Total Monthly</p>
+                    <p className="font-medium text-muted-foreground">
+                      Total monthly
+                    </p>
                     <p className="text-xl font-bold currency text-teal-light">
-                      <MaskedValue value={formatCurrency(totalMonthlyExpenses)} />
+                      <MaskedValue
+                        value={formatCurrency(totalMonthlyExpenses)}
+                      />
                     </p>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <p className="text-muted-foreground">Annual Projection</p>
+                    <p className="text-muted-foreground">Annual projection</p>
                     <p className="font-medium currency">
-                      <MaskedValue value={formatCurrency(totalMonthlyExpenses * 12)} />
+                      <MaskedValue
+                        value={formatCurrency(totalMonthlyExpenses * 12)}
+                      />
                     </p>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              )}
+            </Panel>
           )}
         </div>
       )}

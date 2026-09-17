@@ -680,6 +680,7 @@ export type Database = {
           suspended_at: string | null;
           theme_preference: "light" | "dark" | null;
           privacy_hidden: boolean;
+          show_net_worth: boolean;
           created_at: string;
           updated_at: string;
         };

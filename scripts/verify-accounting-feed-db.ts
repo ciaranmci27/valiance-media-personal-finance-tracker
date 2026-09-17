@@ -50,6 +50,21 @@ async function main() {
       await db.exec("SET ROLE authenticated");
     }
   };
+  const raw = async (sql: string, params: unknown[] = []) => {
+    await db.exec("RESET ROLE");
+    try {
+      return (await db.query<any>(sql, params)).rows;
+    } finally {
+      await db.exec("SET ROLE authenticated");
+    }
+  };
+  const minutesUntilNextSync = async () =>
+    (
+      await raw(
+        "SELECT round(extract(epoch FROM (next_sync_at-now()))/60)::int m FROM accounting.bank_connections WHERE id=$1",
+        [connection],
+      )
+    )[0].m;
   const providerKey = '["synthetic", "checking"]',
     stamp = Date.parse("2026-06-20T12:00:00Z") / 1000;
   const tx = {
@@ -103,7 +118,11 @@ async function main() {
       ]),
       /permission denied/,
     );
-    check(await worker({ action: "due" }), [connection]);
+    check(await worker({ action: "due", source: "fixture" }), [connection]);
+    check(
+      await raw("SELECT source,last_tick_due FROM accounting.feed_worker"),
+      [{ source: "fixture", last_tick_due: 1 }],
+    );
     let lease = await worker({ action: "lease" });
     check(lease.acquired, true);
     check(lease.identities[0].provider_account_id, "checking");
@@ -137,6 +156,8 @@ async function main() {
     check(result.complete, true);
     check((await inspect()).lease_run_id, null);
     check(!!(await inspect()).last_success_at, true);
+    // A complete run is due again after 110 minutes: the two-hour cadence on the hourly tick.
+    check(await minutesUntilNextSync(), 110);
     await rejects(
       worker({ action: "complete", accounts: [] }),
       /ACCT_STALE_LEASE/,
@@ -187,9 +208,16 @@ async function main() {
     await worker({
       action: "fail",
       error: "Synthetic interrupted provider response",
+      retry_seconds: 7200,
     });
     check((await inspect()).checkpoint[providerKey], String(stamp + 3));
     check((await inspect()).lease_run_id, null);
+    // A failed run waits the provider's Retry-After when that is longer than an hour.
+    check(await minutesUntilNextSync(), 120);
+    run = randomUUID();
+    await worker({ action: "lease" });
+    await worker({ action: "fail", error: "Synthetic outage" });
+    check(await minutesUntilNextSync(), 60);
     await db.exec("RESET ROLE");
     check(
       (
@@ -270,6 +298,8 @@ async function main() {
       "active",
     );
     check(JSON.stringify(feeds).includes("synthetic-encrypted-access"), false);
+    check(feeds.worker.source, "fixture");
+    check(typeof feeds.worker.last_tick_at, "string");
     console.log(
       `SimpleFIN durable chunks, checkpoints and worker isolation: ${checks} assertions passed.`,
     );

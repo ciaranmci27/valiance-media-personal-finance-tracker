@@ -15,10 +15,11 @@ import {
 } from "@/lib/accounting/server/feed-service";
 import {
   claimSimpleFin,
+  secureProviderTransport,
   setupClaimUrl,
   SimpleFinError,
 } from "@/lib/accounting/server/simplefin-transport";
-import { syncSimpleFin } from "@/lib/accounting/server/simplefin-sync";
+import { syncSimpleFin } from "@feeds/sync.ts";
 import { feedCommandSchema } from "@/lib/accounting/feeds";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -99,7 +100,10 @@ export async function POST(req: NextRequest) {
         claim_id: body.command.claim_id,
       });
       try {
-        const access = await claimSimpleFin(body.token),
+        const access = await claimSimpleFin(
+            body.token,
+            secureProviderTransport,
+          ),
           ciphertext = encryptFeed(access);
         await feedServer({
           action: "claim.complete",
@@ -140,6 +144,7 @@ export async function POST(req: NextRequest) {
       discover: body.action === "discover",
       rpc: feedServer,
       decrypt: decryptFeed,
+      transport: secureProviderTransport,
     });
     return NextResponse.json(result, {
       headers: { "Cache-Control": "no-store" },

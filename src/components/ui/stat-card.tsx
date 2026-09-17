@@ -87,7 +87,9 @@ export function StatCard({
   return (
     <div
       className={cn(
-        "glass-card rounded-xl p-4 lg:p-5 transition-opacity",
+        // A container query root: in a dense row the figure steps down and the
+        // icon steps out, so seven cards can share one line without clipping.
+        "glass-card rounded-xl p-4 lg:p-5 transition-opacity @container",
         isHidden && "cursor-default",
         className,
       )}
@@ -100,7 +102,7 @@ export function StatCard({
           </p>
           <p
             className={cn(
-              "text-2xl lg:text-3xl font-bold tracking-tight leading-none mt-0.5 currency",
+              "text-2xl lg:text-3xl @max-[220px]:text-xl! font-bold tracking-tight leading-none mt-0.5 currency",
               // Neutralize color when hidden to not reveal positive/negative
               isHidden && !isRevealed
                 ? "text-foreground"
@@ -113,7 +115,7 @@ export function StatCard({
           </p>
         </div>
         {icon && (
-          <div className="hidden min-[440px]:grid w-8 h-8 lg:w-9 lg:h-9 rounded-lg place-items-center bg-[rgba(var(--ink),0.06)] text-muted-foreground shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]">
+          <div className="hidden min-[440px]:grid @max-[190px]:hidden! w-8 h-8 lg:w-9 lg:h-9 rounded-lg place-items-center bg-[rgba(var(--ink),0.06)] text-muted-foreground shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]">
             {icon}
           </div>
         )}

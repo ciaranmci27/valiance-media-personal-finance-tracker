@@ -293,9 +293,12 @@ export function Sidebar() {
   // The signed-in member: their name in the footer, their keys on the rail.
   const { member, hasPermission } = useAccess();
   const initials = initialsOf(member.name) || "?";
-  const visibleItems = navItems.filter(
-    (item) => !item.permission || hasPermission(item.permission),
-  );
+  const visibleItems = navItems.filter((item) => {
+    if (item.permission && !hasPermission(item.permission)) return false;
+    // A display preference, not a permission: the page stays reachable.
+    if (item.href === "/net-worth" && !member.show_net_worth) return false;
+    return true;
+  });
 
   return (
     <>

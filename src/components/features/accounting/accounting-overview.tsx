@@ -588,129 +588,6 @@ export function AccountingOverview({
         </PanelCard>
       </div>
 
-      <section>
-        <SectionHeader
-          label="Accounts"
-          count={bankAccounts.length}
-          description={
-            demo
-              ? "Book balances."
-              : needsMapping
-                ? `Bank feed connected. Map ${countLabel(unmappedIdentities, "discovered account")} to your accounts to start syncing.`
-                : feedAttention
-                  ? "A bank connection needs attention."
-                  : lastSync
-                    ? `Synced ${timestampLabel(lastSync)}.`
-                    : connections.length
-                      ? "Connected. Map the discovered accounts to start syncing."
-                      : "Connect a bank to keep these in step with the bank."
-          }
-          dotColor={
-            needsMapping || feedAttention ? "var(--warning)" : undefined
-          }
-          action={
-            needsMapping || feedAttention ? (
-              <Button variant="outline" size="sm" onClick={onFeeds}>
-                {needsMapping ? "Map accounts" : "Bank connections"}
-                <ArrowRight size={14} aria-hidden="true" />
-              </Button>
-            ) : (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={onAccounts}
-                {...intent("accounts")}
-              >
-                All accounts
-                <ArrowRight size={14} aria-hidden="true" />
-              </Button>
-            )
-          }
-        />
-        <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] lg:mx-0 lg:grid lg:grid-cols-3 lg:overflow-visible lg:px-0 xl:grid-cols-4 [&::-webkit-scrollbar]:hidden">
-          {accountCards.map((c) => (
-            <button
-              key={c.account.id}
-              type="button"
-              onClick={onAccounts}
-              className="glass-card glass-card-interactive flex min-w-[240px] shrink-0 snap-start flex-col gap-3 rounded-xl p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:min-w-0"
-            >
-              <span className="flex items-center gap-3">
-                <InstitutionLogo
-                  institution={c.identity?.institution}
-                  name={c.account.name}
-                  size={36}
-                />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium">
-                    {c.account.name}
-                  </span>
-                  <span className="block truncate text-xs text-muted-foreground">
-                    {isCard(c.account) ? "Credit card" : "Bank account"}
-                    {c.identity?.institution
-                      ? ` · ${c.identity.institution}`
-                      : ""}
-                  </span>
-                </span>
-              </span>
-              <span className="text-2xl font-semibold tracking-tight tabular-nums">
-                {metadataLoading ? (
-                  <Skeleton className="h-7 w-28" />
-                ) : (
-                  <MaskedValue
-                    value={money(currentBalances.get(c.account.id)!.amount)}
-                  />
-                )}
-              </span>
-              <span className="text-[11px] text-muted-foreground">
-                {currentBalances.get(c.account.id)?.bank !== null
-                  ? "Bank-reported balance"
-                  : "Book balance (no bank balance)"}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {c.bank !== null ? (
-                  c.bank === c.book ? (
-                    <span className="inline-flex items-center gap-1 text-teal-light">
-                      <CheckCircle2 size={12} aria-hidden="true" />
-                      Matches the bank
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-warning">
-                      <CircleAlert size={12} aria-hidden="true" />
-                      Books: <MaskedValue value={money(c.book)} />
-                    </span>
-                  )
-                ) : c.connection?.last_success_at ? (
-                  `Synced ${timestampLabel(c.connection.last_success_at)}`
-                ) : activeConnection ? (
-                  <span className="inline-flex items-center gap-1 text-warning">
-                    <CircleAlert size={12} aria-hidden="true" />
-                    Not mapped
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1">
-                    <CircleDashed size={12} aria-hidden="true" />
-                    Not connected
-                  </span>
-                )}
-              </span>
-            </button>
-          ))}
-          {!demo && (
-            <button
-              type="button"
-              onClick={onFeeds}
-              className="flex min-w-[240px] shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[rgba(var(--ink),0.18)] p-4 text-center text-sm text-muted-foreground transition-colors hover:border-teal-light hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:min-w-0"
-            >
-              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-teal-light">
-                <Plus size={17} aria-hidden="true" />
-              </span>
-              {connections.length ? "Bank connections" : "Connect a bank"}
-            </button>
-          )}
-        </div>
-      </section>
-
       <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">
         <PanelCard
           title="Recent activity"
@@ -849,6 +726,129 @@ export function AccountingOverview({
           }
         </PanelCard>
       </div>
+
+      <section>
+        <SectionHeader
+          label="Accounts"
+          count={bankAccounts.length}
+          description={
+            demo
+              ? "Book balances."
+              : needsMapping
+                ? `Bank feed connected. Map ${countLabel(unmappedIdentities, "discovered account")} to your accounts to start syncing.`
+                : feedAttention
+                  ? "A bank connection needs attention."
+                  : lastSync
+                    ? `Synced ${timestampLabel(lastSync)}.`
+                    : connections.length
+                      ? "Connected. Map the discovered accounts to start syncing."
+                      : "Connect a bank to keep these in step with the bank."
+          }
+          dotColor={
+            needsMapping || feedAttention ? "var(--warning)" : undefined
+          }
+          action={
+            needsMapping || feedAttention ? (
+              <Button variant="outline" size="sm" onClick={onFeeds}>
+                {needsMapping ? "Map accounts" : "Bank connections"}
+                <ArrowRight size={14} aria-hidden="true" />
+              </Button>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onAccounts}
+                {...intent("accounts")}
+              >
+                All accounts
+                <ArrowRight size={14} aria-hidden="true" />
+              </Button>
+            )
+          }
+        />
+        <div className="-mx-4 flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-1 [scrollbar-width:none] lg:mx-0 lg:grid lg:grid-cols-3 lg:overflow-visible lg:px-0 xl:grid-cols-4 [&::-webkit-scrollbar]:hidden">
+          {accountCards.map((c) => (
+            <button
+              key={c.account.id}
+              type="button"
+              onClick={onAccounts}
+              className="glass-card glass-card-interactive flex min-w-[240px] shrink-0 snap-start flex-col gap-3 rounded-xl p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:min-w-0"
+            >
+              <span className="flex items-center gap-3">
+                <InstitutionLogo
+                  institution={c.identity?.institution}
+                  name={c.account.name}
+                  size={36}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-medium">
+                    {c.account.name}
+                  </span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {isCard(c.account) ? "Credit card" : "Bank account"}
+                    {c.identity?.institution
+                      ? ` · ${c.identity.institution}`
+                      : ""}
+                  </span>
+                </span>
+              </span>
+              <span className="text-2xl font-semibold tracking-tight tabular-nums">
+                {metadataLoading ? (
+                  <Skeleton className="h-7 w-28" />
+                ) : (
+                  <MaskedValue
+                    value={money(currentBalances.get(c.account.id)!.amount)}
+                  />
+                )}
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                {currentBalances.get(c.account.id)?.bank !== null
+                  ? "Bank-reported balance"
+                  : "Book balance (no bank balance)"}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {c.bank !== null ? (
+                  c.bank === c.book ? (
+                    <span className="inline-flex items-center gap-1 text-teal-light">
+                      <CheckCircle2 size={12} aria-hidden="true" />
+                      Matches the bank
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-warning">
+                      <CircleAlert size={12} aria-hidden="true" />
+                      Books: <MaskedValue value={money(c.book)} />
+                    </span>
+                  )
+                ) : c.connection?.last_success_at ? (
+                  `Synced ${timestampLabel(c.connection.last_success_at)}`
+                ) : activeConnection ? (
+                  <span className="inline-flex items-center gap-1 text-warning">
+                    <CircleAlert size={12} aria-hidden="true" />
+                    Not mapped
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1">
+                    <CircleDashed size={12} aria-hidden="true" />
+                    Not connected
+                  </span>
+                )}
+              </span>
+            </button>
+          ))}
+          {!demo && (
+            <button
+              type="button"
+              onClick={onFeeds}
+              className="flex min-w-[240px] shrink-0 snap-start flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[rgba(var(--ink),0.18)] p-4 text-center text-sm text-muted-foreground transition-colors hover:border-teal-light hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:min-w-0"
+            >
+              <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/12 text-teal-light">
+                <Plus size={17} aria-hidden="true" />
+              </span>
+              {connections.length ? "Bank connections" : "Connect a bank"}
+            </button>
+          )}
+        </div>
+      </section>
     </div>
   );
 }

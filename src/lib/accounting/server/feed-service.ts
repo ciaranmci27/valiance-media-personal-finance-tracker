@@ -4,8 +4,12 @@ import { ACCOUNTING_ENABLED } from "@/lib/env";
 import { isDemoMode } from "@/lib/demo";
 import { encryptWith, decryptWith } from "@/lib/crypto/aes";
 import { localAccountingFeedService } from "./local-test-client";
-import { SimpleFinError, bridgeUrl } from "./simplefin-transport";
-import type { FeedRpc } from "./simplefin-sync";
+import {
+  SimpleFinError,
+  bridgeUrl,
+  feedStorageError,
+} from "./simplefin-transport";
+import type { FeedRpc } from "@feeds/sync.ts";
 
 export function feedConfiguration() {
   const version = Number(process.env.SIMPLEFIN_KEY_VERSION ?? "1");
@@ -60,27 +64,6 @@ export const feedServer: FeedRpc = async (command) => {
   const { data, error } = await client.rpc("sync_server", {
     command,
   });
-  if (error) {
-    const errors: Record<string, string> = {
-      ACCT_FEED_BUSY: "A sync is already running for this connection.",
-      ACCT_FEED_LEASE:
-        "This sync lease expired or the connection changed. Refresh to see the latest run.",
-      ACCT_FEED_BACKOFF:
-        "The connection is waiting before another request. Check its retry time.",
-      ACCT_FEED_QUOTA:
-        "This connection reached its request budget. Try again after the daily requests expire.",
-      ACCT_FEED_CLAIM:
-        "This setup attempt was already sent or changed. Reconnect with a new SimpleFIN token.",
-      ACCT_FORBIDDEN:
-        "This connection is unavailable for the requested operation.",
-    };
-    for (const [code, message] of Object.entries(errors))
-      if (error.message.includes(code))
-        throw new SimpleFinError(code.toLowerCase(), message);
-    throw new SimpleFinError(
-      "storage_failed",
-      "The bank observation could not be saved. The ledger was not changed.",
-    );
-  }
+  if (error) throw feedStorageError(error.message);
   return data;
 };

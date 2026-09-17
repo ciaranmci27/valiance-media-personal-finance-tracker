@@ -9,6 +9,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { ArrowLeft, Check, Palette } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/inputs/Toggle";
 import { toast } from "@/components/ui/toast";
 import { useAccess } from "@/contexts/access-context";
 import { teamError } from "@/lib/team/errors";
@@ -73,6 +74,22 @@ export function AppearanceSettingsContent() {
       );
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Display preferences save straight to the account; the switch moves at
+  // once and steps back if the save fails.
+  const [showNetWorth, setShowNetWorth] = React.useState(member.show_net_worth);
+  React.useEffect(() => {
+    setShowNetWorth(member.show_net_worth);
+  }, [member.show_net_worth]);
+  const handleShowNetWorth = async (next: boolean) => {
+    setShowNetWorth(next);
+    try {
+      await updateMe({ show_net_worth: next });
+    } catch (error) {
+      setShowNetWorth(!next);
+      toast("error", teamError(error, "The preference could not be saved."));
     }
   };
 
@@ -202,6 +219,24 @@ export function AppearanceSettingsContent() {
               ? "Saved to your account. Every device you sign in on follows it."
               : "Pick one to save it to your account. Until then each device keeps its own."}
         </p>
+      </div>
+
+      {/* Display Section */}
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 px-1">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Display
+          </h2>
+          <div className="flex-1 h-px bg-border/50" />
+        </div>
+        <div className="glass-card rounded-xl p-5">
+          <Toggle
+            checked={showNetWorth}
+            onChange={(next) => void handleShowNetWorth(next)}
+            label="Show Net Worth"
+            description="Off hides the Net Worth tab and its dashboard figures for you, handy while sharing a screen. The page itself stays reachable."
+          />
+        </div>
       </div>
 
       {/* Preview Section */}
