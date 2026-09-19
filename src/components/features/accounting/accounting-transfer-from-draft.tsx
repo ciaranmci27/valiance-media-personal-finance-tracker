@@ -29,11 +29,13 @@ import { absMoney, dateLabel } from "./format";
  * with the drafts' own dates so the books claim both bank movements and
  * retire the drafts, instead of counting one side as income and the other
  * as an expense. The draft's own account is fixed; the other side is chosen,
- * pre-filled from the matching movement when the books hold one.
+ * pre-filled from the matching movement when the books hold one. `match` is
+ * that movement's account and date when its row is not on the current page.
  */
 export function AccountingTransferFromDraft({
   entry,
   counterpart,
+  match,
   accounts,
   profiles,
   revision,
@@ -42,6 +44,7 @@ export function AccountingTransferFromDraft({
 }: {
   entry: JournalEntry;
   counterpart: JournalEntry | null;
+  match?: { account_id: string; entry_date: string };
   accounts: AccountingAccount[];
   profiles: AccountProfile[];
   revision: string;
@@ -52,9 +55,12 @@ export function AccountingTransferFromDraft({
   const q = counterpart ? presentTransaction(counterpart, profiles) : null;
   const outgoing = p.amount < BigInt(0);
   const own = p.bankLine?.account_id ?? "";
-  const [other, setOther] = useState(q?.bankLine?.account_id ?? "");
+  const [other, setOther] = useState(
+    q?.bankLine?.account_id ?? match?.account_id ?? "",
+  );
   // Dates read in the money's order: it left one account, then arrived in the other.
-  const otherDate = counterpart?.entry_date ?? entry.entry_date;
+  const otherDate =
+    counterpart?.entry_date ?? match?.entry_date ?? entry.entry_date;
   const [outDate, setOutDate] = useState(
     outgoing ? entry.entry_date : otherDate,
   );
@@ -123,7 +129,7 @@ export function AccountingTransferFromDraft({
         <DialogHeader>
           <DialogTitle>Record transfer</DialogTitle>
           <DialogDescription className="sr-only">
-            {counterpart
+            {counterpart || match
               ? "Both bank movements become one transfer."
               : "The other side is claimed when its movement arrives."}
           </DialogDescription>
@@ -171,7 +177,9 @@ export function AccountingTransferFromDraft({
           <p className="text-xs text-muted-foreground">
             {counterpart
               ? `Replaces "${entry.memo}" (${dateLabel(entry.entry_date)}) and "${counterpart.memo}" (${dateLabel(counterpart.entry_date)}).`
-              : `Replaces "${entry.memo}" (${dateLabel(entry.entry_date)}).`}
+              : match
+                ? `Replaces "${entry.memo}" (${dateLabel(entry.entry_date)}) and the matching movement on ${dateLabel(match.entry_date)}.`
+                : `Replaces "${entry.memo}" (${dateLabel(entry.entry_date)}).`}
           </p>
           {command.error && (
             <p role="alert" className="text-sm text-error">

@@ -45,6 +45,21 @@ export const transferCommandSchema = z.discriminatedUnion("type", [
       reason: z.string().trim().min(1).max(1000),
     })
     .strict(),
+  // A proposed pair is addressed by either leg; the server finds the other.
+  z
+    .object({
+      type: z.literal("transfer.confirm"),
+      id: z.uuid(),
+      expected_version: z.number().int().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("transfer.unpair"),
+      id: z.uuid(),
+      expected_version: z.number().int().min(1),
+    })
+    .strict(),
 ]);
 export interface TransferGroup {
   id: string;

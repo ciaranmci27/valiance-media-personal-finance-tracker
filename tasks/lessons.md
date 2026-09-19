@@ -171,3 +171,38 @@ Rule: when generating a migration from the snapshot, write tables with inline
 `NOT NULL` (as every earlier migration does) and keep the named form only in
 schema.sql. Function bodies can be copied verbatim. Before handing over a
 migration, scan it for `NOT NULL <column>` after a CONSTRAINT keyword.
+
+## Ledger rows stay one line; hints live in the cell they explain (2026-09-19)
+
+The first build of the fill indicators put a second line under the description
+("Transfer to X, Sep 17  Not a transfer"). The owner rejected it on sight: the
+two hinted rows were taller than every other row and the list lost its rhythm.
+The older "Previously X [Use]" line had the same flaw and went with it.
+
+**Rule:** A ledger row is one line. Something the books want to say about a row
+goes in the cell it explains (a category hint sits with the category), as an
+icon hung in the column gutter so the text under it stays aligned with the
+rows above and below, with the words in a tooltip and an aria-label. If the
+hint has a one-click action the icon is the button; a second action goes in
+the row's actions menu, not inline text.
+
+**Why this matters:** Review is scanned top to bottom. Uneven row heights and
+indented text read as noise before any word is read, and the rows that need
+attention are exactly the ones that were getting the extra line.
+
+## A command that changes two rows must hold both rows (2026-09-19)
+
+Confirming one leg of a proposed transfer posts both legs, but only the clicked
+row was marked busy and updated optimistically. The partner row kept offering
+its check until the list refreshed; the owner clicked it and got an error that
+flashed under the table header and cleared itself when the refresh landed.
+The server was right to refuse; the screen was wrong to offer.
+
+**Rule:** When one command changes more than one ledger row, every affected row
+on screen gets the optimistic outcome and stays disabled until a fresh read
+shows the result (release it at once if the command fails). Test the second
+click, not only the first.
+
+**Why this matters:** A refused duplicate is harmless in the books but reads as
+"something broke" to the owner, and an error that vanishes before it can be
+read is worse than none.

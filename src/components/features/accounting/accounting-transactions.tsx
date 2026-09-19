@@ -3,12 +3,13 @@ import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ArrowUpDown,
+  Bot,
   Copy,
   Pencil,
   Plus,
+  Unlink,
   Search,
   Split,
-  Sparkles,
   Trash2,
   Undo2,
   Wallet,
@@ -73,6 +74,7 @@ import { useAccountingRowCommand } from "./use-accounting-row-command";
 import { AccountingPicker } from "./accounting-picker";
 import {
   AccountingCategoryPicker,
+  TransferLabel,
   type TransferMatch,
 } from "./accounting-category-picker";
 import {
@@ -187,6 +189,11 @@ export function AccountingTransactions({
     Record<string, { entry: JournalEntry; pending: boolean }>
   >({});
   const rowCommand = useAccountingRowCommand();
+  // The other side of a proposed transfer while a confirm or unpair on its
+  // partner settles: one command changes both rows, so both are held until a
+  // fresh read shows the pair resolved. Without this the second row still
+  // offers its check and a click asks for a pair that no longer exists.
+  const [settling, setSettling] = useState<Set<string>>(new Set());
   const clearRowErrors = rowCommand.clearResolved;
   const [error, setError] = useState("");
   // Selected draft ids with the version seen at selection time, so a stale row never posts.
@@ -206,6 +213,7 @@ export function AccountingTransactions({
   const [transfer, setTransfer] = useState<{
     entry: JournalEntry;
     counterpart: JournalEntry | null;
+    match?: { account_id: string; entry_date: string };
   } | null>(null);
   const cmd = useAccountingCommand(onRefresh);
   const { feeds } = useAccountingBankIdentity();
@@ -299,6 +307,15 @@ export function AccountingTransactions({
     keepPrevious: true,
     revalidateOnFocus: true,
   });
+  // A total belongs to one filter. While a different filter loads, the rows
+  // kept on screen are the last filter's and so is their count, so the pager
+  // waits for the new count instead of flashing the old one. Paging within a
+  // filter keeps its total.
+  const countKey = JSON.stringify({ ...filter, offset: 0 });
+  const [countedKey, setCountedKey] = useState(countKey);
+  useEffect(() => {
+    if (page.data && !page.isPlaceholder) setCountedKey(countKey);
+  }, [page.data, page.isPlaceholder, countKey]);
   // The Review badge follows the search and filters: with any active it
   // counts the unreviewed rows that match instead of the whole inbox.
   const narrowed = Boolean(
@@ -395,6 +412,12 @@ export function AccountingTransactions({
     const next = page.data;
     if (!next || page.isPlaceholder) return;
     clearRowErrors(next.entries);
+    setSettling((previous) => {
+      const still = [...previous].filter(
+        (id) => next.entries.find((e) => e.id === id)?.pair_entry_id,
+      );
+      return still.length === previous.size ? previous : new Set(still);
+    });
     setOverrides((previous) =>
       Object.fromEntries(
         Object.entries(previous).filter(([id, value]) => {
@@ -484,7 +507,8 @@ export function AccountingTransactions({
     `${n} ${n === 1 ? noun : `${noun}s`}`;
   const chosenSet = new Set(chosen.map((e) => e.id));
   const busy = cmd.busy || page.isPlaceholder;
-  const rowBusy = (id: string) => busy || rowCommand.pending.has(id);
+  const rowBusy = (id: string) =>
+    busy || rowCommand.pending.has(id) || settling.has(id);
 
   function openAction(action: TransactionAction, entry: JournalEntry) {
     if (!rowCommand.isPending(entry.id)) onAction(action, entry);
@@ -544,7 +568,85 @@ export function AccountingTransactions({
     setOffset(0);
   }
 
+  /** Runs a command that changes both legs, holding the partner row until the books show the result. */
+  async function savePair(
+    entry: JournalEntry,
+    command: WorkflowCommand,
+    optimistic: JournalEntry,
+    partner?: (other: JournalEntry) => JournalEntry,
+  ) {
+    const otherId = entry.pair_entry_id;
+    const other = otherId ? rows.find((r) => r.id === otherId) : undefined;
+    if (otherId && rowBusy(otherId)) return false;
+    if (otherId) setSettling((previous) => new Set(previous).add(otherId));
+    // The partner shows its outcome at once; its real version arrives with the next read.
+    if (other && partner)
+      setOverrides((previous) => ({
+        ...previous,
+        [other.id]: {
+          entry: { ...partner(other), version: other.version + 1 },
+          pending: false,
+        },
+      }));
+    const saved = await saveRow(entry, command, optimistic);
+    if (!saved && otherId) {
+      setSettling((previous) => {
+        const next = new Set(previous);
+        next.delete(otherId);
+        return next;
+      });
+      setOverrides((previous) => {
+        const next = { ...previous };
+        delete next[otherId];
+        return next;
+      });
+    }
+    return saved;
+  }
+
+  /** Either leg confirms the pair: both post as one transfer and leave Review together. */
+  async function confirmTransfer(entry: JournalEntry) {
+    const posted = (e: JournalEntry): JournalEntry => ({
+      ...e,
+      status: "posted",
+      review_pending: false,
+      pair_entry_id: null,
+      fill: null,
+    });
+    if (
+      await savePair(
+        entry,
+        {
+          type: "transfer.confirm",
+          id: entry.id,
+          expected_version: entry.version,
+        },
+        posted(entry),
+        posted,
+      )
+    )
+      toast("success", "Transfer confirmed. Both sides are reviewed.");
+  }
+
+  /** Not a transfer: both legs go back to uncategorized and are not proposed again. */
+  async function unpairTransfer(entry: JournalEntry) {
+    if (
+      await savePair(
+        entry,
+        {
+          type: "transfer.unpair",
+          id: entry.id,
+          expected_version: entry.version,
+        },
+        entry,
+      )
+    )
+      toast("success", "Unpaired. Both sides need a category.");
+  }
+
   async function review(entry: JournalEntry) {
+    if (entry.status === "draft" && entry.pair_entry_id)
+      return confirmTransfer(entry);
     const reviewed = !isTransactionReviewed(entry);
     if (
       await saveRow(
@@ -773,9 +875,24 @@ export function AccountingTransactions({
       if (second.failed) return;
     }
     // Phase 3: review the drafts that have a category.
-    const toReview = bulkEdit.review
+    const reviewable = bulkEdit.review
       ? plan.groups.filter((g) => g.entry.status === "draft" && g.categorized)
       : [];
+    // A proposed transfer posts through its own command, once per pair.
+    const pairs = reviewable.filter((g) => g.entry.pair_entry_id);
+    const toReview = reviewable.filter((g) => !g.entry.pair_entry_id);
+    const confirmedLegs = new Set<string>();
+    const confirms: WorkflowCommand[] = [];
+    for (const g of pairs) {
+      if (confirmedLegs.has(g.entry.id)) continue;
+      confirmedLegs.add(g.entry.id).add(g.entry.pair_entry_id!);
+      confirms.push({
+        type: "transfer.confirm",
+        id: g.entry.id,
+        expected_version: versions.get(g.entry.id) ?? g.entry.version,
+      });
+    }
+    if (confirms.length > 0 && (await cmd.executeMany(confirms)).failed) return;
     if (toReview.length > 0) {
       const chunks: WorkflowCommand[] = [];
       for (let i = 0; i < toReview.length; i += 50)
@@ -812,8 +929,10 @@ export function AccountingTransactions({
             "transaction",
           ),
       );
-    if (toReview.length > 0)
-      parts.push(plural(toReview.length, "transaction") + " reviewed");
+    if (toReview.length + pairs.length > 0)
+      parts.push(
+        plural(toReview.length + pairs.length, "transaction") + " reviewed",
+      );
     setBulkEdit(null);
     setSelection({});
     if (parts.length > 0) toast("success", "Saved: " + parts.join(", ") + ".");
@@ -837,7 +956,10 @@ export function AccountingTransactions({
         label: "Edit",
         icon: <Pencil />,
         onSelect: () => openAction("edit", entry),
-        disabled: isTransactionReversed(entry) || readOnly("edit"),
+        disabled:
+          isTransactionReversed(entry) ||
+          !!entry.pair_entry_id ||
+          readOnly("edit"),
       },
       {
         label: "Copy",
@@ -846,6 +968,13 @@ export function AccountingTransactions({
         disabled: readOnly("copy"),
       },
     ];
+    if (entry.status === "draft" && entry.pair_entry_id)
+      actions.push({
+        label: "Not a transfer",
+        icon: <Unlink />,
+        onSelect: () => void unpairTransfer(entry),
+        disabled: rowBusy(entry.id) || demo,
+      });
     if (entry.status === "draft")
       actions.push({
         label: "Delete",
@@ -874,69 +1003,97 @@ export function AccountingTransactions({
     return actions;
   }
 
-  const transferWindow = manage.preferences?.transfer_window_days ?? 5;
-  /** Another uncategorized draft on a different own account, same amount the other way, within the window. */
-  function transferCounterpart(entry: TransactionRow): JournalEntry | null {
-    const p = presentTransaction(entry, profiles);
-    if (!p.bankLine || !p.editable || p.categorized || !result) return null;
-    const amount = BigInt(p.bankLine.amount_cents);
-    return (
-      result.entries.find((other) => {
-        if (other.id === entry.id || other.status !== "draft") return false;
-        const q = presentTransaction(other, profiles);
-        if (!q.bankLine || !q.editable || q.categorized) return false;
-        if (q.bankLine.account_id === p.bankLine!.account_id) return false;
-        if (BigInt(q.bankLine.amount_cents) !== -amount) return false;
-        const days =
-          Math.abs(
-            Date.parse(other.entry_date) - Date.parse(entry.entry_date),
-          ) / 86400000;
-        return days <= transferWindow;
-      }) ?? null
-    );
+  /** The other leg the books found for an uncategorized draft, on this page or not. */
+  function openTransfer(row: TransactionRow) {
+    const found = row.transfer_suggestion;
+    setTransfer({
+      entry: row,
+      counterpart: rows.find((r) => r.id === found?.counterpart_id) ?? null,
+      match: found
+        ? { account_id: found.account_id, entry_date: found.entry_date }
+        : undefined,
+    });
   }
 
   /** The picker leads with a transfer only when the books hold the other leg. */
   function transferSuggestion(row: TransactionRow): TransferMatch | undefined {
-    if (demo || row.status !== "draft") return undefined;
-    const counterpart = transferCounterpart(row);
-    if (!counterpart) return undefined;
-    const otherLine = presentTransaction(counterpart, profiles).bankLine;
+    const found = row.transfer_suggestion;
+    if (demo || row.status !== "draft" || !found) return undefined;
     return {
-      account: otherLine
-        ? (accounts.get(otherLine.account_id)?.name ?? "another account")
-        : "another account",
-      date: counterpart.entry_date,
-      onSelect: () => setTransfer({ entry: row, counterpart }),
+      account: accounts.get(found.account_id)?.name ?? "another account",
+      date: found.entry_date,
+      onSelect: () => openTransfer(row),
     };
   }
 
-  function priorHint(
+  /**
+   * What the books did to a draft on their own, or would do: one copper
+   * robot beside the category, never a second line. It only explains a
+   * category the books filled; it is a button when one click applies what
+   * they suggest (pair the transfer, use last time's category).
+   */
+  function fillMark(
     row: TransactionRow,
     p: ReturnType<typeof presentTransaction>,
   ) {
-    const prior = row.prior_treatment;
-    if (!prior || row.status !== "draft" || p.categorized || !p.editable)
-      return null;
-    const category = prior.last_category;
-    const name = category ? accounts.get(category)?.name : undefined;
-    if (!category || !name) return null;
-    return (
-      <span className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-        <Sparkles size={11} aria-hidden="true" className="text-copper" />
-        <span className="truncate">
-          Previously {name}
-          {prior.count > 1 ? `, ${prior.count} times` : ""}
+    if (row.status !== "draft") return null;
+    const icon = <Bot size={13} aria-hidden="true" className="text-copper" />;
+    const note = (text: string) => (
+      <Tooltip content={text}>
+        <span
+          role="img"
+          aria-label={text}
+          tabIndex={0}
+          className="flex h-7 w-5 shrink-0 items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {icon}
         </span>
+      </Tooltip>
+    );
+    const act = (text: string, run: () => void) => (
+      <Tooltip content={text}>
         <button
           type="button"
+          aria-label={text}
           disabled={rowBusy(row.id) || demo}
-          onClick={() => void categorize(row, category, prior.payee_id)}
-          className="rounded px-1 font-medium text-teal-light hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          onClick={run}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
-          Use
+          {icon}
         </button>
-      </span>
+      </Tooltip>
+    );
+    const fill = row.fill;
+    if (fill?.source === "rule")
+      return note(
+        fill.rule_name
+          ? `Filled by rule: ${fill.rule_name}`
+          : "Filled by a rule",
+      );
+    if (fill?.source === "prior") {
+      const count = row.prior_treatment?.count ?? 0;
+      return note(
+        count > 1 ? `Same as the last ${count} times` : "Same as last time",
+      );
+    }
+    if (fill?.source === "payee_default")
+      return note("Filled from the contact's default category");
+    if (fill || p.categorized || !p.editable) return null;
+    const found = row.transfer_suggestion;
+    if (found) {
+      const other = accounts.get(found.account_id)?.name ?? "another account";
+      return act(
+        `Looks like a transfer ${p.amount < BigInt(0) ? "to" : "from"} ${other}, ${dateLabel(found.entry_date)}. Pair them`,
+        () => openTransfer(row),
+      );
+    }
+    const prior = row.prior_treatment;
+    const category = prior?.last_category;
+    const name = category ? accounts.get(category)?.name : undefined;
+    if (!prior || !category || !name) return null;
+    return act(
+      `Use ${name}, chosen ${prior.count > 1 ? `${prior.count} times` : "once"} before`,
+      () => void categorize(row, category, prior.payee_id),
     );
   }
 
@@ -960,11 +1117,40 @@ export function AccountingTransactions({
         reviewed={reviewed}
         categorized={p.categorized}
         name={entry.memo}
-        busy={rowCommand.pending.has(entry.id)}
+        confirmsTransfer={entry.status === "draft" && !!entry.pair_entry_id}
+        busy={rowCommand.pending.has(entry.id) || settling.has(entry.id)}
         disabled={demo || rowBusy(entry.id) || entry.status === "discarded"}
         onToggle={() => void review(entry)}
       />
     );
+  }
+
+  /**
+   * A recorded transfer read from this row's side: the other own account and
+   * which way the money went. A two-entry transfer gets the other account
+   * from the books; one entry holding both accounts reads from the account
+   * being viewed, or from the account the money left.
+   */
+  function transferSide(
+    entry: JournalEntry,
+    p: ReturnType<typeof presentTransaction>,
+  ): { verb: string; other: string } | null {
+    if (!p.transfer) return null;
+    const named = (id: string, amount: bigint) => ({
+      verb: amount < BigInt(0) ? "Transfer to" : "Transfer from",
+      other: accounts.get(id)?.name ?? "another account",
+    });
+    if (p.bankLine && entry.transfer_account_id)
+      return named(entry.transfer_account_id, BigInt(p.bankLine.amount_cents));
+    if (p.accountIds.length !== 2) return null;
+    const total = (id: string) =>
+      entry.lines
+        .filter((l) => l.account_id === id)
+        .reduce((sum, l) => sum + BigInt(l.amount_cents), BigInt(0));
+    const own = p.accountIds.includes(account)
+      ? account
+      : (p.accountIds.find((id) => total(id) < BigInt(0)) ?? p.accountIds[0]);
+    return named(p.accountIds.find((id) => id !== own)!, total(own));
   }
 
   function categoryCell(
@@ -986,24 +1172,58 @@ export function AccountingTransactions({
       !demo
     )
       return (
-        <AccountingCategoryPicker
-          label={`Category for ${entry.memo}`}
-          compact
-          disabled={rowBusy(entry.id)}
-          value={p.categoryLines[0].account_id}
-          groups={categoryMenu(menus[directionOf(p)], data.accounts, {
-            current: p.categoryLines[0].account_id,
-            prior: entry.prior_treatment,
-            payeeDefault: payeeDefault(entry),
-          })}
-          direction={directionOf(p)}
-          // A placeholder category (Uncategorized) is named on the trigger, not listed.
-          placeholder={categories[0] ?? "Choose a category"}
-          transfer={transferSuggestion(entry as TransactionRow)}
-          onChange={(id) => void categorize(entry, id)}
-          className={cn("w-full", !p.categorized && "text-warning")}
-        />
+        // The mark hangs in the column gutter so category names stay aligned down the list.
+        <div className="relative min-w-0">
+          <span className="absolute -left-6 top-1/2 -translate-y-1/2">
+            {fillMark(entry as TransactionRow, p)}
+          </span>
+          <AccountingCategoryPicker
+            label={`Category for ${entry.memo}`}
+            compact
+            disabled={rowBusy(entry.id)}
+            value={p.categoryLines[0].account_id}
+            groups={categoryMenu(menus[directionOf(p)], data.accounts, {
+              current: p.categoryLines[0].account_id,
+              prior: entry.prior_treatment,
+              payeeDefault: payeeDefault(entry),
+            })}
+            direction={directionOf(p)}
+            // A placeholder category (Uncategorized) is named on the trigger, not listed.
+            placeholder={categories[0] ?? "Choose a category"}
+            transfer={transferSuggestion(entry as TransactionRow)}
+            onChange={(id) => void categorize(entry, id)}
+            className={cn("w-full min-w-0", !p.categorized && "text-warning")}
+          />
+        </div>
       );
+    // One side of a proposed transfer names the other account where the category reads.
+    const pair = entry.status === "draft" ? entry.fill : null;
+    if (pair?.source === "transfer_pair") {
+      const other =
+        (pair.pair_account_id && accounts.get(pair.pair_account_id)?.name) ||
+        "another account";
+      const verb = p.amount < BigInt(0) ? "Transfer to" : "Transfer from";
+      const when = pair.pair_entry_date
+        ? `, matched to ${dateLabel(pair.pair_entry_date)}`
+        : "";
+      return (
+        <Tooltip content={`${verb} ${other}${when}. Check to confirm`}>
+          <button
+            type="button"
+            onClick={() => openAction(transactionRowAction(entry), entry)}
+            className="relative flex max-w-full items-center rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Bot
+              size={13}
+              aria-hidden="true"
+              className="absolute -left-4 top-1/2 -translate-y-1/2 text-copper"
+            />
+            <TransferLabel verb={verb} account={other} />
+          </button>
+        </Tooltip>
+      );
+    }
+    const side = transferSide(entry, p);
     return (
       <button
         type="button"
@@ -1011,7 +1231,11 @@ export function AccountingTransactions({
         className="flex max-w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {p.categoryLines.length > 1 && <Split size={12} aria-hidden="true" />}
-        <span className="truncate">{label}</span>
+        {side ? (
+          <TransferLabel verb={side.verb} account={side.other} />
+        ) : (
+          <span className="truncate">{label}</span>
+        )}
       </button>
     );
   }
@@ -1032,7 +1256,6 @@ export function AccountingTransactions({
       key: "description",
       header: "Description",
       render: (e) => {
-        const p = presentTransaction(e, profiles, account);
         return (
           <div className="min-w-0">
             {renaming?.id === e.id ? (
@@ -1098,7 +1321,6 @@ export function AccountingTransactions({
                 {e.reverses_entry_id ? "Deletion" : ""}
               </p>
             )}
-            {priorHint(e, p)}
           </div>
         );
       },
@@ -1227,7 +1449,6 @@ export function AccountingTransactions({
             />
           </span>
         </div>
-        {priorHint(e, p)}
         <div className="flex items-center justify-between gap-2">
           <div className="min-w-0 flex-1">{categoryCell(e, p)}</div>
           <div className="flex shrink-0 items-center gap-1">
@@ -1635,7 +1856,7 @@ export function AccountingTransactions({
             <Pagination
               offset={offset}
               limit={PAGE}
-              total={result?.total ?? 0}
+              total={demo || countedKey === countKey ? (result?.total ?? 0) : 0}
               onChange={setOffset}
               noun="transactions"
               busy={loading || page.isPlaceholder}
@@ -1885,6 +2106,7 @@ export function AccountingTransactions({
         <AccountingTransferFromDraft
           entry={transfer.entry}
           counterpart={transfer.counterpart}
+          match={transfer.match}
           accounts={data.accounts}
           profiles={profiles}
           revision={data.revision}

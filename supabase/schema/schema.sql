@@ -2176,6 +2176,12 @@ CREATE TABLE accounting.journal_entries (
   "review_pending" boolean DEFAULT false NOT NULL,
   "restores_entry_id" uuid REFERENCES accounting.journal_entries(id) UNIQUE,
   "bank_restore_matches" jsonb NOT NULL DEFAULT '[]'::jsonb,
+  "fill_source" text,
+  "pair_entry_id" uuid,
+  CONSTRAINT "entries_fill_draft_check" CHECK (((status = 'draft'::text) OR ((fill_source IS NULL) AND (pair_entry_id IS NULL)))),
+  CONSTRAINT "entries_fill_source_check" CHECK ((fill_source = ANY (ARRAY['rule'::text, 'prior'::text, 'payee_default'::text, 'transfer_pair'::text]))),
+  CONSTRAINT "entries_pair_fk" FOREIGN KEY (pair_entry_id) REFERENCES accounting.journal_entries(id) ON DELETE RESTRICT,
+  CONSTRAINT "entries_pair_self_check" CHECK ((pair_entry_id <> id)),
   CONSTRAINT "entries_import_fk" FOREIGN KEY (import_batch_id) REFERENCES accounting.import_batches(id) ON DELETE RESTRICT,
   CONSTRAINT "entries_payee_fk" FOREIGN KEY (payee_id) REFERENCES accounting.parties(id) ON DELETE RESTRICT,
   CONSTRAINT "entries_register_fk" FOREIGN KEY (register_id) REFERENCES accounting.registers(id) ON DELETE RESTRICT,
@@ -2606,6 +2612,8 @@ CREATE INDEX entries_date ON accounting.journal_entries USING btree (entry_date,
 
 CREATE INDEX entries_descriptor ON accounting.journal_entries USING btree (descriptor_key, entry_date DESC) WHERE (descriptor_key IS NOT NULL);
 
+CREATE INDEX entries_pair ON accounting.journal_entries USING btree (pair_entry_id) WHERE (pair_entry_id IS NOT NULL);
+
 CREATE INDEX entries_review ON accounting.journal_entries USING btree (entry_date DESC, id) WHERE (status = 'draft'::text OR (status = 'posted'::text AND review_pending));
 
 CREATE INDEX lines_account ON accounting.journal_lines USING btree (account_id, entry_id);
@@ -2634,7 +2642,7 @@ BEGIN
   ELSE
    result:=accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',entry,'expected_version',e.version,'account_id',candidate->'actions'->>'account_id','memo',coalesce(candidate->'actions'->>'memo',e.memo),'payee_id',coalesce(candidate->'actions'->>'payee_id',e.payee_id::text)));
   END IF;
-  UPDATE accounting.journal_entries SET applied_rule_id=(candidate->>'rule_id')::uuid WHERE id=entry RETURNING * INTO e;
+  UPDATE accounting.journal_entries SET applied_rule_id=(candidate->>'rule_id')::uuid,fill_source='rule' WHERE id=entry RETURNING * INTO e;
   INSERT INTO accounting.audit_log(actor_user_id,actor_kind,operation_id,table_name,row_id,action,before,after)
   VALUES(CASE WHEN current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE auth.uid() END,
    coalesce(nullif(current_setting('accounting.actor_kind',true),''),'owner'),
@@ -2650,7 +2658,7 @@ BEGIN
    category:=(previous->>'last_category')::uuid;
    IF EXISTS(SELECT 1 FROM accounting.accounts WHERE id=category AND NOT is_archived) THEN
     result:=accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',entry,'expected_version',e.version,'account_id',category,'payee_id',coalesce(e.payee_id::text,previous->>'payee_id'),'memo',coalesce(previous->>'memo',e.memo)));
-    SELECT * INTO e FROM accounting.journal_entries WHERE id=entry;
+    UPDATE accounting.journal_entries SET fill_source='prior' WHERE id=entry RETURNING * INTO e;
    END IF;
   END IF;
  END IF;
@@ -2659,8 +2667,14 @@ BEGIN
   SELECT p.default_account_id INTO category FROM accounting.parties p WHERE p.id=party AND p.default_account_id IS NOT NULL;
   IF category IS NOT NULL AND EXISTS(SELECT 1 FROM accounting.accounts WHERE id=category AND NOT is_archived) THEN
    result:=accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',entry,'expected_version',e.version,'account_id',category,'payee_id',party::text,'memo',e.memo));
-   SELECT * INTO e FROM accounting.journal_entries WHERE id=entry;
+   UPDATE accounting.journal_entries SET fill_source='payee_default' WHERE id=entry RETURNING * INTO e;
   END IF;
+ END IF;
+ -- Last, so a rule or a known treatment always wins: a movement still uncategorized whose one counterpart sits on another own account is proposed as a transfer.
+ candidate:=accounting.transfer_candidate(entry);
+ IF candidate IS NOT NULL AND candidate->>'signal' IS NOT NULL AND NOT (candidate->>'ambiguous')::boolean THEN
+  PERFORM accounting.transfer_pair(entry,(candidate->>'counterpart_id')::uuid,candidate->>'signal');
+  SELECT * INTO e FROM accounting.journal_entries WHERE id=entry;
  END IF;
  RETURN jsonb_build_object('id',entry,'version',e.version);
 END $function$
@@ -2728,7 +2742,7 @@ AS $function$
 <<banking_command>>
 DECLARE t text:=c->>'type'; key uuid:=coalesce((c->>'id')::uuid,gen_random_uuid());actor uuid:=CASE WHEN current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE accounting.require_owner() END;
  v integer; current_version integer; candidate_count integer; x jsonb; result jsonb; candidate jsonb; observation accounting.bank_transactions; doc accounting.documents; item accounting.journal_lines; existing jsonb;
- cond jsonb; actions jsonb; mapping_connection uuid; mapping_details jsonb; mapped_row accounting.bank_accounts; account uuid; transit uuid; outgoing jsonb; incoming jsonb; out_id uuid; in_id uuid; amount bigint; match_amount bigint; out_date date; in_date date;
+ cond jsonb; actions jsonb; mapping_connection uuid; mapping_details jsonb; mapped_row accounting.bank_accounts; account uuid; transit uuid; leg accounting.journal_entries; mate accounting.journal_entries; outgoing jsonb; incoming jsonb; out_id uuid; in_id uuid; amount bigint; match_amount bigint; out_date date; in_date date;
 BEGIN
  IF t='party.save' THEN
   SELECT version INTO current_version FROM accounting.parties WHERE id=key;
@@ -2909,6 +2923,29 @@ BEGIN
   IF EXISTS(SELECT entry_id FROM accounting.journal_lines WHERE entry_id IN (out_id,in_id) GROUP BY entry_id HAVING count(*)<>2) THEN RAISE EXCEPTION 'ACCT_INVALID_TRANSFER'; END IF;
   UPDATE accounting.journal_entries SET transfer_group_id=key WHERE id IN(out_id,in_id);
   RETURN jsonb_build_object('id',key,'outgoing_entry_id',out_id,'incoming_entry_id',in_id);
+ ELSIF t IN ('transfer.confirm','transfer.unpair') THEN
+  SELECT * INTO leg FROM accounting.journal_entries WHERE id=key;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM leg.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  IF leg.status<>'draft' OR leg.pair_entry_id IS NULL THEN RAISE EXCEPTION 'ACCT_TRANSFER_NOT_PAIRED'; END IF;
+  IF t='transfer.unpair' THEN
+   PERFORM accounting.transfer_unpair(key);
+   RETURN jsonb_build_object('id',key,'version',(SELECT version FROM accounting.journal_entries WHERE id=key),'pair_entry_id',leg.pair_entry_id);
+  END IF;
+  SELECT * INTO mate FROM accounting.journal_entries WHERE id=leg.pair_entry_id;
+  IF mate.status IS DISTINCT FROM 'draft' OR mate.pair_entry_id IS DISTINCT FROM key THEN RAISE EXCEPTION 'ACCT_TRANSFER_NOT_PAIRED'; END IF;
+  SELECT id INTO transit FROM accounting.accounts WHERE system_purpose='transfers_in_transit';
+  -- The pair must still be exactly a transfer through transit: one bank line and one transit line a side, opposite amounts, two accounts.
+  IF (SELECT count(*) FROM accounting.journal_lines WHERE entry_id IN (key,mate.id))<>4
+   OR (SELECT count(*) FROM accounting.journal_lines WHERE entry_id IN (key,mate.id) AND account_id=transit)<>2
+   OR (SELECT count(DISTINCT l.account_id)<>2 OR sum(l.amount_cents)<>0 OR count(DISTINCT l.entry_id)<>2 FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id IN (key,mate.id) AND a.subtype IN ('bank','cash','card'))
+  THEN RAISE EXCEPTION 'ACCT_INVALID_TRANSFER'; END IF;
+  account:=gen_random_uuid();
+  UPDATE accounting.journal_entries SET pair_entry_id=NULL,transfer_group_id=account WHERE id IN (key,mate.id);
+  FOR x IN SELECT jsonb_build_object('id',e.id,'version',e.version) FROM accounting.journal_entries e WHERE e.id IN (key,mate.id) ORDER BY e.entry_date,e.id LOOP
+   PERFORM accounting.ledger_command(jsonb_build_object('type','entry.post','id',x->'id','expected_version',x->'version'));
+  END LOOP;
+  RETURN jsonb_build_object('id',key,'version',(SELECT version FROM accounting.journal_entries WHERE id=key),'transfer_group_id',account,'pair_entry_id',mate.id);
  ELSIF t='transfer.reverse' THEN
   IF NOT EXISTS(SELECT 1 FROM accounting.journal_entries WHERE transfer_group_id=key AND reverses_entry_id IS NULL) THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
   FOR x IN SELECT to_jsonb(e) FROM accounting.journal_entries e WHERE transfer_group_id=key AND reverses_entry_id IS NULL ORDER BY entry_date,id LOOP
@@ -3380,6 +3417,9 @@ BEGIN
   'replacement_entry_id',(SELECT id FROM accounting.journal_entries WHERE replaces_entry_id=e.id LIMIT 1),
   'payroll_run_id',(SELECT id FROM accounting.payroll_runs WHERE entry_id=e.id AND status='posted'),
   'restore_workflow',CASE WHEN e.transfer_group_id IS NOT NULL THEN 'transfer' WHEN e.register_id IS NOT NULL THEN 'register' WHEN EXISTS(SELECT 1 FROM accounting.payroll_runs p WHERE p.entry_id=e.id OR (p.ytd->'patriot_import'->>'original_entry_id'=e.id::text AND p.ytd->'patriot_import'->>'journal_mode'='created')) THEN 'payroll' ELSE NULL END,
+  -- The own account on the other side of a linked transfer, so either leg can name where the money went or came from.
+  'transfer_account_id',CASE WHEN e.transfer_group_id IS NOT NULL THEN (SELECT l.account_id FROM accounting.journal_entries g JOIN accounting.journal_lines l ON l.entry_id=g.id JOIN accounting.accounts a ON a.id=l.account_id
+   WHERE g.transfer_group_id=e.transfer_group_id AND g.id<>e.id AND g.reverses_entry_id IS NULL AND a.subtype IN ('bank','card','cash') ORDER BY g.entry_date,l.sort_order LIMIT 1) END,
   'context',jsonb_build_object('kind',e.kind,'payee_id',e.payee_id),'prior_treatment',NULL,
   'lines',coalesce((SELECT jsonb_agg(to_jsonb(l)||jsonb_build_object('amount_cents',l.amount_cents::text) ORDER BY l.sort_order) FROM accounting.journal_lines l WHERE l.entry_id=e.id),'[]')) INTO result
  FROM accounting.journal_entries e WHERE e.id=entry;
@@ -3394,6 +3434,17 @@ BEGIN
   END IF;
   EXECUTE 'SELECT coalesce(jsonb_agg(to_jsonb(m)||jsonb_build_object(''amount_cents'',m.amount_cents::text)),''[]''::jsonb) FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id WHERE l.entry_id=$1' INTO extra USING entry;
   result:=result||jsonb_build_object('matches',extra);
+  IF result->>'status'='draft' THEN
+   -- What the books did to this draft on their own, and the transfer they would suggest when nothing was sure enough to pair.
+   IF result->>'fill_source' IS NOT NULL THEN
+    result:=result||jsonb_build_object('fill',jsonb_strip_nulls(jsonb_build_object('source',result->>'fill_source',
+     'rule_name',CASE WHEN result->>'fill_source'='rule' THEN (SELECT name FROM accounting.rules WHERE id=(result->>'applied_rule_id')::uuid) END,
+     'pair_entry_date',(SELECT p.entry_date FROM accounting.journal_entries p WHERE p.id=(result->>'pair_entry_id')::uuid),
+     'pair_account_id',(SELECT l.account_id FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=(result->>'pair_entry_id')::uuid AND a.subtype IN ('bank','card','cash') ORDER BY l.sort_order LIMIT 1))));
+   END IF;
+   EXECUTE 'SELECT accounting.transfer_candidate($1)' INTO extra USING entry;
+   IF extra IS NOT NULL THEN result:=result||jsonb_build_object('transfer_suggestion',extra); END IF;
+  END IF;
  END IF;
  IF to_regclass('accounting.document_links') IS NOT NULL THEN
   EXECUTE 'SELECT coalesce(jsonb_agg(to_jsonb(d)),''[]''::jsonb) FROM accounting.documents d JOIN accounting.document_links l ON l.document_id=d.id WHERE l.entry_id=$1' INTO extra USING entry;
@@ -3459,6 +3510,9 @@ BEGIN
    IF NEW.id IS DISTINCT FROM OLD.id OR NEW.source_description IS DISTINCT FROM OLD.source_description OR NEW.descriptor_key IS DISTINCT FROM OLD.descriptor_key OR NEW.origin IS DISTINCT FROM OLD.origin OR NEW.created_at IS DISTINCT FROM OLD.created_at OR NEW.created_by IS DISTINCT FROM OLD.created_by THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_PROVENANCE'; END IF;
    IF OLD.transfer_group_id IS NOT NULL AND NEW.transfer_group_id IS DISTINCT FROM OLD.transfer_group_id THEN RAISE EXCEPTION 'ACCT_TRANSFER_GROUP_IMMUTABLE'; END IF;
    IF OLD.status='discarded' THEN RAISE EXCEPTION 'ACCT_DISCARDED'; END IF;
+   -- A proposed transfer leg leaves draft only through transfer.confirm or after an unpair; how a draft was filled is a draft-only marker.
+   IF NEW.status<>'draft' AND NEW.pair_entry_id IS NOT NULL THEN RAISE EXCEPTION 'ACCT_TRANSFER_PAIR_CONFIRM'; END IF;
+   IF NEW.status<>'draft' THEN NEW.fill_source:=NULL; END IF;
    IF OLD.status='posted' AND (to_jsonb(NEW)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','review_pending','version','updated_at']) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','review_pending','version','updated_at']) THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
    IF OLD.status<>'posted' THEN PERFORM accounting.require_open(OLD.entry_date); PERFORM accounting.require_open(NEW.entry_date); END IF;
    NEW.version:=OLD.version+1; NEW.updated_at:=now();
@@ -3891,12 +3945,13 @@ BEGIN
   IF FOUND THEN
    IF (c->>'expected_version')::integer IS DISTINCT FROM e.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
    IF e.status<>'draft' THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
+   IF e.pair_entry_id IS NOT NULL THEN RAISE EXCEPTION 'ACCT_TRANSFER_PAIR_CONFIRM'; END IF;
    IF to_regclass('accounting.bank_matches') IS NOT NULL THEN
     EXECUTE 'SELECT coalesce(array_agg(l.id),ARRAY[]::uuid[]) FROM accounting.journal_lines l WHERE l.entry_id=$1 AND EXISTS(SELECT 1 FROM accounting.bank_matches m WHERE m.journal_line_id=l.id)' INTO preserved USING k;
    END IF;
    DELETE FROM accounting.journal_lines WHERE entry_id=k AND NOT (id=ANY(preserved));
    UPDATE accounting.journal_entries SET entry_date=(c->>'entry_date')::date,memo=c->>'memo',kind=coalesce(c->'context'->>'kind',c->>'kind',kind),
-    payee_id=CASE WHEN c?'payee_id' OR c->'context'?'payee_id' THEN coalesce(c->>'payee_id',c->'context'->>'payee_id')::uuid ELSE payee_id END WHERE id=k RETURNING version INTO v;
+    payee_id=CASE WHEN c?'payee_id' OR c->'context'?'payee_id' THEN coalesce(c->>'payee_id',c->'context'->>'payee_id')::uuid ELSE payee_id END,fill_source=NULL WHERE id=k RETURNING version INTO v;
   ELSE
    IF coalesce((c->>'expected_version')::integer,-1)<>0 THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
    INSERT INTO accounting.journal_entries(id,entry_date,memo,source_description,origin,kind,payee_id,created_by,import_batch_id,register_id,reason)
@@ -3929,6 +3984,10 @@ BEGIN
   SELECT * INTO e FROM accounting.journal_entries WHERE id=k;
   IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
   IF t<>'entry.annotate' AND (c->>'expected_version')::integer IS DISTINCT FROM e.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  -- Recategorizing or discarding one leg of a proposed transfer frees the other leg first.
+  IF e.pair_entry_id IS NOT NULL AND t IN ('entry.categorize','entry.split','entry.discard','draft.discard') THEN
+   PERFORM accounting.transfer_unpair(k); SELECT * INTO e FROM accounting.journal_entries WHERE id=k;
+  END IF;
   IF t='entry.review' THEN
    IF jsonb_typeof(c->'reviewed') IS DISTINCT FROM 'boolean' THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
    IF e.status='discarded' THEN RAISE EXCEPTION 'ACCT_DISCARDED'; END IF;
@@ -4056,7 +4115,7 @@ BEGIN
     END LOOP;
     IF total<>-bank_line.amount_cents THEN RAISE EXCEPTION 'ACCT_UNBALANCED'; END IF;
    END IF;
-   UPDATE accounting.journal_entries SET memo=coalesce(c->>'memo',memo),kind=coalesce(c->>'kind',kind),payee_id=CASE WHEN c?'payee_id' THEN (c->>'payee_id')::uuid ELSE payee_id END WHERE id=k RETURNING version INTO v;
+   UPDATE accounting.journal_entries SET memo=coalesce(c->>'memo',memo),kind=coalesce(c->>'kind',kind),payee_id=CASE WHEN c?'payee_id' THEN (c->>'payee_id')::uuid ELSE payee_id END,fill_source=NULL WHERE id=k RETURNING version INTO v;
    IF coalesce((c->>'remember')::boolean,false) AND e.descriptor_key IS NOT NULL THEN
     PERFORM accounting.banking_command(jsonb_build_object('type','alias.save','id',gen_random_uuid(),'party_id',c->'payee_id','match_kind','key','pattern',e.descriptor_key,'enabled',true,'expected_version',0));
    END IF;
@@ -4457,7 +4516,7 @@ AS $function$
 DECLARE result jsonb;
 BEGIN
  WITH matched AS (
-  SELECT e.* FROM accounting.journal_entries e WHERE e.status='posted' AND e.descriptor_key=key
+  SELECT e.* FROM accounting.journal_entries e WHERE e.status='posted' AND e.descriptor_key=key AND e.transfer_group_id IS NULL
    AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries reversal WHERE reversal.reverses_entry_id=e.id)
    AND e.reverses_entry_id IS NULL AND EXISTS(SELECT 1 FROM accounting.journal_lines l WHERE l.entry_id=e.id AND l.account_id=bank_account)
  ), recent AS (SELECT * FROM matched ORDER BY entry_date DESC,created_at DESC,id LIMIT greatest(1,least(max_rows,100)))
@@ -5512,6 +5571,121 @@ BEGIN
 END $function$
 ;
 
+CREATE OR REPLACE FUNCTION accounting.transfer_candidate(entry uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE mine record; theirs record; win integer; n integer; back integer; signal text; a text; b text; ka text; kb text;
+ kw constant text:='\m(TRANSFER|AUTOPAY|EPAYMENT|E-PAYMENT|ONLINE PMT|MOBILE PMT)\M|PAYMENT[[:space:]-]*THANK YOU';
+BEGIN
+ SELECT * INTO mine FROM accounting.transfer_legs() t WHERE t.entry_id=entry;
+ IF NOT FOUND THEN RETURN NULL; END IF;
+ SELECT transfer_window_days INTO win FROM accounting.settings WHERE id=1;
+ SELECT count(*) INTO n FROM accounting.transfer_legs() t WHERE t.entry_id<>entry AND t.account_id<>mine.account_id AND t.amount_cents=-mine.amount_cents AND abs(t.entry_date-mine.entry_date)<=win;
+ IF n=0 THEN RETURN NULL; END IF;
+ SELECT * INTO theirs FROM accounting.transfer_legs() t WHERE t.entry_id<>entry AND t.account_id<>mine.account_id AND t.amount_cents=-mine.amount_cents AND abs(t.entry_date-mine.entry_date)<=win
+  ORDER BY abs(t.entry_date-mine.entry_date),t.entry_date,t.entry_id LIMIT 1;
+ -- Mutual: the counterpart must have this movement as its only candidate too, or two payments of one amount could cross.
+ SELECT count(*) INTO back FROM accounting.transfer_legs() t WHERE t.entry_id<>theirs.entry_id AND t.account_id<>theirs.account_id AND t.amount_cents=-theirs.amount_cents AND abs(t.entry_date-theirs.entry_date)<=win;
+ IF n=1 AND back=1 THEN
+  SELECT upper(coalesce(source_description,memo)),descriptor_key INTO a,ka FROM accounting.journal_entries WHERE id=entry;
+  SELECT upper(coalesce(source_description,memo)),descriptor_key INTO b,kb FROM accounting.journal_entries WHERE id=theirs.entry_id;
+  IF ka IS NOT NULL AND kb IS NOT NULL AND EXISTS(
+   -- Learned: a posted transfer between the same two accounts, the same way round, claimed bank lines with these two descriptors.
+   SELECT 1 FROM accounting.journal_entries g1
+    JOIN accounting.journal_lines l1 ON l1.entry_id=g1.id AND l1.account_id=mine.account_id AND sign(l1.amount_cents)=sign(mine.amount_cents)
+    JOIN accounting.bank_matches m1 ON m1.journal_line_id=l1.id
+    JOIN accounting.bank_transactions o1 ON o1.id=m1.bank_transaction_id AND o1.descriptor_key=ka
+    JOIN accounting.journal_entries g2 ON g2.transfer_group_id=g1.transfer_group_id AND g2.status='posted' AND g2.reverses_entry_id IS NULL
+    JOIN accounting.journal_lines l2 ON l2.entry_id=g2.id AND l2.account_id=theirs.account_id AND sign(l2.amount_cents)=sign(theirs.amount_cents)
+    JOIN accounting.bank_matches m2 ON m2.journal_line_id=l2.id
+    JOIN accounting.bank_transactions o2 ON o2.id=m2.bank_transaction_id AND o2.descriptor_key=kb
+    WHERE g1.transfer_group_id IS NOT NULL AND g1.status='posted' AND g1.reverses_entry_id IS NULL
+     AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries r WHERE r.reverses_entry_id IN (g1.id,g2.id))) THEN signal:='learned';
+  ELSIF EXISTS(
+   -- One side's bank text names the other side's account: its institution or the last digits of its number.
+   SELECT 1 FROM accounting.bank_accounts ba CROSS JOIN LATERAL (SELECT CASE WHEN ba.account_id=theirs.account_id THEN a ELSE b END txt) d
+    WHERE ba.account_id IN (mine.account_id,theirs.account_id)
+     AND ((length(btrim(ba.institution))>=3 AND position(upper(btrim(ba.institution)) IN d.txt)>0)
+      OR (substring(ba.mask from '[0-9]{4,}') IS NOT NULL AND position(substring(ba.mask from '[0-9]{4,}') IN d.txt)>0))) THEN signal:='names_account';
+  ELSIF a ~ kw OR b ~ kw THEN signal:='keyword';
+  END IF;
+ END IF;
+ RETURN jsonb_build_object('counterpart_id',theirs.entry_id,'account_id',theirs.account_id,'entry_date',theirs.entry_date,'ambiguous',n<>1 OR back<>1,'signal',signal);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.transfer_legs()
+ RETURNS TABLE(entry_id uuid, account_id uuid, amount_cents bigint, entry_date date)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ -- Bank drafts that could still be one side of a transfer: one bank line, one uncategorized line, never paired or declined, in open books.
+ SELECT e.id,l.account_id,l.amount_cents,e.entry_date
+ FROM accounting.journal_entries e
+ JOIN accounting.journal_lines l ON l.entry_id=e.id
+ JOIN accounting.accounts a ON a.id=l.account_id AND a.subtype IN ('bank','cash','card')
+ WHERE e.status='draft' AND e.origin IN ('simplefin','csv') AND e.pair_entry_id IS NULL AND e.transfer_group_id IS NULL AND e.reverses_entry_id IS NULL
+  AND (SELECT count(*) FROM accounting.journal_lines x WHERE x.entry_id=e.id)=2
+  AND EXISTS(SELECT 1 FROM accounting.journal_lines s JOIN accounting.accounts sa ON sa.id=s.account_id WHERE s.entry_id=e.id AND sa.system_purpose IN ('uncategorized_income','uncategorized_expense'))
+  AND NOT EXISTS(SELECT 1 FROM accounting.audit_log g WHERE g.table_name='journal_entries' AND g.row_id=e.id AND g.action='transfer.unpaired')
+  AND NOT EXISTS(SELECT 1 FROM accounting.periods p WHERE p.status='locked' AND p.month>=date_trunc('month',e.entry_date)::date)
+$function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.transfer_pair(first_entry uuid, second_entry uuid, signal text)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE transit uuid; leg uuid; other uuid; ver integer;
+BEGIN
+ SELECT id INTO transit FROM accounting.accounts WHERE system_purpose='transfers_in_transit' AND NOT is_archived;
+ IF transit IS NULL THEN RETURN; END IF;
+ -- Both bank drafts stay, each moved to transit and pointed at the other; the bank line ids survive so their matches stay attached.
+ FOR leg,other IN SELECT v.x,v.y FROM (VALUES(first_entry,second_entry),(second_entry,first_entry)) v(x,y) LOOP
+  SELECT version INTO ver FROM accounting.journal_entries WHERE id=leg;
+  PERFORM accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',leg,'expected_version',ver,'account_id',transit,'kind','transfer'));
+  UPDATE accounting.journal_entries SET pair_entry_id=other,fill_source='transfer_pair' WHERE id=leg;
+  INSERT INTO accounting.audit_log(actor_user_id,actor_kind,operation_id,table_name,row_id,action,after)
+  VALUES(CASE WHEN current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE auth.uid() END,
+   coalesce(nullif(current_setting('accounting.actor_kind',true),''),'owner'),
+   coalesce(nullif(current_setting('accounting.operation_id',true),'')::uuid,gen_random_uuid()),'journal_entries',leg,'transfer.paired',
+   jsonb_build_object('pair_entry_id',other,'signal',signal));
+ END LOOP;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.transfer_unpair(entry uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE other uuid; leg uuid; bank accounting.journal_lines; suspense uuid;
+BEGIN
+ SELECT pair_entry_id INTO other FROM accounting.journal_entries WHERE id=entry AND status='draft';
+ IF other IS NULL THEN RETURN; END IF;
+ -- Both legs go back to uncategorized; the unpaired mark keeps the books from proposing either of them again.
+ FOR leg IN SELECT id FROM accounting.journal_entries WHERE id IN (entry,other) AND status='draft' AND pair_entry_id IS NOT NULL LOOP
+  SELECT l.* INTO bank FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=leg AND a.subtype IN ('bank','cash','card') ORDER BY l.sort_order LIMIT 1;
+  SELECT id INTO suspense FROM accounting.accounts WHERE system_purpose=CASE WHEN bank.amount_cents>0 THEN 'uncategorized_income' ELSE 'uncategorized_expense' END;
+  DELETE FROM accounting.journal_lines WHERE entry_id=leg AND id<>bank.id;
+  INSERT INTO accounting.journal_lines(entry_id,account_id,amount_cents,sort_order) VALUES(leg,suspense,-bank.amount_cents,CASE WHEN bank.sort_order=0 THEN 1 ELSE 0 END);
+  UPDATE accounting.journal_entries SET pair_entry_id=NULL,fill_source=NULL,kind=CASE WHEN bank.amount_cents>0 THEN 'income' ELSE 'expense' END WHERE id=leg;
+  INSERT INTO accounting.audit_log(actor_user_id,actor_kind,operation_id,table_name,row_id,action,after)
+  VALUES(CASE WHEN current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE auth.uid() END,
+   coalesce(nullif(current_setting('accounting.actor_kind',true),''),'owner'),
+   coalesce(nullif(current_setting('accounting.operation_id',true),'')::uuid,gen_random_uuid()),'journal_entries',leg,'transfer.unpaired',
+   jsonb_build_object('pair_entry_id',CASE WHEN leg=entry THEN other ELSE entry END));
+ END LOOP;
+END $function$
+;
+
 CREATE OR REPLACE FUNCTION accounting.workspace(from_date date, to_date date, mode text DEFAULT 'posted'::text)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -6358,6 +6532,22 @@ REVOKE ALL ON FUNCTION accounting.transactions(jsonb,jsonb) FROM PUBLIC, anon, a
 GRANT EXECUTE ON FUNCTION accounting.transactions(jsonb,jsonb) TO "postgres";
 
 GRANT EXECUTE ON FUNCTION accounting.transactions(jsonb,jsonb) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.transfer_candidate(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.transfer_candidate(uuid) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.transfer_legs() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.transfer_legs() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.transfer_pair(uuid,uuid,text) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.transfer_pair(uuid,uuid,text) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.transfer_unpair(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.transfer_unpair(uuid) TO "postgres";
 
 REVOKE ALL ON FUNCTION accounting.workspace(date,date,text) FROM PUBLIC, anon, authenticated, service_role;
 

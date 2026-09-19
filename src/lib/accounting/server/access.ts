@@ -73,6 +73,10 @@ export function accountingError(message: string): string {
       "Choose an active bank or card account in the account settings.",
     ACCT_TRANSFER_ALREADY_LINKED:
       "A selected entry already belongs to a transfer group.",
+    ACCT_TRANSFER_PAIR_CONFIRM:
+      "This is one side of a proposed transfer. Confirm the transfer, or choose Not a transfer first.",
+    ACCT_TRANSFER_NOT_PAIRED:
+      "This transfer proposal is no longer open. Refresh the books.",
     ACCT_TRANSFER_REVERSE_TOGETHER:
       "Delete the transfer from either leg in Transactions. Both legs are deleted together.",
     ACCT_ACCOUNT_KIND:

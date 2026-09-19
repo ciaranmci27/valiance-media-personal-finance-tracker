@@ -32,6 +32,9 @@ const ACTIONS: Record<string, string> = {
   "transfer.create": "Recorded as a transfer",
   "transfer.link": "Linked as a transfer",
   "rule.applied": "Filled by a rule",
+  "transfer.paired": "Proposed as a transfer",
+  "transfer.confirm": "Transfer confirmed",
+  "transfer.unpaired": "Marked not a transfer",
   insert: "Created",
   update: "Updated",
 };

@@ -16,7 +16,8 @@ export function isTransactionReviewed(entry: JournalEntry): boolean {
 }
 /** What a click on a row opens: a draft goes straight to its editor, anything else to the detail view. */
 export function transactionRowAction(entry: JournalEntry): "edit" | "detail" {
-  return entry.status === "draft" ? "edit" : "detail";
+  // One side of a proposed transfer changes through its pair, never the editor.
+  return entry.status === "draft" && !entry.pair_entry_id ? "edit" : "detail";
 }
 export function isTransactionReversed(entry: JournalEntry): boolean {
   return Boolean(entry.reverses_entry_id || entry.reversed_by_entry_id);
@@ -73,6 +74,7 @@ export function presentTransaction(
   // A linked transfer keeps its original lines and kind; the group id is the durable marker.
   const transfer =
     !!entry.transfer_group_id ||
+    !!entry.pair_entry_id ||
     (accounts.length > 1 && bankLines.length === entry.lines.length);
   const sameDirection = categoryLines.every((l) =>
     raw > BigInt(0)

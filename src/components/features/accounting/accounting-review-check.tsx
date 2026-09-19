@@ -11,6 +11,7 @@ export function ReviewCheck({
   reviewed,
   categorized,
   name,
+  confirmsTransfer = false,
   busy = false,
   disabled = false,
   onToggle,
@@ -20,15 +21,19 @@ export function ReviewCheck({
   categorized: boolean;
   /** Names the transaction for assistive tech. */
   name: string;
+  /** One side of a proposed transfer: the check confirms both sides. */
+  confirmsTransfer?: boolean;
   busy?: boolean;
   disabled?: boolean;
   onToggle: () => void;
 }) {
-  const hint = reviewed
-    ? "Mark as unreviewed"
-    : categorized
-      ? "Mark as reviewed"
-      : "Choose a category first";
+  const hint = confirmsTransfer
+    ? "Confirm transfer, both sides"
+    : reviewed
+      ? "Mark as unreviewed"
+      : categorized
+        ? "Mark as reviewed"
+        : "Choose a category first";
   return (
     <Tooltip content={hint}>
       <button
@@ -36,7 +41,11 @@ export function ReviewCheck({
         disabled={disabled || (!reviewed && !categorized)}
         onClick={onToggle}
         aria-label={
-          reviewed ? `Mark ${name} as unreviewed` : `Mark ${name} as reviewed`
+          confirmsTransfer
+            ? `Confirm ${name} as a transfer`
+            : reviewed
+              ? `Mark ${name} as unreviewed`
+              : `Mark ${name} as reviewed`
         }
         aria-pressed={reviewed}
         className={cn(

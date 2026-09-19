@@ -148,8 +148,29 @@ export interface JournalEntry {
   /** Both legs of a recorded or linked transfer share one group. */
   transfer_group_id?: string | null;
   restore_workflow?: "payroll" | "transfer" | "register" | null;
+  /** The own account on the other leg of a two-entry transfer. */
+  transfer_account_id?: string | null;
+  /** The other leg while this draft is one side of a proposed transfer. */
+  pair_entry_id?: string | null;
+  /** Drafts only: how the books filled this draft on their own. */
+  fill?: EntryFill | null;
+  /** Drafts only: the counterpart the books found but were not sure enough to pair. */
+  transfer_suggestion?: TransferSuggestion | null;
   created_at: string;
   lines: JournalLine[];
+}
+export interface EntryFill {
+  source: "rule" | "prior" | "payee_default" | "transfer_pair";
+  rule_name?: string;
+  pair_account_id?: string;
+  pair_entry_date?: string;
+}
+export interface TransferSuggestion {
+  counterpart_id: string;
+  account_id: string;
+  entry_date: string;
+  ambiguous: boolean;
+  signal: "learned" | "names_account" | "keyword" | null;
 }
 export interface EntryContext {
   kind:

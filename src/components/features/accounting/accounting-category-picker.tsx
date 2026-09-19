@@ -13,7 +13,13 @@ import { dateLabel } from "./format";
  * One line, whatever the width. Bank account names end in the number that
  * tells them apart, so the name gives way before the number does.
  */
-function TransferLabel({ verb, account }: { verb: string; account: string }) {
+export function TransferLabel({
+  verb,
+  account,
+}: {
+  verb: string;
+  account: string;
+}) {
   const cut = account.trim().lastIndexOf(" ");
   const head = cut > 0 ? account.slice(0, cut) : account;
   const tail = cut > 0 ? account.slice(cut + 1) : "";
