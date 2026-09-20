@@ -4,6 +4,7 @@ import * as React from "react";
 import { cn, formatCurrency, formatPercentage } from "@/lib/utils";
 import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { useMaskedHover, getMaskedValue } from "@/components/ui/masked-value";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface StatCardProps {
   title: string;
@@ -17,6 +18,8 @@ interface StatCardProps {
   invertTrend?: boolean;
   /** Quiet line under the value, shown when there is no previous value to compare against. */
   subtitle?: React.ReactNode;
+  /** The figure is not known yet: hold its place instead of printing a zero. */
+  loading?: boolean;
 }
 
 export function StatCard({
@@ -29,6 +32,7 @@ export function StatCard({
   trend: forcedTrend,
   invertTrend = false,
   subtitle,
+  loading = false,
 }: StatCardProps) {
   const { isHidden, isRevealed, showValue, hoverProps } = useMaskedHover();
 
@@ -93,6 +97,7 @@ export function StatCard({
         isHidden && "cursor-default",
         className,
       )}
+      aria-busy={loading || undefined}
       {...hoverProps}
     >
       <div className="flex items-start justify-between">
@@ -100,19 +105,27 @@ export function StatCard({
           <p className="text-xs lg:text-sm text-zinc-500 font-medium">
             {title}
           </p>
-          <p
-            className={cn(
-              "text-2xl lg:text-3xl @max-[220px]:text-xl! font-bold tracking-tight leading-none mt-0.5 currency",
-              // Neutralize color when hidden to not reveal positive/negative
-              isHidden && !isRevealed
-                ? "text-foreground"
-                : value < 0
-                  ? "text-error"
-                  : "text-foreground",
-            )}
-          >
-            {displayValue}
-          </p>
+          {loading ? (
+            // Same box as the figure, so the card does not move when it lands.
+            <>
+              <Skeleton className="mt-0.5 h-6 w-28 lg:h-[30px] @max-[220px]:h-5!" />
+              <span className="sr-only">Loading {title}</span>
+            </>
+          ) : (
+            <p
+              className={cn(
+                "text-2xl lg:text-3xl @max-[220px]:text-xl! font-bold tracking-tight leading-none mt-0.5 currency",
+                // Neutralize color when hidden to not reveal positive/negative
+                isHidden && !isRevealed
+                  ? "text-foreground"
+                  : value < 0
+                    ? "text-error"
+                    : "text-foreground",
+              )}
+            >
+              {displayValue}
+            </p>
+          )}
         </div>
         {icon && (
           <div className="hidden min-[440px]:grid @max-[190px]:hidden! w-8 h-8 lg:w-9 lg:h-9 rounded-lg place-items-center bg-[rgba(var(--ink),0.06)] text-muted-foreground shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)]">
@@ -121,7 +134,8 @@ export function StatCard({
         )}
       </div>
 
-      {percentageChange !== null && (
+      {loading && <Skeleton className="mt-3.5 h-4 w-24" />}
+      {!loading && percentageChange !== null && (
         <div className="mt-3.5 flex items-center gap-2">
           <div
             className={cn(
@@ -155,7 +169,7 @@ export function StatCard({
           <span className="text-xs text-zinc-500">vs last month</span>
         </div>
       )}
-      {percentageChange === null && subtitle && (
+      {!loading && percentageChange === null && subtitle && (
         <p className="mt-3.5 text-xs text-zinc-500">{subtitle}</p>
       )}
     </div>

@@ -3,6 +3,7 @@ import {
   bootQueries,
   buildRegisterFilter,
   closeQueries,
+  dashboardQueries,
   defaultReportFilter,
   journalFilterFromLocation,
   journalInitialState,
@@ -216,6 +217,24 @@ assert.deepEqual(journalFilterFromLocation(new URLSearchParams()), {});
 assert.equal(
   reportSignature(defaultReportFilter("2026-01-01", "2026-01-15")),
   '{"from":"2026-01-01","to":"2026-01-15","mode":"working","offset":0}',
+);
+
+// The dashboard and the sidebar's warm-up share these five keys. The report
+// and the shell's own manage and feeds reads are the same entries the books
+// use, so either screen warms the other.
+const dashboard = dashboardQueries("2026-01-15");
+assert.deepEqual(dashboard[0], { from: "2026-01-01", to: "2026-01-15" });
+assert.equal(
+  accountingQueryKey(dashboard[1]),
+  accountingQueryKey(viewQueries("overview", ctx)[0]),
+  "The dashboard's report is the overview's report",
+);
+assert.deepEqual(dashboard.slice(2, 4), bootQueries(ctx).slice(0, 2));
+assert.equal(
+  accountingQueryKey(dashboard[4]),
+  accountingQueryKey(
+    registerQuery({ status: "posted", sort: "date_desc", offset: 0, limit: 8 }),
+  ),
 );
 
 console.log(

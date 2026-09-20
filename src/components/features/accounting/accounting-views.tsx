@@ -3,6 +3,7 @@
 import { useSyncExternalStore, type ComponentType } from "react";
 import {
   bootQueries,
+  dashboardQueries,
   preloadContextFromLocation,
   viewQueries,
   type PreloadContext,
@@ -107,6 +108,15 @@ export function warmAccountingView(
     loadView(view),
     ...viewQueries(view, ctx, initialFilter).map((query) => cache.read(query)),
   ]).then(() => undefined);
+}
+
+/** Warm the dashboard's books reads from the sidebar. Failures are the dashboard's to report. */
+export function warmDashboard(): Promise<void> {
+  return Promise.allSettled(
+    dashboardQueries(todayInBooks()).map((query) =>
+      sharedAccountingCache.read(query),
+    ),
+  ).then(() => undefined);
 }
 
 /**

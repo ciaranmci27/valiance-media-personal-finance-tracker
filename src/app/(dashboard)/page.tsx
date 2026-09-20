@@ -33,17 +33,17 @@ export default async function DashboardPage() {
   const supabase = await createClient();
 
   // Are the books there for this session? One light probe; the dashboard
-  // works without them.
-  let booksAvailable = false;
-  try {
-    await accountingClient();
-    booksAvailable = true;
-  } catch {
-    /* Personal finance pages carry the dashboard on their own. */
-  }
+  // works without them. It runs alongside the reads below instead of ahead
+  // of them, so the page answers in the time of its slowest read, not the sum.
+  const booksProbe = accountingClient().then(
+    () => true,
+    // Personal finance pages carry the dashboard on their own.
+    () => false,
+  );
 
   // Fetch all data in parallel
   const [
+    booksAvailable,
     { data: incomeEntries },
     { data: incomeSources },
     { data: incomeAmounts },
@@ -51,6 +51,7 @@ export default async function DashboardPage() {
     { data: expenseHistory },
     { data: netWorthEntries },
   ] = await Promise.all([
+    booksProbe,
     supabase
       .from("income_entries")
       .select("*")

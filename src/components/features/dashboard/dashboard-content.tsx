@@ -27,6 +27,7 @@ import {
   useDashboardBooks,
 } from "@/components/features/dashboard/books-panel";
 import { useAccess } from "@/contexts/access-context";
+import { useBootHold } from "@/components/layout/boot";
 import { isDemoMode } from "@/lib/demo";
 import type {
   IncomeEntry,
@@ -148,6 +149,18 @@ interface DashboardContentProps {
   booksAvailable?: boolean;
 }
 
+/**
+ * What the boot screen reads while the dashboard's books figures load. The
+ * first line is the workspace boot screen's own, so the hand-off is seamless.
+ */
+const DASHBOARD_STEPS = [
+  "Opening your workspace",
+  "Loading your numbers",
+] as const;
+
+/** The books never hold the boot screen longer than this; the cards carry on with skeletons. */
+const BOOT_HOLD_CAP_MS = 8000;
+
 export function DashboardContent({
   incomeEntries,
   incomeSources,
@@ -166,6 +179,25 @@ export function DashboardContent({
   const showBooks = canBooks && (booksAvailable || demo);
   const books = useDashboardBooks({ demo, enabled: showBooks });
   const haveBooks = showBooks && !books.unavailable;
+
+  // On a hard load the boot screen stays up until the books have answered, so
+  // it hands off to a finished dashboard instead of leaving early and letting
+  // zeros turn into numbers. Latched: a later re-read never brings it back
+  // (the boot ignores holds once it is over anyway). Arriving from another
+  // page with a cold cache shows skeleton figures instead, never the loader.
+  const booksLoading = haveBooks && books.pending;
+  const [firstReadsDone, setFirstReadsDone] = React.useState(!booksLoading);
+  React.useEffect(() => {
+    if (!booksLoading) setFirstReadsDone(true);
+  }, [booksLoading]);
+  React.useEffect(() => {
+    const cap = window.setTimeout(
+      () => setFirstReadsDone(true),
+      BOOT_HOLD_CAP_MS,
+    );
+    return () => window.clearTimeout(cap);
+  }, []);
+  useBootHold(!firstReadsDone && booksLoading, DASHBOARD_STEPS, 1);
 
   // --- Income tracking -----------------------------------------------------
   const availableMonths = React.useMemo(
@@ -294,6 +326,7 @@ export function DashboardContent({
           }
           icon={<TrendingUp className="h-5 w-5" />}
           subtitle={haveBooks ? "From the books" : "From income tracking"}
+          loading={booksLoading}
         />
       </Stat>,
     );
@@ -307,6 +340,7 @@ export function DashboardContent({
           invertTrend
           icon={<Building2 className="h-5 w-5" />}
           subtitle="This month, from the books"
+          loading={booksLoading}
         />
       </Stat>,
       <Stat key="net-profit">
@@ -316,6 +350,7 @@ export function DashboardContent({
           previousValue={previousBooksNet}
           icon={<ArrowDownLeft className="h-5 w-5" />}
           subtitle="This month, from the books"
+          loading={booksLoading}
         />
       </Stat>,
     );
@@ -345,6 +380,7 @@ export function DashboardContent({
           }
           icon={<DollarSign className="h-5 w-5" />}
           subtitle="Net profit less personal expenses"
+          loading={booksLoading}
         />
       </Stat>,
     );
@@ -356,6 +392,7 @@ export function DashboardContent({
           value={books.cash === null ? 0 : Number(books.cash) / 100}
           icon={<Landmark className="h-5 w-5" />}
           subtitle={books.cashLabel}
+          loading={books.cash === null && booksLoading}
         />
       </Stat>,
     );

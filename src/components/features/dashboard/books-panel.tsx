@@ -17,11 +17,7 @@ import {
   dateShortLabel,
   money,
 } from "@/components/features/accounting/format";
-import {
-  overviewReportFilter,
-  registerQuery,
-  reportQuery,
-} from "@/lib/accounting/preload";
+import { dashboardQueries } from "@/lib/accounting/preload";
 import { getAccountingDemo } from "@/lib/accounting/demo";
 import { accountBalances } from "@/lib/accounting/account-balances";
 import { presentTransaction } from "@/lib/accounting/transactions";
@@ -56,6 +52,11 @@ export interface DashboardBooks {
   recent: JournalEntry[] | null;
   /** The books refused or failed: leave the dashboard alone. */
   unavailable: boolean;
+  /**
+   * A first read has neither answered nor failed, so a books figure would be
+   * a guess. Cached answers make this false on the very first render.
+   */
+  pending: boolean;
 }
 
 /**
@@ -74,26 +75,31 @@ export function useDashboardBooks({
   const today = booksToday();
   const month = today.slice(0, 7);
   const live = enabled && !demo;
-  const workspaceRead = useAccountingRead<AccountingWorkspace>(
-    { from: `${month}-01`, to: today },
-    { enabled: live },
-  );
-  const reportRead = useAccountingRead<ReportData>(
-    reportQuery("profit-loss", overviewReportFilter(today)),
-    { enabled: live, revalidateOnFocus: true },
-  );
-  const manageRead = useAccountingRead<ManageData>(
-    { view: "manage" },
-    { enabled: live },
-  );
-  const feedsRead = useAccountingRead<FeedData>(
-    { view: "feeds" },
-    { enabled: live },
-  );
+  const [workspaceQuery, reportQueryKey, manageQuery, feedsQuery, recentQuery] =
+    React.useMemo(() => dashboardQueries(today), [today]);
+  const workspaceRead = useAccountingRead<AccountingWorkspace>(workspaceQuery, {
+    enabled: live,
+  });
+  const reportRead = useAccountingRead<ReportData>(reportQueryKey, {
+    enabled: live,
+    revalidateOnFocus: true,
+  });
+  const manageRead = useAccountingRead<ManageData>(manageQuery, {
+    enabled: live,
+  });
+  const feedsRead = useAccountingRead<FeedData>(feedsQuery, { enabled: live });
   const recentRead = useAccountingRead<{ entries: JournalEntry[] }>(
-    registerQuery({ status: "posted", sort: "date_desc", offset: 0, limit: 8 }),
+    recentQuery,
     { enabled: live },
   );
+  // Once the workspace read fails the books are off the dashboard entirely,
+  // so nothing else is worth waiting for.
+  const pending =
+    live &&
+    !workspaceRead.error &&
+    [workspaceRead, reportRead, manageRead, feedsRead, recentRead].some(
+      (read) => read.data === undefined && !read.error,
+    );
   const demoData = React.useMemo(
     () => (demo && enabled ? getAccountingDemo() : null),
     [demo, enabled],
@@ -172,6 +178,7 @@ export function useDashboardBooks({
     profiles,
     recent,
     unavailable: live && Boolean(workspaceRead.error),
+    pending,
   };
 }
 

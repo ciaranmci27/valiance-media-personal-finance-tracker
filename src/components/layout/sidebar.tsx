@@ -402,11 +402,25 @@ export function Sidebar() {
               );
             }
 
+            // Pointing at the dashboard warms its books reads, keyed as the
+            // dashboard keys them, so it opens with its numbers in place.
+            const warmDashboard =
+              item.href === "/" &&
+              hasPermission("accounting.manage") &&
+              !isDemoMode()
+                ? () => {
+                    void import(
+                      "@/components/features/accounting/accounting-views"
+                    ).then((m) => m.warmDashboard());
+                  }
+                : undefined;
             return (
               <Link
                 key={item.href}
                 href={item.href}
                 onClick={handleNavClick}
+                onPointerEnter={warmDashboard}
+                onFocus={warmDashboard}
                 className={cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150",
                   active

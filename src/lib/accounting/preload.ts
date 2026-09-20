@@ -197,6 +197,30 @@ export function preloadContextFromLocation(
   };
 }
 
+/**
+ * The dashboard's books reads, in the order `useDashboardBooks` takes them:
+ * workspace, twelve-month report, manage, feeds, recent posted entries. The
+ * dashboard reads through this and the sidebar warms through it, so both
+ * land on the same cache keys.
+ */
+export function dashboardQueries(
+  today: string,
+): [
+  AccountingQuery,
+  AccountingQuery,
+  AccountingQuery,
+  AccountingQuery,
+  AccountingQuery,
+] {
+  return [
+    { from: `${today.slice(0, 7)}-01`, to: today },
+    reportQuery("profit-loss", overviewReportFilter(today)),
+    { view: "manage" },
+    { view: "feeds" },
+    registerQuery({ status: "posted", sort: "date_desc", offset: 0, limit: 8 }),
+  ];
+}
+
 /** What the shell itself needs before any view can paint. */
 export function bootQueries(ctx: PreloadContext): AccountingQuery[] {
   return [
