@@ -18,7 +18,9 @@ const subscribe = () => () => {};
  * covers everything. The server pass renders it in place; hydration swaps
  * it out without replaying the arrival. `continuing` says another loader was
  * just on screen in the same place, so neither the fade-in nor the emblem's
- * arrival plays again.
+ * arrival plays again. `fadeIn` false makes the overlay opaque from its first
+ * frame (the emblem still arrives): for a loader that must never let the
+ * page underneath show through, such as the boot screen.
  */
 export function AppLoading({
   steps,
@@ -26,6 +28,7 @@ export function AppLoading({
   announcement = "Loading",
   leaving,
   continuing,
+  fadeIn = true,
   onLeft,
 }: {
   steps: readonly string[];
@@ -33,6 +36,7 @@ export function AppLoading({
   announcement?: string;
   leaving?: boolean;
   continuing?: boolean;
+  fadeIn?: boolean;
   onLeft?: () => void;
 }) {
   const host = useSyncExternalStore(
@@ -50,6 +54,7 @@ export function AppLoading({
         "brand-loader-overlay",
         leaving && "is-leaving",
         quiet && "is-continuing",
+        !fadeIn && "is-instant",
       )}
     >
       <BrandLoader

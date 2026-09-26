@@ -248,8 +248,6 @@ export function AccountingOverview({
     [data.balances, profileMap],
   );
   const isCard = (a: BalanceRow) => profileMap.get(a.id)?.cash_kind === "card";
-  const bookBalance = (a: BalanceRow) =>
-    isCard(a) ? -BigInt(a.ending_cents) : BigInt(a.ending_cents);
   const currentBalances = accountBalances(data.balances, profiles, feeds);
   const cash = bankAccounts
     .filter((a) => !isCard(a))
@@ -328,12 +326,8 @@ export function AccountingOverview({
     const connection = identity
       ? (connections.find((c) => c.id === identity.connection_id) ?? null)
       : null;
-    const bank =
-      identity?.balance?.balance_cents != null && feedAccount
-        ? BigInt(identity.balance.balance_cents) *
-          BigInt(feedAccount.balance_sign)
-        : null;
-    return { account: a, identity, connection, bank, book: bookBalance(a) };
+    const { bank, book } = currentBalances.get(a.id)!;
+    return { account: a, identity, connection, bank, book };
   });
 
   const reviewCount = data.needs_review_count ?? data.draft_count;

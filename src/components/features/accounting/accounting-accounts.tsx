@@ -213,12 +213,7 @@ export function AccountingAccounts({
     <div className="space-y-5">
       <AccountingBankPanel
         accounts={cashAccounts}
-        bookBalance={(a) =>
-          profileMap.get(a.id)?.cash_kind === "card"
-            ? -BigInt(a.ending_cents)
-            : BigInt(a.ending_cents)
-        }
-        isCard={(a) => profileMap.get(a.id)?.cash_kind === "card"}
+        profiles={profiles}
         demo={demo}
         onFeeds={onFeeds}
         onLedger={setLedger}

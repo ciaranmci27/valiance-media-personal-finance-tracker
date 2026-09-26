@@ -76,6 +76,9 @@ export function BootProvider({ children }: { children: ReactNode }) {
           step={latest?.step ?? 0}
           announcement="Loading your workspace"
           leaving={phase === "leaving"}
+          // The page renders underneath from the first frame; an overlay that
+          // fades in would let it show through for that moment.
+          fadeIn={false}
           onLeft={onLeft}
         />
       )}

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { AccountTheme } from "@/components/layout/account-theme";
 import { AccessUnavailable } from "@/components/layout/access-unavailable";
 import { resolveAccess } from "@/lib/team/access";
 import { isLocalOrTestEnv } from "@/lib/env";
@@ -21,23 +22,11 @@ export default async function DashboardServerLayout({
   if (resolved.state === "suspended")
     return <AccessUnavailable state="suspended" />;
 
-  // The account's theme and privacy eye win over whatever this device last
-  // used. The root layout's blocking script only knows localStorage, so on a
-  // fresh device this inline script sets both before the dashboard paints.
-  const { theme_preference: theme, privacy_hidden: hidden } =
-    resolved.access.member;
-  const initScript = [
-    "(function(){try{",
-    theme
-      ? `document.documentElement.setAttribute('data-theme','${theme}');localStorage.setItem('theme','${theme}');`
-      : "",
-    `document.documentElement.setAttribute('data-hidden','${hidden}');localStorage.setItem('data-hidden','${hidden}');document.cookie='data-hidden=${hidden}; path=/; max-age=31536000; SameSite=Lax';`,
-    "}catch(e){}})();",
-  ].join("");
-
+  // The account's theme wins over whatever this device last used; the
+  // privacy eye is applied the same way by PrivacyProvider inside the shell.
   return (
     <>
-      <script dangerouslySetInnerHTML={{ __html: initScript }} />
+      <AccountTheme theme={resolved.access.member.theme_preference} />
       <DashboardLayout
         accountingTestMode={
           isLocalOrTestEnv && Boolean(process.env.ACCOUNTING_TEST_DATABASE_URL)

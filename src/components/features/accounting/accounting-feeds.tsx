@@ -1134,11 +1134,11 @@ function MapFeed({
                   options={[
                     {
                       value: "1",
-                      label: "Keep source sign (cash +, card debt -)",
+                      label: "Keep source sign (bank +, card owed -)",
                     },
                     {
                       value: "-1",
-                      label: "Reverse source sign (card debt +)",
+                      label: "Reverse source sign (bank -, card owed +)",
                     },
                   ]}
                 />

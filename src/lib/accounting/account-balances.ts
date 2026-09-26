@@ -20,11 +20,15 @@ export function accountBalances(
         BigInt(account.ending_cents) * (card ? BigInt(-1) : BigInt(1));
       const mapping = canonical.get(account.id);
       const observation = identities.get(account.id)?.balance;
-      // balance_sign already converts provider balances to the account's display convention.
-      const bank =
+      // balance_sign normalizes the provider balance into ledger convention
+      // (assets positive, card debt negative), the same convention as
+      // ending_cents and the server's close checks. Cards flip to "amount
+      // owed" here, exactly as the book balance does above.
+      const observed =
         mapping && observation?.balance_cents != null
           ? BigInt(observation.balance_cents) * BigInt(mapping.balance_sign)
           : null;
+      const bank = observed === null ? null : card ? -observed : observed;
       return [
         account.id,
         {

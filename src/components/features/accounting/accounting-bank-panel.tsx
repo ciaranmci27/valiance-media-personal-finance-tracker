@@ -16,6 +16,8 @@ import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import type { BalanceRow } from "@/lib/accounting/contracts";
 import type { FeedData } from "@/lib/accounting/feeds";
+import type { AccountProfile } from "@/lib/accounting/workflows";
+import { accountBalances } from "@/lib/accounting/account-balances";
 import { bankIdentitiesByAccount } from "@/lib/accounting/bank-identity";
 import { useAccountingRead } from "./use-accounting-read";
 import { money, timestampLabel } from "./format";
@@ -40,8 +42,7 @@ const ZERO = BigInt(0);
  */
 export function AccountingBankPanel({
   accounts,
-  bookBalance,
-  isCard,
+  profiles,
   demo,
   onFeeds,
   onLedger,
@@ -49,8 +50,7 @@ export function AccountingBankPanel({
   onRefresh,
 }: {
   accounts: BalanceRow[];
-  bookBalance: (a: BalanceRow) => bigint;
-  isCard: (a: BalanceRow) => boolean;
+  profiles: AccountProfile[];
   demo: boolean;
   onFeeds: () => void;
   onLedger: (a: BalanceRow) => void;
@@ -101,9 +101,8 @@ export function AccountingBankPanel({
   if (accounts.length === 0) return null;
 
   const identities = bankIdentitiesByAccount(feeds);
+  const balances = accountBalances(accounts, profiles, feeds);
   const rows = accounts.map((a) => {
-    const feedAccount =
-      feeds?.accounts.find((f) => f.account_id === a.id) ?? null;
     const identity = identities.get(a.id) ?? null;
     const connection =
       feeds?.connections.find((c) => c.id === identity?.connection_id) ?? null;
@@ -116,12 +115,7 @@ export function AccountingBankPanel({
         : connection.status === "reconnect_required"
           ? "reconnect"
           : "disconnected";
-    const book = bookBalance(a);
-    const observed =
-      identity?.balance?.balance_cents != null && feedAccount
-        ? BigInt(identity.balance.balance_cents) *
-          BigInt(feedAccount.balance_sign)
-        : null;
+    const { book, bank: observed, card } = balances.get(a.id)!;
     const difference = observed !== null ? book - observed : null;
     return {
       account: a,
@@ -129,6 +123,7 @@ export function AccountingBankPanel({
       identity,
       status,
       book,
+      card,
       difference,
       observed,
     };
@@ -180,7 +175,7 @@ export function AccountingBankPanel({
                       {r.account.name}
                     </span>
                     <span className="block truncate text-xs text-muted-foreground">
-                      {isCard(r.account) ? "Credit card" : "Bank account"}
+                      {r.card ? "Credit card" : "Bank account"}
                       {r.identity?.institution
                         ? ` · ${r.identity.institution}`
                         : ""}

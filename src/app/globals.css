@@ -1391,8 +1391,15 @@ a.bg-teal {
 }
 
 /* Hydration swaps the server's inline loader for the portalled one; that
-   swap must not replay the fade-in. */
-.brand-loader-overlay.is-continuing {
+   swap must not replay the fade-in. Scoped away from .is-leaving so the
+   dissolve, declared above at the same specificity, still plays. */
+.brand-loader-overlay.is-continuing:not(.is-leaving) {
+  animation: none;
+}
+
+/* The boot screen: opaque from its first frame, so the page rendering
+   underneath never shows through while the overlay would be fading in. */
+.brand-loader-overlay.is-instant:not(.is-leaving) {
   animation: none;
 }
 
