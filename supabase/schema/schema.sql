@@ -1292,8 +1292,8 @@ CREATE TRIGGER payroll_forms_updated_at
 
 -- ----------------------------------------------------------------------------
 -- payroll_audit_events (append-only audit trail for sensitive actions)
--- Append-only by RLS: authenticated users may SELECT and INSERT, never
--- UPDATE or DELETE. See migrations/20260417_create_payroll_and_email.sql
+-- Append-only by RLS: holders of accounting.manage may SELECT and INSERT,
+-- nobody may UPDATE or DELETE. See migrations/20260417_create_payroll_and_email.sql
 -- for event_type / metadata shape conventions.
 -- ----------------------------------------------------------------------------
 
@@ -1315,42 +1315,72 @@ CREATE INDEX payroll_audit_events_actor_idx      ON payroll_audit_events (actor_
 
 ALTER TABLE payroll_audit_events ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY payroll_audit_events_select ON payroll_audit_events
-  FOR SELECT TO authenticated USING (TRUE);
-CREATE POLICY payroll_audit_events_insert ON payroll_audit_events
-  FOR INSERT TO authenticated WITH CHECK (TRUE);
+-- has_permission() lives in the TEAM ACCESS block below.
+CREATE POLICY payroll_audit_events_select ON public.payroll_audit_events FOR SELECT TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_audit_events_insert ON public.payroll_audit_events FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('accounting.manage')));
 
 -- ----------------------------------------------------------------------------
--- RLS for the remaining 10 payroll tables (full CRUD)
+-- RLS for the remaining 10 payroll tables
+-- Payroll is books data: accounting.manage reads and writes it. The history
+-- tables are append-only (select and insert); the history triggers run as
+-- the caller and write under the insert policy. has_permission() lives in
+-- the TEAM ACCESS block below.
 -- ----------------------------------------------------------------------------
 
-ALTER TABLE organization_config       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE federal_tax_configs       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE state_tax_configs         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE config_change_history     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payroll_employees         ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payroll_runs              ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payroll_run_history       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payroll_tax_deposits      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payroll_deposit_history   ENABLE ROW LEVEL SECURITY;
-ALTER TABLE payroll_forms             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE organization_config     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE federal_tax_configs     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE state_tax_configs       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE config_change_history   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payroll_employees       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payroll_runs            ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payroll_run_history     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payroll_tax_deposits    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payroll_deposit_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payroll_forms           ENABLE ROW LEVEL SECURITY;
 
-DO $$
-DECLARE
-  tbl TEXT;
-BEGIN
-  FOR tbl IN SELECT unnest(ARRAY[
-    'organization_config', 'federal_tax_configs', 'state_tax_configs',
-    'config_change_history', 'payroll_employees', 'payroll_runs',
-    'payroll_run_history', 'payroll_tax_deposits', 'payroll_deposit_history',
-    'payroll_forms'
-  ]) LOOP
-    EXECUTE format('CREATE POLICY "Authenticated users can view %I" ON %I FOR SELECT TO authenticated USING (true)', tbl, tbl);
-    EXECUTE format('CREATE POLICY "Authenticated users can insert %I" ON %I FOR INSERT TO authenticated WITH CHECK (true)', tbl, tbl);
-    EXECUTE format('CREATE POLICY "Authenticated users can update %I" ON %I FOR UPDATE TO authenticated USING (true) WITH CHECK (true)', tbl, tbl);
-    EXECUTE format('CREATE POLICY "Authenticated users can delete %I" ON %I FOR DELETE TO authenticated USING (true)', tbl, tbl);
-  END LOOP;
-END $$;
+CREATE POLICY organization_config_select ON public.organization_config FOR SELECT TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY organization_config_insert ON public.organization_config FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY organization_config_update ON public.organization_config FOR UPDATE TO authenticated USING ((SELECT public.has_permission('accounting.manage'))) WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY organization_config_delete ON public.organization_config FOR DELETE TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+
+CREATE POLICY federal_tax_configs_select ON public.federal_tax_configs FOR SELECT TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY federal_tax_configs_insert ON public.federal_tax_configs FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY federal_tax_configs_update ON public.federal_tax_configs FOR UPDATE TO authenticated USING ((SELECT public.has_permission('accounting.manage'))) WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY federal_tax_configs_delete ON public.federal_tax_configs FOR DELETE TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+
+CREATE POLICY state_tax_configs_select ON public.state_tax_configs FOR SELECT TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY state_tax_configs_insert ON public.state_tax_configs FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY state_tax_configs_update ON public.state_tax_configs FOR UPDATE TO authenticated USING ((SELECT public.has_permission('accounting.manage'))) WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY state_tax_configs_delete ON public.state_tax_configs FOR DELETE TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+
+CREATE POLICY config_change_history_select ON public.config_change_history FOR SELECT TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY config_change_history_insert ON public.config_change_history FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+
+CREATE POLICY payroll_employees_select ON public.payroll_employees FOR SELECT TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_employees_insert ON public.payroll_employees FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_employees_update ON public.payroll_employees FOR UPDATE TO authenticated USING ((SELECT public.has_permission('accounting.manage'))) WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_employees_delete ON public.payroll_employees FOR DELETE TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+
+CREATE POLICY payroll_runs_select ON public.payroll_runs FOR SELECT TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_runs_insert ON public.payroll_runs FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_runs_update ON public.payroll_runs FOR UPDATE TO authenticated USING ((SELECT public.has_permission('accounting.manage'))) WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_runs_delete ON public.payroll_runs FOR DELETE TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+
+CREATE POLICY payroll_run_history_select ON public.payroll_run_history FOR SELECT TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_run_history_insert ON public.payroll_run_history FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+
+CREATE POLICY payroll_tax_deposits_select ON public.payroll_tax_deposits FOR SELECT TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_tax_deposits_insert ON public.payroll_tax_deposits FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_tax_deposits_update ON public.payroll_tax_deposits FOR UPDATE TO authenticated USING ((SELECT public.has_permission('accounting.manage'))) WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_tax_deposits_delete ON public.payroll_tax_deposits FOR DELETE TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+
+CREATE POLICY payroll_deposit_history_select ON public.payroll_deposit_history FOR SELECT TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_deposit_history_insert ON public.payroll_deposit_history FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+
+CREATE POLICY payroll_forms_select ON public.payroll_forms FOR SELECT TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_forms_insert ON public.payroll_forms FOR INSERT TO authenticated WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_forms_update ON public.payroll_forms FOR UPDATE TO authenticated USING ((SELECT public.has_permission('accounting.manage'))) WITH CHECK ((SELECT public.has_permission('accounting.manage')));
+CREATE POLICY payroll_forms_delete ON public.payroll_forms FOR DELETE TO authenticated USING ((SELECT public.has_permission('accounting.manage')));
 
 -- ============================================================================
 -- TEAM ACCESS: team_members, role_permissions, team_member_permissions

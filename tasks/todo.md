@@ -1,3 +1,140 @@
+# Accounting API, phase 0: close two access holes first (2026-10-02)
+
+Before the books get an API (keys, scopes, an SQL-side key check), two
+existing holes get fixed. Phase 1 builds on both: the API copies the `app`
+key model, and API keys will be one more identity in the same Supabase
+project the payroll tables live in.
+
+**Hole A (`app`, API keys).**
+- **The leak:** `api_keys_update_own` lets a key's member update any column through PostgREST (`app/supabase/schema.sql:4782`). No WITH CHECK is given, so the USING clause doubles as the check.
+- **What a member can do:**
+  1. Clear `revoked_at`/`disabled_at`, so an admin's revoke does not stick. The middleware only looks for `revoked_at IS NULL` (`app/src/lib/api/middleware.ts:118-122`).
+  2. Rewrite `key_hash`, `scopes` or `name`.
+  3. With `api_keys.manage_all`: repoint any visible key's `team_member_id` at the Owner. The middleware then resolves the Owner's `*` api access for that key, which is privilege escalation.
+- **Creation:** keys are generated and hashed in the browser (`settings/page.tsx:512-536`) and inserted through RLS (`queries.ts:1491`). The server never checks `scopes`.
+
+**Hole B (`admin`, payroll tables).**
+- **The leak:** 10 `public` tables carry "Authenticated users can view/insert/update/delete" policies with `true` (`admin/supabase/schema/schema.sql:1325-1353`), and `payroll_audit_events` lets anyone read and insert (:1318-1321). Any signed-in person can read or rewrite employee pay, FEIN, deposits and forms directly through PostgREST, including a `member` with no money permissions.
+- **The tables:**
+  - config: `organization_config`, `federal_tax_configs`, `state_tax_configs`, `config_change_history`
+  - payroll: `payroll_employees`, `payroll_runs`, `payroll_run_history`, `payroll_tax_deposits`, `payroll_deposit_history`, `payroll_forms`
+- **Hidden UI is not protection:** the module is hidden behind `NEXT_PUBLIC_PAYROLL_ENABLED`, but the data is reachable anyway.
+- **Every other `public` table is already permission-gated** (sweep of every `CREATE POLICY` in the snapshot). `team_members` has `true` policies, but its guard trigger enforces the rules, so it is fine.
+
+## Owner decisions (2026-10-02)
+1. **Which permission guards payroll?**
+   - **Recommended: `accounting.manage`** for read and write. Payroll is books data, Admins already hold it by default, and it adds no vocabulary or settings UI for a module that is parked.
+   - **Alternative:** new `payroll.read`/`payroll.manage` keys in `access-control.ts`, the SQL seeds and the team permissions UI.
+2. **Migration file for the `app` fix.**
+   - `app/supabase/migrations/20261002082430_workspace_today_without_tz_catalog.sql` is untracked, and `store.tsx`, `queries.ts` and `schema.sql` carry uncommitted work.
+   - The one-migration-per-commit rule says to append to that file.
+   - **Recommended:** commit the in-progress `app` work first, so phase 0 gets its own migration and its own commit.
+
+## Plan
+
+### A. `app`: API keys are created and revoked only by the server
+- [x] **A1. Migration**, `20261002083507_api_keys_server_only.sql`:
+  - `DROP POLICY IF EXISTS api_keys_insert_own` and `api_keys_update_own`. `api_keys_select` stays, so members still list their own keys and holders of `api_keys.manage_all` list all of them.
+  - `REVOKE ALL ON public.api_keys FROM anon, authenticated; GRANT SELECT ON public.api_keys TO authenticated;`
+  - Trigger `api_keys_guard` (BEFORE UPDATE, every role including `service_role`, so a server bug cannot undo it either). It raises when:
+    - `revoked_at` changes once it is set (no un-revoke, no re-dating);
+    - `key_hash`, `key_prefix` or `created_at` change;
+    - `team_member_id` or `created_by` change to anything but NULL. NULL stays allowed because the FK `ON DELETE SET NULL` is carried out as an UPDATE and fires row triggers.
+
+    Function: `SET search_path = ''`, `REVOKE ALL ... FROM PUBLIC`.
+  - Things the trigger deliberately does not guard:
+    - `scopes`: past migrations rewrote scopes (`schema.sql:5608`), and only the server can write them now.
+    - `disabled_at`: meant to be reversible, unlike revoke.
+    - `name`, `last_used_at`: the middleware writes `last_used_at`.
+  - Checked against the replay: the backfill at `schema.sql:2346` (`COALESCE(revoked_at, now())`) leaves already-revoked rows unchanged, so the guard passes it.
+- [x] **A2. `schema.sql`**, edited in place:
+  - remove the two policies;
+  - add the grant lines;
+  - add the guard function and trigger beside `set_api_keys_updated_at` (:1291).
+- [x] **A3. `POST /api/workspace/api-keys`** (new):
+  - `requireSessionAccess()`.
+  - Body `{ name, scopes }` checked with zod. Replace the unused, stale `createApiKeySchema` in `lib/schemas/api-keys.ts`.
+    - `name`: trimmed, 1 to 100 characters.
+    - `scopes`: unique and non-empty. Every scope must be in `API_ENDPOINT_PERMISSION_SET` and pass `accessAllows(access, scope, 'api')`. The Owner's `*` passes. Anything else gets a 422 that names the scopes it refused.
+  - The server generates the key with `generateApiKey`/`hashApiKey` (`lib/api/crypto.ts`) and inserts it with the service client: `team_member_id = created_by = memberId`, `permissions = 'scoped'`.
+  - It returns `{ data: { key, secret } }` with `Cache-Control: no-store`. `key` uses the same column list as `fetchApiKeys`; `key_hash` is never returned.
+- [x] **A4. `POST /api/workspace/api-keys/[id]/revoke`** (new):
+  - `requireSessionAccess()`, then load the row with the service client.
+  - Allowed when `team_member_id = memberId`, `created_by = memberId`, or `accessAllows(access, 'api_keys.manage_all')`. This is the same set of people who can see the key today. Anyone else gets a 404.
+  - Runs `update ... set revoked_at = now() where id = $1 and revoked_at is null`.
+  - Revoking twice returns the existing row, not an error.
+- [x] **A5. Client:**
+  - `store.addApiKey(name, scopes)` and `store.revokeApiKey(id)` call the two routes, following the `fetch('/api/workspace/...')` pattern at `store.tsx:1034`. The optimistic revoke and rollback stay, and so do the admin notifications.
+  - Delete `insertApiKey` and `revokeApiKey` from `queries.ts`.
+  - `settings/page.tsx` `handleGenerateKey` stops importing `generateApiKey`/`hashApiKey` and shows `secret` from the response.
+  - No visual change.
+- [x] **A6. `scripts/verify-api-key-guard.ts`**, a PGlite test in the style of `verify-tasks-read-assigned.ts` that applies the migration. It proves:
+  1. A member can SELECT their own key.
+  2. A member's INSERT, UPDATE and DELETE are refused, including clearing `revoked_at`.
+  3. A `manage_all` holder cannot repoint `team_member_id`.
+  4. `service_role` can revoke.
+  5. `service_role` cannot un-revoke, re-date, change `key_hash` or repoint.
+  6. Deleting a member nulls `team_member_id` without tripping the guard.
+
+### B. `admin`: payroll tables follow the permission system
+- [x] **B1. Migration**, `20261002083831_payroll_access.sql` (no other admin migration is in the working tree):
+  - For the 10 tables: drop the four "Authenticated users can ..." policies, using the same DROP list shape as `20260915145008_team_access.sql:229-233`.
+  - Then create `<t>_select`, `<t>_insert`, `<t>_update` and `<t>_delete` on `(SELECT public.has_permission('accounting.manage'))`.
+  - The history tables (`payroll_run_history`, `payroll_deposit_history`, `config_change_history`) get select and insert only, so they become append-only. Checked: no code updates or deletes them. The history triggers are SECURITY INVOKER, so they write under the actor's insert policy.
+  - `payroll_audit_events`: replace its `true` select and insert with the permission check. It stays append-only.
+- [x] **B2. Snapshot:** edit `schema.sql` by hand. Replace the open-policy `DO` block and the two audit policies in place with the final policies. Never regenerate it.
+- [x] **B3. `scripts/verify-payroll-access.ts`** plus a `test:payroll:access` script:
+  - Uses `accountingTestDb()`, which loads the TEAM region with `has_permission`.
+  - Creates minimal stand-ins for the 11 tables, then applies the new migration file.
+  - Checks owner, admin, member and stranger on each operation:
+    - owner and admin can do everything the policies allow;
+    - member and stranger see 0 rows and every write is refused;
+    - nobody can update or delete history or audit rows.
+- [x] **B4. What stays the same:**
+  - `process-automations` uses the service role, so it is unaffected.
+  - The automations form lists employees only for people who hold the payroll key.
+  - The owner (`*`) sees every payroll page as before.
+
+### Verify and finish
+- [x] Run both verify scripts, `test:team`, and type-check both apps (`tsc --noEmit`).
+- [x] **In the browser (app):** create a key and check the response, the one-time reveal and the list. Revoke it, then call `/api/v1/...` with it and get a 401. Call PostgREST `PATCH api_keys` with the member's session and get a refusal.
+- [x] **In the browser (admin):** payroll pages load for the owner (flag on locally). PostgREST read of `payroll_employees` as a `member` returns `[]`.
+- [x] Give the owner the full migration files to run. Both files are new, so there is no delta.
+- [x] Out of scope, noted for phase 1:
+  - `expires_at` and rotation;
+  - the unscoped `audit-log` reads in `app`;
+  - `business_profile_read` letting every member read the EIN;
+  - `access.manage` never being enforced.
+
+
+## Review
+**Hole A (`app`)**
+- **Database test.** `scripts/verify-api-key-guard.ts` runs on PGlite: 20 checks pass, and it can be re-run safely. Run it with `node --experimental-strip-types scripts/verify-api-key-guard.ts`.
+  - Before the migration, it reproduces both holes: a member un-revokes their own key, and a manage_all holder repoints a key at the Owner.
+  - After the migration, members read exactly what they read before and cannot insert, update or delete.
+  - `service_role` can still revoke, edit scopes, disable and re-enable, and record last use.
+  - Nobody can un-revoke or re-date a revoke, change the hash or creator, or move a key to another member.
+  - Deleting a member nulls the key without tripping the guard.
+- **Code checks.** `tsc --noEmit` is clean. eslint is clean on the new files and on every touched line (`store.tsx` and `settings/page.tsx` had errors before this change, on other lines).
+- **Live, local dev server against the production database, signed in as the Owner. Write-free probes only:**
+  - An unknown scope, empty scopes and a blank name each return 422 with a reason.
+  - Revoking an unknown key or a non-uuid id returns 404.
+  - The settings key list (6 active keys) still loads through the unchanged read policy.
+  - The only console errors were those five probes.
+- **Not run against production:** creating and revoking a real key. It writes to production and notifies the admins.
+
+**Hole B (`admin`)**
+- **Database test.** `npm run test:payroll:access` passes 224 checks on the team fixture.
+  - Before the migration, a member reads employees and rewrites organization_config.
+  - After it, no open policy is left.
+  - The Owner, an Admin, and a member with a personal accounting.manage grant can read and insert everywhere, and update and delete the 7 working tables. The 4 history and audit tables refuse updates and deletes.
+  - A member and a signed-in stranger see 0 rows and cannot write anything.
+- **Other suites and checks.** `test:team` passes 59 checks, `tsc --noEmit` is clean, and the accounting eslint config is clean on the new script.
+- **Not checked in the browser:** the payroll UI is hidden behind `NEXT_PUBLIC_PAYROLL_ENABLED` and its owner always passes (`*`), so the test above is the proof.
+
+**To apply:** both migration files are new, so no delta is needed. Run them as-is. In `app`, the code works before the migration runs (routes use the service role), but the hole stays open until it runs.
+
+
 # Smooth hard loads: one boot screen, start to finish (2026-09-29)
 
 Owner: typing the domain "flashes" the dashboard and the loader "cycles".

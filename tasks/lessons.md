@@ -52,6 +52,8 @@ Admin's convention (as of `20260319_create_tax_estimates.sql`) is one file per f
 
 **Do:** rules with named reasons ("Account purpose is Meals"), a test table per rule, and an explicit review group for the leftovers.
 
+**Scope (2026-10-02):** the ban covers AI working inside the books: an LLM call, SDK or provider key that the admin itself uses to classify, map or post. It does not cover a permissioned API that outside callers (scripts or the owner's AI agents) use to read the books or run the same commands the browser does. The owner asked for that API on 2026-10-02 (see the accounting API entries in todo.md). The admin never calls a model; keys are scoped, audited, and read-only by default.
+
 ## A data gate must surface as a next step where the owner is
 
 **Rule:** When a feature holds something back because the books are incomplete (accounts without a tax treatment, an unverified payroll register, an unmapped bank feed), the missing piece is a setup step. It belongs in the one prioritized guide every screen shows, with the fix one click away, not only in the disabled row of the feature it gates.
