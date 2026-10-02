@@ -18,6 +18,13 @@ export type CacheEntry<T> = {
   stale: boolean;
 };
 
+/** Answers the server read while rendering a page, for the browser cache to start from. */
+export type PreloadedReads = {
+  /** When the reads started, in server time; the cache ages them from here. */
+  at: number;
+  reads: { query: AccountingQuery; value: unknown }[];
+};
+
 /** The identity of a query: its entries in one fixed order. */
 export function accountingQueryKey(query: AccountingQuery): string {
   return JSON.stringify(
@@ -107,6 +114,25 @@ export function createAccountingReadCache(
       for (const [key, flight] of flights)
         if (predicate(flight.query)) keys.add(key);
       for (const key of keys) dropKey(key);
+    },
+    /**
+     * Remember an answer the server read while rendering the page, as of
+     * `time`. A key this cache already holds or is fetching is left alone:
+     * what the browser has is at least as new as a page payload, which back
+     * and forward navigation can replay long after it was rendered. Keeping
+     * the server's time lets the usual ttl and maxAge age such a replay out.
+     */
+    seed(query: AccountingQuery, value: unknown, time: number) {
+      const key = accountingQueryKey(query);
+      if (current(key) || flights.has(key)) return;
+      values.set(key, {
+        query,
+        value,
+        time: Math.min(time, Date.now()),
+        stale: false,
+      });
+      while (values.size > limit) values.delete(values.keys().next().value!);
+      notify(key);
     },
     /** Forget everything at once, for a change of workspace or user. */
     invalidate() {

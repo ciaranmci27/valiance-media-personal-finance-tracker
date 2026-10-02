@@ -12,6 +12,7 @@ import {
 import { formatCurrency, formatMonthShort, parseLocalDate, computeChartTicks } from "@/lib/utils";
 import { useMaskedHover } from "@/components/ui/masked-value";
 import type { IncomeEntry, IncomeAmount } from "@/types/database";
+import { useEntranceMotion } from "@/components/layout/boot";
 
 // Colors
 const POSITIVE_COLOR = "var(--color-teal)"; // Teal
@@ -28,6 +29,8 @@ export function IncomeTrendChart({
   amounts,
   isRevealed: externalRevealed,
 }: IncomeTrendChartProps) {
+  // Mounted under the boot screen, the chart is already drawn when it lifts.
+  const animate = useEntranceMotion();
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
   const showValues = !isHidden || isRevealed || externalRevealed;
 
@@ -147,6 +150,7 @@ export function IncomeTrendChart({
           />
           <Tooltip content={<CustomTooltip />} />
           <Area
+            isAnimationActive={animate}
             type="monotone"
             dataKey="total"
             stroke={hasNegative ? "url(#incomeTrendGradientStroke)" : POSITIVE_COLOR}

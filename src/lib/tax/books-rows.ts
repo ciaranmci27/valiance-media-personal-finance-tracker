@@ -256,6 +256,20 @@ export interface BooksRefreshResult extends EstimatorRows {
 }
 
 /**
+ * Field by field, not as JSON text: a saved link comes back from a jsonb
+ * column with its keys reordered, so the text of identical bases differs and
+ * every visit would rewrite (and save) an unchanged wages row.
+ */
+function sameBases(a: BooksLink["bases"], b: BooksLink["bases"]): boolean {
+  if (!a || !b) return !a && !b;
+  return (
+    a.social_security === b.social_security &&
+    a.medicare === b.medicare &&
+    (a.state ?? null) === (b.state ?? null)
+  );
+}
+
+/**
  * Applies fresh figures to the rows that carry a books link. A row is only
  * rewritten on a cents-exact difference, is never zeroed because a figure
  * went missing, and only loses its rest-of-year amount once the books cover
@@ -299,7 +313,7 @@ export function applyBooksRefresh(
       row.books.through === figure.through &&
       (row.books.document_id ?? null) === (figure.document_id ?? null) &&
       rest === row.books.rest &&
-      JSON.stringify(row.books.bases ?? null) === JSON.stringify(link.bases ?? null);
+      sameBases(row.books.bases, link.bases);
     if (same) return row;
 
     const nextLink: BooksLink = { ...link, rest };

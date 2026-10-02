@@ -21,6 +21,10 @@ const subscribe = () => () => {};
  * arrival plays again. `fadeIn` false makes the overlay opaque from its first
  * frame (the emblem still arrives): for a loader that must never let the
  * page underneath show through, such as the boot screen.
+ *
+ * `inPlace` skips the portal for a loader already rendered outside the page
+ * content, such as the boot screen: hydration then keeps the server's node,
+ * so the emblem's arrival, the status line and the orbit carry straight on.
  */
 export function AppLoading({
   steps,
@@ -29,6 +33,7 @@ export function AppLoading({
   leaving,
   continuing,
   fadeIn = true,
+  inPlace = false,
   onLeft,
 }: {
   steps: readonly string[];
@@ -37,13 +42,15 @@ export function AppLoading({
   leaving?: boolean;
   continuing?: boolean;
   fadeIn?: boolean;
+  inPlace?: boolean;
   onLeft?: () => void;
 }) {
-  const host = useSyncExternalStore(
+  const body = useSyncExternalStore(
     subscribe,
     () => document.body,
     () => null,
   );
+  const host = inPlace ? null : body;
   // Hydration renders the server's inline copy first, then the portal takes
   // over in the next render: that swap must not replay the arrival.
   const startedInline = useRef(host === null).current;

@@ -1,9 +1,15 @@
 "use client";
 
-import { createContext, useContext, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  type ReactNode,
+} from "react";
 import {
   createAccountingReadCache,
   type AccountingReadCache,
+  type PreloadedReads,
 } from "@/lib/accounting/read-cache";
 
 /**
@@ -38,13 +44,25 @@ const CacheContext = createContext<AccountingReadCache>(sharedAccountingCache);
 
 export function AccountingCacheProvider({
   scope: next,
+  preloaded,
   children,
 }: {
   scope: string;
+  /** Answers the server read with the page (see `seed`). */
+  preloaded?: PreloadedReads;
   children: ReactNode;
 }) {
   // During render, so no child can read another workspace's answer first.
   claimAccountingCache(next);
+  // Seeded after render, never during it: hydration has to render what the
+  // server rendered (an empty cache), and the server's module cache is shared
+  // by every request, so it must never hold anyone's answers. Layout effects
+  // all run before any passive effect, so the screens' first reads find these.
+  useLayoutEffect(() => {
+    if (!preloaded) return;
+    for (const { query, value } of preloaded.reads)
+      sharedAccountingCache.seed(query, value, preloaded.at);
+  }, [preloaded]);
   return (
     <CacheContext.Provider value={sharedAccountingCache}>
       {children}

@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { formatCurrency, formatMonthShort, computeChartTicks } from "@/lib/utils";
 import { useMaskedHover } from "@/components/ui/masked-value";
+import { useEntranceMotion } from "@/components/layout/boot";
 
 interface NetWorthChangeChartProps {
   data: Array<{
@@ -26,6 +27,8 @@ export function NetWorthChangeChart({
   data,
   isRevealed: externalRevealed,
 }: NetWorthChangeChartProps) {
+  // Mounted under the boot screen, the chart is already drawn when it lifts.
+  const animate = useEntranceMotion();
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
   const showValues = !isHidden || isRevealed || externalRevealed;
 
@@ -95,7 +98,11 @@ export function NetWorthChangeChart({
           />
           <Tooltip content={<CustomTooltip />} />
           <ReferenceLine y={0} stroke="var(--color-border)" />
-          <Bar dataKey="change" radius={[4, 4, 0, 0]}>
+          <Bar
+            dataKey="change"
+            isAnimationActive={animate}
+            radius={[4, 4, 0, 0]}
+          >
             {data.map((entry, index) => (
               <Cell
                 key={`cell-${index}`}

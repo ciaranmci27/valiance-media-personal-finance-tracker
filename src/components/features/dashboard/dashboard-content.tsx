@@ -28,7 +28,9 @@ import {
 } from "@/components/features/dashboard/books-panel";
 import { useAccess } from "@/contexts/access-context";
 import { useBootHold } from "@/components/layout/boot";
+import { useAccountingRead } from "@/components/features/accounting/use-accounting-read";
 import { isDemoMode } from "@/lib/demo";
+import { ACCOUNTING_ENABLED } from "@/lib/env";
 import type {
   IncomeEntry,
   IncomeSource,
@@ -186,10 +188,21 @@ export function DashboardContent({
   // (the boot ignores holds once it is over anyway). Arriving from another
   // page with a cold cache shows skeleton figures instead, never the loader.
   const booksLoading = haveBooks && books.pending;
-  const [firstReadsDone, setFirstReadsDone] = React.useState(!booksLoading);
+  // The setup guide paints nothing until its read lands; held for too, so it
+  // can never appear after the reveal and push the page down. Same key as the
+  // guide's own read, so the two share one request.
+  const setupYear = new Date().getFullYear();
+  const setupRead = useAccountingRead(
+    { view: "setup", year: String(setupYear) },
+    { enabled: canBooks && ACCOUNTING_ENABLED && !demo },
+  );
+  const firstReadsLoading = booksLoading || setupRead.loading;
+  const [firstReadsDone, setFirstReadsDone] = React.useState(
+    !firstReadsLoading,
+  );
   React.useEffect(() => {
-    if (!booksLoading) setFirstReadsDone(true);
-  }, [booksLoading]);
+    if (!firstReadsLoading) setFirstReadsDone(true);
+  }, [firstReadsLoading]);
   React.useEffect(() => {
     const cap = window.setTimeout(
       () => setFirstReadsDone(true),
@@ -197,7 +210,7 @@ export function DashboardContent({
     );
     return () => window.clearTimeout(cap);
   }, []);
-  useBootHold(!firstReadsDone && booksLoading, DASHBOARD_STEPS, 1);
+  useBootHold(!firstReadsDone && firstReadsLoading, DASHBOARD_STEPS, 1);
 
   // --- Income tracking -----------------------------------------------------
   const availableMonths = React.useMemo(
@@ -423,7 +436,7 @@ export function DashboardContent({
         subtitle="Here's where things stand today."
       />
 
-      {canBooks && <SetupGuide year={new Date().getFullYear()} />}
+      {canBooks && <SetupGuide year={setupYear} />}
 
       {stats.length > 0 && <StatStrip>{stats}</StatStrip>}
 

@@ -195,8 +195,39 @@ async function main() {
   await aged.read(query);
   assert.equal(aged.entry(query), undefined, "An old answer is forgotten");
   assert.equal(aged.peek(query), undefined);
+
+  // Server answers seed a cold key, never what the browser already has.
+  let seededLoads = 0;
+  const seeded = createAccountingReadCache(async () => {
+    seededLoads++;
+    return "network";
+  });
+  seeded.seed(query, "server", Date.now());
+  assert.equal(await seeded.read(query), "server", "A seeded answer is used");
+  assert.equal(seededLoads, 0, "A fresh seed spares the request");
+  seeded.seed(query, "replayed", Date.now());
+  assert.equal(seeded.peek(query), "server", "A seed never replaces an answer");
+  seeded.drop(query);
+  seeded.seed(query, "replayed", Date.now());
+  assert.equal(
+    seeded.entry(query)?.stale,
+    true,
+    "A seed never revives an answer a write made stale",
+  );
+  const replay = { view: "manage" };
+  seeded.seed(replay, "old page", Date.now() - 60_000);
+  assert.equal(
+    await seeded.read(replay),
+    "network",
+    "A replayed page past the ttl is read again",
+  );
+  seeded.seed({ view: "feeds" }, "future", Date.now() + 60_000);
+  assert.ok(
+    (seeded.entry({ view: "feeds" })?.time ?? Infinity) <= Date.now(),
+    "A server clock ahead of the browser never makes a seed look newer",
+  );
   console.log(
-    "Accounting read cache: deduplication, reuse, cancellation, invalidation races, expiry, bounds, isolation, retry, subscriptions, soft drops, fresh reads and max age passed.",
+    "Accounting read cache: deduplication, reuse, cancellation, invalidation races, expiry, bounds, isolation, retry, subscriptions, soft drops, fresh reads, max age and seeding passed.",
   );
 }
 void main();

@@ -4,6 +4,7 @@ import * as React from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { formatCurrency } from "@/lib/utils";
 import { usePrivacy } from "@/contexts/privacy-context";
+import { useEntranceMotion } from "@/components/layout/boot";
 
 interface IncomeBreakdownChartProps {
   data: Array<{
@@ -31,6 +32,8 @@ interface ChartDataItem {
 }
 
 export function IncomeBreakdownChart({ data, isRevealed: externalRevealed, size = "default" }: IncomeBreakdownChartProps) {
+  // Mounted under the boot screen, the chart is already drawn when it lifts.
+  const animate = useEntranceMotion();
   const isCompact = size === "compact";
   const { isHidden } = usePrivacy();
   // Show values if not hidden OR if externally revealed by hover
@@ -157,6 +160,7 @@ export function IncomeBreakdownChart({ data, isRevealed: externalRevealed, size 
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
+              isAnimationActive={animate}
               data={chartData}
               cx="50%"
               cy="50%"

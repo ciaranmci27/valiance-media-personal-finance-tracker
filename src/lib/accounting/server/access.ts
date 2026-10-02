@@ -1,22 +1,46 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { sessionUser } from "@/lib/supabase/session-user";
 import { ACCOUNTING_ENABLED } from "@/lib/env";
 import { isDemoMode } from "@/lib/demo";
 import { localAccountingTestClient } from "./local-test-client";
+import type { AccountingRpc } from "./read";
 
-export async function accountingClient() {
+/**
+ * The signed-in session's accounting schema, before any books check; the
+ * local fixture database stands in for it in tests.
+ */
+async function signedInAccounting() {
   if (!ACCOUNTING_ENABLED)
     throw new Error("Accounting writes are unavailable.");
   const testClient = localAccountingTestClient();
-  if (testClient) return testClient;
+  if (testClient) return { accounting: testClient, fixture: true };
   if (isDemoMode()) throw new Error("Accounting writes are unavailable.");
   const client = await createClient();
-  const {
-    data: { user },
-    error: authError,
-  } = await client.auth.getUser();
-  if (authError || !user) throw new Error("Sign in to access accounting.");
-  const accounting = client.schema("accounting");
+  if (!(await sessionUser(client)))
+    throw new Error("Sign in to access accounting.");
+  return { accounting: client.schema("accounting"), fixture: false };
+}
+
+/**
+ * For reads made only through `readAccounting`, whose type admits nothing but
+ * RPC calls. Every accounting RPC runs `accounting.require_owner()` itself and
+ * raises ACCT_FORBIDDEN for a session without the books (see
+ * `isAccountingForbidden`), so the separate session probe `accountingClient`
+ * makes first would be a second database round trip for the same check.
+ */
+export async function accountingReader(): Promise<AccountingRpc> {
+  return (await signedInAccounting()).accounting;
+}
+
+/** The read was refused by the books' owner check. */
+export function isAccountingForbidden(error: { message: string }): boolean {
+  return /ACCT_FORBIDDEN/.test(error.message);
+}
+
+export async function accountingClient() {
+  const { accounting, fixture } = await signedInAccounting();
+  if (fixture) return accounting;
   const { error } = await accounting.rpc("context", {
     view: "session",
     params: {},

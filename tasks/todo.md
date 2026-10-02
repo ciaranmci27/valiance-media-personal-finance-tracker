@@ -1,3 +1,97 @@
+# Smooth hard loads: one boot screen, start to finish (2026-09-29)
+
+Owner: typing the domain "flashes" the dashboard and the loader "cycles".
+Recorded frame by frame (Playwright init-script recorder, admin-demo):
+
+1. Hydration remounts the boot overlay. The server's inline copy is swapped
+   for a portalled one, so the emblem's arrival snaps to full, the status line
+   pops from 0 to full opacity and the orbit jumps (~120-240 ms in).
+2. The status line steps backwards as the boot leaves: when the last hold is
+   released the overlay falls back to WORKSPACE_STEPS, so "Loading your
+   numbers" (dashboard) or "Preparing the view" (accounting) turns back into
+   "Opening your workspace" during the dissolve.
+3. Streamed routes (accounting, tax-payments have loading.tsx) show three
+   loaders: the boot hydrates, sees no holds and dissolves after 500 ms while
+   the page is still streaming; the sidebar shows through, the route fallback
+   fades in and replays the emblem's arrival; then the shell's loader swaps in.
+4. Charts animate after the reveal: the dashboard income chart was ~50% drawn
+   when the boot started to dissolve and kept sweeping ~700 ms after.
+
+## Plan
+- [x] AppLoading `inPlace`: the boot overlay (a body child already) is never portalled, so hydration keeps the same node
+- [x] BootProvider keeps showing the last hold's line while it leaves
+- [x] Route fallbacks render only a hidden marker under the boot; the boot holds while a marker or an un-arrived page is in the DOM; pages with a loading.tsx signal arrival (`withBootArrival`); a grace timer covers pages that end in an error
+- [x] `useEntranceMotion()`: charts that mount under the boot skip their draw-in
+- [x] Verify with the recorder: dashboard, accounting (with a temporary server delay), tax, client-side navigation
+
+## Review
+Recorded again after the change (admin-demo, same init-script recorder):
+- Dashboard hard load: one overlay node from first byte to dissolve; the
+  emblem arrival and status fade play through hydration; the income chart is
+  fully drawn when the dissolve starts (was about half drawn).
+- Accounting hard load with a temporary 2.5 s server delay: one overlay, held
+  through the stream; the line reads Opening your workspace, Loading accounts
+  and feeds, Preparing the view, and stays there through the dissolve. Before:
+  the boot dissolved at 620 ms, a second loader faded in, a third swapped in.
+- Accounting and Tax hard loads without delay: one overlay, no regressions.
+- Client-side navigation: the route loader still shows full screen as before;
+  charts still animate in on in-app visits. No hydration warnings.
+- tsc clean; eslint shows only the chart files' existing no-explicit-any.
+
+Follow-ups, not done: a client-side visit to Accounting whose screen is
+already cached cuts from the route loader to the page without a dissolve
+(existing behaviour). The dashboard sends no byte until resolveAccess and all
+seven server reads finish, so a slow server shows the browser's blank tab
+before the boot screen; streaming it would change navigation for every page
+and needs its own decision.
+
+# Load performance pass, measured on a local production build (2026-10-01)
+
+Measured against live data (owner signed in to `next start` on :3007), with
+Resource Timing for the network and DOM observers for the screen.
+
+Baseline findings:
+1. Every session check called Supabase Auth over the network: ~78 ms in the
+   middleware alone, paid again by `resolveAccess` and `accountingClient`. The
+   books API spent ~260 ms on auth plus the `context('session')` probe before
+   reading anything; a whole `manage` read took ~350 ms.
+2. Accounting ran two client waves after its own 500-600 ms server read:
+   boot reads (manage, feeds, setup), then the first screen's reads.
+3. Tax Estimator wrote the estimate on every visit (PATCH ~2 s after load with
+   a "Saving" pulse): `applyBooksRefresh` compared wage `bases` as JSON text,
+   and jsonb reorders keys, so the wages row always looked changed.
+4. The dashboard setup guide was not part of the boot hold and could pop in
+   after the reveal.
+
+## Plan
+- [x] `sessionUser` (getClaims): local ES256 verification in middleware, `resolveAccess`, `accountingClient`
+- [x] `accountingReader` for RPC-only reads (GET /api/accounting, /api/accounting/tax, the page's workspace): every RPC runs `require_owner` itself, ACCT_FORBIDDEN still answers 403
+- [x] Tax books route: tax-source and payroll reads in parallel
+- [x] `answerAccountingRead` (GET body moved verbatim) + `preloadAccountingReads`; the accounting page reads the shell's boot and first-view queries alongside the workspace; `seed` puts them in the browser cache after hydration
+- [x] `sameBases` field comparison + regression test (fails on the old code)
+- [x] Dashboard holds the boot for the setup guide's read too
+- [x] Decided against: server-loading the dashboard's books (+300 ms blank tab for ~50-100 ms sooner data), bounding the dashboard's history reads (~500 rows total), splitting recharts/zod (cached; the dashboard paints ~25 ms after its HTML)
+
+## Review
+- Middleware check 78 ms -> ~5 ms; books API auth overhead ~260 ms -> ~6 ms;
+  `manage` read ~350 ms -> ~110 ms.
+- Dashboard server response 310-510 ms -> 170-190 ms; books figures ready
+  1.10-1.45 s -> ~0.6 s.
+- Accounting: no client reads at startup on any screen except the sidebar
+  badge (checked overview, journal, payroll, close, manage, reports,
+  accounts); last startup read 1.85-1.97 s -> arrives with the page.
+- Tax Estimator: no write on load (network log shows no estimates request).
+- Forged ES256 / HS256 / unknown-kid / alg-none / expired tokens and no
+  cookie are all rejected by `sessionUser`; signed-out API calls get 401,
+  pages redirect to /login.
+- tsc clean; preload, read-cache (with seeding), cancellation, tax figures,
+  tax engine and team suites pass. verify-accounting-http needs the local
+  fixture database and was not run.
+
+Follow-ups, not done: the posted-register read (recent 8) is the slowest
+dashboard read at ~300 ms (database function cost); Manage makes one extra
+workspace read after it opens.
+
 # Transfer auto pairing and fill indicators (2026-09-19)
 
 Owner: a card payment lands as two rows in Review (-$31.64 "Debit to AMEX

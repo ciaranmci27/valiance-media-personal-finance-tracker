@@ -21,6 +21,7 @@ import type {
   AccountingWorkspace,
   JournalEntry,
 } from "@/lib/accounting/contracts";
+import type { PreloadedReads } from "@/lib/accounting/read-cache";
 import type {
   RegisterFilter,
   WorkflowCommand,
@@ -128,15 +129,23 @@ function demoManage(workspace: AccountingWorkspace): BooksMetadata {
  * State lives in the URL (`view`, `section`, `entry`, `report`) so links
  * and the back button keep working.
  */
-export function AccountingBooks(props: {
+export function AccountingBooks({
+  preloaded,
+  ...props
+}: {
   initial: AccountingWorkspace;
+  /** The first screen's reads, answered by the server with the page. */
+  preloaded?: PreloadedReads;
   demo?: boolean;
   detailOnly?: boolean;
   testing?: boolean;
 }) {
   const mode = props.demo ? "demo" : props.testing ? "test" : "live";
   return (
-    <AccountingCacheProvider scope={`${mode}:${props.initial.legal_name}`}>
+    <AccountingCacheProvider
+      scope={`${mode}:${props.initial.legal_name}`}
+      preloaded={preloaded}
+    >
       <AccountingBooksInner {...props} />
     </AccountingCacheProvider>
   );

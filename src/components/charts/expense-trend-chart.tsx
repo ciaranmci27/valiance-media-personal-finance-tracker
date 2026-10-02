@@ -12,6 +12,7 @@ import {
 import { formatCurrency, toMonthlyAmount } from "@/lib/utils";
 import { useMaskedHover } from "@/components/ui/masked-value";
 import type { ExpenseHistory } from "@/types/database";
+import { useEntranceMotion } from "@/components/layout/boot";
 
 interface ExpenseTrendChartProps {
   history: ExpenseHistory[];
@@ -20,6 +21,8 @@ interface ExpenseTrendChartProps {
 const TEAL_COLOR = "var(--color-teal-light)";
 
 export function ExpenseTrendChart({ history }: ExpenseTrendChartProps) {
+  // Mounted under the boot screen, the chart is already drawn when it lifts.
+  const animate = useEntranceMotion();
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
   const showValues = !isHidden || isRevealed;
 
@@ -179,6 +182,7 @@ export function ExpenseTrendChart({ history }: ExpenseTrendChartProps) {
           />
           <Tooltip content={<CustomTooltip />} />
           <Area
+            isAnimationActive={animate}
             type="monotone"
             dataKey="total"
             stroke={TEAL_COLOR}

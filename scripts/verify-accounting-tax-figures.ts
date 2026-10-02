@@ -668,6 +668,21 @@ const all = build(source(), payroll()).figures;
     "unchanged rows keep their identity",
     same.income[0] === rows.income[0],
   );
+  // A saved row comes back from jsonb with its keys reordered.
+  const reloaded = JSON.parse(JSON.stringify(rows), (_key, value) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).reverse())
+      : value,
+  ) as typeof rows;
+  const afterReload = applyBooksRefresh(reloaded, all, {
+    state: "AZ",
+    now: "2026-09-14T00:00:00Z",
+  });
+  check(
+    "identical figures change nothing after a jsonb round trip",
+    reloaded.income.some((r) => r.books?.bases) &&
+      afterReload.changed === false,
+  );
 
   const wagesRow = rows.income.find(
     (r) => r.books?.key === "payroll:wages:emp-1",

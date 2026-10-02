@@ -5,6 +5,7 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { formatCurrency } from "@/lib/utils";
 import { useMaskedHover } from "@/components/ui/masked-value";
 import { EXPENSE_CATEGORIES, type ExpenseCategory } from "@/types/database";
+import { useEntranceMotion } from "@/components/layout/boot";
 
 // Compact currency format for large numbers
 function formatCompactCurrency(value: number): string {
@@ -45,6 +46,8 @@ export function CategoryBreakdownChart({
   categoryTotals,
   isRevealed: externalRevealed,
 }: CategoryBreakdownChartProps) {
+  // Mounted under the boot screen, the chart is already drawn when it lifts.
+  const animate = useEntranceMotion();
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
   const showValues = !isHidden || isRevealed || externalRevealed;
 
@@ -102,6 +105,7 @@ export function CategoryBreakdownChart({
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
+            isAnimationActive={animate}
             data={chartData}
             cx="50%"
             cy="45%"

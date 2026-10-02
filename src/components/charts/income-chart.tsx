@@ -13,6 +13,7 @@ import {
 import { formatCurrency, formatMonthShort } from "@/lib/utils";
 import { usePrivacy } from "@/contexts/privacy-context";
 import type { IncomeSource } from "@/types/database";
+import { useEntranceMotion } from "@/components/layout/boot";
 
 // Colors
 const POSITIVE_COLOR = "var(--color-teal)"; // Teal
@@ -30,6 +31,8 @@ interface IncomeChartProps {
 }
 
 export function IncomeChart({ data, sources, isRevealed: externalRevealed }: IncomeChartProps) {
+  // Mounted under the boot screen, the chart is already drawn when it lifts.
+  const animate = useEntranceMotion();
   const { isHidden } = usePrivacy();
   // Show values if not hidden OR if externally revealed by hover
   const showValues = !isHidden || externalRevealed;
@@ -200,6 +203,7 @@ export function IncomeChart({ data, sources, isRevealed: externalRevealed }: Inc
           />
           <Tooltip content={<CustomTooltip />} />
           <Area
+            isAnimationActive={animate}
             type="monotone"
             dataKey="total"
             stroke={hasNegative ? "url(#incomeGradientStroke)" : POSITIVE_COLOR}

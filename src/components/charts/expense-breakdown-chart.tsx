@@ -4,6 +4,7 @@ import * as React from "react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { formatCurrency } from "@/lib/utils";
 import { useMaskedHover } from "@/components/ui/masked-value";
+import { useEntranceMotion } from "@/components/layout/boot";
 
 // Compact currency format for large numbers
 function formatCompactCurrency(value: number): string {
@@ -30,6 +31,8 @@ export function ExpenseBreakdownChart({
   business,
   isRevealed: externalRevealed,
 }: ExpenseBreakdownChartProps) {
+  // Mounted under the boot screen, the chart is already drawn when it lifts.
+  const animate = useEntranceMotion();
   const { isHidden, isRevealed, hoverProps } = useMaskedHover();
   const showValues = !isHidden || isRevealed || externalRevealed;
 
@@ -80,6 +83,7 @@ export function ExpenseBreakdownChart({
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
           <Pie
+            isAnimationActive={animate}
             data={chartData}
             cx="50%"
             cy="45%"

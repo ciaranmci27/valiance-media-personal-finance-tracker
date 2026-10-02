@@ -1,3 +1,4 @@
+import { withBootArrival } from "@/components/layout/boot-arrival";
 import { createClient } from "@/lib/supabase/server";
 import { TaxEstimatorContent } from "@/components/features/tax/tax-estimator-content";
 import { isDemoMode } from "@/lib/demo";
@@ -10,7 +11,7 @@ export const metadata = {
   title: "Tax Estimator",
 };
 
-export default async function TaxPaymentsPage({
+async function TaxPaymentsPage({
   searchParams,
 }: {
   searchParams: Promise<{ year?: string }>;
@@ -49,3 +50,5 @@ export default async function TaxPaymentsPage({
     />
   );
 }
+
+export default withBootArrival(TaxPaymentsPage);

@@ -1,10 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import {
-  accountingClient,
   accountingError,
+  accountingReader,
+  isAccountingForbidden,
 } from "@/lib/accounting/server/access";
-import { readAccounting } from "@/lib/accounting/server/read";
+import {
+  readAccounting,
+  type AccountingRpc,
+} from "@/lib/accounting/server/read";
 import { buildBooksFigures } from "@/lib/accounting/tax-books-figures";
 import type { TaxSource } from "@/lib/accounting/tax-workpapers";
 import type { PayrollYear } from "@/lib/accounting/payroll";
@@ -20,6 +24,13 @@ const query = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
 });
+
+function unavailable() {
+  return NextResponse.json(
+    { error: "Accounting is unavailable for this session." },
+    { status: 403 },
+  );
+}
 
 /** Today in the books timezone, `YYYY-MM-DD`. */
 function booksToday(): string {
@@ -40,14 +51,12 @@ function previousDay(iso: string): string {
  * snapshot, no worker: two reads flattened for the picker and the refresh.
  */
 export async function GET(req: NextRequest) {
-  let client: Awaited<ReturnType<typeof accountingClient>>;
+  let client: AccountingRpc;
   try {
-    client = await accountingClient();
+    // Reads only: both read RPCs run the books' owner check themselves.
+    client = await accountingReader();
   } catch {
-    return NextResponse.json(
-      { error: "Accounting is unavailable for this session." },
-      { status: 403 },
-    );
+    return unavailable();
   }
 
   const parsed = query.safeParse(Object.fromEntries(req.nextUrl.searchParams));
@@ -77,18 +86,26 @@ export async function GET(req: NextRequest) {
   const readPayroll = (cutoff: string) =>
     readAccounting(client, "payroll-year", { p_year: year, p_through: cutoff });
 
-  let source = await readSource(through);
+  // The two reads are independent, so they run together.
+  const readBoth = (cutoff: string) =>
+    Promise.all([readSource(cutoff), readPayroll(cutoff)]);
+  let [source, payroll] = await readBoth(through);
   // The books keep their own timezone; when the app's "today" is ahead of
-  // theirs, the ledger read refuses the cutoff. Step back one day once.
+  // theirs, the ledger read refuses the cutoff. Step back one day once, and
+  // read payroll again so both answer through the same day.
   if (
     source.error &&
     /ACCT_TAX_RANGE/.test(source.error.message) &&
     parsed.data.through === undefined
   ) {
     through = previousDay(through);
-    source = await readSource(through);
+    [source, payroll] = await readBoth(through);
   }
-  const payroll = await readPayroll(through);
+  if (
+    (source.error && isAccountingForbidden(source.error)) ||
+    (payroll.error && isAccountingForbidden(payroll.error))
+  )
+    return unavailable();
 
   const result = buildBooksFigures({
     year,

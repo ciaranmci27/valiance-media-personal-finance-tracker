@@ -12,6 +12,7 @@ import {
 } from "recharts";
 import { formatCurrency, formatMonthShort, computeChartTicks } from "@/lib/utils";
 import { usePrivacy } from "@/contexts/privacy-context";
+import { useEntranceMotion } from "@/components/layout/boot";
 
 // Colors
 const POSITIVE_COLOR = "var(--color-teal)"; // Copper
@@ -27,6 +28,8 @@ interface NetWorthChartProps {
 }
 
 export function NetWorthChart({ data, isRevealed: externalRevealed }: NetWorthChartProps) {
+  // Mounted under the boot screen, the chart is already drawn when it lifts.
+  const animate = useEntranceMotion();
   const { isHidden } = usePrivacy();
   // Show values if not hidden OR if externally revealed by hover
   const showValues = !isHidden || externalRevealed;
@@ -140,6 +143,7 @@ export function NetWorthChart({ data, isRevealed: externalRevealed }: NetWorthCh
           />
           <Tooltip content={<CustomTooltip />} />
           <Area
+            isAnimationActive={animate}
             type="monotone"
             dataKey="amount"
             stroke={hasNegative ? "url(#netWorthGradientStroke)" : POSITIVE_COLOR}

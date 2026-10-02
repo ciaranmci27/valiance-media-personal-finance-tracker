@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { sessionUser } from "@/lib/supabase/session-user";
 import { isDemoMode } from "@/lib/demo";
 import { siteConfig } from "@/config/site";
 import {
@@ -76,9 +77,7 @@ export const resolveAccess = cache(async (): Promise<ResolvedAccess> => {
     };
   }
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await sessionUser(supabase);
   if (!user) return { state: "signed_out" };
   if (!allowedByEnv(user.email))
     return { state: "not_member", email: user.email ?? null };

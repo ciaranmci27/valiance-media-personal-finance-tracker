@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { sessionUser } from "./session-user";
 
 /**
  * Update the Supabase session in middleware
@@ -60,13 +61,12 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  // IMPORTANT: Avoid writing any logic between createServerClient and
-  // supabase.auth.getUser(). A simple mistake could make it very hard to debug
-  // issues with users being randomly logged out.
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // IMPORTANT: Avoid writing any logic between createServerClient and the
+  // session check. A simple mistake could make it very hard to debug issues
+  // with users being randomly logged out. sessionUser refreshes an expired
+  // session (writing the new cookies through setAll above), then verifies the
+  // token locally rather than asking Supabase Auth on every request.
+  const user = await sessionUser(supabase);
 
   // Define public routes that don't require authentication.
   // The invoice webhook receiver authenticates via HMAC signature (no session),
