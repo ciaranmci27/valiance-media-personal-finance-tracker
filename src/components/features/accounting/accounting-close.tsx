@@ -31,6 +31,10 @@ import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { useAccountingRead } from "./use-accounting-read";
 import { closeQueries } from "@/lib/accounting/preload";
 import { absMoney, countLabel, monthLabel } from "./format";
+import {
+  AccountingPageHeader,
+  accountingHeader,
+} from "./accounting-page-header";
 
 type Action = "close" | "reopen";
 
@@ -135,20 +139,16 @@ export function AccountingClose({
           : { label: "Needs attention", variant: "warning" as const };
 
   return (
-    <div className="space-y-5" aria-busy={loading}>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold">Month end</h2>
-            <Badge variant={status.variant} dot>
-              {status.label}
-            </Badge>
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Review what is left, confirm the balances, then lock the month.
-            Locking posts nothing and creates no balancing entries.
-          </p>
-        </div>
+    <div className="space-y-5 lg:space-y-6" aria-busy={loading}>
+      <AccountingPageHeader
+        {...accountingHeader("close", "")}
+        actions={
+          <Badge variant={status.variant} dot>
+            {status.label}
+          </Badge>
+        }
+      />
+      <div>
         <TextInput
           label="Month"
           type="month"
@@ -253,9 +253,9 @@ export function AccountingClose({
                   <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
                     Step 3
                   </p>
-                  <h3 className="font-semibold">
+                  <h2 className="font-semibold">
                     {closed ? "Locked" : "Lock the month"}
-                  </h3>
+                  </h2>
                 </div>
               </div>
               <p className="mt-3 flex-1 text-sm text-muted-foreground">
@@ -289,7 +289,7 @@ export function AccountingClose({
           <section className="glass-card rounded-xl p-5">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="font-semibold">{year} year end</h3>
+                <h2 className="font-semibold">{year} year end</h2>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {lockedMonths} of 12 months locked. The year-end package saves
                   an immutable copy of the statements, ledger detail and
@@ -409,7 +409,7 @@ function StepCard({
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             Step {step}
           </p>
-          <h3 className="font-semibold">{title}</h3>
+          <h2 className="font-semibold">{title}</h2>
         </div>
       </div>
       <p className="mt-3 text-sm text-muted-foreground">{summary}</p>

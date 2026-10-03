@@ -2,7 +2,7 @@
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Download, RefreshCw } from "lucide-react";
+import { Download, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { Pagination } from "@/components/ui/pagination";
@@ -21,6 +21,7 @@ import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { ReportMoney } from "./accounting-report-detail";
 import { countLabel, dateLabel } from "./format";
 import { cn } from "@/lib/utils";
+import { AccountingPageHeader } from "./accounting-page-header";
 
 type SupportRow = SupportReportData["rows"][number];
 type ControlRow = NonNullable<SupportReportData["controls"]>["rows"][number];
@@ -285,39 +286,24 @@ export function AccountingSupportReport({
     </div>
   );
   return (
-    <div className="mx-auto max-w-7xl space-y-5 pb-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+    <div className="space-y-5 lg:space-y-6">
+      <AccountingPageHeader
+        back={{ label: "All reports", onClick: onBack }}
+        title={report.title}
+        subtitle={report.description}
+        actions={(["csv", "pdf"] as const).map((f) => (
           <Button
-            variant="link"
+            key={f}
+            variant="outline"
             size="sm"
-            onClick={onBack}
-            className="mb-3 h-auto px-0 text-muted-foreground hover:text-foreground"
+            disabled={!data || loading || exporting}
+            onClick={() => void download(f)}
           >
-            <ArrowLeft aria-hidden="true" />
-            All reports
+            <Download aria-hidden="true" />
+            {exporting ? "Preparing..." : f.toUpperCase()}
           </Button>
-          <h2 className="text-2xl font-semibold tracking-tight">
-            {report.title}
-          </h2>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            {report.description}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {(["csv", "pdf"] as const).map((f) => (
-            <Button
-              key={f}
-              variant="outline"
-              disabled={!data || loading || exporting}
-              onClick={() => void download(f)}
-            >
-              <Download aria-hidden="true" />
-              {exporting ? "Preparing..." : f.toUpperCase()}
-            </Button>
-          ))}
-        </div>
-      </div>
+        ))}
+      />
       <form
         className="glass-card flex flex-wrap items-end gap-3 rounded-xl p-4"
         onSubmit={(e) => {

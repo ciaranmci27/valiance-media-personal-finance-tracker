@@ -24,6 +24,10 @@ import { AccountingContacts, suggestedContacts } from "./accounting-contacts";
 import { useAccountingCache } from "./accounting-cache";
 import { ManagePanelSkeleton } from "./accounting-skeletons";
 import type { AccountingQuery } from "@/lib/accounting/read-cache";
+import {
+  AccountingPageHeader,
+  accountingHeader,
+} from "./accounting-page-header";
 
 /** Each section's chunk, so the rail can warm one before it is clicked. */
 const SECTION_CHUNKS = {
@@ -175,13 +179,8 @@ export function AccountingMore({
   }
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-xl font-semibold tracking-tight">Manage</h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Bank connections, receipts, registers, contacts, rules and year end.
-        </p>
-      </div>
+    <div className="space-y-5 lg:space-y-6">
+      <AccountingPageHeader {...accountingHeader("manage", data.legal_name)} />
       <div className="grid items-start gap-6 xl:grid-cols-[208px_1fr]">
         <nav aria-label="Manage sections" className="min-w-0">
           <div className="xl:hidden">

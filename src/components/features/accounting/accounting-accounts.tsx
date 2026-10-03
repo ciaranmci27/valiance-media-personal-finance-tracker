@@ -36,6 +36,10 @@ import { FilterPopover } from "./accounting-filter-popover";
 import { AccountingPicker } from "./accounting-picker";
 import { AccountingReconciliation } from "./accounting-reconciliation";
 import { dateLabel, enumLabel, money, todayInBooks } from "./format";
+import {
+  AccountingPageHeader,
+  accountingHeader,
+} from "./accounting-page-header";
 
 const accountTypeFilters: [string, string][] = [
   ["all", "All accounts"],
@@ -210,7 +214,10 @@ export function AccountingAccounts({
       />
     );
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 lg:space-y-6">
+      <AccountingPageHeader
+        {...accountingHeader("accounts", data.legal_name)}
+      />
       <AccountingBankPanel
         accounts={cashAccounts}
         profiles={profiles}

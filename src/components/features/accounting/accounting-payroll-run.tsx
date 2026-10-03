@@ -44,6 +44,10 @@ import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { useAccountingRead } from "./use-accounting-read";
 import { payrollListFilter } from "@/lib/accounting/preload";
 import { absMoney, dateLabel, enumLabel, money } from "./format";
+import {
+  AccountingPageHeader,
+  accountingHeader,
+} from "./accounting-page-header";
 
 /** Matches the LIMIT in accounting.payroll. */
 const PAGE = 100;
@@ -431,25 +435,30 @@ export function AccountingPayrollRuns({
   const totals = data?.totals;
 
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold">Payroll</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Import payroll already processed in Patriot. Your report becomes a
-            payroll record and a balanced journal entry.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="ghost" disabled={demo} onClick={() => setForm({})}>
-            Enter manually
-          </Button>
-          <Button disabled={demo} onClick={() => setImporting(true)}>
-            <Plus size={15} aria-hidden="true" />
-            Import payroll
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-5 lg:space-y-6">
+      <AccountingPageHeader
+        {...accountingHeader("payroll", "")}
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={demo}
+              onClick={() => setForm({})}
+            >
+              Enter manually
+            </Button>
+            <Button
+              size="sm"
+              disabled={demo}
+              onClick={() => setImporting(true)}
+            >
+              <Plus size={15} aria-hidden="true" />
+              Import payroll
+            </Button>
+          </>
+        }
+      />
       {importing && (
         <AccountingPayrollImport
           accounts={accounts}

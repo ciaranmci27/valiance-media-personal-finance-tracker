@@ -94,6 +94,10 @@ import { FilterPopover } from "./accounting-filter-popover";
 import { contactAffiliation } from "./accounting-party-form";
 import { Select } from "@/components/ui/inputs/Select";
 import { dateLabel, money, signedMoney } from "./format";
+import {
+  AccountingPageHeader,
+  accountingHeader,
+} from "./accounting-page-header";
 
 type Result = {
   entries: JournalEntry[];
@@ -1506,110 +1510,113 @@ export function AccountingTransactions({
   );
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0 flex-1 sm:max-w-xl">
-          <AccountingPicker
-            ariaLabel="Accounts"
-            value={account}
-            options={[
-              {
-                value: "",
-                label: "All accounts",
-                detail: (
-                  <span>
-                    Cash & bank <MaskedValue value={money(cashBalance)} />
-                    {cardOwed !== BigInt(0) && (
-                      <>
-                        {" "}
-                        minus cards owed <MaskedValue value={money(cardOwed)} />
-                      </>
-                    )}
-                  </span>
-                ),
-              },
-              ...data.accounts
-                .filter((a) => bankIds.has(a.id) || a.id === account)
-                .map((a) => {
-                  const p = profiles.find((p) => p.account_id === a.id);
-                  const balance = balances.get(a.id);
-                  return {
-                    value: a.id,
-                    label: a.name,
-                    icon: (
-                      <AccountingAccountLogo
-                        accountId={a.id}
-                        name={a.name}
-                        size={20}
-                      />
-                    ),
-                    group:
-                      p?.cash_kind === "card"
-                        ? "Credit cards"
-                        : bankIds.has(a.id)
-                          ? "Cash & bank"
-                          : "Other accounts",
-                    detail: (
-                      <span className="flex items-center justify-between">
-                        <span>
-                          {a.is_archived
-                            ? "Archived account"
-                            : balance?.bank != null
-                              ? "Bank-reported balance"
-                              : "Book balance (no bank balance)"}
-                        </span>
-                        <MaskedValue
-                          value={money(balance?.amount ?? BigInt(0))}
-                        />
-                      </span>
-                    ),
-                  };
-                }),
-            ]}
-            onChange={(v) => changed(() => setAccount(v))}
-            className="w-full"
-            // The same height and corner as the New button beside it: one line,
-            // name and figure. Where the figure comes from is told in the menu rows.
-            triggerClassName="glass-card h-10 min-h-0 rounded-lg px-3 hover:border-[rgba(var(--ink),0.18)]"
-          >
-            <div className="flex min-w-0 flex-1 items-center gap-2.5">
-              <span className="hidden shrink-0 sm:block" title={balanceLabel}>
-                {account ? (
-                  <AccountingAccountLogo
-                    accountId={account}
-                    name={accounts.get(account)?.name}
-                    size={22}
-                  />
-                ) : (
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-teal-light">
-                    <Wallet size={13} aria-hidden="true" />
-                  </span>
-                )}
-              </span>
-              <p className="min-w-0 flex-1 truncate text-sm font-semibold">
-                {accounts.get(account)?.name ?? "All accounts"}
-              </p>
-              <span className="shrink-0 text-sm font-semibold tabular-nums">
-                {metadataLoading ? (
-                  <span className="text-xs text-muted-foreground">
-                    Loading balance...
-                  </span>
-                ) : (
-                  <MaskedValue value={money(displayedBalance)} />
-                )}
-              </span>
-            </div>
-          </AccountingPicker>
-        </div>
-        {actions && <div className="shrink-0">{actions}</div>}
-      </div>
-
+    <div className="space-y-5 lg:space-y-6">
+      <AccountingPageHeader
+        {...accountingHeader("journal", data.legal_name)}
+        actions={actions}
+      />
       <section
         className="glass-card overflow-hidden rounded-xl"
         aria-label="Transactions"
       >
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
+            <div className="w-full min-w-0 sm:w-80 lg:w-96">
+              <AccountingPicker
+                ariaLabel="Accounts"
+                value={account}
+                options={[
+                  {
+                    value: "",
+                    label: "All accounts",
+                    detail: (
+                      <span>
+                        Cash & bank <MaskedValue value={money(cashBalance)} />
+                        {cardOwed !== BigInt(0) && (
+                          <>
+                            {" "}
+                            minus cards owed{" "}
+                            <MaskedValue value={money(cardOwed)} />
+                          </>
+                        )}
+                      </span>
+                    ),
+                  },
+                  ...data.accounts
+                    .filter((a) => bankIds.has(a.id) || a.id === account)
+                    .map((a) => {
+                      const p = profiles.find((p) => p.account_id === a.id);
+                      const balance = balances.get(a.id);
+                      return {
+                        value: a.id,
+                        label: a.name,
+                        icon: (
+                          <AccountingAccountLogo
+                            accountId={a.id}
+                            name={a.name}
+                            size={20}
+                          />
+                        ),
+                        group:
+                          p?.cash_kind === "card"
+                            ? "Credit cards"
+                            : bankIds.has(a.id)
+                              ? "Cash & bank"
+                              : "Other accounts",
+                        detail: (
+                          <span className="flex items-center justify-between">
+                            <span>
+                              {a.is_archived
+                                ? "Archived account"
+                                : balance?.bank != null
+                                  ? "Bank-reported balance"
+                                  : "Book balance (no bank balance)"}
+                            </span>
+                            <MaskedValue
+                              value={money(balance?.amount ?? BigInt(0))}
+                            />
+                          </span>
+                        ),
+                      };
+                    }),
+                ]}
+                onChange={(v) => changed(() => setAccount(v))}
+                className="w-full"
+                // Sits in the table toolbar at the height of the status tabs beside it: name and figure. Where the figure comes from is told in the menu rows.
+                triggerClassName="h-10 min-h-0 rounded-lg border-0 bg-[rgba(var(--ink),0.05)] px-3 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)] hover:bg-[rgba(var(--ink),0.08)]"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                  <span
+                    className="hidden shrink-0 sm:block"
+                    title={balanceLabel}
+                  >
+                    {account ? (
+                      <AccountingAccountLogo
+                        accountId={account}
+                        name={accounts.get(account)?.name}
+                        size={22}
+                      />
+                    ) : (
+                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-teal-light">
+                        <Wallet size={13} aria-hidden="true" />
+                      </span>
+                    )}
+                  </span>
+                  <p className="min-w-0 flex-1 truncate text-sm font-semibold">
+                    {accounts.get(account)?.name ?? "All accounts"}
+                  </p>
+                  <span className="shrink-0 text-sm font-semibold tabular-nums">
+                    {metadataLoading ? (
+                      <span className="text-xs text-muted-foreground">
+                        Loading balance...
+                      </span>
+                    ) : (
+                      <MaskedValue value={money(displayedBalance)} />
+                    )}
+                  </span>
+                </div>
+              </AccountingPicker>
+            </div>
             <div
               role="tablist"
               aria-label="Transaction status"
@@ -1784,15 +1791,17 @@ export function AccountingTransactions({
                   />
                 </div>
               </FilterPopover>
-              <TextInput
-                aria-label="Search transactions"
-                placeholder="Search descriptions, contacts, amounts"
-                clearable
-                prefix={<Search size={15} aria-hidden="true" />}
-                value={query}
-                maxLength={200}
-                onChange={(nextValue) => setQuery(nextValue)}
-              />
+              <div className="min-w-0 flex-1 sm:flex-initial">
+                <TextInput
+                  aria-label="Search transactions"
+                  placeholder="Search descriptions, contacts, amounts"
+                  clearable
+                  prefix={<Search size={15} aria-hidden="true" />}
+                  value={query}
+                  maxLength={200}
+                  onChange={(nextValue) => setQuery(nextValue)}
+                />
+              </div>
             </div>
           )}
         </div>

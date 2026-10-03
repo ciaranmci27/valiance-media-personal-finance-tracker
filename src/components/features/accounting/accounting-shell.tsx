@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import {
@@ -77,6 +77,11 @@ import {
   warmAccountingView,
 } from "./accounting-views";
 import { useViewGate } from "./accounting-view-gate";
+import {
+  AccountingHeaderProvider,
+  HeaderSubtitle,
+  accountingHeader,
+} from "./accounting-page-header";
 import { AccountingLoading, BOOT_STEPS } from "./accounting-loading";
 import { loadEvidenceChunk } from "./accounting-entry-evidence";
 import type { AccountingOverview } from "./accounting-overview";
@@ -255,6 +260,13 @@ function AccountingBooksInner({
     null,
   );
   const [syncing, setSyncing] = useState(false);
+  // Each screen renders its page header into this slot (see AccountingPageHeader).
+  const [headerNode, setHeaderNode] = useState<HTMLDivElement | null>(null);
+  const [headerClaims, setHeaderClaims] = useState(0);
+  const claimHeader = useCallback(() => {
+    setHeaderClaims((n) => n + 1);
+    return () => setHeaderClaims((n) => n - 1);
+  }, []);
   const syncRequested = useRef(false);
   const balanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const balanceRequest = useRef<AbortController | null>(null);
@@ -647,7 +659,7 @@ function AccountingBooksInner({
   const transactionAddMenu = (
     <Menu.Root>
       <Menu.Trigger asChild id="accounting-add-transaction">
-        <Button disabled={demo} aria-label="New transaction">
+        <Button size="sm" disabled={demo} aria-label="New transaction">
           <Plus size={16} aria-hidden="true" />
           New
         </Button>
@@ -692,6 +704,23 @@ function AccountingBooksInner({
 
   const shownError = error || manageRead.error;
 
+  const syncStatus = syncing && (
+    <p
+      role="status"
+      className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+    >
+      <RefreshCw size={13} aria-hidden="true" className="animate-spin" />
+      Syncing bank feeds
+    </p>
+  );
+  const fallbackHeader = accountingHeader(view, data.legal_name);
+  const headerSlot = useMemo(
+    () => ({ node: headerNode, status: syncStatus, claim: claimHeader }),
+    // syncStatus is derived from syncing alone.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [headerNode, syncing, claimHeader],
+  );
+
   // The loader takes the whole viewport while a screen is on its way. On the
   // first visit nothing renders behind it until it starts to leave; the page
   // then mounts under the dissolve and is complete when the overlay clears.
@@ -711,36 +740,25 @@ function AccountingBooksInner({
   if (!booted && !ready) return overlay || null;
 
   return (
-    <>
+    <AccountingHeaderProvider value={headerSlot}>
       {overlay}
       <AccountingBankIdentityProvider
         feeds={feeds}
         profiles={manage.profiles}
         className="space-y-5 lg:space-y-6"
       >
-        <PageHeader
-          title="Accounting"
-          subtitle={
-            demo
-              ? "Synthetic company, read-only demonstration"
-              : data.legal_name
-          }
-          actions={
-            syncing ? (
-              <p
-                role="status"
-                className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
-              >
-                <RefreshCw
-                  size={13}
-                  aria-hidden="true"
-                  className="animate-spin"
-                />
-                Syncing bank feeds
-              </p>
-            ) : undefined
-          }
-        />
+        {/* The screen's own header lands here; until one mounts (a screen
+            still loading) the shell shows the same title for it. */}
+        <div ref={setHeaderNode} className="empty:hidden" />
+        {headerClaims === 0 && (
+          <PageHeader
+            title={fallbackHeader.title}
+            subtitle={
+              <HeaderSubtitle>{fallbackHeader.subtitle}</HeaderSubtitle>
+            }
+            actions={syncStatus || undefined}
+          />
+        )}
 
         <SetupGuide
           year={Number(today.slice(0, 4))}
@@ -1020,6 +1038,6 @@ function AccountingBooksInner({
           />
         )}
       </AccountingBankIdentityProvider>
-    </>
+    </AccountingHeaderProvider>
   );
 }

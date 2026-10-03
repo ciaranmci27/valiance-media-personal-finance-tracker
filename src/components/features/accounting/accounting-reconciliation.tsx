@@ -30,6 +30,7 @@ import { AccountingDocumentPicker } from "./accounting-document-picker";
 
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { countLabel, dateLabel, enumLabel, money } from "./format";
+import { AccountingPageHeader } from "./accounting-page-header";
 
 type StatementItem = ReconciliationView["items"][number];
 type PostedLine = ReconciliationView["lines"][number];
@@ -225,28 +226,25 @@ export function AccountingReconciliation({
   ];
   const copy = confirm ? confirmCopy[confirm.kind] : null;
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <Button variant="ghost" size="sm" onClick={onBack}>
-            <ArrowLeft size={15} aria-hidden="true" />
-            All accounts
-          </Button>
-          <h2 className="mt-3 text-xl font-semibold">
-            Reconcile {account.name}
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
+    <div className="space-y-5 lg:space-y-6">
+      <AccountingPageHeader
+        back={{ label: "All accounts", onClick: onBack }}
+        title={`Reconcile ${account.name}`}
+        subtitle={
+          <>
             Select the posted transactions that appear on each statement.
             Progress is saved after every action.
             {card &&
               " Card balances and charges are positive amounts owed; payments and refunds reduce that amount."}
-          </p>
-        </div>
-        <Button onClick={() => setCreate(true)}>
-          <Plus size={15} aria-hidden="true" />
-          New statement
-        </Button>
-      </div>
+          </>
+        }
+        actions={
+          <Button size="sm" onClick={() => setCreate(true)}>
+            <Plus size={15} aria-hidden="true" />
+            New statement
+          </Button>
+        }
+      />
       {(error || command.error) && (
         <div
           role="alert"
@@ -358,9 +356,9 @@ export function AccountingReconciliation({
           <section className="glass-card rounded-xl p-5">
             <div className="flex flex-wrap justify-between gap-4">
               <div>
-                <h3 className="font-semibold">
+                <h2 className="font-semibold">
                   {dateLabel(r.from_date)} to {dateLabel(r.to_date)}
-                </h3>
+                </h2>
                 <div className="mt-2 flex flex-wrap gap-4 text-sm">
                   {r.document_id ? (
                     <a
@@ -446,7 +444,7 @@ export function AccountingReconciliation({
           <div className="grid gap-5 xl:grid-cols-2">
             <section className="glass-card overflow-hidden rounded-xl">
               <div className="flex items-center justify-between gap-3 border-b border-border p-5">
-                <h3 className="font-semibold">Statement items</h3>
+                <h2 className="font-semibold">Statement items</h2>
                 {editable && (
                   <Button
                     size="sm"
@@ -497,7 +495,7 @@ export function AccountingReconciliation({
             </section>
             <section className="glass-card overflow-hidden rounded-xl">
               <div className="border-b border-border p-5">
-                <h3 className="font-semibold">Posted transactions</h3>
+                <h2 className="font-semibold">Posted transactions</h2>
                 <div className="mt-3">
                   <TextInput
                     aria-label="Search posted transactions"

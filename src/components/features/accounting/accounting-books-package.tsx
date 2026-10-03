@@ -3,13 +3,7 @@ import { NumberInput } from "@/components/ui/inputs/NumberInput";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import {
-  ArrowLeft,
-  Check,
-  Download,
-  FileArchive,
-  RefreshCw,
-} from "lucide-react";
+import { Check, Download, FileArchive, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Pagination } from "@/components/ui/pagination";
 import { SectionHeader } from "@/components/ui/section-header";
@@ -21,6 +15,7 @@ import {
 } from "@/lib/accounting/books-package";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { countLabel, dateLabel, timestampLabel, todayInBooks } from "./format";
+import { AccountingPageHeader } from "./accounting-page-header";
 
 const sections = [
   [
@@ -195,36 +190,22 @@ export function AccountingBooksPackage({
     preview.through !== through ||
     preview.ledger_count > 100000;
   return (
-    <div className="mx-auto max-w-6xl space-y-6 pb-6">
-      <div>
-        <Button
-          variant="link"
-          size="sm"
-          onClick={onBack}
-          className="mb-3 h-auto px-0 text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft aria-hidden="true" />
-          All reports
-        </Button>
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-semibold tracking-tight">
-              Year-end books package
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Keep a complete review set together. Every statement and worksheet
-              is retained at the same book revision.
-            </p>
-          </div>
+    <div className="space-y-5 lg:space-y-6">
+      <AccountingPageHeader
+        back={{ label: "All reports", onClick: onBack }}
+        title="Year-end books package"
+        subtitle="Keep a complete review set together. Every statement and worksheet is retained at the same book revision."
+        actions={
           <Button
+            size="sm"
             disabled={blocked || request.busy}
             onClick={() => void retain()}
           >
             <FileArchive aria-hidden="true" />
             {request.busy ? "Retaining package..." : "Create package"}
           </Button>
-        </div>
-      </div>
+        }
+      />
       <form
         onSubmit={(event) => {
           event.preventDefault();

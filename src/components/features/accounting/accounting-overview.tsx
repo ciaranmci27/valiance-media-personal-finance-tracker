@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { StatCard } from "@/components/ui/stat-card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { SectionHeader } from "@/components/ui/section-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MaskedValue, useMaskedHover } from "@/components/ui/masked-value";
@@ -29,6 +29,10 @@ import {
   type CashFlowPoint,
 } from "@/components/charts/cash-flow-chart";
 import { cn } from "@/lib/utils";
+import {
+  AccountingPageHeader,
+  accountingHeader,
+} from "./accounting-page-header";
 import type {
   AccountingWorkspace,
   BalanceRow,
@@ -119,7 +123,8 @@ function PanelCard({
     <Card className={cn("flex min-w-0 flex-col", className)} {...hoverProps}>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-3">
-          <CardTitle className="text-base font-semibold">{title}</CardTitle>
+          {/* An h2 under the page h1; the same look as CardTitle. */}
+          <h2 className="text-base font-semibold leading-none">{title}</h2>
           {right}
         </div>
       </CardHeader>
@@ -401,37 +406,44 @@ export function AccountingOverview({
     );
   }
 
+  const header = (
+    <AccountingPageHeader {...accountingHeader("overview", data.legal_name)} />
+  );
   if (data.accounts.length === 0)
     return (
-      <div className="glass-card mx-auto max-w-xl rounded-xl px-6 py-14 text-center">
-        <Landmark
-          size={28}
-          aria-hidden="true"
-          className="mx-auto mb-4 text-teal"
-        />
-        <h2 className="text-lg font-semibold">Your books are empty</h2>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          Connect a bank to pull activity in automatically, or add your first
-          transaction by hand.
-        </p>
-        <div className="mt-6 flex flex-wrap justify-center gap-2">
-          <Button disabled={demo} onClick={onFeeds}>
-            Connect a bank
-          </Button>
-          <Button
-            variant="outline"
-            disabled={demo}
-            onClick={() => onAdd("out")}
-          >
-            <Plus size={15} aria-hidden="true" />
-            Add transaction
-          </Button>
+      <>
+        {header}
+        <div className="glass-card mx-auto max-w-xl rounded-xl px-6 py-14 text-center">
+          <Landmark
+            size={28}
+            aria-hidden="true"
+            className="mx-auto mb-4 text-teal"
+          />
+          <h2 className="text-lg font-semibold">Your books are empty</h2>
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+            Connect a bank to pull activity in automatically, or add your first
+            transaction by hand.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-2">
+            <Button disabled={demo} onClick={onFeeds}>
+              Connect a bank
+            </Button>
+            <Button
+              variant="outline"
+              disabled={demo}
+              onClick={() => onAdd("out")}
+            >
+              <Plus size={15} aria-hidden="true" />
+              Add transaction
+            </Button>
+          </div>
         </div>
-      </div>
+      </>
     );
 
   return (
     <div className="space-y-5 lg:space-y-6">
+      {header}
       <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 lg:grid-cols-4 lg:gap-4">
         <StatCard
           title="Cash in bank"

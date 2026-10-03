@@ -4,7 +4,6 @@ import { DateInput } from "@/components/ui/inputs/DateInput";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-  ArrowLeft,
   ArrowUpRight,
   BarChart3,
   BookOpen,
@@ -64,6 +63,10 @@ import {
   todayInBooks,
   monthShortLabel,
 } from "./format";
+import {
+  AccountingPageHeader,
+  accountingHeader,
+} from "./accounting-page-header";
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 function datePresets(today: string) {
@@ -348,13 +351,8 @@ export function AccountingReports({
     );
   if (!report)
     return (
-      <div className="mx-auto max-w-6xl space-y-7 pb-6">
-        <div>
-          <h2 className="text-xl font-semibold tracking-tight">Reports</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Statements first. Every number opens to the transactions behind it.
-          </p>
-        </div>
+      <div className="space-y-5 lg:space-y-6">
+        <AccountingPageHeader {...accountingHeader("reports", "")} />
         {REPORT_GROUPS.filter((g) => {
           if (g.name === "Customers & receivables") return false;
           if (demo && g.name === "Payroll & year end") return false;
@@ -376,7 +374,7 @@ export function AccountingReports({
                     aria-hidden="true"
                     className="mb-3 text-teal-light"
                   />
-                  <h3 className="font-semibold">{group}</h3>
+                  <h2 className="font-semibold">{group}</h2>
                   <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                     {g.description}
                   </p>
@@ -420,44 +418,34 @@ export function AccountingReports({
       </div>
     );
   return (
-    <div className="mx-auto max-w-7xl space-y-5 pb-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <Button
-            variant="link"
-            size="sm"
-            onClick={() => navigate()}
-            className="mb-3 h-auto px-0 text-muted-foreground hover:text-foreground"
-          >
-            <ArrowLeft aria-hidden="true" />
-            All reports
-          </Button>
-          <h2 className="text-2xl font-semibold tracking-tight">
-            {report.title}
-          </h2>
-          <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-            {report.description}
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            onClick={() => void exportReport("csv")}
-            disabled={!data || loading || exporting}
-          >
-            <Download aria-hidden="true" />
-            {exporting ? "Preparing..." : "CSV"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => void exportReport("pdf")}
-            disabled={!data || loading || exporting}
-          >
-            <Download aria-hidden="true" />
-            PDF
-          </Button>
-        </div>
-      </div>
+    <div className="space-y-5 lg:space-y-6">
+      <AccountingPageHeader
+        back={{ label: "All reports", onClick: () => navigate() }}
+        title={report.title}
+        subtitle={report.description}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void exportReport("csv")}
+              disabled={!data || loading || exporting}
+            >
+              <Download aria-hidden="true" />
+              {exporting ? "Preparing..." : "CSV"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void exportReport("pdf")}
+              disabled={!data || loading || exporting}
+            >
+              <Download aria-hidden="true" />
+              PDF
+            </Button>
+          </>
+        }
+      />
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -1044,7 +1032,7 @@ function MonthlyResults({ data }: { data: ReportData }) {
   return (
     <section className="glass-card rounded-xl p-5">
       <div className="flex flex-wrap justify-between gap-2">
-        <h3 className="text-sm font-medium">Monthly performance</h3>
+        <h2 className="text-sm font-medium">Monthly performance</h2>
         <div className="flex gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1.5">
             <span
