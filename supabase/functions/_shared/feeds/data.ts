@@ -10,7 +10,10 @@ const encoder = new TextEncoder();
 
 export const SIMPLEFIN_PROTOCOL = "2.0.0-draft-2026-03-19";
 export const SIMPLEFIN_V1_PROTOCOL = "1.0.7";
-export const SYNC_OVERLAP_SECONDS = 5 * 86400;
+// Each sync re-reads the last 30 days. Card issuers can publish a charge weeks
+// after its posted date (a Sept 16 Amex charge never arrived under a 5-day
+// overlap); re-reading is safe because movements dedupe on the provider id.
+export const SYNC_OVERLAP_SECONDS = 30 * 86400;
 export const SYNC_WINDOW_SECONDS = 90 * 86400;
 const identifier = z.string().min(1).max(500),
   timestamp = z.number().int().min(0).max(4133980800);

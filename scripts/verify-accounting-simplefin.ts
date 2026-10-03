@@ -155,15 +155,18 @@ async function main() {
     catchingUp: true,
   });
   check(syncWindow(0, 90 * day, now), {
-    start: 85 * day,
-    end: 175 * day,
+    start: 60 * day,
+    end: 150 * day,
     catchingUp: true,
   });
   check(syncWindow(0, now, now), {
-    start: 175 * day,
+    start: 150 * day,
     end: now + 1,
     catchingUp: false,
   });
+  // A charge the issuer publishes three weeks after its posted date is still
+  // inside the next window, not dropped as out of range.
+  check(syncWindow(0, now, now).start <= now - 21 * day, true);
   await rejects(() => syncWindow(now + 1, null, now), "invalid_window");
   check(
     postingDate(Date.parse("2026-01-01T01:00:00Z") / 1000, "America/Phoenix"),
