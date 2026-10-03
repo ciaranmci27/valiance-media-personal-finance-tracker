@@ -13,17 +13,16 @@ import {
 import { Button } from "@/components/ui/button";
 import { Disclosure } from "@/components/ui/disclosure";
 import { TextInput } from "@/components/ui/inputs/TextInput";
-import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { Select } from "@/components/ui/inputs/Select";
 import { toast } from "@/components/ui/toast";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import {
   API_KEY_LIFETIMES,
-  API_SCOPES,
   DEFAULT_API_KEY_DAYS,
   type ApiScope,
 } from "@/lib/api/scopes";
 import type { ApiKey, ApiMember } from "./api-settings-content";
+import { ApiScopePicker } from "./api-scope-picker";
 
 interface ApiKeyDialogProps {
   open: boolean;
@@ -43,11 +42,6 @@ function blockedReason(member: ApiMember): string | null {
   if (!member.can_use_api) return "No 'Use the API'";
   return null;
 }
-
-const GROUPS = [
-  { access: "read", title: "Can read" },
-  { access: "write", title: "Can change" },
-] as const;
 
 /**
  * New key, in two steps: the form, then the key itself, shown once. Keeping
@@ -107,23 +101,6 @@ export function ApiKeyDialog({
     const next =
       id === memberId ? available : (members.find((m) => m.id === id)?.api_scopes ?? []);
     setScopes((current) => current.filter((scope) => next.includes(scope)));
-  };
-
-  const toggle = (scope: ApiScope, checked: boolean) =>
-    setScopes((current) =>
-      checked ? [...current, scope] : current.filter((s) => s !== scope),
-    );
-
-  const toggleGroup = (access: "read" | "write") => {
-    const group = API_SCOPES.filter(
-      (s) => s.access === access && holdable.includes(s.key),
-    ).map((s) => s.key);
-    const all = group.every((key) => scopes.includes(key));
-    setScopes((current) =>
-      all
-        ? current.filter((key) => !group.includes(key))
-        : [...current, ...group.filter((key) => !current.includes(key))],
-    );
   };
 
   const create = async (event: React.FormEvent) => {
@@ -244,50 +221,12 @@ export function ApiKeyDialog({
                 required
               />
 
-              {GROUPS.map(({ access, title }) => {
-                const group = API_SCOPES.filter((scope) => scope.access === access);
-                const groupHeld = group.filter((scope) => holdable.includes(scope.key));
-                const allOn =
-                  groupHeld.length > 0 && groupHeld.every((scope) => scopes.includes(scope.key));
-                return (
-                  <fieldset key={access} className="space-y-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <legend className="text-sm font-medium text-foreground">{title}</legend>
-                      {groupHeld.length > 1 && (
-                        <Button
-                          type="button"
-                          variant="link"
-                          size="sm"
-                          className="h-auto p-0 text-xs"
-                          onClick={() => toggleGroup(access)}
-                        >
-                          {allOn ? "Clear" : "Select all"}
-                        </Button>
-                      )}
-                    </div>
-                    <div className="space-y-2 rounded-xl border border-border p-3">
-                      {group.map((scope) => {
-                        const held = holdable.includes(scope.key);
-                        return (
-                          <div key={scope.key}>
-                            <Checkbox
-                              checked={scopes.includes(scope.key)}
-                              disabled={!held}
-                              onChange={(checked) => toggle(scope.key, checked)}
-                              label={scope.label}
-                              description={
-                                held
-                                  ? scope.description
-                                  : `${forSelf ? "You do" : `${target?.name ?? "This person"} does`} not have this permission.`
-                              }
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </fieldset>
-                );
-              })}
+              <ApiScopePicker
+                holdable={holdable}
+                selected={scopes}
+                onChange={setScopes}
+                notHeld={`${forSelf ? "You do" : `${target?.name ?? "This person"} does`} not have this permission.`}
+              />
 
               <Disclosure summary="Advanced" contentClassName="space-y-4">
                 <Select

@@ -27,7 +27,7 @@ function check(label: string, ok: boolean, detail?: unknown) {
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
 async function main() {
-  const { db, server, fullKey, booksOnly, agentId, side, taxInputs, registerTotal, ownerRead } = await seedApiFixture();
+  const { db, server, fullKey, booksOnly, agentId, side, taxInputs, registerTotal, ownerRead, hash } = await seedApiFixture();
   try {
     const routes = {
       summary: await import("../src/app/api/v1/books/summary/route"),
@@ -557,6 +557,139 @@ async function main() {
     check("request log: calls without a usable key are not logged", !logged.rows.some((r) => r.status === 401 && r.api_key_id === null));
     check("request log: refusals of a real key are", logged.rows.some((r) => r.status === 403 && r.api_key_id !== null));
     check("request log: successes carry the key", logged.rows.some((r) => r.status === 200 && r.api_key_id !== null && r.operation === "books.summary"));
+
+    // Edit access: Settings > API replaces a key's scopes, through the same
+    // server code as the route (lib/api/key-access.ts) over the real client.
+    {
+      const { editKeyAccess } = await import("../src/lib/api/key-access");
+      const { createClient } = await import("@supabase/supabase-js");
+      const { startFakePostgrest } = await import("./fake-postgrest");
+      const scopesRoute = await import("../src/app/api/admin/api-keys/[id]/scopes/route");
+      // Team access is read in one page (role_permissions alone outgrows this
+      // suite's 2-row cap), so the edits talk to an uncapped stand-in, as
+      // PostgREST's 1000-row default is in production.
+      const uncapped = await startFakePostgrest(db);
+      const service = createClient(uncapped.url, "fake-service-key", { auth: { persistSession: false, autoRefreshToken: false } });
+      // Both stand-ins share one pglite connection; a v1 call logs after it answers, so let
+      // that write land before the next edit opens its own transaction.
+      const income = async (key: string) => {
+        const result = await call(routes.income, "/api/v1/tracker/income", key);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        return result;
+      };
+      type Member = Parameters<typeof editKeyAccess>[1]["member"];
+      const member = async (role: string) =>
+        (await db.query<Member>("SELECT * FROM public.team_members WHERE role=$1 ORDER BY created_at LIMIT 1", [role])).rows[0];
+      const owner = { member: await member("owner"), permissions: ["*"] } as Parameters<typeof editKeyAccess>[1];
+      const keyState = async (secret: string) =>
+        (
+          await db.query<{ id: string; key_hash: string; key_prefix: string; scopes: string[]; updated_at: string }>(
+            "SELECT id, key_hash, key_prefix, scopes, updated_at::text updated_at FROM public.api_keys WHERE key_hash=$1",
+            [hash(secret)],
+          )
+        ).rows[0];
+      const edit = (access: Parameters<typeof editKeyAccess>[1], id: string, scopes: unknown, expected: string) =>
+        editKeyAccess(service, access, id, { scopes, expected_updated_at: expected });
+      const errorOf = (r: Awaited<ReturnType<typeof edit>>) => ("error" in r.body ? r.body.error : "");
+
+      const before = await keyState(booksOnly);
+      check("edit: before, the books-only key cannot read the tracker", (await income(booksOnly)).status === 403);
+      const added = await edit(owner, before.id, ["accounting.read", "income.read"], before.updated_at);
+      check("edit: the owner adds a scope to an agent's key", added.status === 200 && "data" in added.body && JSON.stringify(added.body.data.scopes) === JSON.stringify(["accounting.read", "income.read"]), added.body);
+      check("edit: the answer never carries the hash", "data" in added.body && !("key_hash" in added.body.data));
+      const reading = await income(booksOnly);
+      check("edit: the next request with the same secret is allowed the new scope", reading.status === 200, reading.json);
+      const afterAdd = await keyState(booksOnly);
+      check("edit: secret and prefix unchanged", afterAdd.key_hash === before.key_hash && afterAdd.key_prefix === before.key_prefix);
+
+      const stale = await edit(owner, before.id, ["accounting.read", "tax.read"], before.updated_at);
+      check(
+        "edit: a stale edit is 409 with the key as it is now",
+        stale.status === 409 && "data" in stale.body && JSON.stringify(stale.body.data.scopes) === JSON.stringify(["accounting.read", "income.read"]),
+        stale.body,
+      );
+      const removed = await edit(owner, before.id, ["accounting.read"], afterAdd.updated_at);
+      check("edit: the owner removes a scope", removed.status === 200, removed.body);
+      const refused = await income(booksOnly);
+      check("edit: the next request is refused the removed scope", refused.status === 403 && reason(refused) === "missing_key_scope", refused.json);
+      const latest = (await keyState(booksOnly)).updated_at;
+
+      // The fixture grants the agent tax.read; deny it for this check, then grant it back.
+      await db.query("UPDATE public.team_member_permissions SET effect='deny' WHERE member_id=$1 AND permission_key='tax.read'", [agentId]);
+      const lacks = await edit(owner, before.id, ["accounting.read", "tax.read"], latest);
+      check("edit: refused when the member lacks the permission", lacks.status === 422 && /does not hold: tax\.read/.test(errorOf(lacks)), lacks.body);
+      await db.query("UPDATE public.team_member_permissions SET effect='allow' WHERE member_id=$1 AND permission_key='tax.read'", [agentId]);
+      for (const [label, scopes] of [
+        ["a permission that is not an API scope", ["accounting.read", "accounting.manage"]],
+        ["an unknown scope", ["accounting.read", "nope"]],
+        ["no scopes", []],
+        ["scopes that are not a list", "accounting.read"],
+      ] as const) {
+        const result = await edit(owner, before.id, scopes, latest);
+        check(`edit: ${label} is 422`, result.status === 422, result.body);
+      }
+      check("edit: none of those changed the key", JSON.stringify((await keyState(booksOnly)).scopes) === JSON.stringify(["accounting.read"]));
+      check("edit: a malformed id is 404", (await edit(owner, "nope", ["accounting.read"], latest)).status === 404);
+      check("edit: an unknown key is 404", (await edit(owner, randomUUID(), ["accounting.read"], latest)).status === 404);
+
+      const insertKey = async (extra: string, createdBy = agentId) => {
+        const secret = `vmfin_${randomUUID().replaceAll("-", "")}`;
+        await db.query(
+          `INSERT INTO public.api_keys(name,key_prefix,key_hash,team_member_id,created_by,scopes,${extra.split("=")[0]}) VALUES('k',$1,$2,$3,$4,'{accounting.read}',${extra.split("=")[1]})`,
+          [secret.slice(0, 14), hash(secret), agentId, createdBy],
+        );
+        return keyState(secret);
+      };
+      const revokedKey = await insertKey("revoked_at=now()");
+      const revokedEdit = await edit(owner, revokedKey.id, ["accounting.read", "income.read"], revokedKey.updated_at);
+      check("edit: a revoked key is refused", revokedEdit.status === 422 && /revoked/.test(errorOf(revokedEdit)), revokedEdit.body);
+      const expiredKey = await insertKey("expires_at=now() - interval '1 minute'");
+      const expiredEdit = await edit(owner, expiredKey.id, ["accounting.read", "income.read"], expiredKey.updated_at);
+      check("edit: an expired key is refused", expiredEdit.status === 422 && /expired/.test(errorOf(expiredEdit)), expiredEdit.body);
+
+      // Not the owner: an admin cannot see the agent's key, nor edit one they made for it.
+      await db.query("INSERT INTO auth.users(id) VALUES('10000000-0000-4000-8000-0000000000c1')");
+      await db.query("INSERT INTO public.team_members(auth_user_id,name,email,role) VALUES('10000000-0000-4000-8000-0000000000c1','Ada','ada@example.com','admin')");
+      const admin = { member: await member("admin"), permissions: ["api.use", "accounting.read", "income.read"] } as Parameters<typeof editKeyAccess>[1];
+      const hidden = await edit(admin, before.id, ["accounting.read"], latest);
+      check("edit: a non-owner cannot reach another member's key", hidden.status === 404, hidden.body);
+      const madeByAdmin = await insertKey("expires_at=now() + interval '1 day'", admin.member.id);
+      const notOwner = await edit(admin, madeByAdmin.id, ["accounting.read", "income.read"], madeByAdmin.updated_at);
+      check("edit: a non-owner who made the key still cannot edit an agent's key", notOwner.status === 403 && /Only the owner/.test(errorOf(notOwner)), notOwner.body);
+
+      // The agent edits its own key within what it holds, as when it creates one.
+      const agent = { member: await member("agent"), permissions: ["api.use", "accounting.read", "income.read"] } as Parameters<typeof editKeyAccess>[1];
+      const own = await edit(agent, before.id, ["accounting.read", "income.read"], latest);
+      check("edit: a member edits their own key", own.status === 200, own.body);
+      const ownLatest = (await keyState(booksOnly)).updated_at;
+      const beyond = await edit(agent, before.id, ["accounting.read", "tax.read"], ownLatest);
+      check("edit: but not past their own permissions", beyond.status === 422 && /not available to you: tax\.read/.test(errorOf(beyond)), beyond.body);
+      check("edit: every change is recorded", Number((await db.query<{ n: number }>("SELECT count(*)::int n FROM public.api_key_changes WHERE api_key_id=$1", [before.id])).rows[0].n) === 3);
+
+      // Demo mode answers a valid edit of a demo key and writes nothing.
+      process.env.NEXT_PUBLIC_DEMO_MODE = "true";
+      const demoCall = (id: string, scopes: string[]) =>
+        scopesRoute.POST(
+          new NextRequest(`http://localhost/api/admin/api-keys/${id}/scopes`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ scopes, expected_updated_at: new Date().toISOString() }),
+          }),
+          { params: Promise.resolve({ id }) },
+        );
+      const demoKey = "00000000-0000-4000-8000-0000000000b1";
+      const demoOk = await demoCall(demoKey, ["accounting.read", "accounting.payroll"]);
+      const demoBody = (await demoOk.json()) as { data?: { scopes: string[] } };
+      check("edit: demo answers with the edited demo key", demoOk.status === 200 && JSON.stringify(demoBody.data?.scopes) === JSON.stringify(["accounting.read", "accounting.payroll"]), demoBody);
+      check("edit: demo refuses a scope the demo agent lacks", (await demoCall(demoKey, ["income.manage"])).status === 403);
+      check("edit: demo refuses the revoked demo key", (await demoCall("00000000-0000-4000-8000-0000000000b3", ["accounting.read"])).status === 403);
+      delete process.env.NEXT_PUBLIC_DEMO_MODE;
+      check("edit: demo wrote nothing", Number((await db.query<{ n: number }>("SELECT count(*)::int n FROM public.api_key_changes")).rows[0].n) === 3);
+
+      // Leave the books-only key as the rest of the suite expects it.
+      await db.query("UPDATE public.api_keys SET scopes='{accounting.read}' WHERE id=$1", [before.id]);
+      await uncapped.close();
+    }
 
     // OpenAPI is generated from the registry.
     const doc = (await (routes.openapi.GET(new NextRequest("http://localhost/api/v1/openapi.json")) as Response).json()) as {

@@ -1638,6 +1638,17 @@ CREATE TABLE IF NOT EXISTS public.api_requests (
 CREATE INDEX IF NOT EXISTS idx_api_requests_at ON public.api_requests(at DESC);
 CREATE INDEX IF NOT EXISTS idx_api_requests_key ON public.api_requests(api_key_id, at DESC);
 
+-- One row per change of a key's scopes, written by api_keys_guard. Append only.
+CREATE TABLE IF NOT EXISTS public.api_key_changes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  api_key_id UUID NOT NULL REFERENCES public.api_keys(id) ON DELETE CASCADE,
+  changed_by UUID REFERENCES public.team_members(id) ON DELETE SET NULL,
+  scopes_before TEXT[] NOT NULL,
+  scopes_after TEXT[] NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_api_key_changes_key ON public.api_key_changes(api_key_id, at DESC);
+
 ALTER TABLE public.api_keys ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.api_rate_limits ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.api_requests ENABLE ROW LEVEL SECURITY;
@@ -1646,6 +1657,10 @@ REVOKE ALL ON public.api_keys, public.api_rate_limits, public.api_requests FROM 
 GRANT SELECT (id, name, key_prefix, team_member_id, created_by, scopes, expires_at, last_used_at, disabled_at, revoked_at, created_at, updated_at) ON public.api_keys TO authenticated;
 GRANT SELECT ON public.api_requests TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.api_keys, public.api_rate_limits, public.api_requests TO service_role;
+ALTER TABLE public.api_key_changes ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.api_key_changes FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.api_key_changes TO authenticated;
+GRANT SELECT, INSERT ON public.api_key_changes TO service_role;
 
 DROP POLICY IF EXISTS api_keys_select ON public.api_keys;
 CREATE POLICY api_keys_select ON public.api_keys FOR SELECT TO authenticated
@@ -1654,11 +1669,18 @@ CREATE POLICY api_keys_select ON public.api_keys FOR SELECT TO authenticated
 DROP POLICY IF EXISTS api_requests_select ON public.api_requests;
 CREATE POLICY api_requests_select ON public.api_requests FOR SELECT TO authenticated
   USING (team_member_id = public.current_team_member_id() OR public.current_team_member_role() = 'owner');
+DROP POLICY IF EXISTS api_key_changes_select ON public.api_key_changes;
+CREATE POLICY api_key_changes_select ON public.api_key_changes FOR SELECT TO authenticated
+  USING (EXISTS (SELECT 1 FROM public.api_keys k WHERE k.id = api_key_id
+    AND (k.team_member_id = public.current_team_member_id() OR k.created_by = public.current_team_member_id()
+      OR public.current_team_member_role() = 'owner')));
 
 -- A revoke is final, the secret and creation time never change, and a key
 -- never moves to another member. team_member_id and created_by may still
 -- become NULL: their foreign keys are ON DELETE SET NULL, which runs as an
--- UPDATE and fires this trigger.
+-- UPDATE and fires this trigger. Scopes may change (Edit access) until the
+-- key is revoked, and each change is recorded. updated_at is when the key's
+-- settings last changed: the last use stamp alone does not move it.
 CREATE OR REPLACE FUNCTION public.api_keys_guard() RETURNS trigger LANGUAGE plpgsql SET search_path = '' AS $fn$
 BEGIN
  IF OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS DISTINCT FROM OLD.revoked_at THEN
@@ -1672,11 +1694,46 @@ BEGIN
     OR (NEW.created_by IS DISTINCT FROM OLD.created_by AND NEW.created_by IS NOT NULL) THEN
   RAISE EXCEPTION 'API key % cannot move to another member', OLD.id USING ERRCODE = '42501';
  END IF;
- NEW.updated_at := now();
+ IF NEW.scopes IS DISTINCT FROM OLD.scopes THEN
+  IF OLD.revoked_at IS NOT NULL THEN
+   RAISE EXCEPTION 'API key % is revoked; its access cannot change', OLD.id USING ERRCODE = '42501';
+  END IF;
+  INSERT INTO public.api_key_changes(api_key_id, changed_by, scopes_before, scopes_after)
+   VALUES (OLD.id, nullif(current_setting('api.changed_by', true), '')::uuid, OLD.scopes, NEW.scopes);
+ END IF;
+ IF (to_jsonb(NEW) - 'last_used_at' - 'updated_at') = (to_jsonb(OLD) - 'last_used_at' - 'updated_at') THEN
+  NEW.updated_at := OLD.updated_at;
+ ELSE
+  NEW.updated_at := now();
+ END IF;
  RETURN NEW;
 END $fn$;
 CREATE OR REPLACE TRIGGER api_keys_guard BEFORE UPDATE ON public.api_keys
   FOR EACH ROW EXECUTE FUNCTION public.api_keys_guard();
+
+-- Replaces a key's scopes for the server (Settings > API > Edit access).
+-- p_expected_updated_at is the updated_at the editor saw; anything else is
+-- API_KEY_CHANGED. The same set in another order is not a change. Answers
+-- with the key, every column but key_hash.
+CREATE OR REPLACE FUNCTION public.api_key_set_scopes(p_key uuid, p_scopes jsonb, p_expected_updated_at timestamptz, p_actor uuid) RETURNS jsonb LANGUAGE plpgsql SET search_path = '' AS $fn$
+DECLARE k public.api_keys; next_scopes text[];
+BEGIN
+ IF jsonb_typeof(p_scopes) IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'API_KEY_SCOPES_EMPTY'; END IF;
+ SELECT coalesce(array_agg(s ORDER BY n), '{}') INTO next_scopes
+  FROM (SELECT s, min(n) n FROM jsonb_array_elements_text(p_scopes) WITH ORDINALITY AS e(s, n) GROUP BY s) d;
+ IF cardinality(next_scopes) = 0 THEN RAISE EXCEPTION 'API_KEY_SCOPES_EMPTY'; END IF;
+ SELECT * INTO k FROM public.api_keys WHERE id = p_key FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'API_KEY_NOT_FOUND'; END IF;
+ IF k.revoked_at IS NOT NULL THEN RAISE EXCEPTION 'API_KEY_REVOKED'; END IF;
+ IF k.expires_at IS NOT NULL AND k.expires_at <= now() THEN RAISE EXCEPTION 'API_KEY_EXPIRED'; END IF;
+ IF p_expected_updated_at IS NULL OR k.updated_at <> p_expected_updated_at THEN RAISE EXCEPTION 'API_KEY_CHANGED'; END IF;
+ IF (SELECT array_agg(s ORDER BY s) FROM unnest(k.scopes) s) IS DISTINCT FROM (SELECT array_agg(s ORDER BY s) FROM unnest(next_scopes) s) THEN
+  PERFORM set_config('api.changed_by', coalesce(p_actor::text, ''), true);
+  UPDATE public.api_keys SET scopes = next_scopes WHERE id = p_key RETURNING * INTO k;
+  PERFORM set_config('api.changed_by', '', true);
+ END IF;
+ RETURN to_jsonb(k) - 'key_hash';
+END $fn$;
 
 -- Checks a key and acts as its member for the rest of this transaction only:
 -- auth.uid() reads request.jwt.claim.sub first, so every books check, policy
@@ -1793,6 +1850,8 @@ END $fn$;
 
 REVOKE ALL ON FUNCTION public.api_key_profile(text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.api_key_profile(text) TO service_role;
+REVOKE ALL ON FUNCTION public.api_key_set_scopes(uuid, jsonb, timestamptz, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.api_key_set_scopes(uuid, jsonb, timestamptz, uuid) TO service_role;
 
 -- Idempotency for API creates: the first answer per key and Idempotency-Key
 -- is stored and replayed on a retry, and a different request under the same

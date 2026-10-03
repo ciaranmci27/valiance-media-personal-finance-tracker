@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowLeft, BookOpen, KeyRound, Plus, ShieldOff } from "lucide-react";
+import { ArrowLeft, BookOpen, KeyRound, Plus, ShieldOff, SlidersHorizontal } from "lucide-react";
 import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +16,7 @@ import { initialsOf } from "@/lib/access-control";
 import { API_SCOPES, type ApiScope } from "@/lib/api/scopes";
 import { cn } from "@/lib/utils";
 import { ApiKeyDialog } from "./api-key-dialog";
+import { ApiKeyAccessDialog } from "./api-key-access-dialog";
 
 export interface ApiKey {
   id: string;
@@ -29,6 +30,8 @@ export interface ApiKey {
   disabled_at: string | null;
   revoked_at: string | null;
   created_at: string;
+  /** When the key's settings last changed; sent back with an edit so two edits never overwrite each other. */
+  updated_at: string;
 }
 
 export interface ApiMember {
@@ -178,6 +181,8 @@ export function ApiSettingsContent({ available, isOwner, memberId }: Props) {
   const [requests, setRequests] = React.useState<ApiRequest[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [creating, setCreating] = React.useState(false);
+  const [editing, setEditing] = React.useState<ApiKey | null>(null);
+  const editTrigger = React.useRef<HTMLElement | null>(null);
   const [showInactive, setShowInactive] = React.useState(false);
   const [tab, setTab] = React.useState<"keys" | "activity">("keys");
   const [showRoutine, setShowRoutine] = React.useState(false);
@@ -234,11 +239,39 @@ export function ApiSettingsContent({ available, isOwner, memberId }: Props) {
     }
   };
 
+  // What a key for this member may carry: your own permissions, or the member's.
+  const holdableFor = (key: ApiKey): string[] =>
+    key.team_member_id === memberId
+      ? available
+      : (members.find((m) => m.id === key.team_member_id)?.api_scopes ?? []);
+  // The create rules: your own keys, and the owner also an agent's.
+  const canEdit = (key: ApiKey) =>
+    key.team_member_id === memberId ||
+    (isOwner && members.find((m) => m.id === key.team_member_id)?.role === "agent");
+
+  // The dialog opens as the actions menu closes, so Radix has no button to give
+  // focus back to. Remember the menu's own button (the menu is labelled by it).
+  const openEdit = (key: ApiKey) => {
+    const menu = document.activeElement?.closest('[role="menu"]');
+    const triggerId = menu?.getAttribute("aria-labelledby");
+    editTrigger.current = triggerId ? document.getElementById(triggerId) : null;
+    setEditing(key);
+  };
+
   const keyActions = (key: ApiKey) =>
     keyState(key) === "active" ? (
       <RowActionsMenu
         label={`Actions for ${key.name}`}
         actions={[
+          ...(canEdit(key)
+            ? [
+                {
+                  label: "Edit access",
+                  icon: <SlidersHorizontal size={14} aria-hidden="true" />,
+                  onSelect: () => openEdit(key),
+                },
+              ]
+            : []),
           {
             label: "Revoke",
             icon: <ShieldOff size={14} aria-hidden="true" />,
@@ -581,6 +614,14 @@ export function ApiSettingsContent({ available, isOwner, memberId }: Props) {
         members={members}
         available={available}
         onCreated={(key) => setKeys((current) => [key, ...current])}
+      />
+      <ApiKeyAccessDialog
+        apiKey={editing}
+        onClose={() => setEditing(null)}
+        holdable={editing ? holdableFor(editing) : []}
+        notHeld={`${editing?.team_member_id === memberId ? "You do" : `${memberName(editing?.team_member_id ?? null)} does`} not have this permission.`}
+        onSaved={(saved) => setKeys((current) => current.map((k) => (k.id === saved.id ? saved : k)))}
+        returnFocusRef={editTrigger}
       />
     </div>
   );

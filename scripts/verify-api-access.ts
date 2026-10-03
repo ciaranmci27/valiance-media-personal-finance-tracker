@@ -31,9 +31,9 @@ const hash = (key: string) => createHash("sha256").update(key).digest("hex");
 
 let passed = 0;
 const failures: string[] = [];
-function check(label: string, ok: boolean) {
+function check(label: string, ok: boolean, detail?: unknown) {
   if (ok) passed++;
-  else failures.push(label);
+  else failures.push(detail === undefined ? label : `${label}: ${JSON.stringify(detail)}`);
 }
 
 async function main() {
@@ -275,6 +275,98 @@ async function main() {
     check("the owner reads the request log", (await db.query("SELECT 1 FROM public.api_requests")).rows.length === 1);
     await as(MEMBER);
     check("a member does not read another person's requests", (await db.query("SELECT 1 FROM public.api_requests")).rows.length === 0);
+
+    // Edit access: the server replaces a key's scopes in place (api_key_set_scopes).
+    await superuser();
+    const ownerMember = (await db.query<{ id: string }>("SELECT id FROM public.team_members WHERE role='owner'")).rows[0].id;
+    const editable = await key("editable", AGENT, ["accounting.read"]);
+    type KeyState = { id: string; key_prefix: string; key_hash: string; scopes: string[]; updated_at: string; last_used_at: string | null };
+    const keyRow = async (secret: string) => {
+      await superuser();
+      return (
+        await db.query<KeyState>("SELECT id, key_prefix, key_hash, scopes, updated_at::text updated_at, last_used_at::text last_used_at FROM public.api_keys WHERE key_hash=$1", [hash(secret)])
+      ).rows[0];
+    };
+    const setScopes = (id: string, scopes: unknown, expected: string | null, actor: string | null = ownerMember) =>
+      service<{ r: Record<string, unknown> }>("SELECT public.api_key_set_scopes($1,$2,$3,$4) r", [id, JSON.stringify(scopes), expected, actor]);
+    const changes = async (id: string) => {
+      await superuser();
+      return (
+        await db.query<{ before: string[]; after: string[]; by: string | null }>(
+          "SELECT scopes_before before, scopes_after after, changed_by by FROM public.api_key_changes WHERE api_key_id=$1 ORDER BY at, id",
+          [id],
+        )
+      ).rows;
+    };
+
+    const start = await keyRow(editable);
+    check("edit: before, the key cannot draft", /API_SCOPE_MISSING/.test(await code(editable, "accounting.draft")));
+    const usedOk = (await code(editable)) === "ok";
+    const used = await keyRow(editable);
+    check("edit: a request stamps last use but not updated_at", usedOk && used.last_used_at !== null && used.updated_at === start.updated_at);
+
+    const added = await setScopes(start.id, ["accounting.read", "accounting.draft"], start.updated_at);
+    check("edit: adding a scope succeeds", !added.error && JSON.stringify(added.rows[0]?.r.scopes) === JSON.stringify(["accounting.read", "accounting.draft"]), added.error);
+    check("edit: the answer never carries the hash", !!added.rows[0] && !("key_hash" in added.rows[0].r));
+    check("edit: the next request with the same secret gets the new scope", (await code(editable, "accounting.draft")) === "ok");
+    const afterAdd = await keyRow(editable);
+    check("edit: secret and prefix unchanged", afterAdd.key_hash === start.key_hash && afterAdd.key_prefix === start.key_prefix && afterAdd.id === start.id);
+    check("edit: updated_at moves", afterAdd.updated_at !== start.updated_at);
+    const firstChange = await changes(start.id);
+    check(
+      "edit: the change is recorded with who made it",
+      firstChange.length === 1 &&
+        JSON.stringify(firstChange[0].before) === JSON.stringify(["accounting.read"]) &&
+        JSON.stringify(firstChange[0].after) === JSON.stringify(["accounting.read", "accounting.draft"]) &&
+        firstChange[0].by === ownerMember,
+      firstChange,
+    );
+
+    const stale = await setScopes(start.id, ["accounting.read"], start.updated_at);
+    check("edit: an edit made from a stale view is refused", /API_KEY_CHANGED/.test(stale.error ?? ""), stale.error);
+    check("edit: and changes nothing", JSON.stringify((await keyRow(editable)).scopes) === JSON.stringify(["accounting.read", "accounting.draft"]));
+    check("edit: a missing expected updated_at is refused", /API_KEY_CHANGED/.test((await setScopes(start.id, ["accounting.read"], null)).error ?? ""));
+
+    const removed = await setScopes(start.id, ["accounting.read"], afterAdd.updated_at);
+    check("edit: removing a scope succeeds", !removed.error, removed.error);
+    check("edit: the next request is refused the removed scope", /API_SCOPE_MISSING/.test(await code(editable, "accounting.draft")));
+    check("edit: the kept scope still works", (await code(editable, "accounting.read")) === "ok");
+    const afterRemove = await keyRow(editable);
+    const same = await setScopes(start.id, ["accounting.read", "accounting.read"], afterRemove.updated_at);
+    check("edit: the same set is not a change", !same.error && (await keyRow(editable)).updated_at === afterRemove.updated_at && (await changes(start.id)).length === 2);
+
+    check("edit: no scopes is refused", /API_KEY_SCOPES_EMPTY/.test((await setScopes(start.id, [], afterRemove.updated_at)).error ?? ""));
+    check("edit: scopes that are not a list are refused", /API_KEY_SCOPES_EMPTY/.test((await setScopes(start.id, { scope: "accounting.read" }, afterRemove.updated_at)).error ?? ""));
+    check("edit: an unknown key is refused", /API_KEY_NOT_FOUND/.test((await setScopes(randomUUID(), ["accounting.read"], afterRemove.updated_at)).error ?? ""));
+    const revokedRow = await keyRow(revoked);
+    check("edit: a revoked key is refused", /API_KEY_REVOKED/.test((await setScopes(revokedRow.id, ["accounting.read", "accounting.draft"], revokedRow.updated_at)).error ?? ""));
+    const expiredRow = await keyRow(expired);
+    check("edit: an expired key is refused", /API_KEY_EXPIRED/.test((await setScopes(expiredRow.id, ["accounting.read", "accounting.draft"], expiredRow.updated_at)).error ?? ""));
+    const directRevoked = await service("UPDATE public.api_keys SET scopes='{accounting.read,accounting.draft}' WHERE key_hash=$1", [hash(revoked)]);
+    check("edit: even the server cannot change a revoked key's scopes directly", /access cannot change/.test(directRevoked.error ?? ""), directRevoked.error);
+    const directMove = await service("UPDATE public.api_keys SET scopes='{accounting.read}', key_prefix='vm_live_other' WHERE key_hash=$1", [hash(editable)]);
+    check("edit: a scope change cannot carry a new prefix", /secret and creation time cannot change/.test(directMove.error ?? ""));
+    const direct = await service("UPDATE public.api_keys SET scopes='{accounting.read,tax.read}' WHERE key_hash=$1", [hash(editable)]);
+    check("edit: a direct server update is recorded too, without an editor", !direct.error && (await changes(start.id)).at(-1)?.by === null);
+
+    for (const role of ["authenticated", "anon"]) {
+      await db.exec(`RESET ROLE; SET ROLE ${role};`);
+      check(
+        `edit: ${role} cannot call api_key_set_scopes`,
+        await fails(() => db.query("SELECT public.api_key_set_scopes($1,'[\"accounting.read\"]',now(),NULL)", [start.id]), /permission denied/),
+      );
+    }
+    await as(AGENT);
+    check("edit: the key's member reads its change history", (await db.query("SELECT 1 FROM public.api_key_changes")).rows.length === 3);
+    check(
+      "edit: nobody signed in writes the history",
+      await fails(() => db.query("INSERT INTO public.api_key_changes(api_key_id,scopes_before,scopes_after) VALUES($1,'{}','{}')", [start.id]), /permission denied/),
+    );
+    await as(MEMBER);
+    check("edit: another member does not read it", (await db.query("SELECT 1 FROM public.api_key_changes")).rows.length === 0);
+    const rewrite = await service("UPDATE public.api_key_changes SET scopes_after='{}'");
+    const erase = await service("DELETE FROM public.api_key_changes");
+    check("edit: the history is append only, even for the server", /permission denied/.test(rewrite.error ?? "") && /permission denied/.test(erase.error ?? ""));
   } finally {
     await db.close();
   }

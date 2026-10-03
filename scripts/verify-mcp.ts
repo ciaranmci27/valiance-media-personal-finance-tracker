@@ -476,6 +476,27 @@ async function main() {
       check("t4: a read-only key reads recurring charges", recurringRead?.ok === true && Array.isArray(recurringRead?.data?.series) && recurringRead?.data?.limit === 50, recurringRead);
       const narrowSupport = await call(narrow, "books_get_support_report", { id: "payroll-register", year: 2026 });
       check("t5: a key without accounting.payroll does not get the tool", narrowSupport.structuredContent?.error?.reason === "unknown_tool", narrowSupport.structuredContent);
+      {
+        // Edit access on the same key: tools/list is worked out per request, so the
+        // connected client sees the tool on its next list, with no new secret.
+        const { editKeyAccess } = await import("../src/lib/api/key-access");
+        const { getServiceClient } = await import("../src/lib/supabase/service");
+        type Access = Parameters<typeof editKeyAccess>[1];
+        const owner = { member: (await db.query<Access["member"]>("SELECT * FROM public.team_members WHERE role='owner'")).rows[0], permissions: ["*"] } as Access;
+        const narrowKey = async () =>
+          (await db.query<{ id: string; updated_at: string }>("SELECT id, updated_at::text updated_at FROM public.api_keys WHERE key_hash=$1", [fixture.hash(booksOnly)])).rows[0];
+        const before = await narrowKey();
+        const added = await editKeyAccess(getServiceClient(), owner, before.id, { scopes: ["accounting.read", "accounting.payroll"], expected_updated_at: before.updated_at });
+        check("edit access: the owner adds accounting.payroll to the narrow key", added.status === 200, added.body);
+        const listed = (await narrow.listTools()).tools.map((t) => t.name);
+        check("edit access: the same connection lists the payroll tool on its next tools/list", listed.includes("books_get_support_report"));
+        const reached = (await call(narrow, "books_get_support_report", { id: "payroll-register", year: 2026 })).structuredContent;
+        check("edit access: and the next call is allowed", reached?.ok === true, reached);
+        const after = await narrowKey();
+        const removed = await editKeyAccess(getServiceClient(), owner, before.id, { scopes: ["accounting.read"], expected_updated_at: after.updated_at });
+        const relisted = (await narrow.listTools()).tools.map((t) => t.name);
+        check("edit access: removing it takes the tool away again", removed.status === 200 && !relisted.includes("books_get_support_report"), removed.body);
+      }
       const register = (await call(legacy, "books_get_support_report", { id: "payroll-register", year: 2026 })).structuredContent;
       check("t5: a key with accounting.payroll reads the payroll register", register?.ok === true && register?.source === "books" && register?.data?.title === "Payroll register" && register?.data?.columns?.length === 6, register);
       const supportTool = MCP_TOOLS.find((t) => t.definition.name === "books_get_support_report");

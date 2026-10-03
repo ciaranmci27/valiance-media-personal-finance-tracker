@@ -2,10 +2,12 @@
  * Demo data for Settings > API, built relative to now so every state the page
  * draws stays visible: an agent key in daily use, one about to expire, one
  * revoked, and a request log with an MCP call and a refusal. Read-only: the
- * demo never stores a key.
+ * demo never stores a key. Alex holds "Payroll and 1099 reports" but the key
+ * does not carry it yet, so Edit access has something to add.
  */
 
 import { siteConfig } from "@/config/site";
+import { API_SCOPE_KEYS } from "@/lib/api/scopes";
 
 /** The synthetic demo owner (lib/team/access.ts). */
 const OWNER_ID = "00000000-0000-4000-8000-000000000000";
@@ -21,8 +23,8 @@ const DAY = 86_400_000;
 
 const READS = ["accounting.read", "income.read", "expenses.read", "net_worth.read", "tax.read"];
 
-export function demoApiKeysPayload() {
-  const keys = [
+function demoKeys() {
+  return [
     {
       id: AGENT_KEY,
       name: "Alex AI Agent",
@@ -35,6 +37,7 @@ export function demoApiKeysPayload() {
       disabled_at: null,
       revoked_at: null,
       created_at: ago(1 * DAY),
+      updated_at: ago(1 * DAY),
     },
     {
       id: SCRIPT_KEY,
@@ -48,6 +51,7 @@ export function demoApiKeysPayload() {
       disabled_at: null,
       revoked_at: null,
       created_at: ago(84 * DAY),
+      updated_at: ago(84 * DAY),
     },
     {
       id: OLD_KEY,
@@ -61,10 +65,13 @@ export function demoApiKeysPayload() {
       disabled_at: null,
       revoked_at: ago(30 * DAY),
       created_at: ago(70 * DAY),
+      updated_at: ago(30 * DAY),
     },
   ];
+}
 
-  const members = [
+function demoMembers() {
+  return [
     {
       id: OWNER_ID,
       name: siteConfig.realName,
@@ -72,7 +79,7 @@ export function demoApiKeysPayload() {
       status: "active",
       has_sign_in: true,
       can_use_api: true,
-      api_scopes: [...READS, "accounting.draft", "income.manage", "expenses.manage", "net_worth.manage"],
+      api_scopes: [...API_SCOPE_KEYS],
     },
     {
       id: AGENT_ID,
@@ -81,9 +88,14 @@ export function demoApiKeysPayload() {
       status: "active",
       has_sign_in: true,
       can_use_api: true,
-      api_scopes: [...READS, "accounting.draft"],
+      api_scopes: [...READS, "accounting.draft", "accounting.payroll"],
     },
   ];
+}
+
+export function demoApiKeysPayload() {
+  const keys = demoKeys();
+  const members = demoMembers();
 
   const calls: [number, string, string, string | null, number, string | null, number, "rest" | "mcp"][] = [
     [2 * MIN, "GET", "/api/v1/books/revision", "books.revision", 200, null, 41, "mcp"],
@@ -127,7 +139,25 @@ export function demoCreatedKey(input: { name: string; scopes: string[]; days: nu
       disabled_at: null,
       revoked_at: null,
       created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     },
     secret: `vmfin_demo${"0".repeat(44)}`,
+  };
+}
+
+/**
+ * A demo key with its access edited, for Edit access. Never stored. Null when
+ * the key is not an active demo key or a scope is one its member does not
+ * hold, which the route answers as read-only.
+ */
+export function demoEditedKey(id: string, scopes: string[]) {
+  const key = demoKeys().find((k) => k.id === id && !k.revoked_at);
+  const member = demoMembers().find((m) => m.id === key?.team_member_id);
+  if (!key || !member || scopes.some((scope) => !member.api_scopes.includes(scope))) return null;
+  const wanted = new Set(scopes);
+  return {
+    ...key,
+    scopes: API_SCOPE_KEYS.filter((scope) => wanted.has(scope)),
+    updated_at: new Date().toISOString(),
   };
 }

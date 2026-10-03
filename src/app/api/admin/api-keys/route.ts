@@ -4,19 +4,15 @@ import { requireAuth } from "@/lib/admin/require-auth";
 import { getServiceClient } from "@/lib/supabase/service";
 import { isDemoMode } from "@/lib/demo";
 import { demoApiKeysPayload, demoCreatedKey } from "@/lib/demo/api-keys";
-import { hasPermission } from "@/lib/access-control";
 import { membersApiAccess } from "@/lib/api/member-access";
+import { keyHolder, keyScopesField, refusedScopes } from "@/lib/api/key-access";
 import {
   API_KEY_COLUMNS,
   generateApiKey,
   hashApiKey,
   keyPrefix,
 } from "@/lib/api/keys";
-import {
-  API_KEY_LIFETIMES,
-  DEFAULT_API_KEY_DAYS,
-  isApiScope,
-} from "@/lib/api/scopes";
+import { API_KEY_LIFETIMES, DEFAULT_API_KEY_DAYS } from "@/lib/api/scopes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,7 +23,7 @@ const createSchema = z.object({
     .trim()
     .min(1, "Name is required")
     .max(100, "Name is too long"),
-  scopes: z.array(z.string()).min(1, "Choose at least one scope"),
+  scopes: keyScopesField,
   days: z
     .number()
     .int()
@@ -125,63 +121,14 @@ export async function POST(request: NextRequest) {
   const scopes = [...new Set(parsed.data.scopes)];
   const service = getServiceClient();
 
-  // Whose key: your own, or (owner only) another member's.
-  let ownerId = me.id;
-  let holds: (scope: string) => boolean = (scope) =>
-    isApiScope(scope) && hasPermission(auth.access, scope);
-  if (parsed.data.member_id && parsed.data.member_id !== me.id) {
-    if (me.role !== "owner")
-      return NextResponse.json(
-        { error: "Only the owner can create keys for agents." },
-        { status: 403 },
-      );
-    const [target] = await membersApiAccess(service, [
-      parsed.data.member_id,
-    ]).catch(() => []);
-    if (!target)
-      return NextResponse.json(
-        { error: "That person is not on the team." },
-        { status: 422 },
-      );
-    // Agents only: a key made for a person would record their name on work
-    // they did not do. People create their own keys.
-    if (target.role !== "agent")
-      return NextResponse.json(
-        {
-          error: `${target.name} is not an agent. People create their own keys.`,
-        },
-        { status: 422 },
-      );
-    if (target.status !== "active" || !target.has_sign_in)
-      return NextResponse.json(
-        {
-          error: `${target.name} needs an active sign-in before a key can act as them.`,
-        },
-        { status: 422 },
-      );
-    if (!target.can_use_api)
-      return NextResponse.json(
-        {
-          error: `${target.name} does not hold 'Use the API'. Grant it in Team > Access first.`,
-        },
-        { status: 422 },
-      );
-    ownerId = target.id;
-    holds = (scope) => isApiScope(scope) && target.api_scopes.includes(scope);
-  } else if (!me.auth_user_id)
-    return NextResponse.json(
-      { error: "Sign in with your own account to create a key." },
-      { status: 403 },
-    );
-
-  const refused = scopes.filter((scope) => !holds(scope));
-  if (refused.length > 0)
-    return NextResponse.json(
-      {
-        error: `Scopes ${ownerId === me.id ? "not available to you" : "this person does not hold"}: ${refused.join(", ")}`,
-      },
-      { status: 422 },
-    );
+  // Whose key: your own, or (owner only) an agent's. Editing a key's access
+  // decides it the same way (lib/api/key-access.ts).
+  const holder = await keyHolder(service, auth.access, parsed.data.member_id, "create");
+  if (!holder.ok)
+    return NextResponse.json({ error: holder.error }, { status: holder.status });
+  const refusal = refusedScopes(scopes, holder);
+  if (refusal) return NextResponse.json({ error: refusal }, { status: 422 });
+  const ownerId = holder.memberId;
 
   const secret = generateApiKey();
   const expiresAt = new Date(
