@@ -31,7 +31,7 @@ Retries and versions
 - Writes to an existing draft take expected_version: send the version field from the transaction you read (books_search_transactions or books_get_transaction). On reason stale_version, read it again and retry once.
 - descriptor_key is what rules match on; prior_treatment shows how that description was categorized before. Use both before proposing a rule.
 - Creates take an optional idempotency_key (a uuid). When you retry the same create, send the same key so it is saved once. The answer includes the key used.
-- Poll books_revision and re-read only when it changes.
+- Poll books_revision and re-read only when it changes. Bank syncs move it with nothing new; actionable_drafts (count, fingerprint, newest_at) and contacts_needed say whether there is work for you.
 
 Answers
 - Success: { ok: true, source, data }.

@@ -940,9 +940,27 @@ export const API_OPERATIONS = [
     tag: "Books",
     summary: "Has anything changed?",
     description:
-      "A counter that goes up on every change to the books. Poll this and re-read only when it moves.",
+      "A counter that goes up on every change to the books, with a small work signal. Poll this and re-read only when it moves. The counter also moves on bank syncs that bring nothing new, so read the signal to decide whether there is work: actionable_drafts are the drafts waiting for a category (uncategorized, not a transfer), with a fingerprint of their ids that changes only when that set changes, and newest_at, when the newest of them arrived. New work shows as a new fingerprint with a higher count or a later newest_at; a lower count alone means drafts were categorized. contacts_needed counts transactions dated since its since date (the last 30 days) with no contact, transfers left out: the rows a transactions search with contact=none, transfers=exclude and from set to since lists.",
     query: z.object({}).strict(),
-    response: z.object({ revision: z.string() }),
+    response: z.object({
+      revision: z.string(),
+      actionable_drafts: z.object({
+        count: z.number().int(),
+        fingerprint: z
+          .string()
+          .describe(
+            "16 hex characters over the sorted draft ids; edits to a waiting draft do not change it",
+          ),
+        newest_at: z
+          .string()
+          .nullable()
+          .describe("When the newest of these drafts arrived, UTC; null when there are none"),
+      }),
+      contacts_needed: z.object({
+        count: z.number().int(),
+        since: date,
+      }),
+    }),
   },
   {
     id: "tracker.income",

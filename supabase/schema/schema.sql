@@ -1809,7 +1809,8 @@ BEGIN
   WHEN 'report' THEN accounting.report(a->>'kind', coalesce(a->'params', '{}'::jsonb))
   WHEN 'report_lines' THEN accounting.report_lines(a->>'kind', coalesce(a->'params', '{}'::jsonb), (a->>'account')::uuid)
   WHEN 'ledger' THEN accounting.ledger((a->>'account')::uuid, (a->>'from_date')::date, (a->>'to_date')::date)
-  WHEN 'revision' THEN jsonb_build_object('revision', accounting.revision())
+  -- The counter, plus what the agent can act on (accounting.work_signal), so a poll can tell new work from a sync.
+  WHEN 'revision' THEN jsonb_build_object('revision', accounting.revision()) || accounting.work_signal()
   WHEN 'payees' THEN jsonb_build_object('payees', accounting.payees_list())
   WHEN 'rules' THEN jsonb_build_object('rules', accounting.rules_list())
   WHEN 'reconciliation' THEN accounting.reconciliation_status(coalesce(a->'params', '{}'::jsonb))
@@ -3232,6 +3233,8 @@ CREATE INDEX entries_descriptor ON accounting.journal_entries USING btree (descr
 CREATE INDEX entries_pair ON accounting.journal_entries USING btree (pair_entry_id) WHERE (pair_entry_id IS NOT NULL);
 
 CREATE INDEX entries_payee ON accounting.journal_entries USING btree (payee_id) WHERE (payee_id IS NOT NULL);
+
+CREATE INDEX entries_reverses ON accounting.journal_entries USING btree (reverses_entry_id) WHERE (reverses_entry_id IS NOT NULL);
 
 CREATE INDEX entries_review ON accounting.journal_entries USING btree (entry_date DESC, id) WHERE (status = 'draft'::text OR (status = 'posted'::text AND review_pending));
 
@@ -5895,6 +5898,43 @@ BEGIN
  RETURN (SELECT financial_revision::text FROM accounting.settings WHERE id=1);
 END $function$
 ;
+CREATE OR REPLACE FUNCTION accounting.work_signal()
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE since date; result jsonb;
+BEGIN
+ PERFORM accounting.require_reader();
+ since:=(now() AT TIME ZONE coalesce((SELECT books_timezone FROM public.business_profile WHERE id=1),'America/Phoenix'))::date-30;
+ WITH queue AS (
+  -- Drafts the agent can act on, by the rules of the API's transactions (presentTransaction); a money line is a bank, cash or card account.
+  SELECT e.id,e.created_at FROM accounting.journal_entries e CROSS JOIN LATERAL (
+   SELECT count(*) AS line_count,count(*) FILTER(WHERE a.subtype IN ('bank','cash','card')) AS bank_count,
+    count(DISTINCT l.account_id) FILTER(WHERE a.subtype IN ('bank','cash','card')) AS bank_accounts,
+    coalesce(sum(l.amount_cents),0) AS total,coalesce(bool_or(l.amount_cents=0),false) AS zero_line,
+    coalesce(bool_or(a.system_purpose IN ('uncategorized_income','uncategorized_expense','opening_balance_equity')),false) AS suspense
+   FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id) m
+  WHERE e.status='draft' AND e.reverses_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries re WHERE re.reverses_entry_id=e.id)
+   AND e.transfer_group_id IS NULL AND e.pair_entry_id IS NULL AND NOT (m.bank_accounts>1 AND m.bank_count=m.line_count)
+   AND (m.line_count<2 OR m.zero_line OR m.total<>0 OR m.suspense)
+ ), blank AS (
+  -- Recent transactions without a contact: a register search with contact=none, transfers=exclude and from=since.
+  SELECT e.id FROM accounting.journal_entries e CROSS JOIN LATERAL (
+   SELECT count(*) AS line_count,count(*) FILTER(WHERE a.subtype IN ('bank','cash','card')) AS bank_count,
+    count(DISTINCT l.account_id) FILTER(WHERE a.subtype IN ('bank','cash','card')) AS bank_accounts
+   FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id) m
+  WHERE e.entry_date>=since AND e.payee_id IS NULL AND e.status<>'discarded' AND e.reverses_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries re WHERE re.reverses_entry_id=e.id)
+   AND e.transfer_group_id IS NULL AND e.pair_entry_id IS NULL AND NOT (m.bank_accounts>1 AND m.bank_count=m.line_count)
+ )
+ SELECT jsonb_build_object(
+  'actionable_drafts',(SELECT jsonb_build_object('count',count(*),'fingerprint',left(md5(coalesce(string_agg(q.id::text,',' ORDER BY q.id),'')),16),
+   'newest_at',to_char(max(q.created_at) AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"')) FROM queue q),
+  'contacts_needed',jsonb_build_object('count',(SELECT count(*) FROM blank),'since',since)) INTO result;
+ RETURN result;
+END $function$
+;
 CREATE OR REPLACE FUNCTION accounting.api_key_allows(actor uuid, scope text)
  RETURNS boolean
  LANGUAGE plpgsql
@@ -7388,6 +7428,10 @@ GRANT EXECUTE ON FUNCTION accounting.require_reader() TO "postgres";
 REVOKE ALL ON FUNCTION accounting.revision() FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION accounting.revision() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.work_signal() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.work_signal() TO "postgres";
 
 REVOKE ALL ON FUNCTION accounting.api_key_allows(uuid,text) FROM PUBLIC, anon, authenticated, service_role;
 

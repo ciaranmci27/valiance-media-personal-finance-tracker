@@ -8,7 +8,7 @@
  *
  * Run: npx tsx --tsconfig tsconfig.api-test.json scripts/verify-api-http.ts
  */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 import { seedApiFixture } from "./api-test-fixture";
 import { fixtureAccounts, fixtureAccountId as account, fixtureOwner } from "../src/lib/accounting/fixtures";
@@ -161,6 +161,32 @@ async function main() {
     check("report: unknown id 422", unknownReport.status === 422, unknownReport.json);
     const revision = await call(routes.revision, "/api/v1/books/revision");
     check("revision equals the books", revision.json.data?.revision === screenSummary.revision, { api: revision.json.data, books: screenSummary.revision });
+    // The work signal against what the agents host dispatcher computed before it existed: a full
+    // transactions read, kept when draft, not categorized and not a transfer, ids sorted and hashed.
+    const dispatcherView = async () => {
+      const listed = await call(routes.transactions, "/api/v1/books/transactions?review=needed&status=draft&limit=100");
+      const ids = (listed.json.data?.transactions ?? [])
+        .filter((r: { status: string; categorized: boolean; transfer: boolean }) => r.status === "draft" && r.categorized === false && !r.transfer)
+        .map((r: { id: string }) => String(r.id))
+        .sort();
+      return { count: ids.length, fingerprint: createHash("md5").update(ids.join(",")).digest("hex").slice(0, 16) };
+    };
+    const signalAgrees = async (label: string) => {
+      const answer = await call(routes.revision, "/api/v1/books/revision");
+      const view = await dispatcherView();
+      const work = answer.json.data?.actionable_drafts;
+      check(`${label}: the work signal equals the dispatcher's transactions read`, answer.status === 200 && work?.count === view.count && work?.fingerprint === view.fingerprint, { work, view });
+      return answer.json.data;
+    };
+    const firstSignal = await signalAgrees("revision");
+    check(
+      "revision: the answer is the counter, actionable_drafts and contacts_needed",
+      Object.keys(firstSignal ?? {}).sort().join() === "actionable_drafts,contacts_needed,revision" &&
+        /^[0-9a-f]{16}$/.test(firstSignal?.actionable_drafts?.fingerprint ?? "") &&
+        typeof firstSignal?.contacts_needed?.count === "number" &&
+        /^\d{4}-\d{2}-\d{2}$/.test(firstSignal?.contacts_needed?.since ?? ""),
+      firstSignal,
+    );
 
     // Tracker.
     const income = await call(routes.income, "/api/v1/tracker/income?from=2026-07-01&to=2026-09-30");
@@ -364,6 +390,18 @@ async function main() {
       { idem: randomUUID() },
     );
     check("write: bulk categorize", bulk.status === 200 && bulk.json.data?.results?.length === 2, bulk.json);
+    const beforeUnknown = await signalAgrees("categorized drafts");
+    await db.exec("RESET ROLE;");
+    const suspense = (await db.query<{ id: string }>("SELECT id FROM accounting.accounts WHERE system_purpose='uncategorized_expense'")).rows[0].id;
+    const unknownId = await ownerBankDraft("Unknown charge (bank)", "-4200", suspense);
+    const afterUnknown = await signalAgrees("an uncategorized bank draft");
+    check(
+      "revision: an uncategorized bank draft is new work",
+      afterUnknown?.actionable_drafts?.count === beforeUnknown?.actionable_drafts?.count + 1 &&
+        afterUnknown?.actionable_drafts?.fingerprint !== beforeUnknown?.actionable_drafts?.fingerprint &&
+        afterUnknown?.revision !== beforeUnknown?.revision,
+      { beforeUnknown, afterUnknown, unknownId },
+    );
     const rule = await send(
       routes.rules.POST,
       "POST",
