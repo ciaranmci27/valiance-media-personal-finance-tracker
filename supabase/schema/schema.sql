@@ -3757,6 +3757,27 @@ BEGIN
 END $function$
 ;
 
+CREATE OR REPLACE FUNCTION accounting.contact_top_categories()
+ RETURNS TABLE(party_id uuid, account_id uuid, account_name text)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ -- Each contact's dominant category: the account its live entries (drafts and posted) moved the most money through, by absolute amount.
+ -- Money accounts, clearing accounts and the uncategorized catch-alls say nothing about what a contact is, so they never count.
+ SELECT DISTINCT ON (t.payee_id) t.payee_id,t.account_id,t.name
+ FROM (SELECT e.payee_id,l.account_id,a.name,sum(abs(l.amount_cents)) total
+  FROM accounting.journal_entries e
+  JOIN accounting.journal_lines l ON l.entry_id=e.id
+  JOIN accounting.accounts a ON a.id=l.account_id
+  WHERE e.payee_id IS NOT NULL AND e.status<>'discarded'
+   AND a.subtype NOT IN ('bank','card','cash','transit','undeposited','uncategorized')
+   AND coalesce(a.system_purpose,'') NOT IN ('uncategorized_income','uncategorized_expense','transfers_in_transit')
+  GROUP BY e.payee_id,l.account_id,a.name) t
+ ORDER BY t.payee_id,t.total DESC,t.name,t.account_id;
+$function$
+;
+
 CREATE OR REPLACE FUNCTION accounting.context(view text, params jsonb DEFAULT '{}'::jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -3768,7 +3789,7 @@ BEGIN
  IF view='session' THEN RETURN jsonb_build_object('owner_id',actor); END IF;
  IF view='manage' THEN
   RETURN jsonb_build_object('profiles',(SELECT coalesce(jsonb_agg(jsonb_build_object('account_id',id,'version',version,'purpose',system_purpose,'cash_kind',CASE WHEN subtype IN ('bank','cash','card') THEN subtype ELSE 'none' END,'parent_account_id',parent_id,'subtype',subtype,'type',type,'external_names',external_names) ORDER BY code,name),'[]') FROM accounting.accounts),
-   'parties',(SELECT coalesce(jsonb_agg(to_jsonb(p)||jsonb_build_object('tax_classification',CASE WHEN contractor_classification='unknown' THEN 'unreviewed' ELSE contractor_classification END,'documentation',documentation_status,'suggested_by_name',(SELECT m.name FROM public.team_members m WHERE m.id=p.suggested_by)) ORDER BY p.name),'[]') FROM accounting.parties p),
+   'parties',(SELECT coalesce(jsonb_agg(to_jsonb(p)||jsonb_build_object('tax_classification',CASE WHEN contractor_classification='unknown' THEN 'unreviewed' ELSE contractor_classification END,'documentation',documentation_status,'suggested_by_name',(SELECT m.name FROM public.team_members m WHERE m.id=p.suggested_by),'top_category',CASE WHEN t.account_id IS NULL THEN NULL ELSE jsonb_build_object('id',t.account_id,'name',t.account_name) END) ORDER BY p.name),'[]') FROM accounting.parties p LEFT JOIN accounting.contact_top_categories() t ON t.party_id=p.id),
    'periods',(SELECT coalesce(jsonb_agg(to_jsonb(p)||jsonb_build_object('month_start',month,'is_locked',status='locked')),'[]') FROM accounting.periods p),
    'preferences',(SELECT to_jsonb(s)-ARRAY['owner_user_id','financial_revision']||jsonb_build_object('history_start',p.earliest_history_date,'legal_name',p.legal_name,'business_profile',to_jsonb(p)) FROM accounting.settings s CROSS JOIN public.business_profile p));
  ELSIF view='feeds' THEN
@@ -5262,7 +5283,7 @@ BEGIN
  PERFORM accounting.require_reader();
  RETURN (SELECT coalesce(jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'roles',to_jsonb(p.roles),'email',p.email,'phone',p.phone,'website',p.website,'notes',p.notes,
   'default_account_id',p.default_account_id,'review_status',p.review_status,'suggested_by_name',(SELECT m.name FROM public.team_members m WHERE m.id=p.suggested_by),
-  'is_archived',p.is_archived,'version',p.version,'transaction_count',(SELECT count(*) FROM accounting.journal_entries e WHERE e.payee_id=p.id AND e.status<>'discarded')) ORDER BY lower(p.name),p.id),'[]'::jsonb) FROM accounting.parties p);
+  'is_archived',p.is_archived,'version',p.version,'transaction_count',(SELECT count(*) FROM accounting.journal_entries e WHERE e.payee_id=p.id AND e.status<>'discarded'),'top_category',CASE WHEN t.account_id IS NULL THEN NULL ELSE jsonb_build_object('id',t.account_id,'name',t.account_name) END) ORDER BY lower(p.name),p.id),'[]'::jsonb) FROM accounting.parties p LEFT JOIN accounting.contact_top_categories() t ON t.party_id=p.id);
 END $function$
 ;
 CREATE OR REPLACE FUNCTION accounting.rules_list()
@@ -6504,6 +6525,10 @@ GRANT EXECUTE ON FUNCTION accounting.close_guard() TO "postgres";
 REVOKE ALL ON FUNCTION accounting.contact_name_key(text) FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION accounting.contact_name_key(text) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.contact_top_categories() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.contact_top_categories() TO "postgres";
 
 REVOKE ALL ON FUNCTION accounting.context(text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
 

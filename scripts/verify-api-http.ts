@@ -391,9 +391,9 @@ async function main() {
     const figmaId = payee.json.data?.id as string;
     const payeeList = await call(routes.contacts, "/api/v1/books/contacts");
     check(
-      "write: contact added as a suggestion and listed with its roles",
+      "write: contact added as a suggestion and listed with its roles and no top category yet",
       payee.status === 200 && payee.json.data?.review_status === "suggested" &&
-        payeeList.json.data?.contacts?.some((x: { name: string; roles: string[]; review_status: string; transaction_count: number }) => x.name === "Figma" && x.roles[0] === "vendor" && x.review_status === "suggested" && x.transaction_count === 0),
+        payeeList.json.data?.contacts?.some((x: { name: string; roles: string[]; review_status: string; transaction_count: number; top_category: unknown }) => x.name === "Figma" && x.roles[0] === "vendor" && x.review_status === "suggested" && x.transaction_count === 0 && x.top_category === null),
       payeeList.json,
     );
     check(

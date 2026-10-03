@@ -12,7 +12,11 @@ import { registerCommandSchema } from "./registers";
 import { supportReportCommandSchema } from "./support-reports";
 import { booksPackageCommandSchema } from "./books-package";
 import type { RuleCandidate } from "./rules";
-import { CONTACT_ROLES, type ContactRole } from "./contacts";
+import {
+  CONTACT_ROLES,
+  type ContactRole,
+  type ContactTopCategory,
+} from "./contacts";
 export { CONTACT_ROLES, CONTACT_ROLE_LABELS, type ContactRole } from "./contacts";
 
 const id = z.guid();
@@ -444,6 +448,8 @@ export interface Party {
   /** The team member (an agent) that suggested it, by name. */
   suggested_by_name?: string | null;
   default_account_id: string | null;
+  /** The category most of its money went through (drafts and posted), if any. */
+  top_category?: ContactTopCategory | null;
   tax_classification: z.infer<typeof taxClassification>;
   documentation: z.infer<typeof documentation>;
   notes: string;

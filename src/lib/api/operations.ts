@@ -1045,6 +1045,12 @@ export const API_OPERATIONS = [
           is_archived: z.boolean(),
           version: z.number(),
           transaction_count: z.number(),
+          top_category: z
+            .object({ id: uuid, name: z.string() })
+            .nullable()
+            .describe(
+              "The category most of this contact's money went through (drafts and reviewed, by amount), or null with no categorized transactions",
+            ),
         }),
       ),
     }),

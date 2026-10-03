@@ -48,6 +48,7 @@ Workflows
 
 Contacts
 - A contact is who the business paid or who paid it. Roles: client (pays us), vendor (we buy from), contractor (a 1099 worker or firm; feeds the year-end 1099 worksheet), employee, government (tax agencies), financial (banks, cards, lenders, brokers), owner. A contact can hold several.
+- Each books_list_contacts row carries top_category: the category most of that contact's money went through, or null. It shows where that contact's transactions usually go, and the owner's Contacts list groups vendors by it.
 - Search books_list_contacts (q, role) before adding one. books_add_contact makes a suggestion; the owner approves it in the app. Fix your own suggestion with books_update_contact; once approved it is the owner's (reason contact_confirmed).
 - Duplicates are refused. reason duplicate: that name already exists (case, punctuation and endings like Inc or LLC are ignored); use details.existing. reason possible_duplicate: a similar name exists (Google and Google Workspace); use a candidate if it is the same, otherwise retry with all candidate ids in not_duplicate_of.
 - books_assign_contact fills a blank contact on up to 100 transactions, drafts or reviewed, all or nothing, and changes nothing else on them. It never replaces a contact (reason contact_already_set) and never sets one on a transfer between the business's own accounts (reason transfer_no_contact); leave those out and retry the rest.

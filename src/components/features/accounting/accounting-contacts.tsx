@@ -1,6 +1,17 @@
 "use client";
-import { useState } from "react";
-import { ArrowRight, Check, Merge, Pencil, Archive, Plus, RotateCcw, Search } from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import {
+  ArrowRight,
+  Check,
+  ChevronDown,
+  Merge,
+  Pencil,
+  Archive,
+  Plus,
+  RotateCcw,
+  Search,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SectionHeader } from "@/components/ui/section-header";
@@ -15,6 +26,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
+import { groupContacts, type ContactGroup } from "@/lib/accounting/contacts";
 import {
   CONTACT_ROLES,
   CONTACT_ROLE_LABELS,
@@ -32,6 +44,9 @@ export function suggestedContacts(parties: Party[]): Party[] {
     (p) => !p.is_archived && p.review_status === "suggested",
   );
 }
+
+/** The owner's open or closed choice per contact group, kept in this browser only. */
+const GROUP_FOLDS_KEY = "vm-accounting-contact-groups";
 
 /** The fields party.save takes, from a contact read back from the books. */
 function saveCommand(p: Party, changes: Partial<Party>) {
@@ -83,13 +98,175 @@ export function AccountingContacts({
   const [merging, setMerging] = useState<Party | null>(null);
   const command = useAccountingCommand(() => onRefresh());
   const suggested = suggestedContacts(parties);
+  const search = query.trim().toLowerCase();
   const rows = parties.filter(
     (p) =>
-      p.name.toLowerCase().includes(query.trim().toLowerCase()) &&
+      p.name.toLowerCase().includes(search) &&
       (!role || p.roles.includes(role)) &&
-      (!onlySuggested ||
-        (!p.is_archived && p.review_status === "suggested")),
+      (!onlySuggested || (!p.is_archived && p.review_status === "suggested")),
   );
+  const accountNames = new Map(accounts.map((a) => [a.id, a.name]));
+  const groups = groupContacts(rows, (id) => accountNames.get(id));
+  const groupIds = useId();
+  // The owner's choices outside a search, remembered per group.
+  const [folds, setFolds] = useState<Record<string, boolean>>({});
+  // Groups closed during the current search; a new search opens them again.
+  const [searchFolds, setSearchFolds] = useState<{
+    query: string;
+    closed: string[];
+  }>({ query: "", closed: [] });
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(GROUP_FOLDS_KEY);
+      const stored: unknown = raw ? JSON.parse(raw) : null;
+      if (stored && typeof stored === "object" && !Array.isArray(stored))
+        setFolds(
+          Object.fromEntries(
+            Object.entries(stored).filter(
+              (entry): entry is [string, boolean] =>
+                typeof entry[1] === "boolean",
+            ),
+          ),
+        );
+    } catch {
+      // Blocked or unreadable storage: every group starts at its default.
+    }
+  }, []);
+
+  function isOpen(group: ContactGroup<Party>) {
+    if (search)
+      return !(
+        searchFolds.query === search && searchFolds.closed.includes(group.key)
+      );
+    if (group.key in folds) return folds[group.key];
+    return (
+      group.contacts.length <= 5 ||
+      (onlySuggested &&
+        group.contacts.some(
+          (p) => !p.is_archived && p.review_status === "suggested",
+        ))
+    );
+  }
+
+  function toggle(group: ContactGroup<Party>, open: boolean) {
+    if (search) {
+      const closed = searchFolds.query === search ? searchFolds.closed : [];
+      setSearchFolds({
+        query: search,
+        closed: open
+          ? [...closed, group.key]
+          : closed.filter((key) => key !== group.key),
+      });
+      return;
+    }
+    const next = { ...folds, [group.key]: !open };
+    setFolds(next);
+    try {
+      window.localStorage.setItem(GROUP_FOLDS_KEY, JSON.stringify(next));
+    } catch {
+      // Blocked storage: the choice lasts until the page reloads.
+    }
+  }
+
+  function contactRow(p: Party) {
+    const pending = !p.is_archived && p.review_status === "suggested";
+    return (
+      <div
+        key={p.id}
+        className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5"
+      >
+        <div className="min-w-0">
+          <p className="flex flex-wrap items-center gap-2 font-medium">
+            <span className="truncate">{p.name}</span>
+            {p.is_archived && <Badge size="sm">Archived</Badge>}
+            {pending && (
+              <Badge size="sm" variant="warning">
+                {p.suggested_by_name
+                  ? `Suggested by ${p.suggested_by_name}`
+                  : "Suggested"}
+              </Badge>
+            )}
+          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            {CONTACT_ROLES.filter((r) => p.roles.includes(r)).map((r) => (
+              <Badge key={r} size="sm" variant="info">
+                {CONTACT_ROLE_LABELS[r]}
+              </Badge>
+            ))}
+            {p.roles.includes("contractor") && (
+              <span className="text-xs text-muted-foreground">
+                {p.tax_classification === "unreviewed"
+                  ? "Type not reviewed"
+                  : enumLabel(p.tax_classification)}
+                . W-9 {enumLabel(p.documentation).toLowerCase()}.
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          {pending && (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={demo || command.busy}
+              aria-label={`Approve ${p.name}`}
+              onClick={() => void approve([p])}
+            >
+              <Check size={14} aria-hidden="true" />
+              Approve
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => onFilter({ payee: p.id })}
+          >
+            Transactions
+            <ArrowRight size={14} aria-hidden="true" />
+          </Button>
+          {!demo && (
+            <RowActionsMenu
+              label={`Actions for ${p.name}`}
+              actions={[
+                {
+                  label: "Edit",
+                  icon: <Pencil size={14} aria-hidden="true" />,
+                  onSelect: () => setEditing(p),
+                },
+                {
+                  label: "Merge into...",
+                  icon: <Merge size={14} aria-hidden="true" />,
+                  disabled: parties.every(
+                    (o) => o.id === p.id || o.is_archived,
+                  ),
+                  onSelect: () => setMerging(p),
+                },
+                p.is_archived
+                  ? {
+                      label: "Restore",
+                      icon: <RotateCcw size={14} aria-hidden="true" />,
+                      separator: true,
+                      onSelect: () =>
+                        void command.execute(
+                          saveCommand(p, { is_archived: false }),
+                        ),
+                    }
+                  : {
+                      label: "Archive",
+                      icon: <Archive size={14} aria-hidden="true" />,
+                      separator: true,
+                      onSelect: () =>
+                        void command.execute(
+                          saveCommand(p, { is_archived: true }),
+                        ),
+                    },
+              ]}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
 
   async function approve(list: Party[]) {
     await command.execute({
@@ -167,104 +344,39 @@ export function AccountingContacts({
             </div>
           )}
         </div>
-        <div className="divide-y divide-border">
-          {rows.map((p) => {
-            const pending = !p.is_archived && p.review_status === "suggested";
+        <div>
+          {groups.map((group, index) => {
+            const open = isOpen(group);
+            const panelId = `${groupIds}-${index}`;
             return (
-              <div
-                key={p.id}
-                className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5"
-              >
-                <div className="min-w-0">
-                  <p className="flex flex-wrap items-center gap-2 font-medium">
-                    <span className="truncate">{p.name}</span>
-                    {p.is_archived && <Badge size="sm">Archived</Badge>}
-                    {pending && (
-                      <Badge size="sm" variant="warning">
-                        {p.suggested_by_name
-                          ? `Suggested by ${p.suggested_by_name}`
-                          : "Suggested"}
-                      </Badge>
-                    )}
-                  </p>
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                    {CONTACT_ROLES.filter((r) => p.roles.includes(r)).map(
-                      (r) => (
-                        <Badge key={r} size="sm" variant="info">
-                          {CONTACT_ROLE_LABELS[r]}
-                        </Badge>
-                      ),
-                    )}
-                    {p.roles.includes("contractor") && (
-                      <span className="text-xs text-muted-foreground">
-                        {p.tax_classification === "unreviewed"
-                          ? "Type not reviewed"
-                          : enumLabel(p.tax_classification)}
-                        . W-9 {enumLabel(p.documentation).toLowerCase()}.
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  {pending && (
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      disabled={demo || command.busy}
-                      aria-label={`Approve ${p.name}`}
-                      onClick={() => void approve([p])}
-                    >
-                      <Check size={14} aria-hidden="true" />
-                      Approve
-                    </Button>
-                  )}
+              <div key={group.key} className="border-t border-border">
+                <h3>
                   <Button
+                    type="button"
                     variant="ghost"
-                    size="sm"
-                    onClick={() => onFilter({ payee: p.id })}
+                    aria-expanded={open}
+                    aria-controls={panelId}
+                    onClick={() => toggle(group, open)}
+                    className="h-auto w-full justify-start gap-2 whitespace-normal rounded-none px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground focus-visible:ring-inset focus-visible:ring-offset-0"
                   >
-                    Transactions
-                    <ArrowRight size={14} aria-hidden="true" />
-                  </Button>
-                  {!demo && (
-                    <RowActionsMenu
-                      label={`Actions for ${p.name}`}
-                      actions={[
-                        {
-                          label: "Edit",
-                          icon: <Pencil size={14} aria-hidden="true" />,
-                          onSelect: () => setEditing(p),
-                        },
-                        {
-                          label: "Merge into...",
-                          icon: <Merge size={14} aria-hidden="true" />,
-                          disabled: parties.every(
-                            (o) => o.id === p.id || o.is_archived,
-                          ),
-                          onSelect: () => setMerging(p),
-                        },
-                        p.is_archived
-                          ? {
-                              label: "Restore",
-                              icon: <RotateCcw size={14} aria-hidden="true" />,
-                              separator: true,
-                              onSelect: () =>
-                                void command.execute(
-                                  saveCommand(p, { is_archived: false }),
-                                ),
-                            }
-                          : {
-                              label: "Archive",
-                              icon: <Archive size={14} aria-hidden="true" />,
-                              separator: true,
-                              onSelect: () =>
-                                void command.execute(
-                                  saveCommand(p, { is_archived: true }),
-                                ),
-                            },
-                      ]}
+                    <ChevronDown
+                      aria-hidden="true"
+                      className={cn(
+                        "transition-transform motion-reduce:transition-none",
+                        !open && "-rotate-90",
+                      )}
                     />
-                  )}
+                    <span>
+                      {group.label} · {group.contacts.length}
+                    </span>
+                  </Button>
+                </h3>
+                <div
+                  id={panelId}
+                  hidden={!open}
+                  className="divide-y divide-border border-t border-border"
+                >
+                  {group.contacts.map((p) => contactRow(p))}
                 </div>
               </div>
             );
@@ -387,10 +499,7 @@ function MergeDialog({
               >
                 Cancel
               </Button>
-              <Button
-                disabled={!target || command.busy}
-                loading={command.busy}
-              >
+              <Button disabled={!target || command.busy} loading={command.busy}>
                 Merge
               </Button>
             </div>

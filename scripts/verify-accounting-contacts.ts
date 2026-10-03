@@ -6,7 +6,9 @@
  * and rule references into the kept contact, unions roles and archives the
  * other, refusing a locked month. The 1099 worksheet follows the contractor
  * role. The migration's backfill turns kind and the contractor flag into
- * roles and stops on a name key clash.
+ * roles and stops on a name key clash. Each contact carries its top category
+ * (where most of its money went), and the Contacts list groups by role, then
+ * by that category.
  */
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
@@ -18,6 +20,7 @@ import {
 } from "./accounting-schema";
 import { fixtureOwner } from "../src/lib/accounting/fixtures";
 import { extendedRequestSchema } from "../src/lib/accounting/workflows";
+import { contactGroup, groupContacts } from "../src/lib/accounting/contacts";
 
 let checks = 0;
 const check = (actual: unknown, expected: unknown, label?: string) => {
@@ -247,9 +250,187 @@ function agentIdsParse() {
   }
 }
 
+/**
+ * Each contact's top category: the account its live entries moved the most
+ * money through, by absolute amount, with money accounts, clearing accounts,
+ * the uncategorized catch-alls and discarded entries left out. Ties go to the
+ * account name; a contact with nothing that counts has none.
+ */
+async function topCategories() {
+  const db = await accountingTestDb();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- command results are checked field by field
+  const cmd = async (command: object): Promise<any> =>
+    (
+      await db.query<{ r: unknown }>("SELECT accounting.operate($1) r", [
+        JSON.stringify({ key: randomUUID(), command }),
+      ])
+    ).rows[0].r;
+  try {
+    await db.exec("RESET ROLE");
+    const accountIds = Object.fromEntries(
+      (await db.query<{ name: string; id: string }>("SELECT name, id FROM accounting.accounts")).rows.map((a) => [a.name, a.id]),
+    );
+    await db.exec("RESET ROLE; SET ROLE authenticated;");
+    await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [fixtureOwner]);
+    const meals = randomUUID(),
+      ads = randomUUID();
+    await cmd({ type: "account.create", id: meals, name: "Meals", account_type: "expense", subtype: "operating_expense" });
+    await cmd({ type: "account.create", id: ads, name: "Advertising", account_type: "expense", subtype: "operating_expense" });
+    const contact = async (name: string) => {
+      const id = randomUUID();
+      await cmd({ type: "party.save", id, expected_version: 0, name, roles: ["vendor"] });
+      return id;
+    };
+    // A draft paid from `from`, with one line per category; post it or discard it on request.
+    const entry = async (payee: string, lines: [string, number][], from = "Business checking", finish?: "post" | "discard") => {
+      const total = lines.reduce((sum, [, cents]) => sum + cents, 0);
+      const e = await cmd({
+        type: "draft.save",
+        id: randomUUID(),
+        expected_version: 0,
+        entry_date: "2026-05-10",
+        memo: "Top category",
+        payee_id: payee,
+        lines: [
+          ...lines.map(([account, cents]) => ({ account_id: accountIds[account] ?? account, amount_cents: String(cents) })),
+          { account_id: accountIds[from], amount_cents: String(-total) },
+        ],
+      });
+      if (finish === "post") await cmd({ type: "entry.post", id: e.id, expected_version: e.version });
+      if (finish === "discard") await cmd({ type: "draft.discard", id: e.id, expected_version: e.version, reason: "Duplicate" });
+    };
+
+    // Software leads on amount across a posted entry and a draft; the bank
+    // side, the uncategorized line and a bigger discarded entry never count.
+    const cloud = await contact("Cloud Co");
+    await entry(cloud, [["Software", 1200]], "Business checking", "post");
+    await entry(cloud, [[meals, 500], ["Software", 100]]);
+    await entry(cloud, [[meals, 500]]);
+    await entry(cloud, [["Uncategorized expense", 9000]]);
+    await entry(cloud, [[meals, 50000]], "Business checking", "discard");
+    // A refund counts by size, not sign: it adds to Advertising rather than cancelling it.
+    const printer = await contact("Print Shop");
+    await entry(printer, [[ads, 400]], "Business credit card");
+    await entry(printer, [[ads, -400]], "Business credit card");
+    await entry(printer, [["Office expenses", 700]], "Business credit card");
+    // Equal amounts: the account name decides.
+    const tie = await contact("Tie Diner");
+    await entry(tie, [[meals, 700], [ads, 700]]);
+    // Only money accounts, clearing accounts and catch-alls: no top category.
+    const vague = await contact("Vague Vendor");
+    await entry(vague, [["Uncategorized expense", 300]], "Business credit card");
+    await entry(vague, [["Undeposited funds", 250]], "Cash on hand");
+    await entry(vague, [["Transfers in transit", 125]]);
+    const empty = await contact("No Entries");
+
+    const expected = {
+      [cloud]: { id: accountIds["Software"], name: "Software" },
+      [printer]: { id: ads, name: "Advertising" },
+      [tie]: { id: ads, name: "Advertising" },
+      [vague]: null,
+      [empty]: null,
+    };
+    type Row = { id: string; top_category: { id: string; name: string } | null };
+    const manage = (await db.query<{ r: { parties: Row[] } }>("SELECT accounting.context('manage') r")).rows[0].r.parties;
+    // payees_list is private to the books (the API reads it through its own key check), so it is read here as the database owner.
+    await db.exec("RESET ROLE");
+    const listed = (await db.query<{ r: Row[] }>("SELECT accounting.payees_list() r")).rows[0].r;
+    await db.exec("SET ROLE authenticated");
+    for (const [label, rows] of [["context('manage')", manage], ["payees_list", listed]] as const)
+      check(
+        Object.fromEntries(Object.keys(expected).map((id) => [id, rows.find((p) => p.id === id)?.top_category])),
+        expected,
+        `${label}: top category by amount, ignoring money, clearing, uncategorized and discarded; ties by name; null with none`,
+      );
+    await refuses(db.query("SELECT * FROM accounting.contact_top_categories()"), /permission denied/);
+  } finally {
+    await db.close();
+  }
+}
+
+/** The Contacts list groups: roles first in a fixed order, vendors by category. */
+function grouping() {
+  const names: Record<string, string> = { food: "Meals", soft: "Software" };
+  const name = (id: string) => names[id];
+  const groupOf = (roles: string[], extra: object = {}) => contactGroup({ roles, ...extra }, name).label;
+  const top = (n: string) => ({ top_category: { id: randomUUID(), name: n } });
+  check(
+    [
+      groupOf(["owner", "vendor"]),
+      groupOf(["employee", "contractor"]),
+      groupOf(["government", "financial"]),
+      groupOf(["financial", "contractor"]),
+      groupOf(["contractor", "vendor", "client"]),
+      groupOf(["client"]),
+      groupOf(["client", "vendor"], top("Software")),
+      groupOf(["vendor"], { ...top("Meals"), default_account_id: "soft" }),
+      groupOf(["vendor"], { top_category: null, default_account_id: "soft" }),
+      groupOf(["vendor"], { default_account_id: "gone" }),
+      groupOf(["vendor"]),
+    ],
+    [
+      "Owner & payroll",
+      "Owner & payroll",
+      "Government",
+      "Banking & financial",
+      "Contractors",
+      "Clients",
+      "Software",
+      "Meals",
+      "Software",
+      "Other vendors",
+      "Other vendors",
+    ],
+    "group rules: owner or employee, government, financial, contractor, client only, then the vendor's category",
+  );
+  const contact = (label: string, roles: string[], category?: string) => ({
+    label,
+    roles,
+    top_category: category ? { id: randomUUID(), name: category } : null,
+  });
+  const groups = groupContacts([
+    contact("Diner A", ["vendor"], "Meals"),
+    contact("Mystery", ["vendor"]),
+    contact("Adobe", ["vendor"], "Software"),
+    contact("IRS", ["government"]),
+    contact("Diner B", ["vendor"], "Meals"),
+    contact("Chase", ["financial"]),
+    contact("Ciaran", ["owner"]),
+    contact("Brennan", ["contractor", "vendor"]),
+    contact("Wilderness", ["client"]),
+    contact("Ad network", ["vendor"], "Advertising"),
+    contact("Diner C", ["vendor"], "Meals"),
+    contact("Figma", ["vendor"], "Software"),
+    contact("Billboard", ["vendor"], "Advertising"),
+  ]);
+  check(
+    groups.map((g) => [g.label, g.contacts.map((c) => c.label)]),
+    [
+      ["Clients", ["Wilderness"]],
+      ["Contractors", ["Brennan"]],
+      ["Owner & payroll", ["Ciaran"]],
+      ["Government", ["IRS"]],
+      ["Banking & financial", ["Chase"]],
+      ["Meals", ["Diner A", "Diner B", "Diner C"]],
+      ["Advertising", ["Ad network", "Billboard"]],
+      ["Software", ["Adobe", "Figma"]],
+      ["Other vendors", ["Mystery"]],
+    ],
+    "group order: role groups fixed, categories by size then name, Other vendors last; contacts keep their order",
+  );
+  check(new Set(groups.map((g) => g.key)).size, groups.length, "group keys are unique");
+  check(
+    groupContacts([contact("Odd", ["vendor"], "Clients"), contact("Real", ["client"])]).map((g) => g.key),
+    ["role:Clients", "category:Clients"],
+    "a category named like a role group stays its own group",
+  );
+}
+
 async function main() {
   agentIdsParse();
+  grouping();
   await ownerCommands();
+  await topCategories();
   check(
     await backfill([
       ["Wilderness Athlete", "customer", false],
