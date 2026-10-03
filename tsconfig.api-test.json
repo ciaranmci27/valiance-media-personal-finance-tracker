@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "paths": {
+      "@/*": ["./src/*"],
+      "@feeds/*": ["./supabase/functions/_shared/feeds/*"],
+      "server-only": ["./scripts/stubs/server-only.ts"]
+    }
+  }
+}

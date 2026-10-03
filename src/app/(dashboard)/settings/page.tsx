@@ -13,6 +13,7 @@ import {
   Settings,
   Mail,
   Building2,
+  KeyRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { resolveAccess } from "@/lib/team/access";
@@ -90,6 +91,15 @@ const settingsSections: { title: string; items: SettingsItem[] }[] = [
         iconBg: "bg-emerald-500/10",
         iconColor: "text-emerald-500",
         permission: "settings.manage",
+      },
+      {
+        title: "API",
+        description: "Keys for your agents and scripts, and the API reference",
+        href: "/settings/api",
+        icon: KeyRound,
+        iconBg: "bg-primary/10",
+        iconColor: "text-teal-light",
+        permission: "api.use",
       },
     ],
   },

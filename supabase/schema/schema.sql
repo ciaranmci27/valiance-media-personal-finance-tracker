@@ -1395,7 +1395,7 @@ CREATE TABLE IF NOT EXISTS public.team_members (
   name TEXT NOT NULL,
   email TEXT NOT NULL,
   title TEXT,
-  role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner','admin','member')),
+  role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner','admin','member','agent')),
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','suspended')),
   suspended_at TIMESTAMPTZ,
   theme_preference TEXT CHECK (theme_preference IN ('light','dark')),
@@ -1409,7 +1409,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_team_members_auth_user_id ON public.team_m
 CREATE UNIQUE INDEX IF NOT EXISTS idx_team_members_email ON public.team_members(lower(email));
 
 CREATE TABLE IF NOT EXISTS public.role_permissions (
-  role TEXT NOT NULL CHECK (role IN ('admin','member')),
+  role TEXT NOT NULL CHECK (role IN ('admin','member','agent')),
   permission_key TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (role, permission_key)
@@ -1585,10 +1585,400 @@ INSERT INTO public.role_permissions(role, permission_key) VALUES
   ('admin', 'net_worth.read'), ('admin', 'net_worth.manage'),
   ('admin', 'tax.read'), ('admin', 'tax.manage'),
   ('admin', 'automations.manage'), ('admin', 'settings.manage'), ('admin', 'accounting.manage'),
+  ('admin', 'accounting.read'),
   ('member', 'team.read'), ('member', 'income.read'), ('member', 'expenses.read'),
-  ('member', 'net_worth.read'), ('member', 'tax.read')
+  ('member', 'net_worth.read'), ('member', 'tax.read'),
+  ('agent', 'accounting.read'), ('agent', 'accounting.draft'), ('agent', 'api.use')
 ON CONFLICT DO NOTHING;
 -- ACCOUNTING TEAM END
+
+-- ACCOUNTING API BEGIN
+-- API keys for the finance API. Same model as the PM app after its phase 0:
+-- the server creates and revokes keys, members only read the keys they own
+-- (the owner reads all), and the guard holds for every role.
+CREATE TABLE IF NOT EXISTS public.api_keys (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 100),
+  key_prefix TEXT NOT NULL,
+  key_hash TEXT NOT NULL UNIQUE,
+  team_member_id UUID REFERENCES public.team_members(id) ON DELETE SET NULL,
+  created_by UUID REFERENCES public.team_members(id) ON DELETE SET NULL,
+  scopes TEXT[] NOT NULL DEFAULT '{}',
+  expires_at TIMESTAMPTZ,
+  last_used_at TIMESTAMPTZ,
+  disabled_at TIMESTAMPTZ,
+  revoked_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_team_member ON public.api_keys(team_member_id);
+
+-- Fixed one-minute windows per key, counted by api_authorize.
+CREATE TABLE IF NOT EXISTS public.api_rate_limits (
+  api_key_id UUID NOT NULL REFERENCES public.api_keys(id) ON DELETE CASCADE,
+  window_start TIMESTAMPTZ NOT NULL,
+  used INTEGER NOT NULL,
+  PRIMARY KEY (api_key_id, window_start)
+);
+
+-- One row per API request, refusals included, written by the server.
+CREATE TABLE IF NOT EXISTS public.api_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  api_key_id UUID REFERENCES public.api_keys(id) ON DELETE SET NULL,
+  team_member_id UUID REFERENCES public.team_members(id) ON DELETE SET NULL,
+  method TEXT NOT NULL,
+  path TEXT NOT NULL,
+  operation TEXT,
+  status INTEGER NOT NULL,
+  error_code TEXT,
+  duration_ms INTEGER,
+  via TEXT NOT NULL DEFAULT 'rest' CHECK (via IN ('rest', 'mcp'))
+);
+CREATE INDEX IF NOT EXISTS idx_api_requests_at ON public.api_requests(at DESC);
+CREATE INDEX IF NOT EXISTS idx_api_requests_key ON public.api_requests(api_key_id, at DESC);
+
+ALTER TABLE public.api_keys ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.api_rate_limits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.api_requests ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.api_keys, public.api_rate_limits, public.api_requests FROM PUBLIC, anon, authenticated;
+-- Every column but key_hash: the hash never leaves the server.
+GRANT SELECT (id, name, key_prefix, team_member_id, created_by, scopes, expires_at, last_used_at, disabled_at, revoked_at, created_at, updated_at) ON public.api_keys TO authenticated;
+GRANT SELECT ON public.api_requests TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.api_keys, public.api_rate_limits, public.api_requests TO service_role;
+
+DROP POLICY IF EXISTS api_keys_select ON public.api_keys;
+CREATE POLICY api_keys_select ON public.api_keys FOR SELECT TO authenticated
+  USING (team_member_id = public.current_team_member_id() OR created_by = public.current_team_member_id()
+    OR public.current_team_member_role() = 'owner');
+DROP POLICY IF EXISTS api_requests_select ON public.api_requests;
+CREATE POLICY api_requests_select ON public.api_requests FOR SELECT TO authenticated
+  USING (team_member_id = public.current_team_member_id() OR public.current_team_member_role() = 'owner');
+
+-- A revoke is final, the secret and creation time never change, and a key
+-- never moves to another member. team_member_id and created_by may still
+-- become NULL: their foreign keys are ON DELETE SET NULL, which runs as an
+-- UPDATE and fires this trigger.
+CREATE OR REPLACE FUNCTION public.api_keys_guard() RETURNS trigger LANGUAGE plpgsql SET search_path = '' AS $fn$
+BEGIN
+ IF OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS DISTINCT FROM OLD.revoked_at THEN
+  RAISE EXCEPTION 'API key % is revoked; a revoke cannot be changed', OLD.id USING ERRCODE = '42501';
+ END IF;
+ IF NEW.key_hash IS DISTINCT FROM OLD.key_hash OR NEW.key_prefix IS DISTINCT FROM OLD.key_prefix
+    OR NEW.created_at IS DISTINCT FROM OLD.created_at THEN
+  RAISE EXCEPTION 'API key % secret and creation time cannot change', OLD.id USING ERRCODE = '42501';
+ END IF;
+ IF (NEW.team_member_id IS DISTINCT FROM OLD.team_member_id AND NEW.team_member_id IS NOT NULL)
+    OR (NEW.created_by IS DISTINCT FROM OLD.created_by AND NEW.created_by IS NOT NULL) THEN
+  RAISE EXCEPTION 'API key % cannot move to another member', OLD.id USING ERRCODE = '42501';
+ END IF;
+ NEW.updated_at := now();
+ RETURN NEW;
+END $fn$;
+CREATE OR REPLACE TRIGGER api_keys_guard BEFORE UPDATE ON public.api_keys
+  FOR EACH ROW EXECUTE FUNCTION public.api_keys_guard();
+
+-- Checks a key and acts as its member for the rest of this transaction only:
+-- auth.uid() reads request.jwt.claim.sub first, so every books check, policy
+-- and has_permission() then sees the member, exactly as for their browser
+-- session. Both locks must hold: the scope is on the key AND the member holds
+-- the permission, plus api.use. accounting.actor_kind 'api' keeps the feed
+-- worker's service_role bypass closed. Raises API_* codes the server maps to
+-- HTTP statuses.
+CREATE OR REPLACE FUNCTION public.api_act(p_key_hash text, p_permission text) RETURNS public.api_keys LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $fn$
+DECLARE k public.api_keys; m public.team_members;
+BEGIN
+ SELECT * INTO k FROM public.api_keys WHERE key_hash = p_key_hash;
+ IF NOT FOUND OR k.revoked_at IS NOT NULL THEN RAISE EXCEPTION 'API_KEY_INVALID'; END IF;
+ IF k.disabled_at IS NOT NULL THEN RAISE EXCEPTION 'API_KEY_DISABLED'; END IF;
+ IF k.expires_at IS NOT NULL AND k.expires_at <= now() THEN RAISE EXCEPTION 'API_KEY_EXPIRED'; END IF;
+ SELECT * INTO m FROM public.team_members WHERE id = k.team_member_id;
+ IF NOT FOUND OR m.status <> 'active' OR m.auth_user_id IS NULL THEN RAISE EXCEPTION 'API_MEMBER_INACTIVE'; END IF;
+ PERFORM set_config('request.jwt.claim.sub', m.auth_user_id::text, true);
+ PERFORM set_config('request.jwt.claims', jsonb_build_object('sub', m.auth_user_id, 'role', 'authenticated')::text, true);
+ PERFORM set_config('accounting.actor_kind', 'api', true);
+ PERFORM set_config('api.key_id', k.id::text, true);
+ IF NOT public.has_permission('api.use') THEN RAISE EXCEPTION 'API_MEMBER_NO_API'; END IF;
+ IF NOT (p_permission = ANY (k.scopes)) THEN RAISE EXCEPTION 'API_SCOPE_MISSING'; END IF;
+ IF NOT public.has_permission(p_permission) THEN RAISE EXCEPTION 'API_MEMBER_PERMISSION_MISSING'; END IF;
+ RETURN k;
+END $fn$;
+
+-- Once per HTTP request: api_act, then the rate limit (120 a minute per key;
+-- a refused call rolls its count back) and last use.
+CREATE OR REPLACE FUNCTION public.api_authorize(p_key_hash text, p_permission text) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $fn$
+DECLARE k public.api_keys; n integer; w timestamptz := date_trunc('minute', now());
+BEGIN
+ k := public.api_act(p_key_hash, p_permission);
+ INSERT INTO public.api_rate_limits AS r (api_key_id, window_start, used) VALUES (k.id, w, 1)
+  ON CONFLICT (api_key_id, window_start) DO UPDATE SET used = r.used + 1
+  RETURNING r.used INTO n;
+ IF n > 120 THEN RAISE EXCEPTION 'API_RATE_LIMITED'; END IF;
+ DELETE FROM public.api_rate_limits WHERE api_key_id = k.id AND window_start < w - interval '1 hour';
+ UPDATE public.api_keys SET last_used_at = now() WHERE id = k.id;
+ RETURN jsonb_build_object('key_id', k.id, 'member_id', k.team_member_id, 'limit', 120,
+  'remaining', 120 - n, 'reset_at', w + interval '1 minute');
+END $fn$;
+
+-- The books reads the API may make, each as the key's member. The permission
+-- is decided here, not by the caller, and anything not listed is refused:
+-- no commands, no worker functions, no evidence or settings views, and not
+-- bank_review, whose rows carry the provider's raw payload.
+CREATE OR REPLACE FUNCTION public.api_accounting(p_key_hash text, p_name text, p_args jsonb DEFAULT '{}'::jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $fn$
+DECLARE a jsonb := coalesce(p_args, '{}'::jsonb);
+BEGIN
+ IF p_name IS NULL OR p_name NOT IN ('workspace', 'transactions', 'entry_detail', 'report', 'report_lines', 'ledger', 'revision', 'payees', 'rules') THEN
+  RAISE EXCEPTION 'API_OPERATION_NOT_ALLOWED';
+ END IF;
+ PERFORM public.api_act(p_key_hash, 'accounting.read');
+ RETURN CASE p_name
+  WHEN 'workspace' THEN accounting.workspace((a->>'from_date')::date, (a->>'to_date')::date, coalesce(a->>'mode', 'posted'))
+  WHEN 'transactions' THEN accounting.transactions(coalesce(a->'filter', '{}'::jsonb), coalesce(a->'page', '{}'::jsonb))
+  WHEN 'entry_detail' THEN accounting.entry_detail((a->>'entry')::uuid)
+  WHEN 'report' THEN accounting.report(a->>'kind', coalesce(a->'params', '{}'::jsonb))
+  WHEN 'report_lines' THEN accounting.report_lines(a->>'kind', coalesce(a->'params', '{}'::jsonb), (a->>'account')::uuid)
+  WHEN 'ledger' THEN accounting.ledger((a->>'account')::uuid, (a->>'from_date')::date, (a->>'to_date')::date)
+  WHEN 'revision' THEN jsonb_build_object('revision', accounting.revision())
+  WHEN 'payees' THEN jsonb_build_object('payees', accounting.payees_list())
+  WHEN 'rules' THEN jsonb_build_object('rules', accounting.rules_list())
+ END;
+END $fn$;
+
+REVOKE ALL ON FUNCTION public.api_keys_guard(), public.api_act(text, text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.api_authorize(text, text), public.api_accounting(text, text, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.api_authorize(text, text), public.api_accounting(text, text, jsonb) TO service_role;
+
+-- Who a key acts as and which of its scopes still work, for the MCP server's
+-- tool list: the key checks of api_act, then the member's live scopes, with
+-- the same API_* codes. Changes nothing and is not rate limited; every tool
+-- call is still authorized by api_authorize.
+CREATE OR REPLACE FUNCTION public.api_key_profile(p_key_hash text) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $fn$
+DECLARE k public.api_keys; m public.team_members;
+BEGIN
+ SELECT * INTO k FROM public.api_keys WHERE key_hash = p_key_hash;
+ IF NOT FOUND OR k.revoked_at IS NOT NULL THEN RAISE EXCEPTION 'API_KEY_INVALID'; END IF;
+ IF k.disabled_at IS NOT NULL THEN RAISE EXCEPTION 'API_KEY_DISABLED'; END IF;
+ IF k.expires_at IS NOT NULL AND k.expires_at <= now() THEN RAISE EXCEPTION 'API_KEY_EXPIRED'; END IF;
+ SELECT * INTO m FROM public.team_members WHERE id = k.team_member_id;
+ IF NOT FOUND OR m.status <> 'active' OR m.auth_user_id IS NULL THEN RAISE EXCEPTION 'API_MEMBER_INACTIVE'; END IF;
+ PERFORM set_config('request.jwt.claim.sub', m.auth_user_id::text, true);
+ PERFORM set_config('request.jwt.claims', jsonb_build_object('sub', m.auth_user_id, 'role', 'authenticated')::text, true);
+ IF NOT public.has_permission('api.use') THEN RAISE EXCEPTION 'API_MEMBER_NO_API'; END IF;
+ RETURN jsonb_build_object(
+  'key_id', k.id,
+  'member_id', m.id,
+  'member_name', m.name,
+  'role', m.role,
+  'expires_at', k.expires_at,
+  'scopes', coalesce((SELECT jsonb_agg(s ORDER BY s) FROM unnest(k.scopes) s WHERE public.has_permission(s)), '[]'::jsonb));
+END $fn$;
+
+REVOKE ALL ON FUNCTION public.api_key_profile(text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.api_key_profile(text) TO service_role;
+
+-- Idempotency for API creates: the first answer per key and Idempotency-Key
+-- is stored and replayed on a retry, and a different request under the same
+-- key is refused. Each claim carries a token, so only the request holding the
+-- claim can finish or release it. Rows older than 7 days are cleared as new
+-- ones arrive.
+CREATE TABLE IF NOT EXISTS public.api_idempotency (
+  api_key_id UUID NOT NULL REFERENCES public.api_keys(id) ON DELETE CASCADE,
+  idempotency_key UUID NOT NULL,
+  request_hash TEXT NOT NULL,
+  claim_token UUID,
+  status INTEGER,
+  response JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (api_key_id, idempotency_key)
+);
+ALTER TABLE public.api_idempotency ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.api_idempotency FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.api_idempotency TO service_role;
+
+CREATE OR REPLACE FUNCTION public.api_idempotency_claim(p_key_hash text, p_idempotency_key uuid, p_request_hash text) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $fn$
+DECLARE k uuid; r public.api_idempotency; token uuid := gen_random_uuid();
+BEGIN
+ SELECT id INTO k FROM public.api_keys WHERE key_hash = p_key_hash AND revoked_at IS NULL;
+ IF k IS NULL THEN RAISE EXCEPTION 'API_KEY_INVALID'; END IF;
+ DELETE FROM public.api_idempotency WHERE api_key_id = k AND created_at < now() - interval '7 days';
+ INSERT INTO public.api_idempotency(api_key_id, idempotency_key, request_hash, claim_token) VALUES (k, p_idempotency_key, p_request_hash, token)
+  ON CONFLICT DO NOTHING;
+ IF FOUND THEN RETURN jsonb_build_object('state', 'new', 'token', token); END IF;
+ SELECT * INTO r FROM public.api_idempotency WHERE api_key_id = k AND idempotency_key = p_idempotency_key FOR UPDATE;
+ IF r.request_hash <> p_request_hash THEN RETURN jsonb_build_object('state', 'conflict'); END IF;
+ IF r.status IS NULL THEN
+  -- A claim left by a request that died is taken over after 15 minutes, far
+  -- past any request's run time, so two requests never run for one key.
+  IF r.created_at < now() - interval '15 minutes' THEN
+   UPDATE public.api_idempotency SET created_at = now(), claim_token = token WHERE api_key_id = k AND idempotency_key = p_idempotency_key;
+   RETURN jsonb_build_object('state', 'new', 'token', token);
+  END IF;
+  RETURN jsonb_build_object('state', 'busy');
+ END IF;
+ RETURN jsonb_build_object('state', 'replay', 'status', r.status, 'response', r.response);
+END $fn$;
+
+CREATE OR REPLACE FUNCTION public.api_idempotency_finish(p_key_hash text, p_idempotency_key uuid, p_token uuid, p_status integer, p_response jsonb) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $fn$
+BEGIN
+ UPDATE public.api_idempotency i SET status = p_status, response = p_response
+ FROM public.api_keys k
+ WHERE k.key_hash = p_key_hash AND i.api_key_id = k.id AND i.idempotency_key = p_idempotency_key AND i.claim_token = p_token;
+END $fn$;
+
+CREATE OR REPLACE FUNCTION public.api_idempotency_release(p_key_hash text, p_idempotency_key uuid, p_token uuid) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $fn$
+BEGIN
+ DELETE FROM public.api_idempotency i USING public.api_keys k
+ WHERE k.key_hash = p_key_hash AND i.api_key_id = k.id AND i.idempotency_key = p_idempotency_key
+  AND i.status IS NULL AND i.claim_token = p_token;
+END $fn$;
+
+-- References an agent may make: a live payee, and an open account of the
+-- right kind. Categories are any account that is not bank, card or cash;
+-- bank accounts are exactly those.
+CREATE OR REPLACE FUNCTION public.api_books_ref(p_kind text, p_id text) RETURNS uuid LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $fn$
+DECLARE v uuid;
+BEGIN
+ IF p_id IS NULL THEN RETURN NULL; END IF;
+ BEGIN
+  v := p_id::uuid;
+ EXCEPTION WHEN invalid_text_representation THEN
+  RAISE EXCEPTION 'API_INVALID_INPUT';
+ END;
+ IF p_kind = 'payee' AND NOT EXISTS (SELECT 1 FROM accounting.parties WHERE id = v AND NOT is_archived) THEN RAISE EXCEPTION 'API_INVALID_INPUT'; END IF;
+ IF p_kind = 'category' AND NOT EXISTS (SELECT 1 FROM accounting.accounts WHERE id = v AND NOT is_archived AND subtype NOT IN ('bank', 'card', 'cash')) THEN RAISE EXCEPTION 'API_INVALID_INPUT'; END IF;
+ IF p_kind = 'bank' AND NOT EXISTS (SELECT 1 FROM accounting.accounts WHERE id = v AND NOT is_archived AND subtype IN ('bank', 'card', 'cash')) THEN RAISE EXCEPTION 'API_INVALID_INPUT'; END IF;
+ RETURN v;
+END $fn$;
+
+-- Books writes from the API, drafts only. Each operation builds its command
+-- from scratch (nothing the caller sends is forwarded as is) and runs it
+-- through accounting.operate as the key's member, so every books rule,
+-- version check and receipt applies. Rules made here are always disabled:
+-- the owner switches them on, so an agent cannot steer imports or outrank the
+-- owner's rules. Then, independently of the allowlist, the command's own
+-- audit rows are checked: if anything left draft, a posted entry changed, a
+-- rule could auto-post or run, a period left open, or an existing rule or
+-- payee was changed, the whole command rolls back with API_DRAFTS_ONLY.
+CREATE OR REPLACE FUNCTION public.api_books_command(p_key_hash text, p_operation text, p_key uuid, p_args jsonb DEFAULT '{}'::jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $fn$
+DECLARE
+ a jsonb := coalesce(p_args, '{}'::jsonb);
+ kinds text[] := ARRAY['manual', 'income', 'expense', 'refund', 'owner', 'loan', 'asset'];
+ keys uuid[] := ARRAY[]::uuid[];
+ cmd jsonb; result jsonb; results jsonb := '[]'::jsonb; item jsonb; i integer := 0; k uuid; bad text;
+ current_status text; current_kind text; current_payee uuid;
+ lines jsonb; splits jsonb; conditions jsonb; actions jsonb; matcher text;
+BEGIN
+ IF p_operation IS NULL OR p_operation NOT IN ('draft.create', 'draft.update', 'categorize', 'split', 'categorize.bulk', 'rule.create', 'payee.create') THEN
+  RAISE EXCEPTION 'API_COMMAND_NOT_ALLOWED';
+ END IF;
+ IF p_key IS NULL THEN RAISE EXCEPTION 'API_INVALID_INPUT'; END IF;
+ PERFORM public.api_act(p_key_hash, 'accounting.draft');
+ PERFORM set_config('api.command', 'drafts', true);
+ IF a ? 'lines' THEN
+  SELECT jsonb_agg(jsonb_build_object('account_id', l->>'account_id', 'amount_cents', l->>'amount_cents', 'memo', coalesce(l->>'memo', '')) ORDER BY n)
+   INTO lines FROM jsonb_array_elements(a->'lines') WITH ORDINALITY AS t(l, n);
+ END IF;
+
+ IF p_operation IN ('draft.create', 'draft.update') THEN
+  IF a ? 'kind' AND jsonb_typeof(a->'kind') <> 'null' AND NOT ((a->>'kind') = ANY (kinds)) THEN RAISE EXCEPTION 'API_INVALID_INPUT'; END IF;
+  IF a ? 'payee_id' THEN PERFORM public.api_books_ref('payee', a->>'payee_id'); END IF;
+  IF p_operation = 'draft.update' THEN
+   SELECT status, kind, payee_id INTO current_status, current_kind, current_payee FROM accounting.journal_entries WHERE id = (a->>'id')::uuid;
+   IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+   IF current_status <> 'draft' THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
+  END IF;
+  -- An update keeps the kind and payee the caller leaves out.
+  cmd := jsonb_build_object('type', 'draft.save',
+   'id', CASE WHEN p_operation = 'draft.create' THEN md5('draft:' || p_key::text)::uuid ELSE (a->>'id')::uuid END,
+   'expected_version', CASE WHEN p_operation = 'draft.create' THEN 0 ELSE (a->>'expected_version')::integer END,
+   'entry_date', a->>'entry_date', 'memo', a->>'memo', 'lines', coalesce(lines, '[]'::jsonb),
+   'kind', CASE WHEN a ? 'kind' AND jsonb_typeof(a->'kind') <> 'null' THEN a->>'kind' ELSE coalesce(current_kind, 'manual') END,
+   'payee_id', CASE WHEN a ? 'payee_id' THEN a->'payee_id' ELSE to_jsonb(current_payee) END);
+  IF p_operation = 'draft.create' THEN cmd := cmd || jsonb_build_object('origin', 'manual'); END IF;
+ ELSIF p_operation = 'categorize' THEN
+  PERFORM public.api_books_ref('category', a->>'account_id');
+  IF a ? 'payee_id' THEN PERFORM public.api_books_ref('payee', a->>'payee_id'); END IF;
+  cmd := jsonb_strip_nulls(jsonb_build_object('type', 'entry.categorize', 'id', (a->>'id')::uuid,
+   'expected_version', (a->>'expected_version')::integer, 'account_id', (a->>'account_id')::uuid,
+   'payee_id', a->'payee_id', 'memo', a->'memo')) || jsonb_build_object('remember', false);
+ ELSIF p_operation = 'split' THEN
+  IF a ? 'payee_id' THEN PERFORM public.api_books_ref('payee', a->>'payee_id'); END IF;
+  SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('account_id', public.api_books_ref('category', s->>'account_id'),
+    'amount_cents', s->'amount_cents', 'share_bps', s->'share_bps')) ORDER BY n)
+   INTO splits FROM jsonb_array_elements(a->'splits') WITH ORDINALITY AS t(s, n);
+  cmd := jsonb_strip_nulls(jsonb_build_object('type', 'entry.split', 'id', (a->>'id')::uuid,
+   'expected_version', (a->>'expected_version')::integer, 'splits', splits, 'payee_id', a->'payee_id', 'memo', a->'memo'));
+ ELSIF p_operation = 'rule.create' THEN
+  -- Conditions and actions are rebuilt from the allowed fields, and every
+  -- account and payee they name must exist and fit.
+  IF jsonb_typeof(a->'conditions') <> 'object' OR jsonb_typeof(a->'actions') <> 'object'
+     OR jsonb_typeof(a->'conditions'->'descriptor_key') <> 'object' THEN RAISE EXCEPTION 'API_INVALID_INPUT'; END IF;
+  SELECT key INTO matcher FROM jsonb_object_keys(a->'conditions'->'descriptor_key') AS key LIMIT 1;
+  IF matcher IS NULL OR matcher NOT IN ('equals', 'prefix', 'contains')
+     OR (SELECT count(*) FROM jsonb_object_keys(a->'conditions'->'descriptor_key')) <> 1
+     OR length(btrim(coalesce(a->'conditions'->'descriptor_key'->>matcher, ''))) = 0 THEN RAISE EXCEPTION 'API_INVALID_INPUT'; END IF;
+  conditions := jsonb_strip_nulls(jsonb_build_object(
+   'descriptor_key', jsonb_build_object(matcher, btrim(a->'conditions'->'descriptor_key'->>matcher)),
+   'bank_account_id', public.api_books_ref('bank', a->'conditions'->>'bank_account_id'),
+   'direction', a->'conditions'->>'direction',
+   'amount_min', a->'conditions'->>'amount_min',
+   'amount_max', a->'conditions'->>'amount_max',
+   'payee_id', public.api_books_ref('payee', a->'conditions'->>'payee_id')));
+  IF a->'actions' ? 'splits' THEN
+   SELECT jsonb_agg(jsonb_build_object('account_id', public.api_books_ref('category', s->>'account_id'), 'share_bps', (s->>'share_bps')::integer) ORDER BY n)
+    INTO splits FROM jsonb_array_elements(a->'actions'->'splits') WITH ORDINALITY AS t(s, n);
+   actions := jsonb_build_object('splits', coalesce(splits, '[]'::jsonb));
+  ELSE
+   actions := jsonb_build_object('account_id', public.api_books_ref('category', a->'actions'->>'account_id'));
+  END IF;
+  actions := actions || jsonb_strip_nulls(jsonb_build_object(
+   'payee_id', public.api_books_ref('payee', a->'actions'->>'payee_id'), 'memo', a->'actions'->>'memo'));
+  cmd := jsonb_build_object('type', 'rule.save', 'id', md5('rule:' || p_key::text)::uuid, 'expected_version', 0,
+   'reason', coalesce(nullif(a->>'reason', ''), 'Created through the API'), 'name', a->>'name',
+   'priority', coalesce((a->>'priority')::integer, 100), 'enabled', false,
+   'auto_post', false, 'conditions', conditions, 'actions', actions);
+ ELSIF p_operation = 'payee.create' THEN
+  cmd := jsonb_build_object('type', 'party.save', 'id', md5('payee:' || p_key::text)::uuid, 'expected_version', 0,
+   'name', a->>'name', 'kind', a->>'kind', 'default_account_id', public.api_books_ref('category', a->>'default_account_id'),
+   'notes', coalesce(a->>'notes', ''), 'is_contractor', false, 'is_archived', false);
+ END IF;
+
+ IF p_operation = 'categorize.bulk' THEN
+  IF jsonb_typeof(a->'items') <> 'array' OR jsonb_array_length(a->'items') NOT BETWEEN 1 AND 50 THEN RAISE EXCEPTION 'API_INVALID_INPUT'; END IF;
+  FOR item IN SELECT value FROM jsonb_array_elements(a->'items') LOOP
+   i := i + 1;
+   k := md5(p_key::text || ':' || i)::uuid;
+   keys := array_append(keys, k);
+   PERFORM public.api_books_ref('category', item->>'account_id');
+   IF item ? 'payee_id' THEN PERFORM public.api_books_ref('payee', item->>'payee_id'); END IF;
+   cmd := jsonb_strip_nulls(jsonb_build_object('type', 'entry.categorize', 'id', (item->>'id')::uuid,
+    'expected_version', (item->>'expected_version')::integer, 'account_id', (item->>'account_id')::uuid,
+    'payee_id', item->'payee_id')) || jsonb_build_object('remember', false);
+   results := results || jsonb_build_array(accounting.operate(jsonb_build_object('key', k, 'command', cmd)));
+  END LOOP;
+  result := jsonb_build_object('results', results);
+ ELSE
+  keys := ARRAY[p_key];
+  result := accounting.operate(jsonb_build_object('key', p_key, 'command', cmd));
+ END IF;
+
+ SELECT string_agg(DISTINCT l.table_name || ':' || l.action, ', ') INTO bad
+ FROM accounting.audit_log l
+ WHERE l.operation_id = ANY (keys) AND (
+  l.table_name NOT IN ('journal_entries', 'journal_lines', 'rules', 'parties', 'command_receipts', 'periods')
+  -- A draft in a month with no period row opens one; it must stay open.
+  OR (l.table_name = 'periods' AND (coalesce(l.after->>'status', 'open') <> 'open' OR coalesce(l.before->>'status', 'open') <> 'open'))
+  OR (l.table_name = 'journal_entries' AND (coalesce(l.after->>'status', 'draft') <> 'draft' OR coalesce(l.before->>'status', 'draft') <> 'draft'))
+  OR (l.table_name = 'rules' AND (l.before IS NOT NULL OR coalesce((l.after->>'auto_post')::boolean, false) OR coalesce((l.after->>'enabled')::boolean, false)))
+  OR (l.table_name = 'parties' AND l.before IS NOT NULL));
+ IF bad IS NOT NULL THEN RAISE EXCEPTION 'API_DRAFTS_ONLY (%)', bad; END IF;
+ RETURN result;
+END $fn$;
+
+REVOKE ALL ON FUNCTION public.api_books_ref(text, text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.api_idempotency_claim(text, uuid, text), public.api_idempotency_finish(text, uuid, uuid, integer, jsonb), public.api_idempotency_release(text, uuid, uuid), public.api_books_command(text, text, uuid, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.api_idempotency_claim(text, uuid, text), public.api_idempotency_finish(text, uuid, uuid, integer, jsonb), public.api_idempotency_release(text, uuid, uuid), public.api_books_command(text, text, uuid, jsonb) TO service_role;
+-- ACCOUNTING API END
 
 -- ACCOUNTING CATALOG BEGIN
 
@@ -1653,8 +2043,9 @@ CREATE TABLE accounting.audit_log (
   "before" jsonb,
   "after" jsonb,
   "reason" text DEFAULT ''::text NOT NULL,
+  "api_key_id" uuid DEFAULT (NULLIF(current_setting('api.key_id'::text, true), ''::text))::uuid,
   CONSTRAINT "audit_log_action_not_null" NOT NULL action,
-  CONSTRAINT "audit_log_actor_kind_check" CHECK ((actor_kind = ANY (ARRAY['owner'::text, 'worker'::text, 'system'::text]))),
+  CONSTRAINT "audit_log_actor_kind_check" CHECK ((actor_kind = ANY (ARRAY['owner'::text, 'worker'::text, 'system'::text, 'api'::text]))),
   CONSTRAINT "audit_log_actor_kind_not_null" NOT NULL actor_kind,
   CONSTRAINT "audit_log_actor_user_id_fkey" FOREIGN KEY (actor_user_id) REFERENCES auth.users(id) ON DELETE RESTRICT,
   CONSTRAINT "audit_log_at_not_null" NOT NULL at,
@@ -3440,7 +3831,7 @@ CREATE OR REPLACE FUNCTION accounting.entry_detail(entry uuid)
 AS $function$
 DECLARE result jsonb; extra jsonb; bank_account uuid;
 BEGIN
- PERFORM accounting.require_owner();
+ PERFORM accounting.require_reader();
  SELECT to_jsonb(e)||jsonb_build_object('primary_origin',e.origin,
   'reversed_by_entry_id',(SELECT id FROM accounting.journal_entries WHERE reverses_entry_id=e.id),
   'restored_by_entry_id',(SELECT id FROM accounting.journal_entries WHERE restores_entry_id=e.id),
@@ -3911,7 +4302,7 @@ CREATE OR REPLACE FUNCTION accounting.ledger(account uuid, from_date date, to_da
  SET search_path TO ''
 AS $function$
 BEGIN
- PERFORM accounting.require_owner();RETURN accounting.report_lines('general_ledger',jsonb_build_object('from',from_date,'to',to_date),account);
+ PERFORM accounting.require_reader();RETURN accounting.report_lines('general_ledger',jsonb_build_object('from',from_date,'to',to_date),account);
 END $function$
 ;
 
@@ -4371,7 +4762,7 @@ BEGIN
  IF key IS NULL OR jsonb_typeof(c) IS DISTINCT FROM 'object' OR octet_length(c::text)>1000000 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
  PERFORM accounting.write_lock();
  t:=c->>'type'; actor:=auth.uid();
- PERFORM set_config('accounting.operation_id',key::text,true); PERFORM set_config('accounting.actor_kind','owner',true);
+ PERFORM set_config('accounting.operation_id',key::text,true); PERFORM set_config('accounting.actor_kind',CASE WHEN current_setting('accounting.actor_kind',true)='api' THEN 'api' ELSE 'owner' END,true);
  PERFORM set_config('accounting.action',t,true); PERFORM set_config('accounting.reason',coalesce(c->>'reason',''),true);
  IF t='settings.save' AND NOT EXISTS(SELECT 1 FROM accounting.settings) THEN
   IF actor IS NULL OR (EXISTS(SELECT 1 FROM public.team_members) AND coalesce(public.current_team_member_role(),'')<>'owner') THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
@@ -4384,7 +4775,7 @@ BEGIN
   RETURN receipt.result;
  END IF;
  IF c?'expected_revision' AND (c->>'expected_revision')::bigint IS DISTINCT FROM (SELECT financial_revision FROM accounting.settings WHERE id=1) THEN RAISE EXCEPTION 'ACCT_STALE_REVISION'; END IF;
- PERFORM set_config('accounting.operation_id',key::text,true); PERFORM set_config('accounting.actor_kind','owner',true);
+ PERFORM set_config('accounting.operation_id',key::text,true); PERFORM set_config('accounting.actor_kind',CASE WHEN current_setting('accounting.actor_kind',true)='api' THEN 'api' ELSE 'owner' END,true);
  PERFORM set_config('accounting.action',t,true); PERFORM set_config('accounting.reason',coalesce(c->>'reason',''),true);
  IF t IN ('settings.save','preferences.save') THEN
   SELECT version INTO current_version FROM accounting.settings WHERE id=1;
@@ -4590,7 +4981,7 @@ BEGIN
  IF TG_TABLE_NAME='tax_links' THEN b:=b-ARRAY['inputs','results','forecast_inputs']; a:=a-ARRAY['inputs','results','forecast_inputs']; END IF;
  op:=coalesce(nullif(current_setting('accounting.operation_id',true),'')::uuid,gen_random_uuid());
  kind:=coalesce(nullif(current_setting('accounting.actor_kind',true),''),CASE WHEN actor IS NULL THEN 'system' ELSE 'owner' END);
- IF kind<>'owner' THEN actor:=NULL; END IF;
+ IF kind NOT IN ('owner','api') THEN actor:=NULL; END IF;
  payload:=coalesce(a,b); identity:=coalesce(payload->>'id',payload->>'month',payload->>'idempotency_key','1');
  action_name:=coalesce(nullif(current_setting('accounting.action',true),''),lower(TG_OP));
  INSERT INTO accounting.audit_log(actor_user_id,actor_kind,operation_id,table_name,row_id,action,before,after,reason)
@@ -4838,7 +5229,7 @@ DECLARE start_date date:=coalesce((params->>'from')::date,date_trunc('year',coal
  end_date date:=coalesce((params->>'as_of')::date,(params->>'to')::date,current_date);year_start date;compare_year_start date;compare_start date:=(params->>'compare_from')::date;compare_end date:=(params->>'compare_to')::date;
  accounts jsonb;totals jsonb;comparison jsonb;monthly jsonb;cash jsonb;quality jsonb;dimensions jsonb;result jsonb;
 BEGIN
- IF NOT (current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker') THEN PERFORM accounting.require_owner();END IF;
+ IF NOT (current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker') THEN PERFORM accounting.require_reader();END IF;
  PERFORM accounting.report_validate(params);
  IF kind NOT IN ('profit_loss','balance_sheet','trial_balance','general_ledger','cash_movements','account_balances','summary','owner_activity','payee') THEN RAISE EXCEPTION 'ACCT_REPORT_KIND';END IF;
  IF start_date>end_date OR (compare_start IS NULL)<>(compare_end IS NULL) OR compare_start>compare_end THEN RAISE EXCEPTION 'ACCT_REPORT_RANGE';END IF;
@@ -4974,7 +5365,7 @@ CREATE OR REPLACE FUNCTION accounting.report_lines(kind text, params jsonb, acco
 AS $function$
 DECLARE start_date date:=(params->>'from')::date;end_date date:=coalesce((params->>'as_of')::date,(params->>'to')::date);offset_rows integer:=coalesce((params->>'offset')::integer,0);limit_rows integer:=coalesce((params->>'limit')::integer,100);result jsonb;opening numeric;
 BEGIN
- PERFORM accounting.require_owner();
+ PERFORM accounting.require_reader();
  PERFORM accounting.report_validate(params);
  IF start_date IS NULL OR end_date IS NULL OR start_date>end_date OR offset_rows<0 OR limit_rows NOT BETWEEN 1 AND 100000 THEN RAISE EXCEPTION 'ACCT_REPORT_RANGE';END IF;
  IF report_lines.kind NOT IN ('general_ledger','profit_loss','balance_sheet','trial_balance','account_balances','cash_movements','owner_activity','summary','payee') THEN RAISE EXCEPTION 'ACCT_REPORT_KIND';END IF;
@@ -5046,8 +5437,64 @@ AS $function$
 DECLARE actor uuid:=auth.uid();
 BEGIN
  IF actor IS NULL THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
- IF NOT EXISTS(SELECT 1 FROM accounting.settings WHERE id=1 AND (owner_user_id=actor OR public.has_permission('accounting.manage'))) THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM accounting.settings WHERE id=1 AND (owner_user_id=actor OR public.has_permission('accounting.manage') OR (current_setting('api.command',true)='drafts' AND accounting.api_key_allows(actor,'accounting.draft')))) THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
  RETURN actor;
+END $function$
+;
+CREATE OR REPLACE FUNCTION accounting.require_reader()
+ RETURNS uuid
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE actor uuid:=auth.uid();
+BEGIN
+ IF actor IS NULL THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM accounting.settings WHERE id=1 AND (owner_user_id=actor OR public.has_permission('accounting.manage') OR accounting.api_key_allows(actor,'accounting.read') OR accounting.api_key_allows(actor,'accounting.draft'))) THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
+ RETURN actor;
+END $function$
+;
+CREATE OR REPLACE FUNCTION accounting.revision()
+ RETURNS text
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+BEGIN
+ PERFORM accounting.require_reader();
+ RETURN (SELECT financial_revision::text FROM accounting.settings WHERE id=1);
+END $function$
+;
+CREATE OR REPLACE FUNCTION accounting.api_key_allows(actor uuid, scope text)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+BEGIN
+ RETURN current_setting('accounting.actor_kind',true)='api' AND public.has_permission(scope) AND EXISTS(SELECT 1 FROM public.api_keys k JOIN public.team_members m ON m.id=k.team_member_id WHERE k.id::text=current_setting('api.key_id',true) AND m.auth_user_id=actor AND m.status='active' AND k.revoked_at IS NULL AND k.disabled_at IS NULL AND (k.expires_at IS NULL OR k.expires_at>now()) AND scope=ANY(k.scopes));
+END $function$
+;
+CREATE OR REPLACE FUNCTION accounting.payees_list()
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+BEGIN
+ PERFORM accounting.require_reader();
+ RETURN (SELECT coalesce(jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'kind',p.kind,'default_account_id',p.default_account_id,'is_archived',p.is_archived,'version',p.version) ORDER BY lower(p.name),p.id),'[]'::jsonb) FROM accounting.parties p);
+END $function$
+;
+CREATE OR REPLACE FUNCTION accounting.rules_list()
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+BEGIN
+ PERFORM accounting.require_reader();
+ RETURN (SELECT coalesce(jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'priority',r.priority,'enabled',r.enabled,'auto_post',r.auto_post,'conditions',r.conditions,'actions',r.actions,'version',r.version) ORDER BY r.priority,r.name,r.id),'[]'::jsonb) FROM accounting.rules r);
 END $function$
 ;
 
@@ -5559,7 +6006,7 @@ CREATE OR REPLACE FUNCTION accounting.transactions(filter jsonb DEFAULT '{}'::js
 AS $function$
 DECLARE f jsonb:=filter||page; result jsonb; start_at integer:=coalesce((f->>'offset')::integer,0); page_size integer:=coalesce((f->>'limit')::integer,50); sort_by text:=coalesce(f->>'sort','date_desc'); q text:=nullif(btrim(coalesce(f->>'query','')),'');
 BEGIN
- PERFORM accounting.require_owner();
+ PERFORM accounting.require_reader();
  IF start_at<0 OR page_size NOT BETWEEN 1 AND 100 OR sort_by NOT IN ('date_desc','date_asc','amount_desc','amount_asc','description') OR coalesce(f->>'status','all') NOT IN ('all','draft','posted','discarded','reversed') OR (f->>'review' IS NOT NULL AND f->>'review' NOT IN ('needs_review','reviewed')) OR (f->>'from')::date>(f->>'to')::date THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER'; END IF;
  WITH terms AS MATERIALIZED (SELECT kind,pattern,cents,op FROM accounting.search_terms(q)),
  candidates AS (
@@ -5724,7 +6171,7 @@ CREATE OR REPLACE FUNCTION accounting.workspace(from_date date, to_date date, mo
 AS $function$
 DECLARE r jsonb;tx jsonb;
 BEGIN
- PERFORM accounting.require_owner();r:=accounting.report('summary',jsonb_build_object('from',from_date,'to',to_date,'mode',coalesce(mode,'posted')));tx:=accounting.transactions(jsonb_build_object('from',from_date,'to',to_date));
+ PERFORM accounting.require_reader();r:=accounting.report('summary',jsonb_build_object('from',from_date,'to',to_date,'mode',coalesce(mode,'posted')));tx:=accounting.transactions(jsonb_build_object('from',from_date,'to',to_date));
  RETURN jsonb_build_object('legal_name',r->'legal_name','revision',r->'revision','from',from_date,'to',to_date,'accounts',r->'accounts','balances',r->'accounts','entries',tx->'entries','entry_count',tx->'total','draft_count',r->'quality'->'draft_count',
  'needs_review_count',(SELECT count(*) FROM accounting.journal_entries e WHERE (status='draft' OR (status='posted' AND review_pending)) AND e.reverses_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries re WHERE re.reverses_entry_id=e.id)),'sync_due',EXISTS(SELECT 1 FROM accounting.bank_connections WHERE status='active' AND scheduled AND (last_success_at IS NULL OR last_success_at<now()-interval '6 hours')),
  'reports',r-ARRAY['legal_name','revision','definition_version','currency','basis','generated_at','filter','accounts','rows','totals','comparison','monthly','dimensions','cash','quality']);
@@ -6488,6 +6935,26 @@ GRANT EXECUTE ON FUNCTION accounting.require_open(date) TO "postgres";
 REVOKE ALL ON FUNCTION accounting.require_owner() FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION accounting.require_owner() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.require_reader() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.require_reader() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.revision() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.revision() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.api_key_allows(uuid,text) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.api_key_allows(uuid,text) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.payees_list() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.payees_list() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.rules_list() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.rules_list() TO "postgres";
 
 REVOKE ALL ON FUNCTION accounting.rule_candidate(uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
 

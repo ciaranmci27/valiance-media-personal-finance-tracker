@@ -68,9 +68,10 @@ const DEMO_TEAM: TeamMember[] = [
 const DEMO_ADMIN_KEYS = [
   "team.read", "team.manage", "income.read", "income.manage", "expenses.read",
   "expenses.manage", "net_worth.read", "net_worth.manage", "tax.read", "tax.manage",
-  "automations.manage", "settings.manage", "accounting.manage",
+  "automations.manage", "settings.manage", "accounting.read", "accounting.manage",
 ];
 const DEMO_MEMBER_KEYS = ["team.read", "income.read", "expenses.read", "net_worth.read", "tax.read"];
+const DEMO_AGENT_KEYS = ["accounting.read", "api.use"];
 const DEMO_POLICY: AccessPolicy = {
   role_permissions: [
     ...DEMO_ADMIN_KEYS.map(
@@ -78,6 +79,9 @@ const DEMO_POLICY: AccessPolicy = {
     ),
     ...DEMO_MEMBER_KEYS.map(
       (key): RolePermission => ({ role: "member", permission_key: key, created_at: "2026-01-01T00:00:00Z" }),
+    ),
+    ...DEMO_AGENT_KEYS.map(
+      (key): RolePermission => ({ role: "agent", permission_key: key, created_at: "2026-01-01T00:00:00Z" }),
     ),
   ],
   member_permissions: [],

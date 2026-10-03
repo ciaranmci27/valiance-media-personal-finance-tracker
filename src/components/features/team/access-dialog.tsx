@@ -88,7 +88,7 @@ export function AccessDialog({ open, onOpenChange, team, initialMemberId = null 
     ...current,
     role_permissions: [
       ...current.role_permissions.filter((row) => !(row.role === role && row.permission_key === key)),
-      ...(on ? [{ role: role as "admin" | "member", permission_key: key, created_at: new Date().toISOString() }] : []),
+      ...(on ? [{ role: role as Exclude<TeamRole, "owner">, permission_key: key, created_at: new Date().toISOString() }] : []),
     ],
   });
   const applyMember = (current: AccessPolicy, key: PermissionKey, effect: PermissionEffect | null): AccessPolicy => ({

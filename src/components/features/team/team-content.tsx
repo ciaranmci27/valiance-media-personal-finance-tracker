@@ -26,6 +26,7 @@ const ROLE_BADGE: Record<TeamRole, BadgeVariant> = {
   owner: "copper",
   admin: "info",
   member: "default",
+  agent: "default",
 };
 
 function MemberIdentity({ member, isSelf }: { member: TeamMember; isSelf: boolean }) {

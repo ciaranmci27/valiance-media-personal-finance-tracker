@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
 
   if (body.role !== "member" && auth.access.member.role !== "owner")
     return NextResponse.json(
-      { error: "Only an owner can add an owner or an admin." },
+      { error: "Only an owner can add an owner, an admin or an agent." },
       { status: 403 },
     );
 

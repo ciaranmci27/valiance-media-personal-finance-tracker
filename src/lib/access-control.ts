@@ -5,7 +5,7 @@
  */
 import type { Database } from "@/types/database";
 
-export const TEAM_ROLES = ["owner", "admin", "member"] as const;
+export const TEAM_ROLES = ["owner", "admin", "member", "agent"] as const;
 export type TeamRole = (typeof TEAM_ROLES)[number];
 
 export const MEMBER_STATUSES = ["active", "suspended"] as const;
@@ -24,7 +24,10 @@ export const PERMISSIONS = [
   "tax.manage",
   "automations.manage",
   "settings.manage",
+  "accounting.read",
+  "accounting.draft",
   "accounting.manage",
+  "api.use",
 ] as const;
 export type PermissionKey = (typeof PERMISSIONS)[number];
 export type PermissionEffect = "allow" | "deny";
@@ -57,16 +60,18 @@ export const ROLE_LABELS: Record<TeamRole, string> = {
   owner: "Owner",
   admin: "Admin",
   member: "Member",
+  agent: "Agent",
 };
 
 export const ROLE_ORDER: Record<TeamRole, number> = {
   owner: 0,
   admin: 1,
   member: 2,
+  agent: 3,
 };
 
 /** Roles whose defaults can be edited; owners always have everything. */
-export const EDITABLE_ROLES: TeamRole[] = ["admin", "member"];
+export const EDITABLE_ROLES: TeamRole[] = ["admin", "member", "agent"];
 
 /** Columns a person may change on their own row. */
 export const PROFILE_FIELDS = [
@@ -165,10 +170,34 @@ export const PERMISSION_GROUPS: Array<{
     label: "Books",
     permissions: [
       {
+        key: "accounting.read",
+        label: "View the books",
+        description:
+          "Read reports, accounts and transactions through the API (needs Use the API and a key). Cannot change anything.",
+      },
+      {
+        key: "accounting.draft",
+        label: "Prepare books drafts",
+        description:
+          "Through the API: create and edit draft transactions, categorize imports and add rules. Nothing posts until someone with Accounting reviews it.",
+      },
+      {
         key: "accounting.manage",
         label: "Accounting",
         description:
           "Open the books, categorize transactions and post entries. Setting up the books stays with the owner.",
+      },
+    ],
+  },
+  {
+    id: "api",
+    label: "API",
+    permissions: [
+      {
+        key: "api.use",
+        label: "Use the API",
+        description:
+          "Create personal API keys. A key can only read what this person can, and only the parts it was given.",
       },
     ],
   },

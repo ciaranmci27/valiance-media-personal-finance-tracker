@@ -675,7 +675,7 @@ export type Database = {
           name: string;
           email: string;
           title: string | null;
-          role: "owner" | "admin" | "member";
+          role: "owner" | "admin" | "member" | "agent";
           status: "active" | "suspended";
           suspended_at: string | null;
           theme_preference: "light" | "dark" | null;
@@ -692,12 +692,12 @@ export type Database = {
       };
       role_permissions: {
         Row: {
-          role: "admin" | "member";
+          role: "admin" | "member" | "agent";
           permission_key: string;
           created_at: string;
         };
         Insert: Partial<Database["public"]["Tables"]["role_permissions"]["Row"]> & {
-          role: "admin" | "member";
+          role: "admin" | "member" | "agent";
           permission_key: string;
         };
         Update: Partial<Database["public"]["Tables"]["role_permissions"]["Row"]>;

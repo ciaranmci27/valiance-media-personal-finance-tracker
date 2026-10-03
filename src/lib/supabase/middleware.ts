@@ -9,11 +9,14 @@ import { sessionUser } from "./session-user";
 export async function updateSession(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   // These exact job endpoints authenticate their own bearer token; webhook
-  // receivers authenticate signatures. A browser session is not their identity.
+  // receivers authenticate signatures; the v1 API and the MCP server
+  // authenticate an API key (withApi). A browser session is not their identity.
   if (
     pathname === "/api/accounting/jobs/feeds" ||
     pathname === "/api/webhooks" ||
-    pathname.startsWith("/api/webhooks/")
+    pathname.startsWith("/api/webhooks/") ||
+    pathname.startsWith("/api/v1/") ||
+    pathname === "/api/mcp"
   ) {
     return NextResponse.next({ request });
   }
