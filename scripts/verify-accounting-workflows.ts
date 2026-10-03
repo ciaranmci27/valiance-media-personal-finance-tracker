@@ -229,7 +229,7 @@ async function main() {
       id: payeeId,
       expected_version: 0,
       name: "Fixture customer",
-      kind: "customer",
+      roles: ["client"],
     });
     const atomicId = randomUUID();
     const transaction = {

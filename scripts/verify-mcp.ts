@@ -250,8 +250,32 @@ async function main() {
       const nullKey = await call(legacy, "books_create_draft", { ...draftArgs, memo: "Null key (MCP)", idempotency_key: null });
       check("write: a null idempotency_key is treated as left out", nullKey.structuredContent?.ok === true && /^[0-9a-f-]{36}$/.test(nullKey.structuredContent?.idempotency_key ?? ""), nullKey.structuredContent);
 
-      const payeePage = await call(legacy, "books_list_payees", {});
-      check("read: payees default to 100 a page over MCP", payeePage.structuredContent?.data?.limit === 100, payeePage.structuredContent?.data);
+      const contactPage = await call(legacy, "books_list_contacts", {});
+      check("read: contacts default to 100 a page over MCP", contactPage.structuredContent?.data?.limit === 100, contactPage.structuredContent?.data);
+
+      // Contacts, end to end: suggest one, meet the duplicate guard, fill blank contacts on reviewed transactions.
+      const hetzner = await call(legacy, "books_add_contact", { name: "Hetzner", roles: ["vendor"] });
+      const hetznerId = hetzner.structuredContent?.data?.id as string;
+      check("contacts: added over MCP as a suggestion", hetzner.structuredContent?.ok === true && hetzner.structuredContent?.data?.review_status === "suggested", hetzner.structuredContent);
+      const hetznerAgain = await call(legacy, "books_add_contact", { name: "Hetzner Inc.", roles: ["vendor"] });
+      check(
+        "contacts: a duplicate over MCP is ok:false duplicate, naming the contact to use",
+        hetznerAgain.isError !== true && hetznerAgain.structuredContent?.status === 409 && hetznerAgain.structuredContent?.error?.reason === "duplicate" && hetznerAgain.structuredContent?.error?.existing?.id === hetznerId,
+        hetznerAgain.structuredContent,
+      );
+      const blankRows = await call(legacy, "books_search_transactions", { contact: "none", status: "posted", limit: 2 });
+      const targets = (blankRows.structuredContent?.data?.transactions ?? []) as { id: string; version: number; contact_id: string | null }[];
+      check("contacts: reviewed transactions without a contact are listed", targets.length === 2 && targets.every((row) => row.contact_id === null), blankRows.structuredContent?.data);
+      const assigned = await call(legacy, "books_assign_contact", { id: hetznerId, entries: targets.map((row) => ({ id: row.id, expected_version: row.version })) });
+      check("contacts: assign over MCP fills both", assigned.structuredContent?.ok === true && assigned.structuredContent?.data?.entries?.length === 2, assigned.structuredContent);
+      const assignedRow = await call(legacy, "books_get_transaction", { id: targets[0]?.id });
+      check(
+        "contacts: the reviewed transaction now names its contact and stays posted",
+        assignedRow.structuredContent?.data?.contact_id === hetznerId && assignedRow.structuredContent?.data?.contact_name === "Hetzner" && assignedRow.structuredContent?.data?.status === "posted",
+        assignedRow.structuredContent?.data,
+      );
+      const reassigned = await call(legacy, "books_assign_contact", { id: hetznerId, entries: [{ id: targets[0]?.id, expected_version: assignedRow.structuredContent?.data?.version }] });
+      check("contacts: a set contact is never replaced over MCP", reassigned.structuredContent?.error?.reason === "contact_already_set", reassigned.structuredContent);
       const proposed = await call(legacy, "books_propose_rule", { name: "Hosting", conditions: { descriptor_key: { contains: "HOSTING" } }, actions: { account_id: account(6) } });
       check("write: a proposed rule links to the rules screen", proposed.structuredContent?.data?.review_url === "http://localhost/accounting?view=manage&section=rules", proposed.structuredContent);
 

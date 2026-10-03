@@ -191,8 +191,7 @@ async function main() {
       id: randomUUID(),
       expected_version: 0,
       name: "Synthetic contractor",
-      kind: "vendor",
-      is_contractor: true,
+      roles: ["vendor", "contractor"],
     });
     assert.equal(party.version, 1);
     n++;

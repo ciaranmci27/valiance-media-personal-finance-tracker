@@ -40,8 +40,7 @@ async function main() {
       id: party,
       expected_version: 0,
       name: "Synthetic contractor",
-      kind: "vendor",
-      is_contractor: true,
+      roles: ["vendor", "contractor"],
       contractor_classification: "individual",
       documentation_status: "received",
     });
@@ -169,8 +168,7 @@ async function main() {
       id: party,
       expected_version: 1,
       name: "Synthetic renamed contractor",
-      kind: "vendor",
-      is_contractor: true,
+      roles: ["vendor", "contractor"],
       contractor_classification: "corporation",
       documentation_status: "missing",
     });

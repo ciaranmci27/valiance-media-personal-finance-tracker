@@ -34,7 +34,10 @@ export const GET = withApi(
       ...(query.from ? { from: query.from } : {}),
       ...(query.to ? { to: query.to } : {}),
       ...(query.account ? { account: query.account } : {}),
-      ...(query.payee ? { payee: query.payee } : {}),
+      // No contact is 'unassigned' to the books.
+      ...(query.contact
+        ? { payee: query.contact === "none" ? "unassigned" : query.contact }
+        : {}),
       ...(query.status ? { status: query.status } : {}),
       ...(query.review
         ? { review: query.review === "needed" ? "needs_review" : "reviewed" }

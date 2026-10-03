@@ -12,7 +12,9 @@ import * as categorizeBulk from "@/app/api/v1/books/transactions/categorize/rout
 import * as reports from "@/app/api/v1/books/reports/route";
 import * as report from "@/app/api/v1/books/reports/[id]/route";
 import * as revision from "@/app/api/v1/books/revision/route";
-import * as payees from "@/app/api/v1/books/payees/route";
+import * as contacts from "@/app/api/v1/books/contacts/route";
+import * as contact from "@/app/api/v1/books/contacts/[id]/route";
+import * as contactAssign from "@/app/api/v1/books/contacts/[id]/assign/route";
 import * as rules from "@/app/api/v1/books/rules/route";
 import * as drafts from "@/app/api/v1/books/drafts/route";
 import * as draft from "@/app/api/v1/books/drafts/[id]/route";
@@ -54,7 +56,9 @@ export const ROUTE_MODULES: Record<
   "/api/v1/books/reports": reports,
   "/api/v1/books/reports/{id}": report,
   "/api/v1/books/revision": revision,
-  "/api/v1/books/payees": payees,
+  "/api/v1/books/contacts": contacts,
+  "/api/v1/books/contacts/{id}": contact,
+  "/api/v1/books/contacts/{id}/assign": contactAssign,
   "/api/v1/books/rules": rules,
   "/api/v1/books/drafts": drafts,
   "/api/v1/books/drafts/{id}": draft,

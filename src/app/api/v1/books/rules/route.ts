@@ -5,6 +5,8 @@ import {
   booksClient,
   booksCommand,
   booksRead,
+  contactRuleFields,
+  payeeFields,
   nameMatches,
   pageOf,
 } from "@/lib/api/books";
@@ -15,6 +17,8 @@ export const dynamic = "force-dynamic";
 interface Rule {
   name: string;
   enabled: boolean;
+  conditions?: Record<string, unknown>;
+  actions?: Record<string, unknown>;
 }
 
 /** Categorization rules, through the books' reader check (accounting.rules_list), in their order, searched and paged. */
@@ -32,7 +36,16 @@ export const GET = withApi(
       )
       .filter((rule) => nameMatches(rule.name, query.q));
     const { rows, ...page } = pageOf(matching, query);
-    return { data: { ...page, rules: rows } };
+    return {
+      data: {
+        ...page,
+        rules: rows.map((rule) => ({
+          ...rule,
+          conditions: contactRuleFields(rule.conditions),
+          actions: contactRuleFields(rule.actions),
+        })),
+      },
+    };
   },
 );
 
@@ -45,7 +58,11 @@ export const POST = withApi(
       keyHash,
       "rule.create",
       idempotencyKey,
-      body,
+      {
+        ...body,
+        conditions: payeeFields(body.conditions),
+        actions: payeeFields(body.actions),
+      },
     );
     return {
       data: {

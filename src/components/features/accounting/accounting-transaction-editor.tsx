@@ -479,6 +479,7 @@ export function AccountingTransactionEditor({
                 value={context}
                 manage={manage}
                 accounts={accounts}
+                direction={direction}
                 onChange={(v) => change(() => setContext(v))}
               />
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2 sm:self-end sm:pb-0.5">

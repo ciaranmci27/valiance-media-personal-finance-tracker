@@ -36,7 +36,7 @@ import type {
 import type { Party, WorkflowCommand } from "@/lib/accounting/workflows";
 import type { BooksMetadata } from "./types";
 import { AccountingContextEditor } from "./accounting-context-editor";
-import { partyRelationshipLabel } from "./accounting-party-form";
+import { partyRolesLabel } from "./accounting-party-form";
 import { EntryEvidenceDisclosure } from "./accounting-entry-evidence";
 import { EntryNotes } from "./accounting-entry-notes";
 import { commandContext, type CommandContext } from "./use-accounting-command";
@@ -297,7 +297,7 @@ export function EntryDetailDialog({
               {(party || takesContact) && (
                 <div className="flex items-center justify-between gap-3 rounded-xl border border-border px-4 py-3 text-sm">
                   <span className="shrink-0 text-muted-foreground">
-                    {party ? partyRelationshipLabel(party) : "Contact"}
+                    {party ? partyRolesLabel(party) : "Contact"}
                   </span>
                   {party ? (
                     <span className="truncate font-medium">{party.name}</span>

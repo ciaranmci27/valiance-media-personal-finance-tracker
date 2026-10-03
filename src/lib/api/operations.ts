@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { CONTACT_ROLES } from "@/lib/accounting/contacts";
 import type { ApiScope } from "./scopes";
 
 /**
@@ -134,7 +135,10 @@ const draftFields = {
   entry_date: date,
   memo: z.string().trim().min(1).max(500),
   lines: draftLines,
-  payee_id: uuid.nullable().optional(),
+  contact_id: uuid
+    .nullable()
+    .optional()
+    .describe("Who it was with: a contact id from books_list_contacts"),
   kind: z.enum(DRAFT_KINDS).optional().describe("Defaults to manual"),
 };
 const version = z
@@ -159,14 +163,14 @@ const ruleConditions = z
     direction: z.enum(["increase", "decrease", "in", "out"]).optional(),
     amount_min: centsInput.optional(),
     amount_max: centsInput.optional(),
-    payee_id: uuid.optional(),
+    contact_id: uuid.optional(),
   })
   .strict();
 const ruleActions = z.union([
   z
     .object({
       account_id: uuid,
-      payee_id: uuid.optional(),
+      contact_id: uuid.optional(),
       memo: z.string().max(2000).optional(),
     })
     .strict(),
@@ -188,7 +192,7 @@ const ruleActions = z.union([
             splits.reduce((n, split) => n + split.share_bps, 0) === 10000,
           "Split shares must total 10000 (100%)",
         ),
-      payee_id: uuid.optional(),
+      contact_id: uuid.optional(),
       memo: z.string().max(2000).optional(),
     })
     .strict(),
@@ -202,6 +206,40 @@ const nameSearch = z
   .max(200)
   .optional()
   .describe("Only names containing this text (any case)");
+const contactRole = z.enum(CONTACT_ROLES);
+const contactRoles = z
+  .array(contactRole)
+  .min(1)
+  .max(CONTACT_ROLES.length)
+  .describe(
+    "One or more of client (pays us), vendor (we buy from), contractor (1099 worker or firm), employee, government (tax agencies), financial (banks, cards, lenders, brokers) and owner",
+  );
+const contactName = z.string().trim().min(1).max(120);
+const contactFields = {
+  email: z.email().max(254).nullable().optional(),
+  phone: z.string().trim().min(1).max(40).nullable().optional(),
+  website: z.string().trim().min(1).max(300).nullable().optional(),
+  notes: z.string().max(2000).optional(),
+  default_account_id: uuid
+    .nullable()
+    .optional()
+    .describe(
+      "A category (income or expense account) that fills new bank transactions from this contact",
+    ),
+  not_duplicate_of: z
+    .array(uuid)
+    .max(50)
+    .optional()
+    .describe(
+      "Ids of possible duplicates you checked and found to be different contacts",
+    ),
+};
+const contactWritten = z.object({
+  id: uuid,
+  version: z.number().nullable(),
+  review_status: z.enum(["suggested", "confirmed"]),
+  review_url: z.string().describe("Where the owner reviews it in the app"),
+});
 const listPage = {
   total: z.number(),
   offset: z.number(),
@@ -248,7 +286,8 @@ const transaction = z.object({
   ),
   transfer: z.boolean(),
   categorized: z.boolean(),
-  payee_id: uuid.nullable(),
+  contact_id: uuid.nullable(),
+  contact_name: z.string().nullable(),
   descriptor_key: z
     .string()
     .nullable()
@@ -259,7 +298,7 @@ const transaction = z.object({
     .object({
       last_category: z.string().nullable(),
       last_category_name: z.string().nullable(),
-      payee_id: z.string().nullable(),
+      contact_id: z.string().nullable(),
       count: z.number(),
     })
     .nullable()
@@ -479,7 +518,12 @@ export const API_OPERATIONS = [
         account: uuid
           .optional()
           .describe("Only transactions touching this account"),
-        payee: uuid.optional(),
+        contact: z
+          .union([uuid, z.literal("none")])
+          .optional()
+          .describe(
+            "Only this contact's transactions, or none for those without a contact",
+          ),
         status: z.enum(["draft", "posted", "reversed"]).optional(),
         review: z
           .enum(["needed", "done"])
@@ -962,19 +1006,23 @@ export const API_OPERATIONS = [
     response: z.object({ id: uuid, deleted: z.literal(true) }),
   },
   {
-    id: "books.payees",
+    id: "books.contacts",
     method: "GET",
-    path: "/api/v1/books/payees",
+    path: "/api/v1/books/contacts",
     permission: "accounting.read",
     source: "books",
     tag: "Books",
-    summary: "Payees",
+    summary: "Contacts",
     description:
-      "Vendors and customers, with the ids drafts, rules and categorizing take. Sorted by name; page with `offset` and `limit`.",
+      "Who the business pays and who pays it: roles, contact details, whether the owner has approved each one (review_status) and how many transactions name it. Search here before adding a contact. Sorted by name; page with `offset` and `limit`.",
     query: z
       .object({
         q: nameSearch,
-        kind: z.enum(["vendor", "customer", "both"]).optional(),
+        role: contactRole.optional(),
+        review_status: z
+          .enum(["suggested", "confirmed"])
+          .optional()
+          .describe("suggested: added by an agent and waiting for the owner"),
         include_archived: z.enum(["true", "false"]).default("false"),
         offset,
         limit: limit(500, 200),
@@ -982,14 +1030,21 @@ export const API_OPERATIONS = [
       .strict(),
     response: z.object({
       ...listPage,
-      payees: z.array(
+      contacts: z.array(
         z.object({
           id: uuid,
           name: z.string(),
-          kind: z.enum(["vendor", "customer", "both"]),
+          roles: z.array(contactRole),
+          email: z.string().nullable(),
+          phone: z.string().nullable(),
+          website: z.string().nullable(),
+          notes: z.string(),
           default_account_id: uuid.nullable(),
+          review_status: z.enum(["suggested", "confirmed"]),
+          suggested_by_name: z.string().nullable(),
           is_archived: z.boolean(),
           version: z.number(),
+          transaction_count: z.number(),
         }),
       ),
     }),
@@ -1081,7 +1136,7 @@ export const API_OPERATIONS = [
         account_id: uuid.describe(
           "The category: an account that is not a bank, card or cash account",
         ),
-        payee_id: uuid.optional(),
+        contact_id: uuid.optional(),
         memo: z.string().trim().min(1).max(500).optional(),
       })
       .strict(),
@@ -1126,7 +1181,7 @@ export const API_OPERATIONS = [
               splits.every((split) => split.share_bps !== undefined),
             "Use amounts for every split or shares for every split",
           ),
-        payee_id: uuid.optional(),
+        contact_id: uuid.optional(),
         memo: z.string().trim().min(1).max(500).optional(),
       })
       .strict(),
@@ -1152,7 +1207,7 @@ export const API_OPERATIONS = [
                 id: uuid,
                 expected_version: version,
                 account_id: uuid,
-                payee_id: uuid.optional(),
+                contact_id: uuid.optional(),
               })
               .strict(),
           )
@@ -1172,7 +1227,7 @@ export const API_OPERATIONS = [
     tag: "Books",
     summary: "Add a categorization rule",
     description:
-      "Proposes a rule that categorizes future imports. Rules made through the API start switched off and never post on their own: the owner reviews and turns them on in the app. Accounts and payees it names must exist. Existing rules cannot be changed here. Send an Idempotency-Key.",
+      "Proposes a rule that categorizes future imports. Rules made through the API start switched off and never post on their own: the owner reviews and turns them on in the app. Accounts and contacts it names must exist. Existing rules cannot be changed here. Send an Idempotency-Key.",
     query: z.object({}).strict(),
     body: z
       .object({
@@ -1191,29 +1246,103 @@ export const API_OPERATIONS = [
     }),
   },
   {
-    id: "books.payee_create",
+    id: "books.contact_create",
     method: "POST",
-    path: "/api/v1/books/payees",
+    path: "/api/v1/books/contacts",
     permission: "accounting.draft",
     source: "books",
     tag: "Books",
-    summary: "Add a payee",
+    summary: "Suggest a contact",
     description:
-      "Adds a vendor or customer. Existing payees cannot be changed here. Send an Idempotency-Key.",
+      "Adds a contact as a suggestion the owner approves in the app. Search books_list_contacts first. A name that matches an existing contact, ignoring case, punctuation and endings like Inc or LLC, is refused with 409 reason duplicate and that contact in details.existing: use it. A name that holds another as whole words (Google and Google Workspace) is refused with 409 reason possible_duplicate and details.candidates: use one if it is the same, or send all their ids in not_duplicate_of. Send an Idempotency-Key.",
+    query: z.object({}).strict(),
+    body: z
+      .object({ name: contactName, roles: contactRoles, ...contactFields })
+      .strict(),
+    idempotent: true,
+    response: contactWritten,
+  },
+  {
+    id: "books.contact_update",
+    method: "PATCH",
+    path: "/api/v1/books/contacts/{id}",
+    permission: "accounting.draft",
+    source: "books",
+    tag: "Books",
+    summary: "Change a suggested contact",
+    description:
+      "Changes the fields you send on a contact that is still a suggestion; the rest stay. Once the owner approves a contact it is theirs, and a change is refused with 409 reason contact_confirmed. A new name gets the same duplicate checks as books_add_contact.",
+    params: z.object({ id: uuid }),
     query: z.object({}).strict(),
     body: z
       .object({
-        name: z.string().trim().min(1).max(200),
-        kind: z.enum(["vendor", "customer", "both"]),
-        default_account_id: uuid.nullable().optional(),
-        notes: z.string().max(2000).optional(),
+        expected_version: version,
+        name: contactName.optional(),
+        roles: contactRoles.optional(),
+        ...contactFields,
+      })
+      .strict()
+      .refine(
+        (body) =>
+          Object.entries(body).some(
+            ([key, value]) =>
+              value !== undefined &&
+              key !== "expected_version" &&
+              key !== "not_duplicate_of",
+          ),
+        "Send at least one field to change",
+      ),
+    response: contactWritten,
+  },
+  {
+    id: "books.contact_assign",
+    method: "POST",
+    path: "/api/v1/books/contacts/{id}/assign",
+    permission: "accounting.draft",
+    source: "books",
+    tag: "Books",
+    summary: "Set a contact on transactions",
+    description:
+      "Sets this contact on up to 100 transactions that have none, drafts or reviewed, in open months. Nothing else on them changes. All or nothing: a transaction that already has a contact (409 reason contact_already_set, with it in details), a transfer between the business's own accounts (422 reason transfer_no_contact), a stale version or a closed month refuses the whole call. remember: true also fills this contact on future bank transactions with the same descriptor_key, unless another contact already owns that description (listed in not_remembered). Send an Idempotency-Key.",
+    params: z.object({ id: uuid }),
+    query: z.object({}).strict(),
+    body: z
+      .object({
+        entries: z
+          .array(z.object({ id: uuid, expected_version: version }).strict())
+          .min(1)
+          .max(100)
+          .refine(
+            (list) =>
+              new Set(list.map((item) => item.id.toLowerCase())).size ===
+              list.length,
+            "List each transaction once",
+          ),
+        remember: z
+          .boolean()
+          .default(false)
+          .describe(
+            "Also fill this contact on future bank transactions with the same descriptor_key",
+          ),
       })
       .strict(),
     idempotent: true,
     response: z.object({
-      id: uuid,
-      version: z.number().nullable(),
-      review_url: z.string().describe("Where the owner sees it in the app"),
+      contact_id: uuid,
+      entries: z.array(z.object({ id: uuid, version: z.number() })),
+      remembered: z
+        .array(z.string())
+        .describe("Descriptions that now fill this contact"),
+      already_remembered: z.array(z.string()),
+      not_remembered: z
+        .array(
+          z.object({
+            descriptor_key: z.string(),
+            contact: z.object({ id: uuid, name: z.string() }),
+          }),
+        )
+        .describe("Descriptions another contact already owns"),
+      review_url: z.string().describe("Where the owner sees the contact"),
     }),
   },
 ] as const satisfies readonly ApiOperation[];

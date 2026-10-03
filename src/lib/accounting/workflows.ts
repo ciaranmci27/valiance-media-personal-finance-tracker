@@ -12,6 +12,8 @@ import { registerCommandSchema } from "./registers";
 import { supportReportCommandSchema } from "./support-reports";
 import { booksPackageCommandSchema } from "./books-package";
 import type { RuleCandidate } from "./rules";
+import { CONTACT_ROLES, type ContactRole } from "./contacts";
+export { CONTACT_ROLES, CONTACT_ROLE_LABELS, type ContactRole } from "./contacts";
 
 const id = z.uuid();
 const version = z.number().int().min(0).max(2147483646);
@@ -37,7 +39,9 @@ const lines = z
   )
   .max(100);
 const cashKind = z.enum(["none", "bank", "cash", "card"]);
-const partyKind = z.enum(["vendor", "customer", "both"]);
+const contactRoles = z.array(z.enum(CONTACT_ROLES)).min(1).max(7);
+const optionalText = (max: number) =>
+  z.string().trim().max(max).nullable().optional();
 const taxClassification = z.enum([
   "unreviewed",
   "individual",
@@ -369,14 +373,36 @@ export const extendedCommandSchema = z.union([
         id,
         expected_version: version,
         name,
-        kind: partyKind,
+        /** The contractor role puts a contact on the year-end 1099 worksheet. */
+        roles: contactRoles,
+        email: optionalText(254),
+        phone: optionalText(40),
+        website: optionalText(300),
         default_account_id: optionalId,
         tax_classification: taxClassification.default("unreviewed"),
         documentation: documentation.default("missing"),
         notes: z.string().max(3000).default(""),
         is_archived: z.boolean().default(false),
-        /** Anyone with a contractor status is a contractor for year-end reporting. */
-        is_contractor: z.boolean().default(false),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("party.approve"),
+        id,
+        ids: z.array(id).min(1).max(500),
+        /** The versions the owner saw, so an edit since then is not approved blind. */
+        expected_versions: z.record(z.string(), version).optional(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("party.merge"),
+        id,
+        from_id: id,
+        into_id: id,
+        from_version: version,
+        into_version: version,
+        reason: z.string().trim().max(1000).optional(),
       })
       .strict(),
 
@@ -409,7 +435,14 @@ export interface Party {
   id: string;
   version: number;
   name: string;
-  kind: z.infer<typeof partyKind>;
+  roles: ContactRole[];
+  email: string | null;
+  phone: string | null;
+  website: string | null;
+  /** An agent's contact stays suggested until the owner approves or edits it. */
+  review_status: "suggested" | "confirmed";
+  /** The team member (an agent) that suggested it, by name. */
+  suggested_by_name?: string | null;
   default_account_id: string | null;
   tax_classification: z.infer<typeof taxClassification>;
   documentation: z.infer<typeof documentation>;

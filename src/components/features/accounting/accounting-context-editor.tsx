@@ -2,18 +2,30 @@
 import { useState } from "react";
 import { Select } from "@/components/ui/inputs/Select";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
-import type { Party } from "@/lib/accounting/workflows";
+import { CONTACT_ROLES, type Party } from "@/lib/accounting/workflows";
 import type { BooksMetadata } from "./types";
 import type { CommandContext } from "./use-accounting-command";
 import { PartyDialog, newParty } from "./accounting-party-form";
 
 const NEW = "__new__";
 
+/** The picker groups contacts by their first role. */
+const ROLE_GROUPS = {
+  client: "Clients",
+  vendor: "Vendors",
+  contractor: "Contractors",
+  employee: "Employees",
+  government: "Government",
+  financial: "Banks and financial",
+  owner: "Owners",
+} as const;
+
 /**
  * The optional detail on a transaction: who it was with. Everything else on
  * the context (entry kind, payment rail, contractor treatment) is derived or
  * lives on the contact, so the form stays one field. A contact that does not
- * exist yet is created right here, without leaving the transaction.
+ * exist yet is created right here, without leaving the transaction: a client
+ * when money comes in, a vendor when it goes out.
  */
 export function AccountingContextEditor({
   value,
@@ -21,12 +33,15 @@ export function AccountingContextEditor({
   accounts,
   onChange,
   className,
+  direction,
 }: {
   value: CommandContext;
   manage: BooksMetadata;
   accounts: AccountingAccount[];
   onChange: (value: CommandContext) => void;
   className?: string;
+  /** Which way the money moves, when known; it picks a new contact's role. */
+  direction?: "in" | "out" | null;
 }) {
   // Contacts created from this editor show up before the books reload.
   const [created, setCreated] = useState<Party[]>([]);
@@ -37,13 +52,7 @@ export function AccountingContextEditor({
     ...created.filter((p) => !known.has(p.id)),
   ];
   const groupOf = (p: Party) =>
-    p.kind === "customer"
-      ? "Customers"
-      : p.kind === "both"
-        ? "Vendors and customers"
-        : p.tax_classification !== "unreviewed"
-          ? "Contractors"
-          : "Vendors";
+    ROLE_GROUPS[CONTACT_ROLES.find((r) => p.roles?.includes(r)) ?? "vendor"];
   return (
     <div className={className ?? "grid gap-4 sm:grid-cols-2"}>
       <Select
@@ -63,7 +72,8 @@ export function AccountingContextEditor({
           })),
         ]}
         onChange={(v) => {
-          if (v === NEW) setCreating(newParty());
+          if (v === NEW)
+            setCreating(newParty(direction === "in" ? ["client"] : ["vendor"]));
           else onChange({ ...value, payee_id: v || null });
         }}
       />

@@ -111,6 +111,8 @@ type EntryRow = Omit<JournalEntry, "lines"> & {
   kind?: string;
   origin?: string;
   payee_id?: string | null;
+  /** The contact's name (accounting.entry_detail). */
+  payee_name?: string | null;
   posted_at?: string | null;
   lines: (JournalLine & { cash_class?: string | null })[];
 };
@@ -147,13 +149,17 @@ export function presentEntry(
     })),
     transfer: view.transfer,
     categorized: view.categorized,
-    payee_id: entry.payee_id ?? null,
+    // The books call a contact a payee; the API says contact.
+    contact_id: entry.payee_id ?? null,
+    contact_name: entry.payee_name ?? null,
     // What categorization rules match on, and how this description was
     // categorized before: the basis for proposing a rule or a category.
     descriptor_key: entry.descriptor_key ?? null,
     prior_treatment: entry.prior_treatment
       ? {
-          ...entry.prior_treatment,
+          last_category: entry.prior_treatment.last_category,
+          contact_id: entry.prior_treatment.payee_id ?? null,
+          count: entry.prior_treatment.count,
           last_category_name: entry.prior_treatment.last_category
             ? (accounts.get(entry.prior_treatment.last_category) ?? null)
             : null,
@@ -207,7 +213,9 @@ export async function booksCommand(
     | "split"
     | "categorize.bulk"
     | "rule.create"
-    | "payee.create",
+    | "contact.create"
+    | "contact.update"
+    | "contact.assign",
   key: string,
   args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
@@ -219,6 +227,25 @@ export async function booksCommand(
   });
   if (error) throw databaseError(error.message, "accounting.draft");
   return (data ?? {}) as Record<string, unknown>;
+}
+
+/**
+ * The API says contact where the books say payee: a body's contact_id goes to
+ * the books as payee_id, and only when it was sent (null clears it).
+ */
+export function payeeFields<T extends { contact_id?: string | null }>(
+  body: T,
+): Omit<T, "contact_id"> & { payee_id?: string | null } {
+  const { contact_id, ...rest } = body;
+  return contact_id === undefined ? rest : { ...rest, payee_id: contact_id };
+}
+
+/** A rule's conditions or actions, with payee_id said as contact_id for the API. */
+export function contactRuleFields(
+  value: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const { payee_id, ...rest } = value ?? {};
+  return payee_id === undefined ? rest : { ...rest, contact_id: payee_id };
 }
 
 /** A full link into the app, so it works wherever the agent sends it (Telegram, email). */
@@ -239,6 +266,11 @@ export function writtenDraft(
     status: "draft" as const,
     review_url: appUrl(origin, `/accounting?view=journal&entry=${id}`),
   };
+}
+
+/** Where the owner sees one contact: Manage > Contacts, opened on it. */
+export function contactUrl(origin: string, id: string): string {
+  return appUrl(origin, `/accounting?view=manage&section=payees&contact=${id}`);
 }
 
 /** Case-insensitive name search and a page, for the books lists an agent reads. */

@@ -1872,15 +1872,44 @@ END $fn$;
 
 REVOKE ALL ON FUNCTION public.api_category_kind(uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
 
+-- The duplicate guard for contacts the API adds or renames. The same name key
+-- (case, punctuation and legal suffixes ignored) is the same contact, archived
+-- or not: API_CONTACT_DUPLICATE names it so the caller uses that one. A key
+-- that holds the other as whole words ("Google" and "Google Workspace") may
+-- be the same: API_CONTACT_POSSIBLE_DUPLICATE lists the candidates, unless the
+-- call names every one of them in not_duplicate_of after looking at them.
+-- The details ride in the message as JSON after the code.
+CREATE OR REPLACE FUNCTION public.api_contact_check(p_name text, p_self uuid, p_not_duplicate_of jsonb) RETURNS void LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $fn$
+DECLARE nk text := accounting.contact_name_key(p_name); existing jsonb; candidates jsonb; cleared jsonb := CASE WHEN jsonb_typeof(p_not_duplicate_of) = 'array' THEN p_not_duplicate_of ELSE '[]'::jsonb END;
+BEGIN
+ IF nk IS NULL THEN RETURN; END IF;
+ SELECT jsonb_build_object('id', p.id, 'name', p.name, 'roles', to_jsonb(p.roles), 'review_status', p.review_status, 'is_archived', p.is_archived) INTO existing
+  FROM accounting.parties p WHERE p.name_key = nk AND p.id IS DISTINCT FROM p_self;
+ IF existing IS NOT NULL THEN RAISE EXCEPTION 'API_CONTACT_DUPLICATE %', jsonb_build_object('existing', existing); END IF;
+ IF length(nk) < 3 THEN RETURN; END IF;
+ SELECT jsonb_agg(jsonb_build_object('id', p.id, 'name', p.name, 'roles', to_jsonb(p.roles), 'review_status', p.review_status, 'is_archived', p.is_archived) ORDER BY p.name, p.id) INTO candidates
+  FROM accounting.parties p
+  WHERE p.id IS DISTINCT FROM p_self AND length(p.name_key) >= 3
+   AND (position(' ' || nk || ' ' IN ' ' || p.name_key || ' ') > 0 OR position(' ' || p.name_key || ' ' IN ' ' || nk || ' ') > 0);
+ IF candidates IS NOT NULL AND EXISTS (SELECT 1 FROM jsonb_array_elements(candidates) AS c(candidate)
+    WHERE NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(cleared) AS s(value) WHERE lower(s.value) = c.candidate->>'id')) THEN
+  RAISE EXCEPTION 'API_CONTACT_POSSIBLE_DUPLICATE %', jsonb_build_object('candidates', candidates);
+ END IF;
+END $fn$;
+
 -- Books writes from the API, drafts only. Each operation builds its command
 -- from scratch (nothing the caller sends is forwarded as is) and runs it
 -- through accounting.operate as the key's member, so every books rule,
 -- version check and receipt applies. Rules made here are always disabled:
 -- the owner switches them on, so an agent cannot steer imports or outrank the
--- owner's rules. Then, independently of the allowlist, the command's own
--- audit rows are checked: if anything left draft, a posted entry changed, a
--- rule could auto-post or run, a period left open, or an existing rule or
--- payee was changed, the whole command rolls back with API_DRAFTS_ONLY.
+-- owner's rules. Contacts made here are suggestions the owner approves, and
+-- only a suggestion can change. Assigning a contact fills a blank contact on
+-- a transaction, posted or not, in an open month, and touches nothing else.
+-- Then, independently of the allowlist, the command's own audit rows are
+-- checked: if anything left draft, a posted entry changed beyond that blank
+-- contact, a rule could auto-post or run, a period left open, an existing
+-- rule, alias or confirmed contact was changed, the whole command rolls back
+-- with API_DRAFTS_ONLY.
 CREATE OR REPLACE FUNCTION public.api_books_command(p_key_hash text, p_operation text, p_key uuid, p_args jsonb DEFAULT '{}'::jsonb) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $fn$
 DECLARE
  a jsonb := coalesce(p_args, '{}'::jsonb);
@@ -1889,8 +1918,11 @@ DECLARE
  cmd jsonb; result jsonb; results jsonb := '[]'::jsonb; item jsonb; i integer := 0; k uuid; bad text;
  current_status text; current_kind text; current_payee uuid; cash_sign integer;
  lines jsonb; splits jsonb; conditions jsonb; actions jsonb; matcher text;
+ -- Records, not table row types: this block is created before the accounting schema.
+ contact record; contact_id uuid; e record; descriptor text; alias_owner jsonb;
+ remembered jsonb := '[]'::jsonb; already jsonb := '[]'::jsonb; skipped jsonb := '[]'::jsonb;
 BEGIN
- IF p_operation IS NULL OR p_operation NOT IN ('draft.create', 'draft.update', 'categorize', 'split', 'categorize.bulk', 'rule.create', 'payee.create') THEN
+ IF p_operation IS NULL OR p_operation NOT IN ('draft.create', 'draft.update', 'categorize', 'split', 'categorize.bulk', 'rule.create', 'contact.create', 'contact.update', 'contact.assign') THEN
   RAISE EXCEPTION 'API_COMMAND_NOT_ALLOWED';
  END IF;
  IF p_key IS NULL THEN RAISE EXCEPTION 'API_INVALID_INPUT'; END IF;
@@ -1973,10 +2005,83 @@ BEGIN
    'reason', coalesce(nullif(a->>'reason', ''), 'Created through the API'), 'name', a->>'name',
    'priority', coalesce((a->>'priority')::integer, 100), 'enabled', false,
    'auto_post', false, 'conditions', conditions, 'actions', actions);
- ELSIF p_operation = 'payee.create' THEN
-  cmd := jsonb_build_object('type', 'party.save', 'id', md5('payee:' || p_key::text)::uuid, 'expected_version', 0,
-   'name', a->>'name', 'kind', a->>'kind', 'default_account_id', public.api_books_ref('category', a->>'default_account_id'),
-   'notes', coalesce(a->>'notes', ''), 'is_contractor', false, 'is_archived', false);
+ ELSIF p_operation = 'contact.create' THEN
+  -- A retry of a create that already ran replays its receipt in operate, so
+  -- the duplicate guard only looks at a new request.
+  IF NOT EXISTS (SELECT 1 FROM accounting.command_receipts WHERE idempotency_key = p_key) THEN
+   PERFORM public.api_contact_check(a->>'name', NULL, a->'not_duplicate_of');
+  END IF;
+  cmd := jsonb_build_object('type', 'party.save', 'id', md5('contact:' || p_key::text)::uuid, 'expected_version', 0,
+   'name', a->>'name', 'roles', a->'roles', 'email', a->>'email', 'phone', a->>'phone', 'website', a->>'website',
+   'default_account_id', public.api_books_ref('category', a->>'default_account_id'),
+   'notes', coalesce(a->>'notes', ''), 'is_archived', false);
+ ELSIF p_operation = 'contact.update' THEN
+  SELECT * INTO contact FROM accounting.parties WHERE id = (a->>'id')::uuid;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  -- Once the owner confirms a contact it is theirs.
+  IF contact.review_status <> 'suggested' THEN RAISE EXCEPTION 'API_CONTACT_CONFIRMED'; END IF;
+  IF a ? 'name' THEN PERFORM public.api_contact_check(a->>'name', contact.id, a->'not_duplicate_of'); END IF;
+  -- An update keeps every field the caller leaves out, and the owner's contractor details.
+  cmd := jsonb_build_object('type', 'party.save', 'id', contact.id, 'expected_version', (a->>'expected_version')::integer,
+   'name', coalesce(a->>'name', contact.name), 'roles', coalesce(a->'roles', to_jsonb(contact.roles)),
+   'email', CASE WHEN a ? 'email' THEN a->>'email' ELSE contact.email END,
+   'phone', CASE WHEN a ? 'phone' THEN a->>'phone' ELSE contact.phone END,
+   'website', CASE WHEN a ? 'website' THEN a->>'website' ELSE contact.website END,
+   'notes', CASE WHEN a ? 'notes' THEN coalesce(a->>'notes', '') ELSE contact.notes END,
+   'default_account_id', CASE WHEN a ? 'default_account_id' THEN public.api_books_ref('category', a->>'default_account_id') ELSE contact.default_account_id END,
+   'contractor_classification', contact.contractor_classification, 'documentation_status', contact.documentation_status,
+   'is_archived', contact.is_archived);
+ ELSIF p_operation = 'contact.assign' THEN
+  contact_id := public.api_books_ref('payee', a->>'contact_id');
+  IF contact_id IS NULL OR jsonb_typeof(a->'entries') IS DISTINCT FROM 'array' OR jsonb_array_length(a->'entries') NOT BETWEEN 1 AND 100
+     OR (SELECT count(DISTINCT lower(value->>'id')) FROM jsonb_array_elements(a->'entries')) <> jsonb_array_length(a->'entries') THEN RAISE EXCEPTION 'API_INVALID_INPUT'; END IF;
+  -- All or nothing: the first entry that does not fit refuses the whole call.
+  FOR item IN SELECT value FROM jsonb_array_elements(a->'entries') LOOP
+   i := i + 1;
+   SELECT * INTO e FROM accounting.journal_entries WHERE id = (item->>'id')::uuid;
+   IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+   IF e.status = 'discarded' THEN RAISE EXCEPTION 'ACCT_DISCARDED'; END IF;
+   -- Money between the business's own accounts has no contact.
+   IF e.transfer_group_id IS NOT NULL OR e.pair_entry_id IS NOT NULL OR e.kind = 'transfer' THEN
+    RAISE EXCEPTION 'API_CONTACT_TRANSFER %', jsonb_build_object('entry_id', e.id);
+   END IF;
+   -- Only a blank contact is filled; one already chosen stays the owner's call.
+   IF e.payee_id IS NOT NULL THEN
+    RAISE EXCEPTION 'API_CONTACT_ALREADY_SET %', jsonb_build_object('entry_id', e.id,
+     'contact', (SELECT jsonb_build_object('id', p.id, 'name', p.name) FROM accounting.parties p WHERE p.id = e.payee_id));
+   END IF;
+   IF (item->>'expected_version')::integer IS DISTINCT FROM e.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+   -- A posted entry changes no lock of its own here, so the closed months are checked first.
+   PERFORM accounting.require_open(e.entry_date);
+   k := md5(p_key::text || ':' || i)::uuid;
+   keys := array_append(keys, k);
+   result := accounting.operate(jsonb_build_object('key', k, 'command',
+    jsonb_build_object('type', 'entry.context', 'id', e.id, 'expected_version', e.version, 'payee_id', contact_id)));
+   results := results || jsonb_build_array(jsonb_build_object('id', e.id, 'version', result->'version'));
+  END LOOP;
+  -- Remember: each bank description in the set fills this contact on future
+  -- feed transactions, unless another contact already owns it.
+  IF coalesce((a->>'remember')::boolean, false) THEN
+   FOR descriptor IN SELECT DISTINCT je.descriptor_key FROM accounting.journal_entries je
+     WHERE je.id IN (SELECT (value->>'id')::uuid FROM jsonb_array_elements(a->'entries')) AND nullif(btrim(je.descriptor_key), '') IS NOT NULL ORDER BY 1 LOOP
+    SELECT jsonb_build_object('id', p.id, 'name', p.name) INTO alias_owner FROM accounting.payee_aliases al JOIN accounting.parties p ON p.id = al.party_id
+     WHERE al.match_kind = 'key' AND al.pattern = descriptor;
+    IF alias_owner IS NULL THEN
+     k := md5(p_key::text || ':alias:' || descriptor)::uuid;
+     keys := array_append(keys, k);
+     PERFORM accounting.operate(jsonb_build_object('key', k, 'command', jsonb_build_object('type', 'alias.save',
+      'id', md5('alias:' || p_key::text || ':' || descriptor)::uuid, 'expected_version', 0, 'party_id', contact_id,
+      'match_kind', 'key', 'pattern', descriptor, 'enabled', true)));
+     remembered := remembered || to_jsonb(descriptor);
+    ELSIF alias_owner->>'id' = contact_id::text THEN
+     already := already || to_jsonb(descriptor);
+    ELSE
+     skipped := skipped || jsonb_build_array(jsonb_build_object('descriptor_key', descriptor, 'contact', alias_owner));
+    END IF;
+   END LOOP;
+  END IF;
+  result := jsonb_build_object('id', contact_id, 'entries', results, 'remembered', remembered,
+   'already_remembered', already, 'not_remembered', skipped);
  END IF;
 
  IF p_operation = 'categorize.bulk' THEN
@@ -1994,7 +2099,7 @@ BEGIN
    results := results || jsonb_build_array(accounting.operate(jsonb_build_object('key', k, 'command', cmd)));
   END LOOP;
   result := jsonb_build_object('results', results);
- ELSE
+ ELSIF p_operation <> 'contact.assign' THEN
   keys := ARRAY[p_key];
   result := accounting.operate(jsonb_build_object('key', p_key, 'command', cmd));
  END IF;
@@ -2002,17 +2107,27 @@ BEGIN
  SELECT string_agg(DISTINCT l.table_name || ':' || l.action, ', ') INTO bad
  FROM accounting.audit_log l
  WHERE l.operation_id = ANY (keys) AND (
-  l.table_name NOT IN ('journal_entries', 'journal_lines', 'rules', 'parties', 'command_receipts', 'periods')
+  l.table_name NOT IN ('journal_entries', 'journal_lines', 'rules', 'parties', 'payee_aliases', 'command_receipts', 'periods')
   -- A draft in a month with no period row opens one; it must stay open.
   OR (l.table_name = 'periods' AND (coalesce(l.after->>'status', 'open') <> 'open' OR coalesce(l.before->>'status', 'open') <> 'open'))
-  OR (l.table_name = 'journal_entries' AND (coalesce(l.after->>'status', 'draft') <> 'draft' OR coalesce(l.before->>'status', 'draft') <> 'draft'))
+  OR (l.table_name = 'journal_entries' AND p_operation <> 'contact.assign' AND (coalesce(l.after->>'status', 'draft') <> 'draft' OR coalesce(l.before->>'status', 'draft') <> 'draft'))
+  -- Assigning a contact changes exactly one thing on an entry: a blank contact becomes set.
+  OR (l.table_name = 'journal_entries' AND p_operation = 'contact.assign' AND NOT (l.before IS NOT NULL AND l.after IS NOT NULL
+   AND l.before->>'payee_id' IS NULL AND l.after->>'payee_id' IS NOT NULL
+   AND (l.after - ARRAY['payee_id', 'version', 'updated_at']) = (l.before - ARRAY['payee_id', 'version', 'updated_at'])))
+  OR (l.table_name = 'journal_lines' AND p_operation = 'contact.assign')
   OR (l.table_name = 'rules' AND (l.before IS NOT NULL OR coalesce((l.after->>'auto_post')::boolean, false) OR coalesce((l.after->>'enabled')::boolean, false)))
-  OR (l.table_name = 'parties' AND l.before IS NOT NULL));
+  -- A contact from the API is a suggestion, and only a suggestion changes.
+  OR (l.table_name = 'parties' AND (coalesce(l.after->>'review_status', '') <> 'suggested'
+   OR (l.before IS NOT NULL AND (p_operation <> 'contact.update' OR l.before->>'review_status' <> 'suggested'))))
+  -- An alias is only ever added, and only by remember.
+  OR (l.table_name = 'payee_aliases' AND (l.before IS NOT NULL OR p_operation <> 'contact.assign')));
  IF bad IS NOT NULL THEN RAISE EXCEPTION 'API_DRAFTS_ONLY (%)', bad; END IF;
  RETURN result;
 END $fn$;
 
 REVOKE ALL ON FUNCTION public.api_books_ref(text, text) FROM PUBLIC, anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION public.api_contact_check(text, uuid, jsonb) FROM PUBLIC, anon, authenticated, service_role;
 REVOKE ALL ON FUNCTION public.api_idempotency_claim(text, uuid, text), public.api_idempotency_finish(text, uuid, uuid, integer, jsonb), public.api_idempotency_release(text, uuid, uuid), public.api_books_command(text, text, uuid, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.api_idempotency_claim(text, uuid, text), public.api_idempotency_finish(text, uuid, uuid, integer, jsonb), public.api_idempotency_release(text, uuid, uuid), public.api_books_command(text, text, uuid, jsonb) TO service_role;
 -- ACCOUNTING API END
@@ -2286,12 +2401,27 @@ CREATE TABLE accounting.bank_transactions (
 
 ALTER TABLE accounting.bank_transactions ENABLE ROW LEVEL SECURITY;
 
+CREATE OR REPLACE FUNCTION accounting.contact_name_key(value text)
+ RETURNS text
+ LANGUAGE plpgsql
+ IMMUTABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE v text := lower(btrim(value));
+BEGIN
+ IF v IS NULL THEN RETURN NULL; END IF;
+ -- Case, punctuation and spacing never make a different contact: "GitHub", "Github, Inc." and "GITHUB INC" share one key.
+ v:=btrim(regexp_replace(replace(v,'&',' and '),'[^a-z0-9]+',' ','g'));
+ -- Legal suffixes at the end go, however many there are; a name that is only a suffix keeps it.
+ v:=regexp_replace(v,'( (inc|llc|ltd|co|corp|corporation|company|pbc|plc|lp|llp))+$','');
+ RETURN coalesce(nullif(v,''),lower(btrim(value)));
+END $function$
+;
+
 CREATE TABLE accounting.parties (
   "id" uuid DEFAULT gen_random_uuid() NOT NULL,
   "name" text NOT NULL,
-  "kind" text NOT NULL,
   "default_account_id" uuid,
-  "is_contractor" boolean DEFAULT false NOT NULL,
   "contractor_classification" text DEFAULT 'unknown'::text NOT NULL,
   "documentation_status" text DEFAULT 'missing'::text NOT NULL,
   "notes" text DEFAULT ''::text NOT NULL,
@@ -2299,25 +2429,37 @@ CREATE TABLE accounting.parties (
   "version" integer DEFAULT 1 NOT NULL,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "roles" text[] NOT NULL,
+  "email" text,
+  "phone" text,
+  "website" text,
+  "review_status" text DEFAULT 'confirmed'::text NOT NULL,
+  "suggested_by" uuid,
+  "name_key" text GENERATED ALWAYS AS (accounting.contact_name_key(name)) STORED,
   CONSTRAINT "parties_contractor_classification_check" CHECK ((contractor_classification = ANY (ARRAY['unknown'::text, 'individual'::text, 'corporation'::text, 'foreign'::text, 'other'::text]))),
   CONSTRAINT "parties_contractor_classification_not_null" NOT NULL contractor_classification,
   CONSTRAINT "parties_created_at_not_null" NOT NULL created_at,
   CONSTRAINT "parties_default_account_id_fkey" FOREIGN KEY (default_account_id) REFERENCES accounting.accounts(id) ON DELETE RESTRICT,
   CONSTRAINT "parties_documentation_status_check" CHECK ((documentation_status = ANY (ARRAY['missing'::text, 'received'::text, 'not_required'::text]))),
   CONSTRAINT "parties_documentation_status_not_null" NOT NULL documentation_status,
+  CONSTRAINT "parties_email_check" CHECK (((email IS NULL) OR ((length(btrim(email)) >= 3) AND (length(btrim(email)) <= 254) AND (POSITION(('@'::text) IN (email)) > 1)))),
   CONSTRAINT "parties_id_not_null" NOT NULL id,
   CONSTRAINT "parties_is_archived_not_null" NOT NULL is_archived,
-  CONSTRAINT "parties_is_contractor_not_null" NOT NULL is_contractor,
-  CONSTRAINT "parties_kind_check" CHECK ((kind = ANY (ARRAY['vendor'::text, 'customer'::text, 'both'::text]))),
-  CONSTRAINT "parties_kind_not_null" NOT NULL kind,
   CONSTRAINT "parties_name_check" CHECK (((length(btrim(name)) >= 1) AND (length(btrim(name)) <= 120))),
-  CONSTRAINT "parties_name_key" UNIQUE (name),
+  CONSTRAINT "parties_name_key_unique" UNIQUE (name_key),
   CONSTRAINT "parties_name_not_null" NOT NULL name,
   CONSTRAINT "parties_notes_not_null" NOT NULL notes,
+  CONSTRAINT "parties_phone_check" CHECK (((phone IS NULL) OR ((length(btrim(phone)) >= 1) AND (length(btrim(phone)) <= 40)))),
   CONSTRAINT "parties_pkey" PRIMARY KEY (id),
+  CONSTRAINT "parties_review_status_check" CHECK ((review_status = ANY (ARRAY['suggested'::text, 'confirmed'::text]))),
+  CONSTRAINT "parties_review_status_not_null" NOT NULL review_status,
+  CONSTRAINT "parties_roles_check" CHECK (((roles <@ ARRAY['client'::text, 'vendor'::text, 'contractor'::text, 'employee'::text, 'government'::text, 'financial'::text, 'owner'::text]) AND (cardinality(roles) >= 1))),
+  CONSTRAINT "parties_roles_not_null" NOT NULL roles,
+  CONSTRAINT "parties_suggested_by_fkey" FOREIGN KEY (suggested_by) REFERENCES public.team_members(id) ON DELETE SET NULL,
   CONSTRAINT "parties_updated_at_not_null" NOT NULL updated_at,
   CONSTRAINT "parties_version_check" CHECK ((version > 0)),
-  CONSTRAINT "parties_version_not_null" NOT NULL version
+  CONSTRAINT "parties_version_not_null" NOT NULL version,
+  CONSTRAINT "parties_website_check" CHECK (((website IS NULL) OR ((length(btrim(website)) >= 1) AND (length(btrim(website)) <= 300))))
 );
 
 ALTER TABLE accounting.parties ENABLE ROW LEVEL SECURITY;
@@ -2928,6 +3070,8 @@ CREATE INDEX entries_descriptor ON accounting.journal_entries USING btree (descr
 
 CREATE INDEX entries_pair ON accounting.journal_entries USING btree (pair_entry_id) WHERE (pair_entry_id IS NOT NULL);
 
+CREATE INDEX entries_payee ON accounting.journal_entries USING btree (payee_id) WHERE (payee_id IS NOT NULL);
+
 CREATE INDEX entries_review ON accounting.journal_entries USING btree (entry_date DESC, id) WHERE (status = 'draft'::text OR (status = 'posted'::text AND review_pending));
 
 CREATE INDEX lines_account ON accounting.journal_lines USING btree (account_id, entry_id);
@@ -3056,15 +3200,69 @@ AS $function$
 DECLARE t text:=c->>'type'; key uuid:=coalesce((c->>'id')::uuid,gen_random_uuid());actor uuid:=CASE WHEN current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE accounting.require_owner() END;
  v integer; current_version integer; candidate_count integer; x jsonb; result jsonb; candidate jsonb; observation accounting.bank_transactions; doc accounting.documents; item accounting.journal_lines; existing jsonb;
  cond jsonb; actions jsonb; mapping_connection uuid; mapping_details jsonb; mapped_row accounting.bank_accounts; account uuid; transit uuid; leg accounting.journal_entries; mate accounting.journal_entries; outgoing jsonb; incoming jsonb; out_id uuid; in_id uuid; amount bigint; match_amount bigint; out_date date; in_date date;
+ party_roles text[]; merge_from accounting.parties; merge_into accounting.parties; moved_entries integer; moved_aliases integer; moved_documents integer; moved_rules integer;
 BEGIN
  IF t='party.save' THEN
   SELECT version INTO current_version FROM accounting.parties WHERE id=key;
   IF (c->>'expected_version')::integer IS DISTINCT FROM coalesce(current_version,0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-  INSERT INTO accounting.parties(id,name,kind,default_account_id,is_contractor,contractor_classification,documentation_status,notes,is_archived)
-  VALUES(key,c->>'name',c->>'kind',(c->>'default_account_id')::uuid,coalesce((c->>'is_contractor')::boolean,false),
+  -- One or more known roles, each stored once, in the list's own order.
+  IF jsonb_typeof(c->'roles') IS DISTINCT FROM 'array' OR jsonb_array_length(c->'roles')=0
+   OR EXISTS(SELECT 1 FROM jsonb_array_elements(c->'roles') r WHERE jsonb_typeof(r) IS DISTINCT FROM 'string' OR NOT ((r#>>'{}')=ANY(ARRAY['client','vendor','contractor','employee','government','financial','owner']))) THEN RAISE EXCEPTION 'ACCT_INVALID_ROLES'; END IF;
+  party_roles:=ARRAY(SELECT known.r FROM unnest(ARRAY['client','vendor','contractor','employee','government','financial','owner']) WITH ORDINALITY AS known(r,n) WHERE c->'roles' ? known.r ORDER BY known.n);
+  -- A contact an agent adds is a suggestion that names the agent; the owner's save confirms it.
+  INSERT INTO accounting.parties(id,name,roles,email,phone,website,default_account_id,contractor_classification,documentation_status,notes,is_archived,review_status,suggested_by)
+  VALUES(key,c->>'name',party_roles,nullif(btrim(c->>'email'),''),nullif(btrim(c->>'phone'),''),nullif(btrim(c->>'website'),''),(c->>'default_account_id')::uuid,
    CASE WHEN coalesce(c->>'contractor_classification',c->>'tax_classification','unknown')='unreviewed' THEN 'unknown' WHEN c->>'tax_classification'='partnership' THEN 'other' ELSE coalesce(c->>'contractor_classification',c->>'tax_classification','unknown') END,
-   CASE WHEN c->>'documentation'='requested' THEN 'missing' ELSE coalesce(c->>'documentation_status',c->>'documentation','missing') END,coalesce(c->>'notes',''),coalesce((c->>'is_archived')::boolean,false))
-  ON CONFLICT(id) DO UPDATE SET name=excluded.name,kind=excluded.kind,default_account_id=excluded.default_account_id,is_contractor=excluded.is_contractor,contractor_classification=excluded.contractor_classification,documentation_status=excluded.documentation_status,notes=excluded.notes,is_archived=excluded.is_archived RETURNING version INTO v;
+   CASE WHEN c->>'documentation'='requested' THEN 'missing' ELSE coalesce(c->>'documentation_status',c->>'documentation','missing') END,coalesce(c->>'notes',''),coalesce((c->>'is_archived')::boolean,false),
+   CASE WHEN current_setting('accounting.actor_kind',true)='api' THEN 'suggested' ELSE 'confirmed' END,
+   CASE WHEN current_setting('accounting.actor_kind',true)='api' THEN (SELECT k.team_member_id FROM public.api_keys k WHERE k.id::text=current_setting('api.key_id',true)) END)
+  ON CONFLICT(id) DO UPDATE SET name=excluded.name,roles=excluded.roles,email=excluded.email,phone=excluded.phone,website=excluded.website,default_account_id=excluded.default_account_id,contractor_classification=excluded.contractor_classification,documentation_status=excluded.documentation_status,notes=excluded.notes,is_archived=excluded.is_archived,review_status=excluded.review_status RETURNING version INTO v;
+ ELSIF t='party.approve' THEN
+  IF jsonb_typeof(c->'ids') IS DISTINCT FROM 'array' OR jsonb_array_length(c->'ids') NOT BETWEEN 1 AND 500 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+  result:='[]';
+  FOR x IN SELECT value FROM jsonb_array_elements(c->'ids') LOOP
+   SELECT * INTO merge_from FROM accounting.parties WHERE id=(x#>>'{}')::uuid;
+   IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+   IF c->'expected_versions' ? merge_from.id::text AND (c->'expected_versions'->>merge_from.id::text)::integer IS DISTINCT FROM merge_from.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+   IF merge_from.review_status='suggested' THEN
+    UPDATE accounting.parties SET review_status='confirmed' WHERE id=merge_from.id RETURNING version INTO v;
+    result:=result||jsonb_build_array(jsonb_build_object('id',merge_from.id,'version',v));
+   END IF;
+  END LOOP;
+  RETURN jsonb_build_object('id',key,'approved',result,'count',jsonb_array_length(result));
+ ELSIF t='party.merge' THEN
+  SELECT * INTO merge_from FROM accounting.parties WHERE id=(c->>'from_id')::uuid;
+  SELECT * INTO merge_into FROM accounting.parties WHERE id=(c->>'into_id')::uuid;
+  IF merge_from.id IS NULL OR merge_into.id IS NULL THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  IF merge_from.id=merge_into.id OR merge_into.is_archived THEN RAISE EXCEPTION 'ACCT_INVALID_MERGE'; END IF;
+  IF (c->>'from_version')::integer IS DISTINCT FROM merge_from.version OR (c->>'into_version')::integer IS DISTINCT FROM merge_into.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  -- A locked month keeps the contact its reports were closed with, so the merge waits until it reopens.
+  SELECT min(entry_date) INTO out_date FROM accounting.journal_entries WHERE payee_id=merge_from.id AND status<>'discarded';
+  IF out_date IS NOT NULL THEN PERFORM accounting.require_open(out_date); END IF;
+  -- Discarded entries keep their contact: they cannot change, and the merged contact stays (archived) for them.
+  UPDATE accounting.journal_entries SET payee_id=merge_into.id WHERE payee_id=merge_from.id AND status<>'discarded';
+  GET DIAGNOSTICS moved_entries=ROW_COUNT;
+  -- Alias patterns are unique across contacts, so every alias moves without a clash.
+  UPDATE accounting.payee_aliases SET party_id=merge_into.id WHERE party_id=merge_from.id;
+  GET DIAGNOSTICS moved_aliases=ROW_COUNT;
+  -- A document already linked to both stays linked to each; only the other links move.
+  UPDATE accounting.document_links d SET party_id=merge_into.id WHERE d.party_id=merge_from.id
+   AND NOT EXISTS(SELECT 1 FROM accounting.document_links o WHERE o.document_id=d.document_id AND o.party_id=merge_into.id);
+  GET DIAGNOSTICS moved_documents=ROW_COUNT;
+  UPDATE accounting.rules r SET conditions=CASE WHEN r.conditions->>'payee_id'=merge_from.id::text THEN jsonb_set(r.conditions,'{payee_id}',to_jsonb(merge_into.id::text)) ELSE r.conditions END,
+   actions=CASE WHEN r.actions->>'payee_id'=merge_from.id::text THEN jsonb_set(r.actions,'{payee_id}',to_jsonb(merge_into.id::text)) ELSE r.actions END
+   WHERE r.conditions->>'payee_id'=merge_from.id::text OR r.actions->>'payee_id'=merge_from.id::text;
+  GET DIAGNOSTICS moved_rules=ROW_COUNT;
+  -- The kept contact gains the other's roles and fills its own blanks from it.
+  UPDATE accounting.parties SET roles=ARRAY(SELECT known.r FROM unnest(ARRAY['client','vendor','contractor','employee','government','financial','owner']) WITH ORDINALITY AS known(r,n) WHERE known.r=ANY(merge_into.roles) OR known.r=ANY(merge_from.roles) ORDER BY known.n),
+   email=coalesce(merge_into.email,merge_from.email),phone=coalesce(merge_into.phone,merge_from.phone),website=coalesce(merge_into.website,merge_from.website),
+   default_account_id=coalesce(merge_into.default_account_id,merge_from.default_account_id),
+   contractor_classification=CASE WHEN merge_into.contractor_classification='unknown' THEN merge_from.contractor_classification ELSE merge_into.contractor_classification END,
+   documentation_status=CASE WHEN merge_into.documentation_status='missing' THEN merge_from.documentation_status ELSE merge_into.documentation_status END,
+   notes=CASE WHEN merge_into.notes='' THEN merge_from.notes ELSE merge_into.notes END,review_status='confirmed'
+   WHERE id=merge_into.id RETURNING version INTO v;
+  UPDATE accounting.parties SET is_archived=true,review_status='confirmed' WHERE id=merge_from.id;
+  RETURN jsonb_build_object('id',merge_into.id,'version',v,'from_id',merge_from.id,'moved',jsonb_build_object('entries',moved_entries,'aliases',moved_aliases,'documents',moved_documents,'rules',moved_rules));
  ELSIF t='alias.save' THEN
   SELECT version INTO current_version FROM accounting.payee_aliases WHERE id=key;
   IF (c->>'expected_version')::integer IS DISTINCT FROM coalesce(current_version,0) AND c?'expected_version' THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
@@ -3570,7 +3768,7 @@ BEGIN
  IF view='session' THEN RETURN jsonb_build_object('owner_id',actor); END IF;
  IF view='manage' THEN
   RETURN jsonb_build_object('profiles',(SELECT coalesce(jsonb_agg(jsonb_build_object('account_id',id,'version',version,'purpose',system_purpose,'cash_kind',CASE WHEN subtype IN ('bank','cash','card') THEN subtype ELSE 'none' END,'parent_account_id',parent_id,'subtype',subtype,'type',type,'external_names',external_names) ORDER BY code,name),'[]') FROM accounting.accounts),
-   'parties',(SELECT coalesce(jsonb_agg(to_jsonb(p)||jsonb_build_object('tax_classification',CASE WHEN contractor_classification='unknown' THEN 'unreviewed' ELSE contractor_classification END,'documentation',documentation_status) ORDER BY name),'[]') FROM accounting.parties p),
+   'parties',(SELECT coalesce(jsonb_agg(to_jsonb(p)||jsonb_build_object('tax_classification',CASE WHEN contractor_classification='unknown' THEN 'unreviewed' ELSE contractor_classification END,'documentation',documentation_status,'suggested_by_name',(SELECT m.name FROM public.team_members m WHERE m.id=p.suggested_by)) ORDER BY p.name),'[]') FROM accounting.parties p),
    'periods',(SELECT coalesce(jsonb_agg(to_jsonb(p)||jsonb_build_object('month_start',month,'is_locked',status='locked')),'[]') FROM accounting.periods p),
    'preferences',(SELECT to_jsonb(s)-ARRAY['owner_user_id','financial_revision']||jsonb_build_object('history_start',p.earliest_history_date,'legal_name',p.legal_name,'business_profile',to_jsonb(p)) FROM accounting.settings s CROSS JOIN public.business_profile p));
  ELSIF view='feeds' THEN
@@ -3657,7 +3855,7 @@ BEGIN
  SELECT p.id,p.name,p.contractor_classification,p.documentation_status,
  -coalesce(sum(l.amount_cents) FILTER(WHERE a.subtype IN ('bank','cash')),0) paid,-coalesce(sum(l.amount_cents) FILTER(WHERE a.subtype='card'),0) card
  FROM accounting.parties p LEFT JOIN accounting.journal_entries e ON e.payee_id=p.id AND e.status='posted' AND e.entry_date BETWEEN make_date(year,1,1) AND through_date
- LEFT JOIN accounting.journal_lines l ON l.entry_id=e.id LEFT JOIN accounting.accounts a ON a.id=l.account_id WHERE p.is_contractor GROUP BY p.id) rows;
+ LEFT JOIN accounting.journal_lines l ON l.entry_id=e.id LEFT JOIN accounting.accounts a ON a.id=l.account_id WHERE 'contractor'=ANY(p.roles) GROUP BY p.id) rows;
  RETURN result;
 END $function$
 ;
@@ -3726,6 +3924,7 @@ BEGIN
   -- The own account on the other side of a linked transfer, so either leg can name where the money went or came from.
   'transfer_account_id',CASE WHEN e.transfer_group_id IS NOT NULL THEN (SELECT l.account_id FROM accounting.journal_entries g JOIN accounting.journal_lines l ON l.entry_id=g.id JOIN accounting.accounts a ON a.id=l.account_id
    WHERE g.transfer_group_id=e.transfer_group_id AND g.id<>e.id AND g.reverses_entry_id IS NULL AND a.subtype IN ('bank','card','cash') ORDER BY g.entry_date,l.sort_order LIMIT 1) END,
+  'payee_name',(SELECT p.name FROM accounting.parties p WHERE p.id=e.payee_id),
   'context',jsonb_build_object('kind',e.kind,'payee_id',e.payee_id),'prior_treatment',NULL,
   'lines',coalesce((SELECT jsonb_agg(to_jsonb(l)||jsonb_build_object('amount_cents',l.amount_cents::text) ORDER BY l.sort_order) FROM accounting.journal_lines l WHERE l.entry_id=e.id),'[]')) INTO result
  FROM accounting.journal_entries e WHERE e.id=entry;
@@ -5061,7 +5260,9 @@ CREATE OR REPLACE FUNCTION accounting.payees_list()
 AS $function$
 BEGIN
  PERFORM accounting.require_reader();
- RETURN (SELECT coalesce(jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'kind',p.kind,'default_account_id',p.default_account_id,'is_archived',p.is_archived,'version',p.version) ORDER BY lower(p.name),p.id),'[]'::jsonb) FROM accounting.parties p);
+ RETURN (SELECT coalesce(jsonb_agg(jsonb_build_object('id',p.id,'name',p.name,'roles',to_jsonb(p.roles),'email',p.email,'phone',p.phone,'website',p.website,'notes',p.notes,
+  'default_account_id',p.default_account_id,'review_status',p.review_status,'suggested_by_name',(SELECT m.name FROM public.team_members m WHERE m.id=p.suggested_by),
+  'is_archived',p.is_archived,'version',p.version,'transaction_count',(SELECT count(*) FROM accounting.journal_entries e WHERE e.payee_id=p.id AND e.status<>'discarded')) ORDER BY lower(p.name),p.id),'[]'::jsonb) FROM accounting.parties p);
 END $function$
 ;
 CREATE OR REPLACE FUNCTION accounting.rules_list()
@@ -5235,7 +5436,7 @@ BEGIN
   columns:='[{"label":"Payee","numeric":false},{"label":"Classification","numeric":false},{"label":"Documentation","numeric":false},{"label":"Cash paid net of refunds","numeric":true},{"label":"Card payments excluded","numeric":true}]';
   WITH paid AS (
    SELECT p.id,p.name,p.contractor_classification,p.documentation_status,-coalesce(sum(l.amount_cents) FILTER(WHERE a.subtype IN ('bank','cash')),0) cash,-coalesce(sum(l.amount_cents) FILTER(WHERE a.subtype='card'),0) card
-   FROM accounting.parties p LEFT JOIN accounting.journal_entries e ON e.payee_id=p.id AND e.status='posted' AND e.entry_date BETWEEN start_date AND end_date LEFT JOIN accounting.journal_lines l ON l.entry_id=e.id LEFT JOIN accounting.accounts a ON a.id=l.account_id WHERE p.is_contractor GROUP BY p.id)
+   FROM accounting.parties p LEFT JOIN accounting.journal_entries e ON e.payee_id=p.id AND e.status='posted' AND e.entry_date BETWEEN start_date AND end_date LEFT JOIN accounting.journal_lines l ON l.entry_id=e.id LEFT JOIN accounting.accounts a ON a.id=l.account_id WHERE 'contractor'=ANY(p.roles) GROUP BY p.id)
   SELECT coalesce(jsonb_agg(jsonb_build_object('id',id,'contractor_party_id',id,'cells',jsonb_build_array(name,contractor_classification,documentation_status,cash::text,card::text)) ORDER BY name,id),'[]'),jsonb_build_array('Total','','',coalesce(sum(cash),0)::text,coalesce(sum(card),0)::text) INTO rows,total_cells FROM paid;
   notes:=jsonb_build_array('Annual reporting threshold in cents: '||(source->>'threshold_cents')||'. Owner classifications and exclusions require review; this worksheet does not file a return.');
  ELSIF report_id='tax-workpapers' THEN
@@ -5606,7 +5807,7 @@ BEGIN
  AND (f->>'review' IS NULL OR CASE WHEN f->>'review'='reviewed' THEN e.status='posted' AND NOT e.review_pending ELSE e.status='draft' OR (e.status='posted' AND e.review_pending) END)
  AND (f->>'entry_id' IS NULL OR e.id=(f->>'entry_id')::uuid)
  AND (f->>'account' IS NULL OR EXISTS(SELECT 1 FROM accounting.journal_lines WHERE entry_id=e.id AND account_id=(f->>'account')::uuid))
- AND (f->>'source' IS NULL OR e.origin=f->>'source') AND (f->>'payee' IS NULL OR e.payee_id=(f->>'payee')::uuid)
+ AND (f->>'source' IS NULL OR e.origin=f->>'source') AND (f->>'payee' IS NULL OR (f->>'payee'='unassigned' AND e.payee_id IS NULL) OR e.payee_id::text=f->>'payee')
  AND (NOT coalesce((f->>'missing_receipt')::boolean,false) OR NOT EXISTS(SELECT 1 FROM accounting.document_links dl JOIN accounting.documents d ON d.id=dl.document_id WHERE dl.entry_id=e.id AND d.status<>'archived' AND EXISTS(SELECT 1 FROM storage.objects o WHERE o.bucket_id='accounting-private' AND o.name=d.storage_path)))
  AND (f->>'descriptor_key' IS NULL OR e.descriptor_key=f->>'descriptor_key')
  AND (q IS NULL OR (SELECT coalesce(bool_and(coalesce(CASE t.kind
@@ -6299,6 +6500,10 @@ GRANT EXECUTE ON FUNCTION accounting.close_command(jsonb) TO "postgres";
 REVOKE ALL ON FUNCTION accounting.close_guard() FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION accounting.close_guard() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.contact_name_key(text) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.contact_name_key(text) TO "postgres";
 
 REVOKE ALL ON FUNCTION accounting.context(text,jsonb) FROM PUBLIC, anon, authenticated, service_role;
 

@@ -1,38 +1,28 @@
 "use client";
-import { useState } from "react";
 import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import {
-  ArrowRight,
   FileSpreadsheet,
   Layers,
-  Pencil,
-  Plus,
   Receipt,
   Repeat2,
-  Search,
   Settings2,
   Users,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Select } from "@/components/ui/inputs/Select";
 
-import { Badge } from "@/components/ui/badge";
-import { SectionHeader } from "@/components/ui/section-header";
 import { cn } from "@/lib/utils";
 import type { AccountingWorkspace } from "@/lib/accounting/contracts";
-import type { Party, RegisterFilter } from "@/lib/accounting/workflows";
+import type { RegisterFilter } from "@/lib/accounting/workflows";
 import type { RegisterKind } from "@/lib/accounting/registers";
 import {
   resolveManageSection,
   type ManageSection,
 } from "@/lib/accounting/views";
 import type { BooksMetadata } from "./types";
-import { PartyDialog, newParty } from "./accounting-party-form";
+import { AccountingContacts, suggestedContacts } from "./accounting-contacts";
 import { useAccountingCache } from "./accounting-cache";
 import { ManagePanelSkeleton } from "./accounting-skeletons";
-import { enumLabel } from "./format";
 import type { AccountingQuery } from "@/lib/accounting/read-cache";
 
 /** Each section's chunk, so the rail can warm one before it is clicked. */
@@ -106,7 +96,7 @@ const SECTIONS: {
   {
     id: "payees",
     name: "Contacts",
-    description: "Vendors, customers, contractors",
+    description: "Clients, vendors, contractors",
     icon: Users,
   },
   {
@@ -166,9 +156,15 @@ export function AccountingMore({
     url.searchParams.delete("register");
     window.history.pushState(null, "", url);
   }
-  const [party, setParty] = useState<Party | null>(null);
-  const [query, setQuery] = useState("");
   const cache = useAccountingCache();
+  // Suggestions from an agent wait for the owner; the rail says how many.
+  const suggestedCount = suggestedContacts(manage.parties).length;
+  const sectionName = (id: MoreSection) => {
+    const name = SECTIONS.find((s) => s.id === id)!.name;
+    return id === "payees" && suggestedCount
+      ? `${name} (${suggestedCount} suggested)`
+      : name;
+  };
   // Pointing at a section warms its chunk and its first read.
   function warm(id: ManageSection) {
     if (demo) return;
@@ -192,10 +188,7 @@ export function AccountingMore({
             <Select
               label="Section"
               value={section}
-              onChange={(v) => {
-                setSection(v as MoreSection);
-                setQuery("");
-              }}
+              onChange={(v) => setSection(v as MoreSection)}
               options={GROUPS.flatMap((g) => [
                 {
                   value: `group-${g.name}`,
@@ -204,7 +197,7 @@ export function AccountingMore({
                 },
                 ...g.ids.map((id) => ({
                   value: id,
-                  label: SECTIONS.find((s) => s.id === id)!.name,
+                  label: sectionName(id),
                 })),
               ])}
             />
@@ -222,10 +215,7 @@ export function AccountingMore({
                       key={s.id}
                       type="button"
                       aria-current={s.id === section ? "page" : undefined}
-                      onClick={() => {
-                        setSection(s.id);
-                        setQuery("");
-                      }}
+                      onClick={() => setSection(s.id)}
                       onPointerEnter={() => warm(s.id)}
                       onFocus={() => warm(s.id)}
                       className={cn(
@@ -241,6 +231,14 @@ export function AccountingMore({
                         className={section === s.id ? "text-teal-light" : ""}
                       />
                       {s.name}
+                      {s.id === "payees" && suggestedCount > 0 && (
+                        <span
+                          className="ml-auto rounded-full bg-warning/14 px-1.5 py-0.5 text-[11px] font-medium leading-none tabular-nums text-warning"
+                          aria-label={`${suggestedCount} suggested`}
+                        >
+                          {suggestedCount}
+                        </span>
+                      )}
                     </button>
                   ))}
               </div>
@@ -307,99 +305,16 @@ export function AccountingMore({
           )}
 
           {section === "payees" && (
-            <section className="space-y-3">
-              <SectionHeader
-                label="Contacts"
-                count={manage.parties.length}
-                description="Vendors and customers, with the contractor flag for year-end reporting."
-                action={
-                  <Button
-                    size="sm"
-                    disabled={demo}
-                    onClick={() => setParty(newParty())}
-                  >
-                    <Plus size={15} aria-hidden="true" />
-                    Add contact
-                  </Button>
-                }
-              />
-              <div className="glass-card overflow-hidden rounded-xl">
-                <div className="p-4">
-                  <TextInput
-                    prefix={<Search size={15} aria-hidden="true" />}
-                    aria-label="Find contact"
-                    placeholder="Find a vendor or customer"
-                    value={query}
-                    onChange={(nextValue) => setQuery(nextValue)}
-                  />
-                </div>
-                <div className="divide-y divide-border">
-                  {manage.parties
-                    .filter((p) =>
-                      p.name.toLowerCase().includes(query.toLowerCase()),
-                    )
-                    .map((p) => (
-                      <div
-                        key={p.id}
-                        className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5"
-                      >
-                        <div className="min-w-0">
-                          <p className="flex items-center gap-2 font-medium">
-                            <span className="truncate">{p.name}</span>
-                            {p.is_archived && <Badge size="sm">Archived</Badge>}
-                            {p.tax_classification !== "unreviewed" && (
-                              <Badge size="sm" variant="copper">
-                                {enumLabel(p.tax_classification)}
-                              </Badge>
-                            )}
-                          </p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {enumLabel(p.kind)}. Documentation{" "}
-                            {enumLabel(p.documentation).toLowerCase()}.
-                          </p>
-                        </div>
-                        <div className="flex gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => onFilter({ payee: p.id })}
-                          >
-                            Transactions
-                            <ArrowRight size={14} aria-hidden="true" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            aria-label={`Edit ${p.name}`}
-                            disabled={demo}
-                            onClick={() => setParty(p)}
-                          >
-                            <Pencil size={15} aria-hidden="true" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))}
-                  {!manage.parties.length && (
-                    <p className="px-5 pb-8 pt-4 text-sm text-muted-foreground">
-                      No contacts yet. Add recurring vendors and customers, then
-                      choose them on transactions.
-                    </p>
-                  )}
-                </div>
-              </div>
-            </section>
+            <AccountingContacts
+              parties={manage.parties}
+              accounts={data.accounts}
+              demo={demo}
+              focusId={params.get("contact")}
+              onRefresh={onRefresh}
+              onFilter={onFilter}
+            />
           )}
         </div>
-
-        <PartyDialog
-          party={party}
-          accounts={data.accounts}
-          onClose={() => setParty(null)}
-          onSaved={async () => {
-            await onRefresh();
-            setParty(null);
-          }}
-        />
       </div>
     </div>
   );

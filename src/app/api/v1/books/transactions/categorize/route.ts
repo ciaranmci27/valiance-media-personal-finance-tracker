@@ -1,6 +1,6 @@
 import { apiOperation } from "@/lib/api/operations";
 import { withApi } from "@/lib/api/with-api";
-import { booksCommand, writtenDraft } from "@/lib/api/books";
+import { booksCommand, payeeFields, writtenDraft } from "@/lib/api/books";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export const POST = withApi(
       keyHash,
       "categorize.bulk",
       idempotencyKey,
-      body,
+      { items: body.items.map(payeeFields) },
     );
     const results = Array.isArray(result.results)
       ? (result.results as Record<string, unknown>[])

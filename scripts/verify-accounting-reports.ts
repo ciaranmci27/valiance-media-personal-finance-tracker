@@ -442,7 +442,7 @@ async function main() {
       id: party,
       expected_version: 0,
       name: "Synthetic customer",
-      kind: "customer",
+      roles: ["client"],
       is_archived: false,
       contractor_classification: "unknown",
       w9_status: "not_requested",

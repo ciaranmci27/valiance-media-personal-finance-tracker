@@ -2,10 +2,12 @@
  * Finance API writes (phase 2), in SQL: agents write to the books as drafts
  * only, through public.api_books_command, as the key's member. Covers each
  * allowed operation, idempotent replay, all-or-nothing bulk categorize,
- * rules that can never auto-post, create-only payees and rules, the audit
- * trail naming the agent and its key, and the after-command check that
- * rolls back anything that left draft even if a command were to slip
- * through. Runs on the pglite fixture with the live auth.uid() definition.
+ * rules that can never auto-post, create-only rules, contacts as suggestions
+ * with duplicate guards and suggestion-only updates, assigning a blank
+ * contact on drafts and reviewed entries (and nothing else), the audit trail
+ * naming the agent and its key, and the after-command check that rolls back
+ * anything that left draft even if a command were to slip through. Runs on
+ * the pglite fixture with the live auth.uid() definition.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { accountingTestDb } from "./accounting-test-db";
@@ -63,7 +65,7 @@ async function main() {
       ).rows[0];
     };
     /** A bank draft as the feeds make them: the owner's, one bank line and one category line. */
-    const ownerBankDraft = async (memo: string, bankCents: string, category: string) => {
+    const ownerBankDraft = async (memo: string, bankCents: string, category: string, description?: string, date = "2026-03-05") => {
       await as(fixtureOwner);
       const r = (
         await db.query<{ r: Record<string, unknown> }>("SELECT accounting.operate($1) r", [
@@ -73,8 +75,9 @@ async function main() {
               type: "draft.save",
               id: randomUUID(),
               expected_version: 0,
-              entry_date: "2026-03-05",
+              entry_date: date,
               memo,
+              ...(description ? { source_description: description } : {}),
               lines: [
                 { account_id: account(1), amount_cents: bankCents },
                 { account_id: category, amount_cents: (-BigInt(bankCents)).toString() },
@@ -340,7 +343,7 @@ async function main() {
       bulkGood.error,
     );
 
-    // Rules never auto-post and are create-only; payees are create-only.
+    // Rules never auto-post and are create-only.
     const ruleIdem = randomUUID();
     const rule = await write(drafter.secret, "rule.create", ruleIdem, {
       name: "Figma is software",
@@ -383,10 +386,11 @@ async function main() {
       !smuggled.error && !("auto_post" in (smuggledRow?.conditions ?? {})) && !("extra" in (smuggledRow?.conditions ?? {})) && !("auto_post" in (smuggledRow?.actions ?? {})),
       { error: smuggled.error, smuggledRow },
     );
-    const payee = await write(drafter.secret, "payee.create", randomUUID(), { name: "Figma", kind: "vendor", default_account_id: account(6) });
-    check("payee created", !payee.error && !!payee.rows[0]?.r, payee.error);
-    const bankDefault = await write(drafter.secret, "payee.create", randomUUID(), { name: "Bank default", kind: "vendor", default_account_id: account(1) });
-    check("a payee defaulting to a bank account is refused", /API_INVALID_INPUT/.test(bankDefault.error ?? ""), bankDefault.error);
+    const payee = await write(drafter.secret, "contact.create", randomUUID(), { name: "Figma", roles: ["vendor"], default_account_id: account(6) });
+    check("contact created", !payee.error && !!payee.rows[0]?.r, payee.error);
+    const bankDefault = await write(drafter.secret, "contact.create", randomUUID(), { name: "Bank default", roles: ["vendor"], default_account_id: account(1) });
+    check("a contact defaulting to a bank account is refused", /API_INVALID_INPUT/.test(bankDefault.error ?? ""), bankDefault.error);
+    check("'payee.create' is no longer an API operation", /API_COMMAND_NOT_ALLOWED/.test((await write(drafter.secret, "payee.create", randomUUID(), { name: "Old", kind: "vendor" })).error ?? ""));
     await superuser();
     const figma = (await db.query<{ id: string }>("SELECT id FROM accounting.parties WHERE name='Figma'")).rows[0].id;
     const kept = await write(drafter.secret, "draft.create", randomUUID(), { ...draftArgs, memo: "Keeps payee", kind: "expense", payee_id: figma });
@@ -406,6 +410,204 @@ async function main() {
       [hash(drafter.secret)],
     );
     check("payees and rules read back", lists.rows[0]?.p.payees.length === 1 && lists.rows[0]?.r.rules.length === 2, lists.error);
+
+    // Contacts: suggestions from the API, the duplicate guards, suggestion-only updates.
+    const refusal = (error: string | undefined) => {
+      const json = /\b(?:API|ACCT)_[A-Z_]+ (\{[\s\S]*\})/.exec(error ?? "")?.[1];
+      return json ? (JSON.parse(json) as Record<string, any>) : {}; // eslint-disable-line @typescript-eslint/no-explicit-any
+    };
+    const party = async (id: string) => {
+      await superuser();
+      return (
+        await db.query<{ name: string; roles: string[]; review_status: string; suggested_by: string | null; version: number; email: string | null; is_archived: boolean }>(
+          "SELECT name, roles, review_status, suggested_by, version, email, is_archived FROM accounting.parties WHERE id=$1",
+          [id],
+        )
+      ).rows[0];
+    };
+    const figmaRow = await party(figma);
+    check("a contact from the API is a suggestion naming the agent", figmaRow?.review_status === "suggested" && figmaRow?.suggested_by === agentId, figmaRow);
+    const github = await write(drafter.secret, "contact.create", randomUUID(), { name: "GitHub", roles: ["vendor"] });
+    const githubId = github.rows[0]?.r.id as string;
+    check("contact: GitHub added", !github.error && !!githubId, github.error);
+    const githubInc = await write(drafter.secret, "contact.create", randomUUID(), { name: "Github, Inc.", roles: ["vendor"] });
+    check(
+      "contact: 'Github, Inc.' is the same contact as 'GitHub', refused with it",
+      /API_CONTACT_DUPLICATE/.test(githubInc.error ?? "") && refusal(githubInc.error).existing?.id === githubId,
+      githubInc.error,
+    );
+    const githubCaps = await write(drafter.secret, "contact.create", randomUUID(), { name: "GITHUB INC", roles: ["vendor"] });
+    check("contact: 'GITHUB INC' is a duplicate too", /API_CONTACT_DUPLICATE/.test(githubCaps.error ?? ""), githubCaps.error);
+    const figmaAgain = await write(drafter.secret, "contact.create", randomUUID(), { name: "figma", roles: ["client"] });
+    check(
+      "contact: an exact duplicate names the existing contact and its roles",
+      /API_CONTACT_DUPLICATE/.test(figmaAgain.error ?? "") && refusal(figmaAgain.error).existing?.name === "Figma" && refusal(figmaAgain.error).existing?.roles?.[0] === "vendor",
+      figmaAgain.error,
+    );
+    const google = await write(drafter.secret, "contact.create", randomUUID(), { name: "Google", roles: ["vendor"] });
+    const googleId = google.rows[0]?.r.id as string;
+    const workspaceArgs = { name: "Google Workspace", roles: ["vendor"], email: "billing@google.test" };
+    const workspace = await write(drafter.secret, "contact.create", randomUUID(), workspaceArgs);
+    check(
+      "contact: 'Google Workspace' is a possible duplicate of 'Google'",
+      /API_CONTACT_POSSIBLE_DUPLICATE/.test(workspace.error ?? "") &&
+        (refusal(workspace.error).candidates as { id: string }[] | undefined)?.some((c) => c.id === googleId) === true,
+      workspace.error,
+    );
+    const workspaceOk = await write(drafter.secret, "contact.create", randomUUID(), { ...workspaceArgs, not_duplicate_of: [googleId] });
+    const workspaceId = workspaceOk.rows[0]?.r.id as string;
+    check("contact: added once every candidate is named in not_duplicate_of", !workspaceOk.error && !!workspaceId, workspaceOk.error);
+    const workspaceIdem = randomUUID();
+    const zoom = await write(drafter.secret, "contact.create", workspaceIdem, { name: "Zoom", roles: ["vendor"] });
+    const zoomReplay = await write(drafter.secret, "contact.create", workspaceIdem, { name: "Zoom", roles: ["vendor"] });
+    check("contact: a retry with the same key replays instead of refusing a duplicate", !zoomReplay.error && zoomReplay.rows[0]?.r.id === zoom.rows[0]?.r.id, zoomReplay.error);
+    for (const roles of [[], ["boss"]]) {
+      const bad = await write(drafter.secret, "contact.create", randomUUID(), { name: `Roles ${roles.length}`, roles });
+      check(`contact: roles ${JSON.stringify(roles)} are refused`, /ACCT_INVALID_ROLES/.test(bad.error ?? ""), bad.error);
+    }
+    const dupRoles = await write(drafter.secret, "contact.create", randomUUID(), { name: "Acme Studio", roles: ["vendor", "client", "vendor"] });
+    check(
+      "contact: roles are stored once each, in order",
+      !dupRoles.error && JSON.stringify((await party(dupRoles.rows[0]?.r.id as string))?.roles) === JSON.stringify(["client", "vendor"]),
+      dupRoles.error,
+    );
+    const wsBefore = await party(workspaceId);
+    const wsUpdate = await write(drafter.secret, "contact.update", randomUUID(), {
+      id: workspaceId,
+      expected_version: wsBefore.version,
+      roles: ["vendor", "financial"],
+      phone: "555-0100",
+    });
+    const wsAfter = await party(workspaceId);
+    check(
+      "contact: a suggestion can be updated; fields left out stay",
+      !wsUpdate.error && JSON.stringify(wsAfter?.roles) === JSON.stringify(["vendor", "financial"]) && wsAfter?.email === "billing@google.test" && wsAfter?.review_status === "suggested",
+      { error: wsUpdate.error, wsAfter },
+    );
+    const renameDup = await write(drafter.secret, "contact.update", randomUUID(), { id: workspaceId, expected_version: wsAfter.version, name: "GitHub LLC" });
+    check("contact: a rename onto another contact's name is refused", /API_CONTACT_DUPLICATE/.test(renameDup.error ?? ""), renameDup.error);
+    const staleUpdate = await write(drafter.secret, "contact.update", randomUUID(), { id: workspaceId, expected_version: wsBefore.version, notes: "x" });
+    check("contact: a stale update is refused", /ACCT_STALE_VERSION/.test(staleUpdate.error ?? ""), staleUpdate.error);
+    const figmaVersion = (await party(figma)).version;
+    await as(fixtureOwner);
+    await owner({ type: "party.approve", id: randomUUID(), ids: [figma], expected_versions: { [figma]: figmaVersion } });
+    check("contact: the owner approves a suggestion", (await party(figma))?.review_status === "confirmed");
+    const onConfirmed = await write(drafter.secret, "contact.update", randomUUID(), { id: figma, expected_version: (await party(figma)).version, notes: "Agent note" });
+    check("contact: a confirmed contact cannot be changed by the API", /API_CONTACT_CONFIRMED/.test(onConfirmed.error ?? ""), onConfirmed.error);
+
+    // Assigning a contact: a blank contact becomes set, drafts and posted alike, and nothing else changes.
+    const postedBank = async (memo: string, cents: string, date = "2026-03-06", description?: string) => {
+      const d = await ownerBankDraft(memo, cents, account(6), description, date);
+      await as(fixtureOwner);
+      const p = await owner({ type: "entry.post", id: d.id, expected_version: d.version });
+      return { id: d.id, version: p.version as number };
+    };
+    const snapshot = async (id: string) => {
+      await superuser();
+      const e = (await db.query("SELECT entry_date, memo, kind, status, reason, register_id, transfer_group_id, review_pending, descriptor_key, posted_at FROM accounting.journal_entries WHERE id=$1", [id])).rows[0];
+      return JSON.stringify({ e, lines: await linesOf(id) });
+    };
+    const reviewed = await postedBank("GitHub Team plan", "-400");
+    const before = await snapshot(reviewed.id);
+    const assigned = await write(drafter.secret, "contact.assign", randomUUID(), { contact_id: githubId, entries: [{ id: reviewed.id, expected_version: reviewed.version }] });
+    const afterAssign = await entry(reviewed.id);
+    check(
+      "assign: a reviewed transaction gets its blank contact",
+      !assigned.error && afterAssign?.payee_id === githubId && afterAssign?.status === "posted" && (assigned.rows[0]?.r.entries as { id: string }[])?.[0]?.id === reviewed.id,
+      { error: assigned.error, afterAssign },
+    );
+    check("assign: lines, amounts, dates and status are untouched", (await snapshot(reviewed.id)) === before);
+    const again = await write(drafter.secret, "contact.assign", randomUUID(), { contact_id: googleId, entries: [{ id: reviewed.id, expected_version: afterAssign.version }] });
+    check(
+      "assign: an entry that already has a contact is refused, naming it",
+      /API_CONTACT_ALREADY_SET/.test(again.error ?? "") && refusal(again.error).entry_id === reviewed.id && refusal(again.error).contact?.name === "GitHub",
+      again.error,
+    );
+    const draftBlank = await ownerBankDraft("GitHub Copilot", "-1000", account(6));
+    const staleBlank = await write(drafter.secret, "contact.assign", randomUUID(), { contact_id: githubId, entries: [{ id: draftBlank.id, expected_version: draftBlank.version + 3 }] });
+    check("assign: a stale version is refused", /ACCT_STALE_VERSION/.test(staleBlank.error ?? ""), staleBlank.error);
+    const freshPosted = await postedBank("GitHub Actions", "-200");
+    const mixed = await write(drafter.secret, "contact.assign", randomUUID(), {
+      contact_id: githubId,
+      entries: [
+        { id: freshPosted.id, expected_version: freshPosted.version },
+        { id: draftBlank.id, expected_version: draftBlank.version + 3 },
+      ],
+    });
+    check("assign: all or nothing, one stale entry keeps the others blank", !!mixed.error && (await entry(freshPosted.id))?.payee_id === null, mixed.error);
+    await as(fixtureOwner);
+    const transfer = await owner({ type: "transfer.create", id: randomUUID(), amount_cents: "700", from_account_id: account(1), to_account_id: account(9), outgoing_date: "2026-03-07", incoming_date: "2026-03-07", memo: "Move to savings" });
+    const transferEntry = await entry(transfer.outgoing_entry_id as string);
+    const onTransfer = await write(drafter.secret, "contact.assign", randomUUID(), { contact_id: githubId, entries: [{ id: transfer.outgoing_entry_id, expected_version: transferEntry.version }] });
+    check("assign: a transfer between own accounts is refused", /API_CONTACT_TRANSFER/.test(onTransfer.error ?? "") && refusal(onTransfer.error).entry_id === transfer.outgoing_entry_id, onTransfer.error);
+    const closed = await postedBank("Old GitHub invoice", "-300", "2025-11-10");
+    await as(fixtureOwner);
+    await owner({ type: "period.lock", id: randomUUID(), month: "2025-11-01" });
+    const onClosed = await write(drafter.secret, "contact.assign", randomUUID(), { contact_id: githubId, entries: [{ id: closed.id, expected_version: closed.version }] });
+    check("assign: a transaction in a locked month is refused", /ACCT_PERIOD_LOCKED|ACCT_LATER_PERIOD_LOCKED/.test(onClosed.error ?? "") && (await entry(closed.id))?.payee_id === null, onClosed.error);
+    const archivedContact = await write(drafter.secret, "contact.assign", randomUUID(), { contact_id: randomUUID(), entries: [{ id: freshPosted.id, expected_version: freshPosted.version }] });
+    check("assign: a contact that does not exist is refused", /API_INVALID_INPUT/.test(archivedContact.error ?? ""), archivedContact.error);
+    const draftOk = await write(drafter.secret, "contact.assign", randomUUID(), {
+      contact_id: githubId,
+      entries: [
+        { id: freshPosted.id, expected_version: freshPosted.version },
+        { id: draftBlank.id, expected_version: draftBlank.version },
+      ],
+    });
+    check(
+      "assign: drafts and posted entries together",
+      !draftOk.error && (await entry(freshPosted.id))?.payee_id === githubId && (await entry(draftBlank.id))?.payee_id === githubId && (await entry(draftBlank.id))?.status === "draft",
+      draftOk.error,
+    );
+
+    // Remember: bank descriptions become key aliases, never taking another contact's.
+    const ghFeedA = await ownerBankDraft("GitHub", "-900", account(6), "GITHUB.COM SUBSCRIPTION");
+    const ghFeedB = await ownerBankDraft("GitHub", "-950", account(6), "GITHUB.COM SUBSCRIPTION");
+    const zoomFeed = await ownerBankDraft("Zoom", "-1500", account(6), "ZOOM.US VIDEO");
+    await superuser();
+    const zoomKey = (await db.query<{ k: string }>("SELECT descriptor_key k FROM accounting.journal_entries WHERE id=$1", [zoomFeed.id])).rows[0].k;
+    const ghKey = (await db.query<{ k: string }>("SELECT descriptor_key k FROM accounting.journal_entries WHERE id=$1", [ghFeedA.id])).rows[0].k;
+    await as(fixtureOwner);
+    await owner({ type: "alias.save", id: randomUUID(), expected_version: 0, party_id: figma, match_kind: "key", pattern: zoomKey, enabled: true });
+    const remembered = await write(drafter.secret, "contact.assign", randomUUID(), {
+      contact_id: githubId,
+      remember: true,
+      entries: [
+        { id: ghFeedA.id, expected_version: ghFeedA.version },
+        { id: ghFeedB.id, expected_version: ghFeedB.version },
+        { id: zoomFeed.id, expected_version: zoomFeed.version },
+      ],
+    });
+    await superuser();
+    const aliases = (await db.query<{ party_id: string; pattern: string }>("SELECT party_id, pattern FROM accounting.payee_aliases ORDER BY pattern")).rows;
+    const r = remembered.rows[0]?.r as { remembered?: string[]; not_remembered?: { descriptor_key: string; contact: { id: string } }[] } | undefined;
+    check(
+      "remember: the GitHub description becomes a key alias for GitHub",
+      !remembered.error && aliases.some((a) => a.pattern === ghKey && a.party_id === githubId) && JSON.stringify(r?.remembered) === JSON.stringify([ghKey]),
+      { error: remembered.error, aliases, r },
+    );
+    check(
+      "remember: a description another contact owns is skipped and reported",
+      aliases.filter((a) => a.pattern === zoomKey).length === 1 && aliases.find((a) => a.pattern === zoomKey)?.party_id === figma && r?.not_remembered?.[0]?.contact.id === figma,
+      { aliases, r },
+    );
+
+    // The after-command check holds for assign: anything beyond the blank contact rolls back.
+    await superuser();
+    await db.exec(`CREATE FUNCTION public.test_sneak_assign() RETURNS trigger LANGUAGE plpgsql AS $$
+      BEGIN
+        IF OLD.payee_id IS NULL AND NEW.payee_id IS NOT NULL AND OLD.status = 'posted' THEN NEW.memo := NEW.memo || ' (changed)'; END IF;
+        RETURN NEW;
+      END $$;
+      CREATE TRIGGER zz_test_sneak_assign BEFORE UPDATE ON accounting.journal_entries FOR EACH ROW EXECUTE FUNCTION public.test_sneak_assign();`);
+    const sneakTarget = await postedBank("Sneaky memo", "-250");
+    const sneakAssign = await write(drafter.secret, "contact.assign", randomUUID(), { contact_id: githubId, entries: [{ id: sneakTarget.id, expected_version: sneakTarget.version }] });
+    check(
+      "after-command check: an assign that changed more than the contact is rolled back",
+      /API_DRAFTS_ONLY/.test(sneakAssign.error ?? "") && (await entry(sneakTarget.id))?.payee_id === null,
+      sneakAssign.error,
+    );
+    await db.exec("DROP TRIGGER zz_test_sneak_assign ON accounting.journal_entries; DROP FUNCTION public.test_sneak_assign();");
 
     // Idempotency claims carry a token: only their holder finishes or releases them.
     const claimKey = randomUUID();
@@ -445,14 +647,21 @@ async function main() {
     }
     await db.exec("DROP TRIGGER test_sneak ON accounting.journal_entries; DROP FUNCTION public.test_sneak();");
 
-    // Nothing the agent did reached the official numbers.
+    // Nothing the agent did reached the official numbers: it posted nothing,
+    // and on a reviewed entry it only ever filled a blank contact.
     await superuser();
     const agentPosted = (
       await db.query(
-        "SELECT 1 FROM accounting.journal_entries e WHERE e.status<>'draft' AND EXISTS(SELECT 1 FROM accounting.audit_log l WHERE l.row_id=e.id AND l.actor_kind='api')",
+        "SELECT 1 FROM accounting.audit_log l WHERE l.actor_kind='api' AND l.table_name='journal_entries' AND coalesce(l.after->>'status','draft')<>coalesce(l.before->>'status','draft')",
       )
     ).rows.length;
-    check("no entry the agent touched is posted", agentPosted === 0, agentPosted);
+    check("the agent changed no entry's status", agentPosted === 0, agentPosted);
+    const agentOnPosted = (
+      await db.query(
+        "SELECT 1 FROM accounting.audit_log l WHERE l.actor_kind='api' AND l.table_name='journal_entries' AND l.before->>'status'='posted' AND NOT (l.before->>'payee_id' IS NULL AND l.after->>'payee_id' IS NOT NULL AND (l.after-ARRAY['payee_id','version','updated_at'])=(l.before-ARRAY['payee_id','version','updated_at']))",
+      )
+    ).rows.length;
+    check("on reviewed entries the agent only filled blank contacts", agentOnPosted === 0, agentOnPosted);
     check("the owner's posted entry is untouched", (await entry(posted.id as string)).status === "posted");
   } finally {
     await db.close();

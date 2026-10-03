@@ -106,7 +106,7 @@ async function main() {
       id: randomUUID(),
       expected_version: 0,
       name: "Uber Technologies",
-      kind: "vendor",
+      roles: ["vendor"],
     });
     await db.exec("RESET ROLE");
     await db.query(

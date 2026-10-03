@@ -112,7 +112,7 @@ export function buildReportModel(
   id: ReportId,
   data: ReportData,
   showZero = false,
-  parties?: { id: string; kind: "vendor" | "customer" | "both" }[],
+  parties?: { id: string; roles: string[] }[],
 ): ReportModel {
   const meta = reportCatalog.find((r) => r.id === id)!;
   const comparison = !!data.filter.compare_from;
@@ -500,15 +500,19 @@ export function buildReportModel(
             "Prior costs",
           ]
         : ["Income", "Attributed costs", "Contribution"];
-    const partyKinds = parties
-      ? new Map(parties.map((p) => [p.id, p.kind] as const))
+    const partyRoles = parties
+      ? new Map(parties.map((p) => [p.id, p.roles ?? []] as const))
       : null;
     for (const d of data.dimensions.filter((d) => d.kind === kind)) {
-      const partyKind = partyKinds?.get(d.id);
-      // A vendor has no place on the customer report, and the reverse.
+      const roles = partyRoles?.get(d.id);
+      // The customer report lists clients; the vendor report lists everyone
+      // the business pays, so only a contact that is a client and nothing
+      // else stays off it. Unassigned and unknown contacts show on both.
       if (
-        partyKind &&
-        (vendor ? partyKind === "customer" : partyKind === "vendor")
+        roles &&
+        (vendor
+          ? roles.length > 0 && roles.every((r) => r === "client")
+          : !roles.includes("client"))
       )
         continue;
       const match = { ...base, [kind]: d.id },

@@ -43,7 +43,9 @@ async function main() {
       netWorth: await import("../src/app/api/v1/tracker/net-worth/route"),
       tax: await import("../src/app/api/v1/tax/estimate/route"),
       openapi: await import("../src/app/api/v1/openapi.json/route"),
-      payees: await import("../src/app/api/v1/books/payees/route"),
+      contacts: await import("../src/app/api/v1/books/contacts/route"),
+      contact: await import("../src/app/api/v1/books/contacts/[id]/route"),
+      contactAssign: await import("../src/app/api/v1/books/contacts/[id]/assign/route"),
       rules: await import("../src/app/api/v1/books/rules/route"),
       drafts: await import("../src/app/api/v1/books/drafts/route"),
       draft: await import("../src/app/api/v1/books/drafts/[id]/route"),
@@ -385,18 +387,72 @@ async function main() {
         ruleList.json.data.rules.every((r: { auto_post: boolean; enabled: boolean }) => r.auto_post === false && r.enabled === false),
       ruleList.json,
     );
-    const payee = await send(routes.payees.POST, "POST", "/api/v1/books/payees", { name: "Figma", kind: "vendor" }, { idem: randomUUID() });
-    const payeeList = await call(routes.payees, "/api/v1/books/payees");
-    check("write: payee added and listed", payee.status === 200 && payeeList.json.data?.payees?.some((x: { name: string }) => x.name === "Figma"), payeeList.json);
-    check("write: rule and payee creates link to where the owner sees them", rule.json.data?.review_url === "http://localhost/accounting?view=manage&section=rules" && payee.json.data?.review_url === "http://localhost/accounting?view=manage&section=payees", { rule: rule.json.data, payee: payee.json.data });
+    const payee = await send(routes.contacts.POST, "POST", "/api/v1/books/contacts", { name: "Figma", roles: ["vendor"] }, { idem: randomUUID() });
+    const figmaId = payee.json.data?.id as string;
+    const payeeList = await call(routes.contacts, "/api/v1/books/contacts");
+    check(
+      "write: contact added as a suggestion and listed with its roles",
+      payee.status === 200 && payee.json.data?.review_status === "suggested" &&
+        payeeList.json.data?.contacts?.some((x: { name: string; roles: string[]; review_status: string; transaction_count: number }) => x.name === "Figma" && x.roles[0] === "vendor" && x.review_status === "suggested" && x.transaction_count === 0),
+      payeeList.json,
+    );
+    check(
+      "write: rule and contact creates link to where the owner sees them",
+      rule.json.data?.review_url === "http://localhost/accounting?view=manage&section=rules" && payee.json.data?.review_url === `http://localhost/accounting?view=manage&section=payees&contact=${figmaId}`,
+      { rule: rule.json.data, payee: payee.json.data },
+    );
     for (const name of ["Adobe", "Amazon Web Services", "Zoom"])
-      await send(routes.payees.POST, "POST", "/api/v1/books/payees", { name, kind: name === "Zoom" ? "customer" : "vendor" }, { idem: randomUUID() });
-    const payeeSearch = await call(routes.payees, "/api/v1/books/payees?q=AMAZON");
-    check("lists: payees search names in any case", payeeSearch.json.data?.payees?.length === 1 && payeeSearch.json.data.payees[0].name === "Amazon Web Services" && payeeSearch.json.data.total === 1, payeeSearch.json.data);
-    const paged = await call(routes.payees, "/api/v1/books/payees?limit=2");
-    check("lists: payees page by name with a total and next_offset", paged.json.data?.payees?.length === 2 && paged.json.data.payees[0].name === "Adobe" && paged.json.data.total === 4 && paged.json.data.next_offset === 2, paged.json.data);
-    const customers = await call(routes.payees, "/api/v1/books/payees?kind=customer");
-    check("lists: payees filter by kind", customers.json.data?.payees?.length === 1 && customers.json.data.payees[0].name === "Zoom", customers.json.data);
+      await send(routes.contacts.POST, "POST", "/api/v1/books/contacts", { name, roles: name === "Zoom" ? ["client"] : ["vendor"] }, { idem: randomUUID() });
+    const payeeSearch = await call(routes.contacts, "/api/v1/books/contacts?q=AMAZON");
+    check("lists: contacts search names in any case", payeeSearch.json.data?.contacts?.length === 1 && payeeSearch.json.data.contacts[0].name === "Amazon Web Services" && payeeSearch.json.data.total === 1, payeeSearch.json.data);
+    const paged = await call(routes.contacts, "/api/v1/books/contacts?limit=2");
+    check("lists: contacts page by name with a total and next_offset", paged.json.data?.contacts?.length === 2 && paged.json.data.contacts[0].name === "Adobe" && paged.json.data.total === 4 && paged.json.data.next_offset === 2, paged.json.data);
+    const customers = await call(routes.contacts, "/api/v1/books/contacts?role=client");
+    check("lists: contacts filter by role", customers.json.data?.contacts?.length === 1 && customers.json.data.contacts[0].name === "Zoom", customers.json.data);
+    const pending = await call(routes.contacts, "/api/v1/books/contacts?review_status=confirmed");
+    check("lists: contacts filter by review state", pending.json.data?.total === 0, pending.json.data);
+    const duplicate = await send(routes.contacts.POST, "POST", "/api/v1/books/contacts", { name: "figma, inc.", roles: ["vendor"] }, { idem: randomUUID() });
+    check(
+      "contacts: a duplicate name is 409 duplicate with the existing contact",
+      duplicate.status === 409 && duplicate.json.error?.code === "CONFLICT" && reason(duplicate) === "duplicate" && (duplicate.json.error?.details as { existing?: { id?: string } })?.existing?.id === figmaId,
+      duplicate.json,
+    );
+    const similar = await send(routes.contacts.POST, "POST", "/api/v1/books/contacts", { name: "Amazon", roles: ["vendor"] }, { idem: randomUUID() });
+    const candidates = (similar.json.error?.details as { candidates?: { name: string }[] })?.candidates;
+    check("contacts: a similar name is 409 possible_duplicate with the candidates", similar.status === 409 && reason(similar) === "possible_duplicate" && candidates?.[0]?.name === "Amazon Web Services", similar.json);
+    const figmaVersion = payeeList.json.data?.contacts?.find((x: { id: string }) => x.id === figmaId)?.version as number;
+    const renamed = await send(routes.contact.PATCH, "PATCH", `/api/v1/books/contacts/${figmaId}`, { expected_version: figmaVersion, roles: ["vendor", "contractor"] }, { params: { id: figmaId } });
+    check("contacts: a suggestion is updated over PATCH", renamed.status === 200 && typeof renamed.json.data?.version === "number" && renamed.json.data.version > figmaVersion, renamed.json);
+    const nothingToChange = await send(routes.contact.PATCH, "PATCH", `/api/v1/books/contacts/${figmaId}`, { expected_version: figmaVersion }, { params: { id: figmaId } });
+    check("contacts: an update with nothing to change is 422", nothingToChange.status === 422, nothingToChange.json);
+    const blank = await call(routes.transactions, "/api/v1/books/transactions?contact=none&status=draft");
+    check("lists: transactions without a contact", blank.status === 200 && blank.json.data?.transactions?.some((x: { id: string; contact_id: string | null }) => x.id === bankId && x.contact_id === null), blank.json.data?.total);
+    const assign = await send(
+      routes.contactAssign.POST,
+      "POST",
+      `/api/v1/books/contacts/${figmaId}/assign`,
+      { entries: [{ id: bankId, expected_version: await versionOf(bankId) }] },
+      { idem: randomUUID(), params: { id: figmaId } },
+    );
+    check("contacts: assign fills the blank contact", assign.status === 200 && assign.json.data?.entries?.[0]?.id === bankId && assign.json.data?.contact_id === figmaId, assign.json);
+    const named = await call(routes.transactions, `/api/v1/books/transactions?contact=${figmaId}`);
+    check(
+      "lists: transactions filter by contact and carry its name",
+      named.json.data?.total === 1 && named.json.data.transactions[0].contact_id === figmaId && named.json.data.transactions[0].contact_name === "Figma",
+      named.json.data,
+    );
+    const assignAgain = await send(
+      routes.contactAssign.POST,
+      "POST",
+      `/api/v1/books/contacts/${figmaId}/assign`,
+      { entries: [{ id: bankId, expected_version: await versionOf(bankId) }] },
+      { idem: randomUUID(), params: { id: figmaId } },
+    );
+    check(
+      "contacts: assigning over a contact is 409 contact_already_set",
+      assignAgain.status === 409 && reason(assignAgain) === "contact_already_set" && (assignAgain.json.error?.details as { entry_id?: string })?.entry_id === bankId,
+      assignAgain.json,
+    );
     const ruleSearch = await call(routes.rules, "/api/v1/books/rules?q=figma&enabled=false");
     check("lists: rules search and filter", ruleSearch.json.data?.rules?.length === 1 && ruleSearch.json.data.total === 1 && ruleSearch.json.data.next_offset === null, ruleSearch.json.data);
     const onRules = await call(routes.rules, "/api/v1/books/rules?enabled=true");

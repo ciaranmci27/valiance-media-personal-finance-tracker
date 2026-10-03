@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic";
 /**
  * The Reports screen's own pipeline: the same SQL read (summary, or the
  * general ledger for that report) and the same buildReportModel, so every row
- * matches the screen.
+ * matches the screen. The customer and vendor reports read contact roles, as
+ * the screen does: clients on one, everyone the business pays on the other.
  */
 export const GET = withApi(
   apiOperation("books.report"),
@@ -27,8 +28,20 @@ export const GET = withApi(
         "Send both compare_from and compare_to, in order.",
         { reason: "invalid_range" },
       );
+    const client = booksClient(service, keyHash);
+    const byContact =
+      params.id === "customer-income" || params.id === "vendor-expenses";
+    const contacts = byContact
+      ? ((
+          await booksRead<{ payees: { id: string; roles: string[] }[] | null }>(
+            client,
+            "payees",
+            {},
+          )
+        ).payees ?? [])
+      : undefined;
     const report = await booksRead<ReportData>(
-      booksClient(service, keyHash),
+      client,
       "report",
       {
         kind: params.id === "general-ledger" ? "general_ledger" : "summary",
@@ -42,7 +55,7 @@ export const GET = withApi(
         },
       },
     );
-    const model = buildReportModel(params.id, report);
+    const model = buildReportModel(params.id, report, false, contacts);
     return {
       data: {
         id: model.id,
@@ -58,13 +71,7 @@ export const GET = withApi(
           ...(code ? { code } : {}),
           values,
         })),
-        footnotes:
-          params.id === "customer-income" || params.id === "vendor-expenses"
-            ? [
-                ...model.footnotes,
-                "The API does not read contact settings, so a contact is not filtered by its customer or vendor role: one with both income and expenses can appear on both reports.",
-              ]
-            : model.footnotes,
+        footnotes: model.footnotes,
         quality: quality(report),
         revision: report.revision,
       },

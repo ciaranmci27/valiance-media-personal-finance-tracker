@@ -87,8 +87,8 @@ export const EXPORT_GROUPS: ExportGroup[] = [
       },
       {
         id: "payees",
-        label: "Payees",
-        description: "Vendors, customers and contractor status.",
+        label: "Contacts",
+        description: "Contacts with their roles and contractor details.",
       },
       {
         id: "documents",

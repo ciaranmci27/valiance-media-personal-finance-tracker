@@ -302,7 +302,9 @@ export async function GET(req: NextRequest) {
         default_category:
           accountName.get(p.default_account_id ?? "")?.name ?? "",
       }));
-      return { json: list, tables: [{ name: "payees", rows: rows(list) }] };
+      // One cell per contact for the spreadsheet: its roles, comma separated.
+      const table = list.map((p) => ({ ...p, roles: (p.roles ?? []).join(", ") }));
+      return { json: list, tables: [{ name: "payees", rows: rows(table) }] };
     },
     async documents() {
       if (!books) throw new Error(booksError);

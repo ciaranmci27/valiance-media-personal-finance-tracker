@@ -360,7 +360,7 @@ export function AccountingReports({
           if (demo && g.name === "Payroll & year end") return false;
           if (
             g.name === "Business performance" &&
-            !manage.parties.some((p) => p.kind !== "vendor")
+            !manage.parties.some((p) => p.roles?.includes("client"))
           )
             return false;
           return true;

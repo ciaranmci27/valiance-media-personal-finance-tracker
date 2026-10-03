@@ -51,9 +51,9 @@ export const MCP_TOOL_NAMES = {
     tool: "books_revision",
     lead: "Check whether anything in the books has changed.",
   },
-  "books.payees": {
-    tool: "books_list_payees",
-    lead: "List books payees (vendors and customers) and ids.",
+  "books.contacts": {
+    tool: "books_list_contacts",
+    lead: "List books contacts with roles; search before adding.",
   },
   "books.rules": {
     tool: "books_list_rules",
@@ -83,9 +83,17 @@ export const MCP_TOOL_NAMES = {
     tool: "books_propose_rule",
     lead: "Propose a categorization rule; it starts switched off.",
   },
-  "books.payee_create": {
-    tool: "books_add_payee",
-    lead: "Add a payee (vendor or customer) to the books.",
+  "books.contact_create": {
+    tool: "books_add_contact",
+    lead: "Suggest a new contact for the owner to approve.",
+  },
+  "books.contact_update": {
+    tool: "books_update_contact",
+    lead: "Fix a contact you suggested, before it is approved.",
+  },
+  "books.contact_assign": {
+    tool: "books_assign_contact",
+    lead: "Set a contact on transactions that have none.",
   },
   "tracker.income": {
     tool: "tracker_income_summary",
@@ -184,7 +192,7 @@ const MCP_OVERRIDES: Partial<
   Record<ApiOperationId, Pick<McpTool, "defaults" | "present">>
 > = {
   // About 270 characters a row: 100 stays well under the result cap.
-  "books.payees": { defaults: { limit: 100 } },
+  "books.contacts": { defaults: { limit: 100 } },
   "books.rules": { defaults: { limit: 100 } },
   "books.transactions": {
     defaults: { limit: 25 },

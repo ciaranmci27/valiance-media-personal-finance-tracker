@@ -99,6 +99,11 @@ export function accountingError(message: string): string {
       "Accounts already exist. Map your history to the current chart instead of seeding another chart.",
     ACCT_DOCUMENT_UNAVAILABLE:
       "Upload the evidence file before linking or completing it.",
+    ACCT_INVALID_ROLES: "Choose at least one role for this contact.",
+    ACCT_INVALID_MERGE:
+      "Choose another contact to keep, one that is not archived.",
+    parties_name_key_unique:
+      "A contact with this name already exists. Use that one, or merge the two.",
     ACCT_NOT_FOUND: "This record is unavailable. Refresh the books.",
     ACCT_POSTED_REQUIRED: "Choose a posted entry for this match.",
     ACCT_UNBALANCED:

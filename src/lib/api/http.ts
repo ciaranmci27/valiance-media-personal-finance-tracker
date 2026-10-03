@@ -32,13 +32,86 @@ export class ApiError extends Error {
   }
 }
 
+/** The JSON a books refusal carries after its code ('API_X {...}'), or nothing. */
+function refusalDetails(message: string): Record<string, unknown> {
+  const json = /\b(?:API|ACCT)_[A-Z_]+ (\{[\s\S]*\})\s*$/.exec(message)?.[1];
+  if (!json) return {};
+  try {
+    const value: unknown = JSON.parse(json);
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
 /**
  * Turns a database refusal into the API's error. The API_* codes come from
- * public.api_act / api_authorize; ACCT_* codes from the books functions.
+ * public.api_act / api_authorize and public.api_books_command; ACCT_* codes
+ * from the books functions. A contact refusal carries its details as JSON
+ * after the code.
  */
 export function databaseError(message: string, permission: string): ApiError {
   const code = /\b(API_[A-Z_]+|ACCT_[A-Z_]+)\b/.exec(message)?.[1];
   switch (code) {
+    case "API_CONTACT_DUPLICATE":
+      return new ApiError(
+        409,
+        "CONFLICT",
+        "A contact with this name already exists.",
+        {
+          reason: "duplicate",
+          existing: refusalDetails(message).existing,
+          hint: "Use the existing contact's id instead of adding another. If it is archived, tell the owner.",
+        },
+      );
+    case "API_CONTACT_POSSIBLE_DUPLICATE":
+      return new ApiError(
+        409,
+        "CONFLICT",
+        "This contact may already exist under a similar name.",
+        {
+          reason: "possible_duplicate",
+          candidates: refusalDetails(message).candidates,
+          hint: "Check each candidate. Use one if it is the same contact; if none is, send all of their ids in not_duplicate_of and retry.",
+        },
+      );
+    case "API_CONTACT_CONFIRMED":
+      return new ApiError(
+        409,
+        "CONFLICT",
+        "The owner approved this contact, so only the owner changes it now.",
+        {
+          reason: "contact_confirmed",
+          hint: "Leave it as it is, or tell the owner what should change.",
+        },
+      );
+    case "API_CONTACT_ALREADY_SET": {
+      const details = refusalDetails(message);
+      return new ApiError(
+        409,
+        "CONFLICT",
+        "A transaction already has a contact, so nothing was changed.",
+        {
+          reason: "contact_already_set",
+          entry_id: details.entry_id,
+          contact: details.contact,
+          hint: "Only blank contacts are filled. Leave that transaction out and retry the rest; tell the owner if its contact looks wrong.",
+        },
+      );
+    }
+    case "API_CONTACT_TRANSFER":
+      return new ApiError(
+        422,
+        "VALIDATION_ERROR",
+        "A transfer between the business's own accounts has no contact, so nothing was changed.",
+        {
+          reason: "transfer_no_contact",
+          entry_id: refusalDetails(message).entry_id,
+          hint: "Leave that transaction out and retry the rest.",
+        },
+      );
     case "API_KEY_INVALID":
       return new ApiError(401, "UNAUTHORIZED", "Invalid or revoked API key.", {
         reason: "invalid_api_key",
@@ -200,6 +273,7 @@ export function databaseError(message: string, permission: string): ApiError {
     case "ACCT_INVALID_RULE_ACCOUNT":
     case "ACCT_INVALID_MONEY":
     case "ACCT_INVALID_COMMAND":
+    case "ACCT_INVALID_ROLES":
     case "ACCT_IMMUTABLE_PROVENANCE":
       return new ApiError(
         422,
@@ -227,7 +301,7 @@ export function databaseError(message: string, permission: string): ApiError {
         "A value is not allowed here.",
         {
           reason: "invalid_parameters",
-          hint: "An account, category or payee id does not exist or does not fit here. Look it up again.",
+          hint: "An account, category or contact id does not exist, is archived or does not fit here. Look it up again.",
         },
       );
     case "ACCT_INVALID_FILTER":
@@ -249,6 +323,12 @@ export function databaseError(message: string, permission: string): ApiError {
         hint: "Check the id; search again to find the current one.",
       });
     default:
+      // Two requests racing to add the same thing: the second is a duplicate.
+      if (/duplicate key value violates unique constraint/i.test(message))
+        return new ApiError(409, "CONFLICT", "That already exists.", {
+          reason: "duplicate",
+          hint: "Read it again (for a contact, search books_list_contacts) and use the one that exists.",
+        });
       if (/violates (check|foreign key) constraint/i.test(message))
         return new ApiError(
           422,

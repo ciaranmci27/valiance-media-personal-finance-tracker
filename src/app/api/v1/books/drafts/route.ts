@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { apiOperation } from "@/lib/api/operations";
 import { withApi } from "@/lib/api/with-api";
-import { booksCommand, writtenDraft } from "@/lib/api/books";
+import { booksCommand, payeeFields, writtenDraft } from "@/lib/api/books";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ export const POST = withApi(
       keyHash,
       "draft.create",
       idempotencyKey,
-      body,
+      payeeFields(body),
     );
     return { data: writtenDraft(result, draftId(idempotencyKey), origin) };
   },
