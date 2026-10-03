@@ -437,10 +437,18 @@ export function AccountingTransactions({
       bankProfiles.some((p) => p.account_id === a.id && p.cash_kind !== "card"),
     )
     .reduce((s, a) => s + balances.get(a.id)!.amount, BigInt(0));
+  // Card balances are amounts owed (positive), so "All accounts" nets them
+  // out of cash, the way Wave's account total does.
+  const cardOwed = data.balances
+    .filter((a) =>
+      bankProfiles.some((p) => p.account_id === a.id && p.cash_kind === "card"),
+    )
+    .reduce((s, a) => s + balances.get(a.id)!.amount, BigInt(0));
+  const netBalance = cashBalance - cardOwed;
   const selectedBalance = data.balances.find((a) => a.id === account);
   const displayedBalance = selectedBalance
     ? balances.get(selectedBalance.id)!.amount
-    : cashBalance;
+    : netBalance;
   const cashAccounts = data.balances.filter((a) =>
     bankProfiles.some((p) => p.account_id === a.id && p.cash_kind !== "card"),
   );
@@ -1511,6 +1519,12 @@ export function AccountingTransactions({
                 detail: (
                   <span>
                     Cash & bank <MaskedValue value={money(cashBalance)} />
+                    {cardOwed !== BigInt(0) && (
+                      <>
+                        {" "}
+                        minus cards owed <MaskedValue value={money(cardOwed)} />
+                      </>
+                    )}
                   </span>
                 ),
               },
