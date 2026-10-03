@@ -119,5 +119,5 @@ lines). New requests, found while writing Alex's policy against the server sourc
 - Scheduled runs act only on rows with `status: draft`, `categorized: false`, `transfer: false`.
 - The host dispatcher (not the agent) polls `GET /api/v1/books/revision` once a minute with
   Alex's key, and lists `GET /api/v1/books/transactions?review=needed&status=draft&limit=100`
-  only when the revision changed: about 1,440 plus ~15 requests a day against his key's
+  only when the revision changed: about 1,440 plus ~15 requests a day against her key's
   120-a-minute limit.

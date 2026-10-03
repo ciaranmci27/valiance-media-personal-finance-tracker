@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "@/lib/admin/require-auth";
 import { getServiceClient } from "@/lib/supabase/service";
 import { isDemoMode } from "@/lib/demo";
+import { demoApiKeysPayload, demoCreatedKey } from "@/lib/demo/api-keys";
 import { hasPermission } from "@/lib/access-control";
 import { membersApiAccess } from "@/lib/api/member-access";
 import {
@@ -47,8 +48,7 @@ const createSchema = z.object({
 export async function GET() {
   const auth = await requireAuth();
   if (!auth.authenticated) return auth.response;
-  if (isDemoMode())
-    return NextResponse.json({ data: { keys: [], members: [], requests: [] } });
+  if (isDemoMode()) return NextResponse.json({ data: demoApiKeysPayload() });
   const me = auth.access.member;
   const isOwner = me.role === "owner";
   const service = getServiceClient();
@@ -108,14 +108,15 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const auth = await requireAuth({ permission: "api.use" });
   if (!auth.authenticated) return auth.response;
+  const parsed = createSchema.safeParse(await request.json().catch(() => null));
+  // Demo stays read-only: a valid request gets a fake, unstored key so the
+  // show-once step can be seen, and nothing is written.
   if (isDemoMode())
-    return NextResponse.json(
-      { error: "Demo mode is read-only." },
-      { status: 403 },
-    );
+    return parsed.success
+      ? NextResponse.json({ data: demoCreatedKey(parsed.data) }, { status: 201 })
+      : NextResponse.json({ error: "Demo mode is read-only." }, { status: 403 });
   const me = auth.access.member;
 
-  const parsed = createSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success)
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? "Check the form." },
