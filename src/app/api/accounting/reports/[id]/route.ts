@@ -30,7 +30,7 @@ export async function GET(
   try {
     const { id } = await params,
       format = req.nextUrl.searchParams.get("format") ?? "pdf";
-    if (!z.uuid().safeParse(id).success || !["pdf", "csv"].includes(format))
+    if (!z.guid().safeParse(id).success || !["pdf", "csv"].includes(format))
       return NextResponse.json(
         { error: "Choose a saved report and a supported format." },
         { status: 400 },

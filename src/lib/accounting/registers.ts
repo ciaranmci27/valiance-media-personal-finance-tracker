@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { dateSchema } from "./contracts";
-const id = z.uuid(),
+const id = z.guid(),
   cents = z.string().regex(/^(0|[1-9][0-9]{0,17})$/),
   reason = z.string().trim().min(1).max(1000),
   version = z.number().int().min(0).max(2147483646);

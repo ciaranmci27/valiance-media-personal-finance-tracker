@@ -142,7 +142,7 @@ export async function answerAccountingRead(
         .object({
           kind: z.enum(["year", "mapping", "adjustment", "basis"]),
           year: z.coerce.number().int().min(1900).max(2100),
-          key: z.uuid().nullable(),
+          key: z.guid().nullable(),
           offset: z.coerce.number().int().min(0).max(10000000),
         })
         .safeParse({
@@ -185,7 +185,7 @@ export async function answerAccountingRead(
       const parsed = z
         .object({
           kind: z.enum(["asset", "loan"]).optional(),
-          id: z.uuid().optional(),
+          id: z.guid().optional(),
           date: dateSchema,
           query: z.string().max(200).default(""),
           offset: z.coerce.number().int().min(0).max(10000000).default(0),
@@ -224,7 +224,7 @@ export async function answerAccountingRead(
         );
       }
       const parsed = registerActionSchema.safeParse(body),
-        identifier = z.uuid().safeParse(params.get("id"));
+        identifier = z.guid().safeParse(params.get("id"));
       if (!parsed.success || !identifier.success)
         return NextResponse.json(
           { error: "Check the proposed register entry." },
@@ -292,8 +292,8 @@ export async function answerAccountingRead(
     } else if (view === "payroll-detail") {
       const parsed = z
         .object({
-          id: z.uuid(),
-          bank_account_id: z.uuid().optional(),
+          id: z.guid(),
+          bank_account_id: z.guid().optional(),
           template: z.enum(["cash", "accrual"]).optional(),
           offset: z.coerce.number().int().min(0).max(10000000).default(0),
         })
@@ -344,7 +344,7 @@ export async function answerAccountingRead(
         { p_filter: parsed.data },
       );
     } else if (view === "cash-review") {
-      const line = z.uuid().safeParse(params.get("line"));
+      const line = z.guid().safeParse(params.get("line"));
       if (!line.success)
         return NextResponse.json(
           { error: "Choose a bank cash movement." },
@@ -361,7 +361,7 @@ export async function answerAccountingRead(
           offset: z.coerce.number().int().min(0).max(10000000).default(0),
           limit: z.coerce.number().int().min(1).max(200).default(100),
           // One group by id, for the ledger row that reverses it.
-          id: z.uuid().optional(),
+          id: z.guid().optional(),
         })
         .refine((v) => v.from <= v.to)
         .safeParse(Object.fromEntries(params));
@@ -382,7 +382,7 @@ export async function answerAccountingRead(
         .object({
           from: dateSchema,
           to: dateSchema,
-          rule: z.uuid().optional(),
+          rule: z.guid().optional(),
           offset: z.coerce.number().int().min(0).max(10000000).default(0),
         })
         .refine((v) => v.from <= v.to)
@@ -399,7 +399,7 @@ export async function answerAccountingRead(
         p_offset: parsed.data.offset,
       });
     } else if (view === "snapshot") {
-      const id = z.uuid().safeParse(params.get("id"));
+      const id = z.guid().safeParse(params.get("id"));
       if (!id.success)
         return NextResponse.json(
           { error: "Choose a saved report." },
@@ -409,8 +409,8 @@ export async function answerAccountingRead(
     } else if (view === "reconciliation") {
       const parsed = z
         .object({
-          id: z.uuid().optional(),
-          account: z.uuid().optional(),
+          id: z.guid().optional(),
+          account: z.guid().optional(),
           offset: z.coerce.number().int().min(0).max(10000000).default(0),
           query: z.string().max(200).default(""),
         })
@@ -442,7 +442,7 @@ export async function answerAccountingRead(
         p_offset: offset.data,
       });
     } else if (view === "evidence") {
-      const id = z.uuid().safeParse(params.get("entry"));
+      const id = z.guid().safeParse(params.get("entry"));
       if (!id.success)
         return NextResponse.json(
           { error: "Choose an entry." },
@@ -481,7 +481,7 @@ export async function answerAccountingRead(
     } else if (view === "account-ledger") {
       const schema = z
         .object({
-          account: z.uuid(),
+          account: z.guid(),
           from: dateSchema,
           to: dateSchema,
           offset: z.coerce.number().int().min(0).default(0),

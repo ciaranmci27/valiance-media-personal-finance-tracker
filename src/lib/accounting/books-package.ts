@@ -15,7 +15,7 @@ export const booksPackageScopeSchema = z
 export const booksPackageCommandSchema = z
   .object({
     type: z.literal("report.books.capture"),
-    id: z.uuid(),
+    id: z.guid(),
     expected_revision: z.string().regex(/^\d{1,19}$/),
     year: z.number().int().min(1900).max(2100),
     through: dateSchema,

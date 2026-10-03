@@ -57,7 +57,7 @@ export const contractorFilterSchema = z
     through: dateSchema,
     offset: z.number().int().min(0).max(10000000).default(0),
     query: z.string().max(200).default(""),
-    party: z.uuid().optional(),
+    party: z.guid().optional(),
   })
   .strict()
   .refine((v) => v.through.startsWith(`${v.year}-`));

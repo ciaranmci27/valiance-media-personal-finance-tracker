@@ -67,10 +67,10 @@ export const taxBasisBodySchema = z
   })
   .strict();
 const common = {
-  id: z.uuid(),
+  id: z.guid(),
   year,
   expected_version: z.number().int().min(0),
-  document_id: z.uuid(),
+  document_id: z.guid(),
   reason: z.string().trim().min(1).max(1000),
   verified: z.literal(true),
 };
@@ -79,8 +79,8 @@ export const taxWorkpaperCommandSchema = z.discriminatedUnion("type", [
     .object({
       ...common,
       type: z.literal("tax.mapping"),
-      document_id: z.uuid().nullable(),
-      account_id: z.uuid(),
+      document_id: z.guid().nullable(),
+      account_id: z.guid(),
       concept,
       deductible_bps: z.number().int().min(0).max(10000),
     })
@@ -89,7 +89,7 @@ export const taxWorkpaperCommandSchema = z.discriminatedUnion("type", [
     .object({
       ...common,
       type: z.literal("tax.adjustment"),
-      adjustment_key: z.uuid(),
+      adjustment_key: z.guid(),
       effective_date: dateSchema,
       concept: z.enum([
         "ordinary_adjustment",

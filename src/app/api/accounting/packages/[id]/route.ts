@@ -27,7 +27,7 @@ export async function GET(
     const { id } = await params,
       format = req.nextUrl.searchParams.get("format") ?? "zip";
     if (
-      !z.uuid().safeParse(id).success ||
+      !z.guid().safeParse(id).success ||
       !["zip", "csv-zip", "json"].includes(format)
     )
       return NextResponse.json(

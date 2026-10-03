@@ -28,12 +28,12 @@ const requestSchema = z.discriminatedUnion("action", [
   z
     .object({
       action: z.literal("connect"),
-      key: z.uuid(),
+      key: z.guid(),
       command: feedCommandSchema.options[0],
       token: z.string().min(16).max(12000),
     })
     .strict(),
-  z.object({ action: z.enum(["sync", "discover"]), id: z.uuid() }).strict(),
+  z.object({ action: z.enum(["sync", "discover"]), id: z.guid() }).strict(),
 ]);
 export async function GET() {
   try {

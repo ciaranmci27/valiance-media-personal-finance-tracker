@@ -3,7 +3,7 @@ import { dateSchema } from "./contracts";
 import { readCents } from "./money";
 import type { AccountingWorkspace } from "./contracts";
 
-const id = z.uuid(),
+const id = z.guid(),
   version = z.number().int().min(1).max(2147483646);
 const cents = z.string().refine((v) => {
   try {

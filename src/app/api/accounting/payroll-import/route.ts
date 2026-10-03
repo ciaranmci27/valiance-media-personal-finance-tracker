@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
       .parse(form.get("mode"));
     let bytes: Uint8Array, document_id: string | undefined;
     if (mode === "commit") {
-      document_id = z.uuid().parse(form.get("document_id"));
+      document_id = z.guid().parse(form.get("document_id"));
       const docs = await readAccounting(client, "documents", {
         p_id: document_id,
         p_offset: 0,

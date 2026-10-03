@@ -15,7 +15,7 @@ import type { RuleCandidate } from "./rules";
 import { CONTACT_ROLES, type ContactRole } from "./contacts";
 export { CONTACT_ROLES, CONTACT_ROLE_LABELS, type ContactRole } from "./contacts";
 
-const id = z.uuid();
+const id = z.guid();
 const version = z.number().int().min(0).max(2147483646);
 const optionalId = id.nullable().optional();
 const name = z.string().trim().min(1).max(120);

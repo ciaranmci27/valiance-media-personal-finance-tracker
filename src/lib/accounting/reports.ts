@@ -8,7 +8,7 @@ export type BookMode = "posted" | "working";
  */
 export const DEFAULT_BOOK_MODE: BookMode = "working";
 
-const dimension = z.union([z.uuid(), z.literal("unassigned")]).optional();
+const dimension = z.union([z.guid(), z.literal("unassigned")]).optional();
 export const reportFilterSchema = z
   .object({
     from: dateSchema,
@@ -17,7 +17,7 @@ export const reportFilterSchema = z
     compare_from: dateSchema.optional(),
     compare_to: dateSchema.optional(),
     payee: dimension,
-    account_ids: z.array(z.uuid()).min(1).max(500).optional(),
+    account_ids: z.array(z.guid()).min(1).max(500).optional(),
     account_types: z
       .array(z.enum(["asset", "liability", "equity", "income", "expense"]))
       .min(1)
@@ -153,7 +153,7 @@ export interface ReportDetail {
 export const cashAllocationCommand = z
   .object({
     type: z.literal("cash.allocate"),
-    id: z.uuid(),
+    id: z.guid(),
     expected_version: z.number().int().min(0),
     reason: z.string().trim().min(1).max(1000),
     allocations: z
@@ -195,7 +195,7 @@ export const reportOptionsSchema = z
 export const reportCaptureCommand = z
   .object({
     type: z.literal("report.capture"),
-    id: z.uuid(),
+    id: z.guid(),
     expected_revision: z.string().regex(/^\d{1,18}$/),
     filter: reportFilterSchema.refine(
       (f) => !f.account_ids && !f.account_types && !f.cash_class,

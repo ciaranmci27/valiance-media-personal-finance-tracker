@@ -23,7 +23,7 @@ const cents = z.string().refine((value) => {
 }, "Each line needs a nonzero amount in exact cents.");
 const line = z
   .object({
-    account_id: z.uuid(),
+    account_id: z.guid(),
     amount_cents: cents,
     memo: z.string().max(500).default(""),
   })
@@ -33,7 +33,7 @@ export const commandSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("account.create"),
-      id: z.uuid(),
+      id: z.guid(),
       code: z.string().trim().max(20),
       name: z.string().trim().min(1).max(120),
       account_type: z.enum([
@@ -46,7 +46,7 @@ export const commandSchema = z.discriminatedUnion("type", [
       normal_side: z.enum(["debit", "credit"]),
       cash_kind: z.enum(["none", "bank", "cash", "card"]).optional(),
       purpose: z.string().trim().max(80).nullable().optional(),
-      parent_account_id: z.uuid().nullable().optional(),
+      parent_account_id: z.guid().nullable().optional(),
       subtype: z.string().trim().max(100).optional(),
       external_names: z
         .object({ wave: z.string().trim().min(1).max(250) })
@@ -57,7 +57,7 @@ export const commandSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("draft.save"),
-      id: z.uuid(),
+      id: z.guid(),
       expected_version: z.number().int().nonnegative(),
       entry_date: dateSchema,
       memo: z.string().trim().min(1).max(1000),
@@ -67,14 +67,14 @@ export const commandSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("entry.post"),
-      id: z.uuid(),
+      id: z.guid(),
       expected_version: version,
     })
     .strict(),
   z
     .object({
       type: z.literal("entry.review"),
-      id: z.uuid(),
+      id: z.guid(),
       expected_version: version,
       reviewed: z.boolean(),
     })
@@ -82,7 +82,7 @@ export const commandSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.enum(["draft.discard", "entry.discard"]),
-      id: z.uuid(),
+      id: z.guid(),
       expected_version: version,
       reason: z.string().trim().min(1).max(1000),
     })
@@ -90,7 +90,7 @@ export const commandSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.enum(["entry.reverse", "entry.restore"]),
-      id: z.uuid(),
+      id: z.guid(),
       expected_version: version,
       entry_date: dateSchema,
       reason: z.string().trim().min(1).max(1000),
@@ -98,7 +98,7 @@ export const commandSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 export const requestSchema = z
-  .object({ key: z.uuid(), command: commandSchema })
+  .object({ key: z.guid(), command: commandSchema })
   .strict();
 export type AccountingCommand = z.infer<typeof commandSchema>;
 export type AccountType =

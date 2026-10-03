@@ -2,12 +2,12 @@ import { z } from "zod";
 import { dateSchema } from "./contracts";
 import { readCents } from "./money";
 const base = {
-  id: z.uuid(),
+  id: z.guid(),
   expected_revision: z.string().regex(/^\d{1,19}$/),
 };
 const terms = {
-  from_account_id: z.uuid(),
-  to_account_id: z.uuid(),
+  from_account_id: z.guid(),
+  to_account_id: z.guid(),
   amount_cents: z.string().refine((v) => {
     try {
       return readCents(v) > BigInt(0);
@@ -32,8 +32,8 @@ export const transferCommandSchema = z.discriminatedUnion("type", [
       ...base,
       ...terms,
       type: z.literal("transfer.link"),
-      outgoing_entry_id: z.uuid(),
-      incoming_entry_id: z.uuid(),
+      outgoing_entry_id: z.guid(),
+      incoming_entry_id: z.guid(),
     })
     .strict(),
   z
@@ -49,14 +49,14 @@ export const transferCommandSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("transfer.confirm"),
-      id: z.uuid(),
+      id: z.guid(),
       expected_version: z.number().int().min(1),
     })
     .strict(),
   z
     .object({
       type: z.literal("transfer.unpair"),
-      id: z.uuid(),
+      id: z.guid(),
       expected_version: z.number().int().min(1),
     })
     .strict(),

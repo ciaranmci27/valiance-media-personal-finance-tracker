@@ -9,7 +9,7 @@
  * roles and stops on a name key clash.
  */
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { accountingTestDb } from "./accounting-test-db";
 import {
@@ -17,6 +17,7 @@ import {
   accountingTaxDependencySql,
 } from "./accounting-schema";
 import { fixtureOwner } from "../src/lib/accounting/fixtures";
+import { extendedRequestSchema } from "../src/lib/accounting/workflows";
 
 let checks = 0;
 const check = (actual: unknown, expected: unknown, label?: string) => {
@@ -227,7 +228,27 @@ async function backfill(rows: [string, string, boolean][]) {
   }
 }
 
+// Contacts an agent adds get ids hashed from the request key
+// (md5('contact:' || key)::uuid), which carry no RFC version bits. The owner's
+// commands must accept them like any database id, or Approve, Edit and Merge
+// fail in the browser with "Invalid UUID" before reaching the books.
+function agentIdsParse() {
+  const hashed = (seed: string) =>
+    createHash("md5").update(seed).digest("hex").replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, "$1-$2-$3-$4-$5");
+  const contact = hashed(`contact:${randomUUID()}`);
+  const other = hashed(`contact:${randomUUID()}`);
+  const commands = [
+    { type: "party.approve", id: randomUUID(), ids: [contact], expected_versions: { [contact]: 1 } },
+    { type: "party.merge", id: randomUUID(), from_id: contact, into_id: other, from_version: 1, into_version: 1 },
+  ];
+  for (const command of commands) {
+    const parsed = extendedRequestSchema.safeParse({ key: randomUUID(), command });
+    check(parsed.success, true, `${command.type} accepts an agent contact id: ${parsed.success ? "" : parsed.error.message}`);
+  }
+}
+
 async function main() {
+  agentIdsParse();
   await ownerCommands();
   check(
     await backfill([

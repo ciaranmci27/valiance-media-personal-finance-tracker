@@ -68,7 +68,7 @@ export type SupportReportFilter = z.infer<typeof supportReportFilterSchema>;
 export const supportReportCommandSchema = z
   .object({
     type: z.literal("report.support.capture"),
-    id: z.uuid(),
+    id: z.guid(),
     expected_revision: z.string().regex(/^\d{1,19}$/),
     filter: supportReportFilterSchema,
   })

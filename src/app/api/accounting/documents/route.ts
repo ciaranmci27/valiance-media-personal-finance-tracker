@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
       { status: 403 },
     );
   }
-  const id = z.uuid().safeParse(req.nextUrl.searchParams.get("id"));
+  const id = z.guid().safeParse(req.nextUrl.searchParams.get("id"));
   if (!id.success)
     return NextResponse.json({ error: "Choose a document." }, { status: 400 });
   try {
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
   }
   try {
     const form = await boundedForm(req, 21 * 1024 * 1024),
-      id = z.uuid().parse(form.get("id")),
+      id = z.guid().parse(form.get("id")),
       file = form.get("file");
     if (
       !(file instanceof File) ||

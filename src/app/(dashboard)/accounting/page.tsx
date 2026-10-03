@@ -55,7 +55,7 @@ async function AccountingPage({
     params.from ?? `${today.slice(0, 4)}-01-01`,
   );
   const to = dateSchema.safeParse(params.to ?? today);
-  const entry = params.entry ? z.uuid().safeParse(params.entry) : null;
+  const entry = params.entry ? z.guid().safeParse(params.entry) : null;
   let data: AccountingWorkspace | null = null;
   let problem = "";
   let setupOwnerId: string | null = null;

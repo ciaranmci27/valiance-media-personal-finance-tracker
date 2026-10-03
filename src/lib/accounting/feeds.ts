@@ -1,5 +1,5 @@
 import { z } from "zod";
-const id = z.uuid(),
+const id = z.guid(),
   // Discovered accounts are keyed by a hash cast to uuid, which is not RFC 4122
   // shaped, so those ids take the looser GUID check.
   discovered = z.guid(),

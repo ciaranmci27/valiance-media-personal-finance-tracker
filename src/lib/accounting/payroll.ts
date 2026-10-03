@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { dateSchema } from "./contracts";
 const cents = z.string().regex(/^(0|[1-9][0-9]{0,17})$/),
-  id = z.uuid(),
+  id = z.guid(),
   nullableId = id.nullable(),
   reason = z.string().trim().min(1).max(1000);
 export const payrollKinds = {

@@ -4,17 +4,17 @@ import { payrollBodySchema, type PayrollBody } from "./payroll";
 
 export const patriotMappingSchema = z
   .object({
-    wages: z.uuid(),
-    employer_tax: z.uuid(),
-    net_pay: z.uuid(),
-    tax_payable: z.uuid(),
+    wages: z.guid(),
+    employer_tax: z.guid(),
+    net_pay: z.guid(),
+    tax_payable: z.guid(),
     officers: z.array(z.string().min(1).max(160)).max(50),
   })
   .strict();
 export type PatriotMapping = z.infer<typeof patriotMappingSchema>;
 export const patriotChoiceSchema = z.union([
   z.literal("new"),
-  z.uuid(),
+  z.guid(),
   z
     .string()
     .regex(

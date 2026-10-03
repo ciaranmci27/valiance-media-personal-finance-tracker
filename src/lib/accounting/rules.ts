@@ -7,7 +7,7 @@ const cents = z.string().refine((v) => {
     return false;
   }
 }, "Enter nonnegative integer cents.");
-const base = { id: z.uuid(), expected_version: z.number().int().min(0) },
+const base = { id: z.guid(), expected_version: z.number().int().min(0) },
   reason = z.string().trim().min(1).max(1000);
 export const ruleDefinitionSchema = z
   .object({
@@ -15,13 +15,13 @@ export const ruleDefinitionSchema = z
     priority: z.number().int().min(1).max(10000),
     description_mode: z.enum(["exact", "prefix", "contains"]),
     description: z.string().trim().min(1).max(250),
-    bank_account_id: z.uuid(),
+    bank_account_id: z.guid(),
     direction: z.enum(["increase", "decrease"]),
     min_cents: cents,
     max_cents: cents.pipe(z.string().refine((v) => BigInt(v) > BigInt(0))),
-    match_payee_id: z.uuid().nullable(),
-    category_account_id: z.uuid(),
-    assign_payee_id: z.uuid().nullable(),
+    match_payee_id: z.guid().nullable(),
+    category_account_id: z.guid(),
+    assign_payee_id: z.guid().nullable(),
   })
   .strict();
 const legacyRulesCommandSchema = z.discriminatedUnion("type", [
@@ -41,15 +41,15 @@ const legacyRulesCommandSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.enum(["rule.apply", "rule.apply_preview"]),
-      id: z.uuid(),
+      id: z.guid(),
       expected_revision: z.string().regex(/^\d{1,19}$/),
       entries: z
         .array(
           z
             .object({
-              id: z.uuid(),
+              id: z.guid(),
               expected_version: z.number().int().positive(),
-              rule_id: z.uuid(),
+              rule_id: z.guid(),
               rule_version: z.number().int().positive(),
             })
             .strict(),
@@ -62,7 +62,7 @@ const legacyRulesCommandSchema = z.discriminatedUnion("type", [
     .object({
       ...base,
       type: z.literal("alias.save"),
-      party_id: z.uuid(),
+      party_id: z.guid(),
       match_mode: z.enum(["exact", "prefix"]),
       description: z.string().trim().min(1).max(250),
       enabled: z.boolean(),
@@ -85,11 +85,11 @@ const canonicalRuleSchema = z
           z.object({ prefix: z.string().trim().min(1).max(250) }).strict(),
           z.object({ contains: z.string().trim().min(1).max(250) }).strict(),
         ]),
-        bank_account_id: z.uuid().optional(),
+        bank_account_id: z.guid().optional(),
         direction: z.enum(["increase", "decrease", "in", "out"]).optional(),
         amount_min: cents.optional(),
         amount_max: cents.optional(),
-        payee_id: z.uuid().optional(),
+        payee_id: z.guid().optional(),
       })
       .strict()
       .refine(
@@ -102,8 +102,8 @@ const canonicalRuleSchema = z
     actions: z.union([
       z
         .object({
-          account_id: z.uuid(),
-          payee_id: z.uuid().optional(),
+          account_id: z.guid(),
+          payee_id: z.guid().optional(),
           memo: z.string().max(2000).optional(),
         })
         .strict(),
@@ -113,7 +113,7 @@ const canonicalRuleSchema = z
             .array(
               z
                 .object({
-                  account_id: z.uuid(),
+                  account_id: z.guid(),
                   share_bps: z.number().int().min(1).max(9999),
                 })
                 .strict(),
@@ -124,7 +124,7 @@ const canonicalRuleSchema = z
               (v) => v.reduce((n, s) => n + s.share_bps, 0) === 10000,
               "Split percentages must total 100%.",
             ),
-          payee_id: z.uuid().optional(),
+          payee_id: z.guid().optional(),
           memo: z.string().max(2000).optional(),
         })
         .strict(),
@@ -138,7 +138,7 @@ export const rulesCommandSchema = z.union([
     .object({
       ...base,
       type: z.literal("alias.save"),
-      party_id: z.uuid(),
+      party_id: z.guid(),
       match_kind: z.enum(["key", "exact", "prefix"]),
       pattern: z.string().trim().min(1).max(250),
       enabled: z.boolean(),
