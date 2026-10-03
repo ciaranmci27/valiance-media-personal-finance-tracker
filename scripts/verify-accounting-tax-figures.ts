@@ -72,7 +72,6 @@ function source(overrides: Partial<TaxSource> = {}): TaxSource {
     book_to_tax_cents: "0",
     unmapped_accounts: 0,
     drafts: 0,
-    incomplete_imports: 0,
     unavailable_adjustments: 0,
     ...overrides,
   } as TaxSource;
@@ -209,14 +208,6 @@ const byKey = (figures: BooksFigure[], key: string) =>
   check(
     "a loss is offered with a basis caveat",
     /Loss so far/.test(byKey(out.figures, "business_profit")?.detail ?? ""),
-  );
-}
-{
-  const out = build(source({ incomplete_imports: 1 }), null);
-  check(
-    "an unverified import is neither a gate nor a note: parity is not something the owner can act on",
-    byKey(out.figures, "business_profit")?.available === true &&
-      !out.notes.some((n) => /import/.test(n)),
   );
 }
 {

@@ -1,15 +1,10 @@
 import assert from "node:assert/strict";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { accountingTestDb } from "./accounting-test-db";
 import {
   fixtureAccounts,
   fixtureAccountId as account,
 } from "../src/lib/accounting/fixtures";
-import {
-  readCsv,
-  bankGroups,
-  type CsvOptions,
-} from "../src/lib/accounting/imports/csv";
 async function main() {
   const db = await accountingTestDb();
   let checks = 0;
@@ -44,58 +39,64 @@ async function main() {
       )
     ).toString();
   };
-  const opts: CsvOptions = {
-    delimiter: ",",
-    headerRow: 0,
-    dateFormat: "yyyy-mm-dd",
-    decimal: ".",
-    thousands: "",
+  const connection = randomUUID();
+  let serial = 0;
+  /** A bank feed run with one posted movement: the books record it and draft its entry. */
+  const synced = async (external: string, cents: string) => {
+    await db.exec("RESET ROLE; SET ROLE service_role");
+    const run = randomUUID();
+    const call = async (c: object) =>
+      (
+        await db.query<{ r: any }>("SELECT accounting.sync_server($1) r", [
+          JSON.stringify({ id: connection, run_id: run, ...c }),
+        ])
+      ).rows[0].r;
+    assert.equal((await call({ action: "lease" })).acquired, true);
+    serial++;
+    await call({
+      action: "complete",
+      through: 1800000000,
+      create_drafts: true,
+      accounts: [
+        {
+          provider_connection_id: "synthetic",
+          provider_account_id: "checking",
+          currency: "USD",
+          name: "Synthetic checking",
+          institution: "Synthetic bank",
+          balance_cents: "10000",
+          balance_at: Date.parse("2026-01-12T18:00:00Z") / 1000,
+          complete: true,
+          transactions: [
+            {
+              external_id: external,
+              posted: Date.parse("2026-01-12T18:00:00Z") / 1000,
+              amount_cents: cents,
+              description: "Synthetic bank receipt",
+              state: "posted",
+              hash: serial.toString(16).padStart(64, "0"),
+              raw: { synthetic: true },
+            },
+          ],
+        },
+      ],
+    });
+    await db.exec("RESET ROLE; SET ROLE authenticated");
+    return (await all()).transactions.find(
+      (o: any) => o.external_id === external,
+    ).id as string;
   };
-  const source = async (
-    external: string,
-    amount: string,
-    provider = "csv",
-    description = "Synthetic bank receipt",
-  ) => {
-    const csv = `id,date,memo,amount\n${external},2026-01-12,${description},${amount}`;
-    const table = readCsv(csv, opts),
-      groups = bankGroups(table, opts, {
-        date: "date",
-        description: "memo",
-        amount: "amount",
-        externalId: "id",
-        sign: "deposits_positive",
-        accountId: account(1),
-      });
-    const batch = randomUUID(),
-      group = randomUUID();
-    await cmd({
-      type: "import.create",
-      id: batch,
-      source_system: provider,
-      source_scope: "synthetic-checking",
-      file_hash: table.fileHash,
-      mapping_hash: createHash("sha256").update("mapping").digest("hex"),
-      file_name: "synthetic.csv",
-      mode: "bank",
-      basis: "cash",
-      expected_groups: 1,
-      from: "2026-01-01",
-      to: "2026-01-31",
-    });
-    await cmd({
-      type: "import.stage",
-      id: batch,
-      expected_version: 1,
-      groups: [{ ...groups[0], id: group, ordinal: 0 }],
-    });
-    return {
-      batch,
-      group,
-      observation: (await all()).transactions.find(
-        (o: any) => o.external_id === external,
-      ).id,
-    };
+  /** A second source for the same movement (a bank CSV or Wave export row), recorded with no draft. */
+  const observed = async (external: string, cents: string, source: string) => {
+    const id = randomUUID();
+    await db.exec("RESET ROLE");
+    await db.query(
+      `INSERT INTO accounting.bank_transactions(id,bank_account_id,source,external_id,posted_date,amount_cents,description,descriptor_key,content_hash,raw_payload,state)
+       SELECT $1,id,$2,$3,'2026-01-12',$4,'Synthetic bank receipt','',repeat('e',64),'{}','posted' FROM accounting.bank_accounts WHERE account_id=$5`,
+      [id, source, external, cents, account(1)],
+    );
+    await db.exec("SET ROLE authenticated");
+    return id;
   };
   const posting = async (amount: string) =>
     cmd({
@@ -132,30 +133,41 @@ async function main() {
         cash_kind: a.id === account(1) ? "bank" : "none",
       })),
     });
-    const first = await source("receipt-500", "500.00");
+    await cmd({
+      type: "feed.claim",
+      id: connection,
+      name: "Synthetic bank",
+      access_url_encrypted: "encrypted-fixture-not-a-secret-value",
+      expected_version: 0,
+    });
+    await cmd({
+      type: "feed.map",
+      id: randomUUID(),
+      expected_version: 0,
+      account_id: account(1),
+      connection_id: connection,
+      provider_account_id: JSON.stringify(["synthetic", "checking"]).replace(
+        ",",
+        ", ",
+      ),
+      coverage_from: "2026-01-01",
+      movement_sign: 1,
+    });
+    const first = await synced("receipt-500", "50000");
     const drawer = async () =>
       (
         await db.query<{ r: any }>("SELECT accounting.bank_review($1) r", [
-          JSON.stringify({ id: first.group }),
+          JSON.stringify({ id: first }),
         ])
       ).rows[0].r;
-    check((await drawer()).group.id, first.group);
-    check((await drawer()).group.bank_transaction_id, first.observation);
-    check((await drawer()).remaining_cents, "50000");
-    check((await drawer()).drafts.length, 0);
-    await cmd({
-      type: "import.apply",
-      id: first.batch,
-      expected_version: 2,
-      group_ids: [first.group],
-    });
-    const imported = (
-      await db.query<{ r: any }>("SELECT accounting.imports($1) r", [
-        first.batch,
-      ])
-    ).rows[0].r.groups[0];
-    const original = await detail(imported.entry_id);
-    check((await drawer()).drafts[0].id, original.id);
+    check((await drawer()).group.id, first);
+    check((await drawer()).group.bank_transaction_id, first);
+    check("source_conflict" in (await drawer()), false);
+    // The feed drafted the movement; that draft owns the observation.
+    check((await drawer()).drafts.length, 1);
+    check((await drawer()).remaining_cents, "0");
+    const original = (await drawer()).drafts[0];
+    check(original.status, "draft");
     const a = await posting("20000"),
       b = await posting("30000");
     const lineA = (await detail(a.id)).lines.find(
@@ -166,23 +178,21 @@ async function main() {
       ).id;
     // The draft owns the observation until it is explicitly discarded, even for partial replacement.
     await fail(
-      async () => cmd(await match(first.observation, lineA, "20000")),
+      async () => cmd(await match(first, lineA, "20000")),
       /ACCT_MATCH_OVERALLOCATED/,
     );
-    const partial = await match(first.observation, lineA, "20000", [
+    const partial = await match(first, lineA, "20000", [
       { id: original.id, expected_version: original.version },
     ]);
     const key = randomUUID();
-    const { bank_transaction_id: _observation, ...legacyPartial } = partial;
-    const groupPartial = { ...legacyPartial, group_id: first.group };
-    check(await cmd(groupPartial, key), await cmd(groupPartial, key));
+    check(await cmd(partial, key), await cmd(partial, key));
     check((await drawer()).remaining_cents, "30000");
-    check(await remaining(first.observation), "30000");
+    check(await remaining(first), "30000");
     check((await detail(original.id)).status, "discarded");
-    await cmd(await match(first.observation, lineB, "30000"));
-    check(await remaining(first.observation), "0");
-    check((await review(first.observation)).review, "matched");
-    check((await review(first.observation)).matches.length, 2);
+    await cmd(await match(first, lineB, "30000"));
+    check(await remaining(first), "0");
+    check((await review(first)).review, "matched");
+    check((await review(first)).matches.length, 2);
     check(
       (
         await db.query<{ r: any }>(
@@ -192,22 +202,19 @@ async function main() {
       "50000",
     );
     await fail(
-      async () => cmd(await match(first.observation, lineB, "1")),
+      async () => cmd(await match(first, lineB, "1")),
       /ACCT_MATCH_OVERALLOCATED|duplicate key/,
     );
-    const other = await source("different-id", "100.00");
+    const other = await observed("different-id", "10000", "csv");
     await fail(
-      async () => cmd(await match(other.observation, lineA, "10000")),
+      async () => cmd(await match(other, lineA, "10000")),
       /ACCT_MATCH_OVERALLOCATED/,
     );
-    const changed = await source("receipt-500", "501.00");
-    const changes = (
-      await db.query<{ r: any }>("SELECT accounting.imports($1) r", [
-        changed.batch,
-      ])
-    ).rows[0].r;
-    check(changes.groups[0].status, "exception");
-    check((await review(first.observation)).amount_cents, "50000");
+    // A bank transaction id the books do not hold is refused, not looked up elsewhere.
+    await fail(
+      async () => cmd(await match(randomUUID(), lineA, "1")),
+      /ACCT_NOT_FOUND/,
+    );
     await cmd({
       type: "entry.reverse",
       id: a.id,
@@ -215,15 +222,15 @@ async function main() {
       entry_date: "2026-01-12",
       reason: "Reverse matched synthetic receipt",
     });
-    check(await remaining(first.observation), "20000");
-    check((await review(first.observation)).review, "unmatched");
+    check(await remaining(first), "20000");
+    check((await review(first)).review, "unmatched");
     const replacement = await posting("20000"),
       replacementLine = (await detail(replacement.id)).lines.find(
         (l: any) => l.account_id === account(1),
       ).id;
-    await cmd(await match(first.observation, replacementLine, "20000"));
-    check(await remaining(first.observation), "0");
-    const active = (await review(first.observation)).matches.find(
+    await cmd(await match(first, replacementLine, "20000"));
+    check(await remaining(first), "0");
+    const active = (await review(first)).matches.find(
       (m: any) => m.journal_line_id === lineB,
     );
     await cmd({
@@ -233,19 +240,19 @@ async function main() {
       expected_revision: (await all()).revision,
       reason: "Synthetic explicit release",
     });
-    check(await remaining(first.observation), "30000");
+    check(await remaining(first), "30000");
     // Independent corroboration has zero allocation and does not spend a line twice.
     const standalone = await posting("15000"),
       standaloneLine = (await detail(standalone.id)).lines.find(
         (l: any) => l.account_id === account(1),
       ).id;
-    const csv = await source("csv-150", "150.00"),
-      wave = await source("wave-150", "150.00", "wave");
-    await cmd(await match(csv.observation, standaloneLine, "15000"));
-    await cmd(await match(wave.observation, standaloneLine, "0"));
-    check((await review(wave.observation)).review, "matched");
-    check((await review(wave.observation)).matches[0].amount_cents, "0");
-    const primary = (await review(csv.observation)).matches[0];
+    const csv = await observed("csv-150", "15000", "csv"),
+      wave = await observed("wave-150", "15000", "wave");
+    await cmd(await match(csv, standaloneLine, "15000"));
+    await cmd(await match(wave, standaloneLine, "0"));
+    check((await review(wave)).review, "matched");
+    check((await review(wave)).matches[0].amount_cents, "0");
+    const primary = (await review(csv)).matches[0];
     await fail(
       () =>
         cmd({
@@ -263,8 +270,8 @@ async function main() {
       entry_date: "2026-01-13",
       reason: "Suppress both evidence sources",
     });
-    check((await review(csv.observation)).review, "excluded");
-    check((await review(wave.observation)).review, "excluded");
+    check((await review(csv)).review, "excluded");
+    check((await review(wave)).review, "excluded");
     await fail(
       () => db.query("DELETE FROM accounting.bank_matches"),
       /permission denied/,

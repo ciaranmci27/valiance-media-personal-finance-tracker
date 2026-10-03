@@ -12,8 +12,10 @@ async function main() {
     const queries = {
       tables:
         "SELECT relname,relkind,relrowsecurity,relforcerowsecurity,relacl::text FROM pg_class WHERE (relnamespace='accounting'::regnamespace OR (relnamespace='public'::regnamespace AND relname IN ('business_profile','team_members','role_permissions','team_member_permissions'))) ORDER BY relname",
+      // Column order, not attnum: a column dropped by a migration leaves a gap in
+      // attnum that a declarative snapshot cannot express.
       columns:
-        "SELECT c.relname,a.attname,a.attnum,format_type(a.atttypid,a.atttypmod) type,a.attnotnull,pg_get_expr(d.adbin,d.adrelid) default_value FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum WHERE (c.relnamespace='accounting'::regnamespace OR (c.relnamespace='public'::regnamespace AND c.relname IN ('business_profile','team_members','role_permissions','team_member_permissions'))) AND c.relkind='r' AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum",
+        "SELECT c.relname,a.attname,row_number() OVER (PARTITION BY c.relname ORDER BY a.attnum) position,format_type(a.atttypid,a.atttypmod) type,a.attnotnull,pg_get_expr(d.adbin,d.adrelid) default_value FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid LEFT JOIN pg_attrdef d ON d.adrelid=c.oid AND d.adnum=a.attnum WHERE (c.relnamespace='accounting'::regnamespace OR (c.relnamespace='public'::regnamespace AND c.relname IN ('business_profile','team_members','role_permissions','team_member_permissions'))) AND c.relkind='r' AND a.attnum>0 AND NOT a.attisdropped ORDER BY c.relname,a.attnum",
       constraints:
         "SELECT c.relname,k.conname,k.contype,k.condeferrable,k.condeferred,pg_get_constraintdef(k.oid) definition FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid WHERE (c.relnamespace='accounting'::regnamespace OR (c.relnamespace='public'::regnamespace AND c.relname IN ('business_profile','team_members','role_permissions','team_member_permissions'))) ORDER BY c.relname,k.conname",
       indexes:
@@ -54,9 +56,6 @@ async function main() {
       "bank_transactions",
       "bank_matches",
       "feed_worker",
-      "import_batches",
-      "import_rows",
-      "history_checks",
       "documents",
       "document_links",
       "rules",

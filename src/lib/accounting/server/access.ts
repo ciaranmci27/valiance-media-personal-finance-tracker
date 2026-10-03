@@ -56,10 +56,6 @@ export function accountingError(message: string): string {
       "Use this transaction's payroll, transfer, register or reconciliation workflow to change it. No changes were saved.",
     ACCT_PATRIOT_CHANGED:
       "The books changed since the preview. Refresh the preview before importing. No payrolls from this request were saved.",
-    ACCT_IMPORT_COMPARISON_SCOPE:
-      "Choose two files from the same source, scope and import type, with dates covered by both files.",
-    ACCT_IMPORT_COMPARISON_STAGING:
-      "Finish staging both files before comparing them. Posting is not required.",
     ACCT_TAX_RANGE:
       "Choose a cutoff inside the tax year that is not in the future.",
     ACCT_TAX_CONCEPT: "Choose a treatment that fits this account type.",
@@ -83,16 +79,8 @@ export function accountingError(message: string): string {
       "Discover the current accounts, review ownership, and map each company account before enabling its feed.",
     ACCT_FEED_BUSY:
       "A bank sync is running. Wait for it to finish before changing its mapping.",
-    ACCT_DUPLICATE_CONTROL:
-      "Each month and account can appear only once in the source controls.",
     ACCT_LATER_PERIOD_LOCKED:
       "Reopen the affected month and its later closes before changing this financial history.",
-    ACCT_IMPORT_INCOMPLETE:
-      "Resolve all source groups before completing this batch.",
-    ACCT_IMPORT_FINAL:
-      "This batch or source group is already final. Refresh to see its recorded result.",
-    ACCT_IMPORT_EXCEPTION:
-      "This source requires an edit or period review before it can be applied.",
     ACCT_BANK_ACCOUNT_REQUIRED:
       "Choose an active bank or card account in the account settings.",
     ACCT_TRANSFER_ALREADY_LINKED:

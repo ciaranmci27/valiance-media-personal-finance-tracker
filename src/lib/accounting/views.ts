@@ -28,7 +28,6 @@ const VIEWS = new Set<string>([...ACCOUNTING_NAV.map((n) => n.view), "close"]);
 /** The Manage sections, in rail order. */
 export type ManageSection =
   | "feeds"
-  | "imports"
   | "documents"
   | "registers"
   | "tax"
@@ -37,7 +36,6 @@ export type ManageSection =
 
 const MANAGE_SECTIONS = new Set<string>([
   "feeds",
-  "imports",
   "documents",
   "registers",
   "tax",
@@ -48,13 +46,15 @@ const MANAGE_SECTIONS = new Set<string>([
 /**
  * Sections that used to have their own rail entry under Records or Settings.
  * Each maps to where that work lives now, so an old link still lands somewhere
- * sensible. Payroll became its own view; transfers moved into Transactions.
+ * sensible. Payroll became its own view; transfers moved into Transactions;
+ * imports and history checks were retired.
  */
 const LEGACY_SECTIONS: Record<string, ManageSection | null> = {
   assets: "registers",
   loans: "registers",
   contractors: "payees",
-  history: "imports",
+  imports: null,
+  history: null,
   transfers: null,
   payroll: null,
   settings: "feeds",

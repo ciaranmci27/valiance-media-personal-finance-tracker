@@ -188,80 +188,26 @@ async function main() {
       ).status,
       400,
     );
-    const options = {
-      delimiter: ",",
-      headerRow: 0,
-      dateFormat: "yyyy-mm-dd",
-      decimal: ".",
-      thousands: "",
-    };
-    const inspectForm = new FormData();
-    inspectForm.set("file", new File([csv], "synthetic-http-import.csv"));
-    inspectForm.set("phase", "inspect");
-    inspectForm.set("options", JSON.stringify(options));
-    const inspect = await fetch(`${base}/api/accounting/imports`, {
-      method: "POST",
-      headers: { Origin: base },
-      body: inspectForm,
-    });
-    const inspected = await inspect.json();
-    check(inspect.status, 200);
-    check(inspected.rowCount, 2);
-    check(inspected.values.account, ["Checking", "Income"]);
-    const bomCsv = "\uFEFF" + csv,
-      bomForm = new FormData();
-    bomForm.set("file", new File([bomCsv], "synthetic-bom.csv"));
-    bomForm.set("phase", "inspect");
-    bomForm.set("options", JSON.stringify(options));
-    const bomResponse = await fetch(`${base}/api/accounting/imports`, {
-      method: "POST",
-      headers: { Origin: base },
-      body: bomForm,
-    });
-    check(bomResponse.status, 200);
-    const bomInspection = await bomResponse.json();
+    // The import screens were retired with their route.
     check(
-      bomInspection.fileHash,
-      createHash("sha256").update(bomCsv).digest("hex"),
+      (
+        await fetch(`${base}/api/accounting/imports`, {
+          method: "POST",
+          headers: { Origin: base },
+        })
+      ).status,
+      404,
     );
-    check(bomInspection.headers, inspected.headers);
-    const parseForm = new FormData();
-    parseForm.set("file", new File([csv], "synthetic-http-import.csv"));
-    parseForm.set("phase", "preview");
-    parseForm.set("mode", "journal");
-    parseForm.set("options", JSON.stringify(options));
-    parseForm.set(
-      "mapping",
-      JSON.stringify({
-        group: "group",
-        date: "date",
-        memo: "memo",
-        account: "account",
-        debit: "debit",
-        credit: "credit",
-        stableGroupIds: true,
-        accounts: {
-          Checking: fixtureAccountId(1),
-          Income: fixtureAccountId(5),
-        },
-      }),
-    );
-    const parsed = await fetch(`${base}/api/accounting/imports`, {
-      method: "POST",
-      headers: { Origin: base },
-      body: parseForm,
-    });
-    const preview = await parsed.json();
-    check(parsed.status, 200);
-    check(preview.errorCount, 0);
-    check(preview.groups[0].lines[0].amount_cents, "1000");
     const entry = await command({
       type: "transaction.save",
       id: randomUUID(),
       expected_version: 0,
       entry_date: "2026-04-01",
       memo: "HTTP fixture draft",
-      lines: preview.groups[0].lines,
+      lines: [
+        { account_id: fixtureAccountId(1), amount_cents: "1000" },
+        { account_id: fixtureAccountId(5), amount_cents: "-1000" },
+      ],
       context: { kind: "income" },
     });
     await command({

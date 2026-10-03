@@ -38,7 +38,6 @@ export interface BooksPackagePreview {
   revision: string;
   legal_name: string;
   ledger_count: number;
-  incomplete_imports: number;
   review_items: { kind: string; message: string }[];
   notes: string[];
   reports: { id: string; rows: number }[];

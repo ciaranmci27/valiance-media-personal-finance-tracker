@@ -73,13 +73,11 @@ export function AccountingFeeds({
   manage,
   demo,
   onRefresh,
-  onImports,
 }: {
   data: AccountingWorkspace;
   manage: BooksMetadata;
   demo: boolean;
   onRefresh: () => Promise<void>;
-  onImports: () => void;
 }) {
   const feedsRead = useAccountingRead<FeedData>(
     { view: "feeds" },
@@ -224,7 +222,7 @@ export function AccountingFeeds({
       <div className="grid gap-3 sm:grid-cols-3">
         {[
           {
-            label: "Ready for import review",
+            label: "Unmatched bank movements",
             value: ready,
             icon: CheckCircle2,
           },
@@ -275,13 +273,8 @@ export function AccountingFeeds({
           <h3 className="mt-4 font-semibold">Connect your company accounts</h3>
           <p className="mt-2 max-w-lg text-sm text-muted-foreground">
             Start with account discovery, then review which accounts belong to
-            the company. Historical CSV imports can fill periods your bank no
-            longer provides.
+            the company.
           </p>
-          <Button variant="outline" className="mt-5" onClick={onImports}>
-            Review CSV imports
-            <ArrowRight size={15} aria-hidden="true" />
-          </Button>
         </div>
       )}
       {state?.connections.map((connection) => {
@@ -581,12 +574,8 @@ export function AccountingFeeds({
                             Bank observations
                           </p>
                           <p className="mt-1">
-                            {queue?.ready ?? 0} ready · {queue?.pending ?? 0}{" "}
-                            pending
-                          </p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Ready movements stay in Imports until matched or
-                            applied.
+                            {queue?.ready ?? 0} unmatched ·{" "}
+                            {queue?.pending ?? 0} pending
                           </p>
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             <Button
@@ -665,16 +654,12 @@ export function AccountingFeeds({
           </section>
         );
       })}
-      <div className="glass-card flex flex-wrap items-center justify-between gap-3 rounded-xl p-4">
+      <div className="glass-card rounded-xl p-4">
         <p className="max-w-xl text-xs leading-relaxed text-muted-foreground">
-          Sync checkpoints describe received data. Statement reconciliation and
-          verified historical reports establish your accounting coverage.
-          Pending movements never create drafts.
+          Sync checkpoints describe received data. Statement reconciliation
+          establishes your accounting coverage. Pending movements never create
+          drafts.
         </p>
-        <Button variant="outline" onClick={onImports}>
-          Open import review
-          <ArrowRight size={15} aria-hidden="true" />
-        </Button>
       </div>
       {!!state?.runs.length && (
         <Disclosure

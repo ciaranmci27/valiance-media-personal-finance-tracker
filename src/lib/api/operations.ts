@@ -214,7 +214,6 @@ const quality = z
     draft_count: z.number().describe("Transactions not yet reviewed"),
     unbalanced_drafts: z.number(),
     uncategorized_lines: z.number(),
-    incomplete_imports: z.number(),
     unclassified_cash_lines: z.number(),
   })
   .describe(

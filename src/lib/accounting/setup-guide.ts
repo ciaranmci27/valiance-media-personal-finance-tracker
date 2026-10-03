@@ -167,7 +167,7 @@ export function buildSetupGuide({
       level: "critical",
       title: "Set up your chart of accounts",
       detail:
-        "The books have no accounts yet. Accounts can seed the standard chart in one click, or bring yours in from Wave under Settings, Data.",
+        "The books have no accounts yet. Accounts can seed the standard chart in one click.",
       action: {
         label: "Accounts",
         target: { kind: "link", href: accountsHref },

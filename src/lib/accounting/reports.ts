@@ -121,7 +121,6 @@ export interface ReportData {
   quality: {
     draft_count: number;
     unbalanced_drafts: number;
-    incomplete_imports: number;
     unclassified_cash_lines: number;
     uncategorized_lines: number;
     reconciliations: { account_id: string; through: string }[];

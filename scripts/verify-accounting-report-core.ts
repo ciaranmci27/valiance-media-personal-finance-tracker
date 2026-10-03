@@ -67,6 +67,8 @@ async function main() {
     check(r.totals.income_cents, "190000");
     check(r.totals.expense_cents, "115000");
     check(r.totals.net_cents, "75000");
+    // Imports were retired: report quality no longer carries an import count.
+    check("incomplete_imports" in r.quality, false);
     check(r.totals.assets_cents, "1278000");
     check(r.totals.liabilities_cents, "3000");
     check(r.totals.equity_cents, "1000000");
@@ -151,6 +153,20 @@ async function main() {
       )
     ).rows[0].r;
     check(yearHistory.count, 1);
+    // Neither the books package nor the tax source reports an import count.
+    const packagePreview = (
+      await db.query<{ r: Record<string, unknown> }>(
+        'SELECT accounting.books_package(\'{"year":2026,"through":"2026-02-28"}\') r',
+      )
+    ).rows[0].r;
+    check("incomplete_imports" in packagePreview, false);
+    check("incomplete_imports" in packageData.payload.core.quality, false);
+    const taxSource = (
+      await db.query<{ r: Record<string, unknown> }>(
+        "SELECT accounting.tax_source(2026,'2026-02-28') r",
+      )
+    ).rows[0].r;
+    check("incomplete_imports" in taxSource, false);
     await db.exec("RESET ROLE");
     await assert.rejects(
       db.query<Record<string, unknown>>(
@@ -166,7 +182,10 @@ async function main() {
         "SELECT accounting.close_checklist('2026-01-01') r",
       )
     ).rows[0].r;
+    // Month close is ready on zero drafts alone; no history check holds it back.
+    check(checklist.drafts, 0);
     check(checklist.ready, true);
+    check("history_mismatches" in checklist, false);
     await cmd({ type: "period.lock", id: randomUUID(), month: "2026-01-01" });
     await assert.rejects(
       cmd({
@@ -195,51 +214,6 @@ async function main() {
       reason: "Synthetic reopen",
     });
 
-    const doc = await cmd({
-      type: "document.prepare",
-      id: randomUUID(),
-      original_name: "synthetic-parity.csv",
-      mime_type: "text/csv",
-      size_bytes: "12",
-      content_hash: "9".repeat(64),
-    });
-    await db.query<Record<string, unknown>>(
-      "INSERT INTO storage.objects(bucket_id,name) VALUES('accounting-private',$1)",
-      [doc.storage_path],
-    );
-    await cmd({
-      type: "document.complete",
-      id: doc.id,
-      expected_version: doc.version,
-    });
-    const history = await cmd({
-      type: "history.check",
-      id: randomUUID(),
-      fiscal_year: 2026,
-      kind: "annual_totals",
-      from: "2026-01-01",
-      to: "2026-02-28",
-      document_id: doc.id,
-      expected: {
-        income_cents: "190000",
-        expense_cents: "115000",
-        net_income_cents: "75000",
-        assets_cents: "1278000",
-        liabilities_cents: "3000",
-        equity_total_cents: "1275000",
-      },
-    });
-    await db.exec("RESET ROLE");
-    check(
-      (
-        await db.query<Record<string, unknown>>(
-          "SELECT status FROM accounting.history_checks WHERE id=$1",
-          [history.id],
-        )
-      ).rows[0].status,
-      "matches",
-    );
-    await db.exec("SET ROLE authenticated");
     const priorEntries = (
       await db.query<{ r: any }>("SELECT accounting.transactions() r")
     ).rows[0].r.entries;
@@ -309,15 +283,6 @@ async function main() {
         )
       ).rows[0].status,
       "in_progress",
-    );
-    check(
-      (
-        await db.query<Record<string, unknown>>(
-          "SELECT status FROM accounting.history_checks WHERE id=$1",
-          [history.id],
-        )
-      ).rows[0].status,
-      "mismatch",
     );
     await db.exec("SET ROLE authenticated");
     check((await snap(capture.id)).payload.data.totals.net_cents, "75000");

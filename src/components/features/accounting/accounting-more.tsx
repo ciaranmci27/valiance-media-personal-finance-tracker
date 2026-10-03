@@ -37,7 +37,6 @@ import type { AccountingQuery } from "@/lib/accounting/read-cache";
 
 /** Each section's chunk, so the rail can warm one before it is clicked. */
 const SECTION_CHUNKS = {
-  imports: () => import("./accounting-imports"),
   documents: () => import("./accounting-documents"),
   rules: () => import("./accounting-rules"),
   tax: () => import("./accounting-tax-workpapers"),
@@ -51,10 +50,6 @@ const SECTION_READS: Partial<Record<ManageSection, AccountingQuery>> = {
   feeds: { view: "feeds" },
 };
 const loading = () => <ManagePanelSkeleton />;
-const AccountingImports = dynamic(
-  () => SECTION_CHUNKS.imports().then((m) => m.AccountingImports),
-  { loading },
-);
 const AccountingDocuments = dynamic(
   () => SECTION_CHUNKS.documents().then((m) => m.AccountingDocuments),
   { loading },
@@ -91,12 +86,6 @@ const SECTIONS: {
     icon: Repeat2,
   },
   {
-    id: "imports",
-    name: "Imports",
-    description: "Bank and journal files",
-    icon: FileSpreadsheet,
-  },
-  {
     id: "documents",
     name: "Receipts",
     description: "Receipts and source files",
@@ -128,7 +117,7 @@ const SECTIONS: {
   },
 ];
 const GROUPS: { name: string; ids: MoreSection[] }[] = [
-  { name: "Money in and out", ids: ["feeds", "imports", "documents"] },
+  { name: "Money in and out", ids: ["feeds", "documents"] },
   { name: "Registers", ids: ["registers"] },
   { name: "Reference", ids: ["payees", "rules"] },
   { name: "Year end", ids: ["tax"] },
@@ -194,8 +183,7 @@ export function AccountingMore({
       <div>
         <h2 className="text-xl font-semibold tracking-tight">Manage</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Bank connections, imports, receipts, registers, contacts, rules and
-          year end.
+          Bank connections, receipts, registers, contacts, rules and year end.
         </p>
       </div>
       <div className="grid items-start gap-6 xl:grid-cols-[208px_1fr]">
@@ -303,22 +291,12 @@ export function AccountingMore({
               manage={manage}
               demo={demo}
               onRefresh={onRefresh}
-              onImports={() => setSection("imports")}
             />
           )}
           {section === "rules" && (
             <AccountingRules
               data={data}
               manage={manage}
-              demo={demo}
-              onRefresh={onRefresh}
-              onEntry={onEntry}
-            />
-          )}
-          {section === "imports" && (
-            <AccountingImports
-              accounts={data.accounts}
-              profiles={manage.profiles}
               demo={demo}
               onRefresh={onRefresh}
               onEntry={onEntry}

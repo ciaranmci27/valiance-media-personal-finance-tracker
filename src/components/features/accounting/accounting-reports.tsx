@@ -443,9 +443,7 @@ export function AccountingReports({
           <Button
             variant="outline"
             onClick={() => void exportReport("csv")}
-            disabled={
-              !data || loading || exporting || !!data.quality.incomplete_imports
-            }
+            disabled={!data || loading || exporting}
           >
             <Download aria-hidden="true" />
             {exporting ? "Preparing..." : "CSV"}
@@ -453,9 +451,7 @@ export function AccountingReports({
           <Button
             variant="outline"
             onClick={() => void exportReport("pdf")}
-            disabled={
-              !data || loading || exporting || !!data.quality.incomplete_imports
-            }
+            disabled={!data || loading || exporting}
           >
             <Download aria-hidden="true" />
             PDF
@@ -648,7 +644,6 @@ export function AccountingReports({
           {(awaiting > 0 ||
             uncategorized > BigInt(0) ||
             (allActivity && data.quality.unbalanced_drafts > 0) ||
-            data.quality.incomplete_imports > 0 ||
             data.quality.uncategorized_lines > 0) && (
             <div className="rounded-lg border border-copper/30 bg-copper/5 px-4 py-3 text-xs leading-relaxed">
               {allActivity && (awaiting > 0 || uncategorized > BigInt(0)) && (
@@ -678,9 +673,6 @@ export function AccountingReports({
                 : ""}
               {!allActivity && awaiting > 0
                 ? `${countLabel(awaiting, "transaction")} awaiting review ${awaiting === 1 ? "is" : "are"} not included. `
-                : ""}
-              {data.quality.incomplete_imports > 0
-                ? `${data.quality.incomplete_imports} imports need completion. Report export is unavailable until the import review is complete. `
                 : ""}
               {data.quality.uncategorized_lines > 0
                 ? `${data.quality.uncategorized_lines} reviewed lines still need a category.`

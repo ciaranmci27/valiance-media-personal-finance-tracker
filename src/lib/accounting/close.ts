@@ -189,7 +189,6 @@ export interface CloseChecklist {
   revision: string;
   ready: boolean;
   drafts: number;
-  history_mismatches: number;
   banks: BankCloseBalance[];
   accounts: BankCloseBalance[];
   reports: AccountingWorkspace;

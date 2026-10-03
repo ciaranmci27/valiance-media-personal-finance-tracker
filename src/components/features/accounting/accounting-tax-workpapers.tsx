@@ -277,8 +277,7 @@ export function AccountingTaxWorkpapers({
             <p className="text-xs leading-relaxed text-muted-foreground">
               Recorded amounts through {dateLabel(data.through)}.{" "}
               {data.unmapped_accounts} active accounts need treatment review;{" "}
-              {data.drafts} transactions still to review and{" "}
-              {data.incomplete_imports} incomplete imports remain.{" "}
+              {data.drafts} transactions still to review.{" "}
               {data.unavailable_adjustments > 0
                 ? `${data.unavailable_adjustments} active adjustments have unavailable evidence. `
                 : ""}

@@ -49,14 +49,6 @@ export async function readAccounting(
       return client.rpc("context", { view, params: p });
     case "documents":
       return client.rpc("documents", { filter: p });
-    case "imports":
-      return client.rpc("imports", { batch: p.batch });
-    case "import-comparison":
-      return client.rpc("import_compare", {
-        batch_a: filter.earlier,
-        batch_b: filter.later,
-        filter: p.filter,
-      });
     case "books-package":
     case "books-package-history":
       return client.rpc("books_package", {
@@ -93,10 +85,6 @@ export async function readAccounting(
         error: null,
       };
     }
-    case "bank-review":
-      return client.rpc("bank_review", {
-        filter: { id: p.group, query: p.query, offset: p.offset },
-      });
     case "rules-preview":
       return client.rpc("rules_preview", { filter: { ...p, rule_id: p.rule } });
     case "tax-source":

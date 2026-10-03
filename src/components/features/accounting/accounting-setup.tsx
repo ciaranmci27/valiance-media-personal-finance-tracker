@@ -54,7 +54,7 @@ export function AccountingSetup({ ownerId }: { ownerId: string }) {
           className="inline align-middle"
           aria-hidden="true"
         />{" "}
-        Imports to bring in your history.
+        Bank connections to connect your accounts.
       </p>
     </div>
   );

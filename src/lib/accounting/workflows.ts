@@ -1,10 +1,8 @@
 import { z } from "zod";
 import { commandSchema, dateSchema, type AccountType } from "./contracts";
 import { readCents } from "./money";
-import { importCommandSchema } from "./imports/contracts";
 import { closeCommandSchema } from "./close";
 import { transferCommandSchema } from "./transfers";
-import { bankCommandSchema } from "./bank-matching";
 import { rulesCommandSchema } from "./rules";
 import { feedCommandSchema } from "./feeds";
 import { cashAllocationCommand, reportCaptureCommand } from "./reports";
@@ -114,10 +112,8 @@ export const extendedCommandSchema = z.union([
   booksPackageCommandSchema,
   payrollCommandSchema,
   commandSchema,
-  importCommandSchema,
   closeCommandSchema,
   transferCommandSchema,
-  bankCommandSchema,
   rulesCommandSchema,
   feedCommandSchema,
   cashAllocationCommand,

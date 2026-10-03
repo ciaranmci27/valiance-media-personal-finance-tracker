@@ -154,10 +154,18 @@ async function main() {
       "rules",
       "close-history",
       "documents",
-      "imports",
       "registers",
     ])
       await read(view);
+    // The import screens were retired: their reads are gone, not silently empty.
+    for (const view of ["imports", "import-comparison", "bank-review"]) {
+      assert.equal(
+        (await readAccounting(rpc, view, {})).error?.message,
+        "ACCT_INVALID_VIEW",
+        view,
+      );
+      n++;
+    }
     const profiles = (await read("manage")).profiles;
     check(
       profiles.find((p: any) => p.account_id === fixtureAccountId(1)).type,
@@ -189,7 +197,6 @@ async function main() {
     await read("register", {
       p_filter: { from: "2026-01-01", to: "2026-06-30", limit: 10 },
     });
-    await read("bank-review");
     await read("rules-preview", { p_from: "2026-01-01", p_to: "2026-06-30" });
     await read("payroll", { p_filter: { year: 2026 } });
     await read("payroll-year", { p_year: 2026, p_through: "2026-06-30" });

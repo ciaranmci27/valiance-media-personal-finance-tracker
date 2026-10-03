@@ -66,8 +66,8 @@ export function reportDocument(
   const notes = [
     ...model.footnotes,
     data.filter.mode === "working"
-      ? `Includes ${transactions(awaiting)} awaiting review. Incomplete transactions not included: ${data.quality.unbalanced_drafts}. Incomplete imports: ${data.quality.incomplete_imports}.`
-      : `Transactions awaiting review, not included: ${data.quality.draft_count}. Incomplete imports: ${data.quality.incomplete_imports}.`,
+      ? `Includes ${transactions(awaiting)} awaiting review. Incomplete transactions not included: ${data.quality.unbalanced_drafts}.`
+      : `Transactions awaiting review, not included: ${data.quality.draft_count}.`,
     `Reviewed lines still needing a category: ${data.quality.uncategorized_lines}. Bank cash lines needing classification: ${data.quality.unclassified_cash_lines}.`,
   ];
   if (options.report_id === "general-ledger") {

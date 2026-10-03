@@ -193,7 +193,6 @@ export function AccountingBooksPackage({
     loading ||
     String(preview.year) !== year ||
     preview.through !== through ||
-    preview.incomplete_imports > 0 ||
     preview.ledger_count > 100000;
   return (
     <div className="mx-auto max-w-6xl space-y-6 pb-6">
@@ -328,12 +327,6 @@ export function AccountingBooksPackage({
               label="Review before sharing"
               description="The package preserves these open items so a reviewer can see the limits of the available data."
             />
-            {preview.incomplete_imports > 0 && (
-              <p className="mt-4 text-sm text-warning">
-                Complete {preview.incomplete_imports} imports before retaining
-                this scope.
-              </p>
-            )}
             {preview.ledger_count > 100000 && (
               <p className="mt-4 text-sm text-warning">
                 This scope exceeds the 100,000-line package limit. Use

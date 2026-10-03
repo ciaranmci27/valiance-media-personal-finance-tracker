@@ -19,7 +19,6 @@ import {
   DEFAULT_BOOK_MODE,
   reportFilterSchema,
 } from "@/lib/accounting/reports";
-import { importComparisonFilterSchema } from "@/lib/accounting/imports/comparison";
 import {
   buildSetupGuide,
   claimGuide,
@@ -61,26 +60,7 @@ export async function answerAccountingRead(
   }
   if (view) {
     let result;
-    if (view === "import-comparison") {
-      let input: unknown;
-      try {
-        input = JSON.parse(params.get("filter") ?? "{}");
-      } catch {
-        return NextResponse.json(
-          { error: "Choose valid import files and dates." },
-          { status: 400 },
-        );
-      }
-      const filter = importComparisonFilterSchema.safeParse(input);
-      if (!filter.success)
-        return NextResponse.json(
-          { error: "Choose two import files and their shared date range." },
-          { status: 400 },
-        );
-      result = await readAccounting(client, "import-comparison", {
-        p_filter: filter.data,
-      });
-    } else if (view === "books-package") {
+    if (view === "books-package") {
       const scope = booksPackageScopeSchema.safeParse({
         year: Number(params.get("year")),
         through: params.get("through"),
@@ -418,24 +398,6 @@ export async function answerAccountingRead(
         p_rule: parsed.data.rule ?? null,
         p_offset: parsed.data.offset,
       });
-    } else if (view === "bank-review") {
-      const parsed = z
-        .object({
-          group: z.uuid(),
-          query: z.string().max(200).default(""),
-          offset: z.coerce.number().int().min(0).max(10000000).default(0),
-        })
-        .safeParse(Object.fromEntries(params));
-      if (!parsed.success)
-        return NextResponse.json(
-          { error: "Choose an imported bank movement." },
-          { status: 400 },
-        );
-      result = await readAccounting(client, "bank-review", {
-        p_group: parsed.data.group,
-        p_query: parsed.data.query,
-        p_offset: parsed.data.offset,
-      });
     } else if (view === "snapshot") {
       const id = z.uuid().safeParse(params.get("id"));
       if (!id.success)
@@ -477,25 +439,6 @@ export async function answerAccountingRead(
         );
       result = await readAccounting(client, "documents", {
         p_id: null,
-        p_offset: offset.data,
-      });
-    } else if (view === "imports") {
-      const id = z
-        .uuid()
-        .nullable()
-        .safeParse(params.get("batch"));
-      const offset = z.coerce
-        .number()
-        .int()
-        .min(0)
-        .safeParse(params.get("offset") ?? 0);
-      if (!id.success || !offset.success)
-        return NextResponse.json(
-          { error: "Invalid import request." },
-          { status: 400 },
-        );
-      result = await readAccounting(client, "imports", {
-        p_batch: id.data,
         p_offset: offset.data,
       });
     } else if (view === "evidence") {

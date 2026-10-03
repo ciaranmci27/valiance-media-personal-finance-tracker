@@ -251,7 +251,6 @@ async function main() {
       false,
     );
     check((await inspect()).checkpoint[providerKey], String(stamp + 3));
-    await cmd({ type: "feed.prepare", id: bank });
     const pendingId = randomUUID(),
       claimId = randomUUID();
     await cmd({

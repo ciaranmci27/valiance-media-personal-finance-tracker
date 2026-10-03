@@ -192,7 +192,6 @@ export function quality(data: ReportData) {
     draft_count: q.draft_count,
     unbalanced_drafts: q.unbalanced_drafts,
     uncategorized_lines: q.uncategorized_lines,
-    incomplete_imports: q.incomplete_imports,
     unclassified_cash_lines: q.unclassified_cash_lines,
   };
 }

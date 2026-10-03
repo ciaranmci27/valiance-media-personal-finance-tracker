@@ -178,6 +178,5 @@ export interface TaxSource {
   book_to_tax_cents: string;
   unmapped_accounts: number;
   drafts: number;
-  incomplete_imports: number;
   unavailable_adjustments: number;
 }

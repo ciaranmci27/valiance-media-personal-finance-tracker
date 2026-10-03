@@ -820,7 +820,6 @@ function AccountingBooksInner({
                 onEntry={openEntry}
                 onAccounts={() => setView("accounts")}
                 onTransactions={() => setView("journal")}
-                onImports={() => setView("manage", "imports")}
               />
             )}
             {view === "payroll" && Payroll && (

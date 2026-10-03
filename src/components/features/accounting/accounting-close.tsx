@@ -50,7 +50,6 @@ export function AccountingClose({
   onEntry?: (id: string) => void;
   onAccounts: () => void;
   onTransactions: () => void;
-  onImports: () => void;
 }) {
   const params = useSearchParams();
   const requestedMonth = params.get("month");
