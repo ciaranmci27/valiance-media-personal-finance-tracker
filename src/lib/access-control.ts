@@ -26,6 +26,7 @@ export const PERMISSIONS = [
   "settings.manage",
   "accounting.read",
   "accounting.draft",
+  "accounting.payroll",
   "accounting.manage",
   "api.use",
 ] as const;
@@ -180,6 +181,12 @@ export const PERMISSION_GROUPS: Array<{
         label: "Prepare books drafts",
         description:
           "Through the API: create and edit draft transactions, categorize imports and add rules. Nothing posts until someone with Accounting reviews it.",
+      },
+      {
+        key: "accounting.payroll",
+        label: "View payroll and 1099 reports",
+        description:
+          "Through the API: the payroll register, contractor (1099) worksheet and tax workpapers. Read only, and a key must also include it.",
       },
       {
         key: "accounting.manage",

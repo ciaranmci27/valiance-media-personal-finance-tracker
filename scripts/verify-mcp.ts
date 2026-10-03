@@ -459,6 +459,38 @@ async function main() {
       const afterGap = (await call(legacy, "books_attention", {})).structuredContent?.data;
       check("t3: with the gap closed alert is false", afterGap?.alert === false && !afterGap.items.some((i: Payload) => i.kind === "recon_gap"), afterGap);
 
+      // ---- Slice 3: breakdown, recurring, and the support reports behind accounting.payroll.
+      const byMonth = (await call(legacy, "books_breakdown", { from: "2026-01-01", to: "2026-03-31" })).structuredContent?.data;
+      const summaryQ1 = (await call(legacy, "books_summary", { from: "2026-01-01", to: "2026-03-31" })).structuredContent?.data;
+      check(
+        "t1: month by month by default, the total equals books_summary",
+        byMonth?.group_by === "month" && byMonth?.rows?.length === 3 && byMonth?.total?.expense_cents === summaryQ1?.expense_cents && byMonth?.total?.income_cents === summaryQ1?.income_cents,
+        { total: byMonth?.total, summary: summaryQ1?.expense_cents },
+      );
+      check("t1: rows read in order", JSON.stringify(Object.keys(byMonth?.rows?.[0] ?? {})) === JSON.stringify(["key", "label", "income_cents", "expense_cents", "net_cents", "count"]), byMonth?.rows?.[0]);
+      const balanceByContact = await call(legacy, "books_breakdown", { group_by: "contact", measure: "balance" });
+      check("t1: a balance by contact is ok:false 422", balanceByContact.structuredContent?.status === 422 && balanceByContact.structuredContent?.error?.reason === "invalid_parameters", balanceByContact.structuredContent);
+      const bothCompares = await call(legacy, "books_breakdown", { compare: "previous_year", compare_from: "2025-01-01", compare_to: "2025-02-01" });
+      check("t1: compare with explicit dates too is 422", bothCompares.structuredContent?.status === 422, bothCompares.structuredContent);
+      const recurringRead = (await call(narrow, "books_recurring", {})).structuredContent;
+      check("t4: a read-only key reads recurring charges", recurringRead?.ok === true && Array.isArray(recurringRead?.data?.series) && recurringRead?.data?.limit === 50, recurringRead);
+      const narrowSupport = await call(narrow, "books_get_support_report", { id: "payroll-register", year: 2026 });
+      check("t5: a key without accounting.payroll does not get the tool", narrowSupport.structuredContent?.error?.reason === "unknown_tool", narrowSupport.structuredContent);
+      const register = (await call(legacy, "books_get_support_report", { id: "payroll-register", year: 2026 })).structuredContent;
+      check("t5: a key with accounting.payroll reads the payroll register", register?.ok === true && register?.source === "books" && register?.data?.title === "Payroll register" && register?.data?.columns?.length === 6, register);
+      const supportTool = MCP_TOOLS.find((t) => t.definition.name === "books_get_support_report");
+      check("t5: the tool is read only and needs accounting.payroll", supportTool?.scope === "accounting.payroll" && supportTool?.definition.annotations.readOnlyHint === true);
+      const yearAndRange = await call(legacy, "books_get_support_report", { id: "tax-workpapers", year: 2025, from: "2025-01-01" });
+      check("t5: year with from is 422", yearAndRange.structuredContent?.status === 422, yearAndRange.structuredContent);
+      const midYear = await call(legacy, "books_get_support_report", { id: "tax-workpapers", from: "2025-03-01", to: "2025-12-31" });
+      check("t5: tax workpapers not from January 1 is 422 invalid_range", midYear.structuredContent?.status === 422 && midYear.structuredContent?.error?.reason === "invalid_range", midYear.structuredContent);
+      const oldYear = await call(legacy, "books_get_support_report", { id: "contractor-worksheet", year: 2021 });
+      check("t5: a year without a 1099 rule is 422", oldYear.structuredContent?.status === 422 && oldYear.structuredContent?.error?.reason === "invalid_range", oldYear.structuredContent);
+      await db.query("INSERT INTO public.team_member_permissions(member_id,permission_key,effect) VALUES($1,'accounting.payroll','deny') ON CONFLICT (member_id, permission_key) DO UPDATE SET effect='deny'", [agentId]);
+      const withoutPayroll = (await legacy.listTools()).tools.map((t) => t.name);
+      check("t5: a member without accounting.payroll loses the tool on the same key", !withoutPayroll.includes("books_get_support_report") && withoutPayroll.includes("books_breakdown"));
+      await db.query("DELETE FROM public.team_member_permissions WHERE member_id=$1 AND permission_key='accounting.payroll'", [agentId]);
+
       const narrowWrite = await call(narrow, "books_create_draft", draftArgs);
       check("write: a read-only key cannot reach a write tool", narrowWrite.structuredContent?.error?.reason === "unknown_tool");
 

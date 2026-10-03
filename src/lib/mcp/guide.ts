@@ -52,6 +52,24 @@ Totals and top lists
 - books_list_contacts takes category (a top_category id) and view=compact, and every row carries first_date, last_date, in_cents and out_cents. A contact whose first_date falls in a period is new in it.
 - books_account_ledger takes limit; lower it when long memos make a page too large.
 
+Breakdowns
+- books_breakdown answers any "by X" or "over time" question in one call: group_by month, quarter, category, contact, bank_account (the bank or card the money went through) or role. measure=activity (default) gives income, expense and net per group, the same figures as books_get_report; measure=balance gives balances at each period end (cash by default, or the accounts in category).
+- Filters: category (account ids), account_types, contact (or none), role, kind, bank_account. Rows plus other always equal total; top sets how many rows (default 20).
+- compare=previous_period or previous_year adds compare and change to every row. Whole months compare with whole months (September with August).
+- A contact with several roles counts once, under the first of owner, employee, contractor, government, financial, client, vendor.
+
+Recurring charges
+- books_recurring lists charges that repeat, from the books' transactions: money out to an expense category, never transfers or card payments, grouped by contact, or by bank description when there is none. Same-day charges count as one.
+- The cadence is the median gap between charges (weekly 5 to 9 days, monthly 25 to 35, quarterly 80 to 100, annual 330 to 400), and at least 60% of the gaps must fit it; irregular buying is not listed. A series is stopped once no charge has come for 1.5 cadences.
+- price_change is the latest charge whose amount differs from the one before, with its date. annual_cents is the last charge times charges a year.
+- A contact with two subscriptions shows as one series with a mixed cadence or not at all; check its transactions. min_count=2 finds a yearly renewal seen only twice.
+- These are books figures. The expenses tracker (tracker_list_expenses) is the owner's own list; show both side by side, never merged.
+
+Payroll and 1099 reports
+- books_get_support_report needs the accounting.payroll scope, which the owner adds to a key on purpose. It is read only and uses reviewed (posted) books.
+- payroll-register: each payroll run. contractor-worksheet: contractors' cash paid for one year against threshold_cents (meets_threshold); card payments are listed but excluded, and documentation is the W-9 status. tax-workpapers: per-account book and taxable figures for one year, with a summary.
+- These support the owner and their CPA; they are not a filing. Say so when you report them.
+
 Reconciliation and attention
 - books_reconciliation compares each bank, card and cash account with what its bank last reported. gap_cents is books minus bank on the day the bank reported (cash held and card debt owed are both positive); off_since says since when the gap has lasted without a break. status: ok, gap, no_feed or stale_feed (the feed is down or has not synced for a day, so the bank figure is old). unmatched counts bank lines that never reached the books.
 - books_attention lists what needs the owner. Each item keeps the same id while the issue lasts, so you can tell a new issue from one you already reported. alert=true is what justifies messaging the owner unprompted; info items (review backlog, suggested contacts, uncategorized totals) can wait for a summary or a question.

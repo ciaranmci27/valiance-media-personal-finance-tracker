@@ -15,6 +15,13 @@ export const API_SCOPES = [
       "Reports, accounts and transactions. The official business numbers.",
   },
   {
+    key: "accounting.payroll",
+    access: "read",
+    label: "Payroll and 1099 reports",
+    description:
+      "Payroll register, contractor (1099) worksheet and tax workpapers from the books. Read only. Not included unless you tick it.",
+  },
+  {
     key: "accounting.draft",
     access: "write",
     label: "Books drafts",

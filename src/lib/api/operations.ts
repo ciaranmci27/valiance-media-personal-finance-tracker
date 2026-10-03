@@ -469,6 +469,87 @@ const reconciliationAccount = z.object({
     ),
 });
 
+/** Income, expense and net for one breakdown group, as the profit and loss shows them (both positive). */
+const activityAmounts = {
+  income_cents: cents.optional(),
+  expense_cents: cents.optional(),
+  net_cents: cents.optional().describe("income_cents minus expense_cents"),
+  count: z
+    .number()
+    .optional()
+    .describe("Transactions in this group in the period"),
+  balance_cents: cents
+    .optional()
+    .describe(
+      "measure=balance: the balance at the period's end (or at `to`), on the normal side: cash held and card debt owed positive",
+    ),
+};
+const breakdownCompared = z
+  .object({
+    income_cents: cents.optional(),
+    expense_cents: cents.optional(),
+    net_cents: cents.optional(),
+    balance_cents: cents.optional(),
+  })
+  .optional();
+const breakdownRow = z.object({
+  key: z
+    .string()
+    .describe(
+      "The period's first day, an account or contact id, a role, or none (no contact / no single bank account)",
+    ),
+  label: z.string(),
+  type: z
+    .string()
+    .optional()
+    .describe("group_by=category: the account type (income, expense...)"),
+  ...activityAmounts,
+  compare: breakdownCompared.describe(
+    "The same figures for the comparison period",
+  ),
+  change: breakdownCompared.describe("This period less the comparison"),
+});
+
+const supportReportIds = [
+  "payroll-register",
+  "contractor-worksheet",
+  "tax-workpapers",
+  "asset-register",
+  "loan-register",
+] as const;
+
+const recurringSeries = z.object({
+  contact: z
+    .object({ id: uuid, name: z.string() })
+    .nullable()
+    .describe("Who is charging; null when the series is a bank description"),
+  descriptor_key: z
+    .string()
+    .nullable()
+    .describe("The bank description of the latest charge"),
+  category: z.string().nullable().describe("Category of the latest charge"),
+  bank_account: z
+    .string()
+    .nullable()
+    .describe("The bank or card the latest charge hit"),
+  cadence: z.enum(["weekly", "monthly", "quarterly", "annual"]),
+  count: z.number().describe("Charges found (same-day charges are one)"),
+  first_date: date,
+  last_date: date,
+  next_expected: date.describe("last_date plus one cadence"),
+  status: z
+    .enum(["active", "stopped"])
+    .describe("stopped: no charge for over 1.5 cadences"),
+  last_cents: cents.describe("The latest charge, positive"),
+  previous_cents: cents.describe("The charge before it"),
+  average_cents: cents,
+  price_change: z
+    .object({ on: date, from_cents: cents, to_cents: cents })
+    .nullable()
+    .describe("The latest charge whose amount differs from the one before"),
+  annual_cents: cents.describe("last_cents times charges a year"),
+});
+
 const account = z.object({
   id: uuid,
   code: z.string().nullable(),
@@ -1709,6 +1790,223 @@ export const API_OPERATIONS = [
       .strict(),
     idempotent: true,
     response: written,
+  },
+  {
+    id: "books.breakdown",
+    method: "GET",
+    path: "/api/v1/books/breakdown",
+    permission: "accounting.read",
+    source: "books",
+    tag: "Books",
+    summary: "Totals by month, category, contact, bank account or role",
+    description:
+      "One call for any \"by X\" or \"over time\" question, added up in the books. measure=activity (default) is the profit and loss: income, expense and net per group, the same figures books_get_report shows. measure=balance is the balance at each period's end (group_by month or quarter) or per account at `to` (group_by category or bank_account), for the accounts in `category` or `account_types`, by default every bank and cash account (the cash position). group_by: month or quarter (every period, oldest first), category, contact, bank_account (the bank or card the money went through) or role (a contact with several roles counts once, under the first of owner, employee, contractor, government, financial, client, vendor). Contact, category, bank account and role rows are biggest first, cut at `top`, and the rest rolled into `other`, so rows plus other equal `total`. compare=previous_period (the period just before; whole months compare with whole months) or previous_year (the same dates a year earlier), or compare_from and compare_to, add compare and change to every row.",
+    query: z
+      .object({
+        from: date
+          .optional()
+          .describe("Defaults to January 1 of the year of `to`"),
+        to: date.optional().describe("Defaults to today (books time zone)"),
+        mode: bookMode,
+        group_by: z
+          .enum(["month", "quarter", "category", "contact", "bank_account", "role"])
+          .default("month"),
+        measure: z
+          .enum(["activity", "balance"])
+          .default("activity")
+          .describe(
+            "activity: income, expense and net in the period. balance: ending balances",
+          ),
+        compare: z
+          .enum(["previous_period", "previous_year"])
+          .optional()
+          .describe("Adds compare and change to every row"),
+        compare_from: date.optional().describe("With compare_to, instead of compare"),
+        compare_to: date.optional(),
+        category: commaList(
+          uuid,
+          50,
+          "Only these accounts (activity: income or expense accounts; balance: any account)",
+        ).optional(),
+        account_types: commaList(
+          z.enum(ACCOUNT_TYPES),
+          5,
+          "Only these account types (activity: income, expense)",
+        ).optional(),
+        contact: z
+          .union([uuid, z.literal("none")])
+          .optional()
+          .describe("activity: only this contact, or none for no contact"),
+        role: contactRole
+          .optional()
+          .describe("activity: only contacts holding this role"),
+        kind: z
+          .enum(ENTRY_KINDS)
+          .optional()
+          .describe("activity: only this kind of transaction"),
+        bank_account: uuid
+          .optional()
+          .describe(
+            "activity: only transactions through this bank, card or cash account",
+          ),
+        top: z.coerce
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .default(20)
+          .describe(
+            "Rows kept for category, contact, bank_account and role; the rest is `other`",
+          ),
+      })
+      .strict(),
+    response: z.object({
+      from: date,
+      to: date,
+      book_mode: z.enum(["working", "posted"]),
+      measure: z.enum(["activity", "balance"]),
+      group_by: z.string(),
+      top: z.number(),
+      compare: z.object({ from: date, to: date }).nullable(),
+      rows: z.array(breakdownRow),
+      other: breakdownRow
+        .omit({ key: true, type: true })
+        .extend({ groups: z.number() })
+        .nullable()
+        .describe("Every group past `top`, added together; null when none"),
+      total: breakdownRow.omit({ key: true, label: true, type: true }),
+      quality,
+      revision: z.string(),
+    }),
+  },
+  {
+    id: "books.recurring",
+    method: "GET",
+    path: "/api/v1/books/recurring",
+    permission: "accounting.read",
+    source: "books",
+    tag: "Books",
+    summary: "Recurring charges and subscriptions found in the books",
+    description:
+      "Charges that repeat, found in the books' own transactions (not the expenses tracker): money out of one bank, card or cash account to an expense category, never transfers or card payments, grouped by contact, or by bank description when there is no contact. Same-day charges count as one. The cadence is the median gap between charges (weekly 5 to 9 days, monthly 25 to 35, quarterly 80 to 100, annual 330 to 400) and at least 60% of the gaps must fit it; anything else is not listed. A series is stopped once no charge has come for 1.5 cadences. Active first, then by annual cost. Each row has the last, previous and average charge, the latest price change with its date, the next expected date and the annual cost.",
+    query: z
+      .object({
+        status: z
+          .enum(["all", "active", "stopped"])
+          .default("all"),
+        min_count: z.coerce
+          .number()
+          .int()
+          .min(2)
+          .max(100)
+          .default(3)
+          .describe(
+            "Charges a series needs; 2 also finds a yearly renewal seen only twice",
+          ),
+        from: date
+          .optional()
+          .describe("Look back from here; defaults to 37 months before as_of"),
+        as_of: date
+          .optional()
+          .describe("Judge active or stopped as of this date; defaults to today"),
+        contact: uuid.optional().describe("Only this contact's charges"),
+        mode: bookMode,
+        offset,
+        limit: limit(80, 50),
+      })
+      .strict(),
+    response: z.object({
+      as_of: date,
+      from: date,
+      book_mode: z.enum(["working", "posted"]),
+      total: z.number().describe("Series matching status"),
+      offset: z.number(),
+      limit: z.number(),
+      next_offset: z.number().nullable(),
+      totals: z.object({
+        active: z.number(),
+        stopped: z.number(),
+        active_annual_cents: cents.describe("Annual cost of every active series"),
+        active_monthly_cents: cents.describe("The same, per month"),
+      }),
+      series: z.array(recurringSeries),
+      revision: z.string(),
+    }),
+  },
+  {
+    id: "books.support_report",
+    method: "GET",
+    path: "/api/v1/books/support-reports/{id}",
+    permission: "accounting.payroll",
+    source: "books",
+    tag: "Books",
+    summary: "Payroll register, 1099 worksheet, tax workpapers",
+    description:
+      "The owner's year-end support reports, read only, from reviewed (posted) books. payroll-register: each payroll run (gross wages, employee withholding, employer taxes, net pay). contractor-worksheet: each contact with the contractor role, cash paid net of refunds (bank and cash only: card payments are reported by the card company and listed separately), classification, W-9 documentation status and meets_threshold against the year's 1099 threshold (threshold_cents). tax-workpapers: each account's book profit and ordinary taxable contribution, adjustments, and a summary (book profit, adjusted ordinary income, book-to-tax difference, unmapped accounts). asset-register and loan-register: register balances. Pass year, or from and to; the contractor worksheet and tax workpapers cover one calendar year (tax workpapers from January 1). Rows are cells in column order; columns says which are cents.",
+    params: z.object({ id: z.enum(supportReportIds) }),
+    query: z
+      .object({
+        year: z.coerce
+          .number()
+          .int()
+          .min(2000)
+          .max(2100)
+          .optional()
+          .describe(
+            "January 1 to December 31, or to today for the current year",
+          ),
+        from: date.optional(),
+        to: date.optional(),
+        offset,
+        limit: limit(200, 100),
+      })
+      .strict(),
+    response: z.object({
+      id: z.enum(supportReportIds),
+      title: z.string(),
+      from: date,
+      to: date,
+      columns: z.array(z.object({ label: z.string(), numeric: z.boolean() })),
+      rows: z.array(
+        z.object({
+          id: z.string(),
+          cells: z
+            .array(z.string().nullable())
+            .describe("One per column; numeric columns are cents strings"),
+          meets_threshold: z
+            .boolean()
+            .optional()
+            .describe("contractor-worksheet: cash paid reaches threshold_cents"),
+        }),
+      ),
+      count: z.number(),
+      offset: z.number(),
+      limit: z.number(),
+      next_offset: z.number().nullable(),
+      total_cells: z.array(z.string().nullable()),
+      notes: z.array(z.string()),
+      threshold_cents: cents
+        .optional()
+        .describe("contractor-worksheet: the year's 1099 reporting threshold"),
+      summary: z
+        .object({
+          book_profit_cents: cents,
+          mapped_ordinary_cents: cents,
+          adjusted_ordinary_cents: cents,
+          book_to_tax_cents: cents,
+          separately_stated: z.record(z.string(), cents),
+          unmapped_accounts: z.number(),
+          drafts: z.number().nullable(),
+          classification: z.string().nullable(),
+        })
+        .optional()
+        .describe("tax-workpapers: the year's figures"),
+      controls: z
+        .unknown()
+        .optional()
+        .describe("asset-register and loan-register: register against the books"),
+      revision: z.string(),
+    }),
   },
 ] as const satisfies readonly ApiOperation[];
 

@@ -29,8 +29,11 @@ type Vars = Record<string, unknown>;
 /** The MCP result cap (MAX_RESULT_CHARS in src/lib/mcp/server.ts, checked below). */
 const MAX_RESULT_CHARS = 40_000;
 
-/** The scopes on Alex's production key: books read and drafts, and the owner's trackers and tax read. */
-const ALEX_SCOPES = ["accounting.read", "accounting.draft", "income.read", "expenses.read", "net_worth.read", "tax.read"];
+/**
+ * The scopes on Alex's production key: books read and drafts, payroll and 1099 reports (once the owner adds
+ * them to the key), and the owner's trackers and tax read.
+ */
+const ALEX_SCOPES = ["accounting.read", "accounting.draft", "accounting.payroll", "income.read", "expenses.read", "net_worth.read", "tax.read"];
 
 interface Step {
   tool: string;
@@ -276,7 +279,8 @@ const CASES: Case[] = [
     budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
     oracle: [{ tool: "books_list_accounts", args: { type: "liability", as_of: "{{as_of}}" }, as: "cards", pick: (d) => d.accounts.filter((a: Payload) => a.cash_kind === "card").map((a: Payload) => `${a.name}=${a.balance_cents}`).join(";") }],
     answer: (v) => String(v.cards),
-    fixture_expect: /^Business card=0(;Business credit card=0)?$/,
+    // The Ops card carries the subscriptions seeded above.
+    fixture_expect: /^Business card=0;Ops card=14000(;Business credit card=0)?$/,
   },
   {
     id: "health_feeds",
@@ -362,6 +366,262 @@ const CASES: Case[] = [
     answer: (v) => String(v.monthly),
     fixture_expect: "2500",
   },
+  // ---- Unlocked by books_breakdown, books_recurring and books_get_support_report.
+  {
+    id: "spend_category_by_month",
+    section: "spending",
+    question: "What's our software spend been month by month this year?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 2, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [
+      { tool: "books_list_accounts", args: { type: "expense", q: bank("Computer - Software") }, as: "software", pick: (d) => d.accounts[0]?.id },
+      {
+        tool: "books_breakdown",
+        args: { from: "{{ytd.from}}", to: "{{ytd.to}}", group_by: "month", category: "{{software}}" },
+        as: "months",
+        pick: (d) => d.rows.map((r: Payload) => `${r.key}=${r.expense_cents}`).join(";"),
+      },
+    ],
+    answer: (v) => String(v.months),
+    fixture_expect: "2026-01-01=21500;2026-02-01=0",
+  },
+  {
+    id: "profit_income_trend",
+    section: "profit",
+    question: "How is income trending month to month this year?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [
+      {
+        tool: "books_breakdown",
+        args: { from: "{{ytd.from}}", to: "{{ytd.to}}", group_by: "month", account_types: "income" },
+        as: "months",
+        pick: (d) => d.rows.map((r: Payload) => `${r.key}=${r.income_cents}`).join(";"),
+      },
+    ],
+    answer: (v) => String(v.months),
+    fixture_expect: "2026-01-01=490000;2026-02-01=0",
+  },
+  {
+    id: "spend_card_by_category",
+    section: "spending",
+    question: "How much did we put on the Amex card last month, by category?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 2, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [
+      { tool: "books_list_accounts", args: { type: "liability", q: bank("Amex card") }, as: "card", pick: (d) => d.accounts[0]?.id },
+      {
+        tool: "books_breakdown",
+        args: { from: "{{last_month.from}}", to: "{{last_month.to}}", group_by: "category", bank_account: "{{card}}" },
+        as: "rows",
+        pick: (d) => d.rows.map((r: Payload) => `${r.label}=${r.expense_cents}`).join(";"),
+      },
+    ],
+    answer: (v) => String(v.rows),
+    fixture_expect: "Software=12000",
+  },
+  {
+    id: "spend_contractors_vs_vendors",
+    section: "spending",
+    question: "How much did we pay contractors versus vendors in 2025?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [
+      {
+        tool: "books_breakdown",
+        args: { from: "2025-01-01", to: "2025-12-31", group_by: "role", account_types: "expense" },
+        as: "roles",
+        pick: (d) => d.rows.map((r: Payload) => `${r.label}=${r.expense_cents}`).join(";"),
+      },
+    ],
+    answer: (v) => String(v.roles),
+    fixture_expect: "Contractor=80000;Vendor=11000",
+  },
+  {
+    id: "spend_vs_last_year",
+    section: "spending",
+    question: "How does spending by category so far this year compare with the same time last year?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [
+      {
+        tool: "books_breakdown",
+        args: { from: "{{ytd.from}}", to: "{{ytd.to}}", group_by: "category", account_types: "expense", compare: "previous_year" },
+        as: "rows",
+        pick: (d) => d.rows.map((r: Payload) => `${r.label}=${r.expense_cents}/${r.compare.expense_cents}`).join(";"),
+      },
+    ],
+    answer: (v) => String(v.rows),
+    fixture_expect: "Officer compensation=100000/0;Software=21500/0;Office expenses=0/1500",
+  },
+  {
+    id: "spend_top_category_and_rest",
+    section: "spending",
+    question: "What's our biggest spending category this year, and how much is everything else?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [
+      {
+        tool: "books_breakdown",
+        args: { from: "{{ytd.from}}", to: "{{ytd.to}}", group_by: "category", account_types: "expense", top: 1 },
+        as: "split",
+        pick: (d) => `${d.rows[0].label}=${d.rows[0].expense_cents};Other=${d.other?.expense_cents};Total=${d.total.expense_cents}`,
+      },
+    ],
+    answer: (v) => String(v.split),
+    fixture_expect: "Officer compensation=100000;Other=21500;Total=121500",
+  },
+  {
+    id: "cash_by_month",
+    section: "cash",
+    question: "How has our cash balance moved month by month since December?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [
+      {
+        tool: "books_breakdown",
+        args: { from: "2025-12-01", to: "{{as_of}}", group_by: "month", measure: "balance" },
+        as: "months",
+        pick: (d) => d.rows.map((r: Payload) => `${r.key}=${r.balance_cents}`).join(";"),
+      },
+    ],
+    answer: (v) => String(v.months),
+    fixture_expect: "2025-12-01=1200000;2026-01-01=1521500;2026-02-01=1571500",
+  },
+  {
+    id: "subscriptions_every_month",
+    section: "subscriptions",
+    question: "Which charges hit the books every month?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [
+      {
+        tool: "books_recurring",
+        args: { as_of: "{{as_of}}", status: "active" },
+        as: "monthly",
+        pick: (d) => d.series.filter((s: Payload) => s.cadence === "monthly").map((s: Payload) => `${s.contact?.name ?? s.descriptor_key}=${s.last_cents}`).join(";"),
+      },
+    ],
+    answer: (v) => String(v.monthly),
+    fixture_expect: "Notion=2000",
+  },
+  {
+    id: "subscriptions_price_up",
+    section: "subscriptions",
+    question: "Did any subscriptions go up in price recently?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [
+      {
+        tool: "books_recurring",
+        args: { as_of: "{{as_of}}" },
+        as: "changes",
+        pick: (d) =>
+          d.series
+            .filter((s: Payload) => s.price_change && BigInt(s.price_change.to_cents) > BigInt(s.price_change.from_cents))
+            .map((s: Payload) => `${s.contact?.name}:${s.price_change.from_cents}->${s.price_change.to_cents} on ${s.price_change.on}`)
+            .join(";"),
+      },
+    ],
+    answer: (v) => String(v.changes),
+    fixture_expect: "Notion:1600->2000 on 2025-12-28",
+  },
+  {
+    id: "subscriptions_stopped",
+    section: "subscriptions",
+    question: "Which vendors used to charge us but stopped?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [{ tool: "books_recurring", args: { as_of: "{{as_of}}", status: "stopped" }, as: "stopped", pick: (d) => d.series.map((s: Payload) => `${s.contact?.name}:${s.last_date}`).join(";") }],
+    answer: (v) => String(v.stopped),
+    fixture_expect: "Old SaaS:2025-07-10",
+  },
+  {
+    id: "subscriptions_annual",
+    section: "subscriptions",
+    question: "Which subscriptions renew annually, and when?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [
+      {
+        tool: "books_recurring",
+        args: { as_of: "{{as_of}}" },
+        as: "annual",
+        pick: (d) => d.series.filter((s: Payload) => s.cadence === "annual").map((s: Payload) => `${s.contact?.name}:${s.next_expected}:${s.last_cents}`).join(";"),
+      },
+    ],
+    answer: (v) => String(v.annual),
+    fixture_expect: "Namecheap:2026-01-20:1500",
+  },
+  {
+    id: "subscriptions_annual_cost",
+    section: "subscriptions",
+    question: "What do our active subscriptions in the books cost a year?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [{ tool: "books_recurring", args: { as_of: "{{as_of}}", status: "active" }, as: "totals", pick: (d) => d.totals }],
+    answer: (v) => `${(v.totals as Payload).active_annual_cents}/${(v.totals as Payload).active_monthly_cents}`,
+    fixture_expect: "25500/2125",
+  },
+  {
+    id: "tax_1099_contractors",
+    section: "tax",
+    question: "Which contractors need a 1099 for 2025?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [
+      {
+        tool: "books_get_support_report",
+        args: { id: "contractor-worksheet", year: 2025 },
+        as: "rows",
+        pick: (d) => `${d.rows.filter((r: Payload) => r.meets_threshold).map((r: Payload) => `${r.cells[0]}=${r.cells[3]}`).join(";")} threshold=${d.threshold_cents}`,
+      },
+    ],
+    answer: (v) => String(v.rows),
+    fixture_expect: "Jane Designer=80000 threshold=60000",
+  },
+  {
+    id: "tax_payroll_gross_net",
+    section: "tax",
+    question: "What was my gross salary vs net pay through payroll this year?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [
+      {
+        tool: "books_get_support_report",
+        args: { id: "payroll-register", from: "{{ytd.from}}", to: "{{ytd.to}}" },
+        as: "total",
+        pick: (d) => `runs=${d.count} gross=${d.total_cells[2]} withheld=${d.total_cells[3]} net=${d.total_cells[5]}`,
+      },
+    ],
+    answer: (v) => String(v.total),
+    fixture_expect: "runs=1 gross=100000 withheld=0 net=100000",
+  },
+  {
+    id: "tax_workpapers_profit",
+    section: "tax",
+    question: "What's the business's book profit for 2025 on the tax workpapers?",
+    as_of: AS_OF,
+    verdict: "answerable",
+    budget: { max_calls: 1, max_result_chars: MAX_RESULT_CHARS },
+    oracle: [{ tool: "books_get_support_report", args: { id: "tax-workpapers", year: 2025 }, as: "summary", pick: (d) => d.summary }],
+    answer: (v) => `book=${(v.summary as Payload).book_profit_cents}`,
+    fixture_expect: "book=109000",
+  },
 ];
 
 function periods(asOf: string): Vars {
@@ -446,8 +706,62 @@ async function main() {
       });
       await owner({ type: "entry.post", id: saved.id, expected_version: saved.version });
     }
+    // Subscriptions on a second card, all before this year: Notion monthly (up from $16 to $20 in December),
+    // Namecheap yearly, Old SaaS until July. And a contractor paid from savings in November, out of an owner
+    // contribution the day before, so the cash on hand does not move.
+    const opsCard = randomUUID(),
+      labor = randomUUID();
+    await owner({ type: "account.create", id: opsCard, code: "2010", name: "Ops card", account_type: "liability", normal_side: "credit", cash_kind: "card" });
+    await owner({ type: "account.create", id: labor, code: "5300", name: "Contract labor", account_type: "expense", normal_side: "debit" });
+    await db.exec("RESET ROLE;");
+    const office = (await db.query<{ id: string }>("SELECT id FROM accounting.accounts WHERE name='Office expenses'")).rows[0].id;
+    await db.exec("SET ROLE authenticated;");
+    const contact: Record<string, string> = {};
+    for (const [name, roles] of [
+      ["Notion", ["vendor"]],
+      ["Namecheap", ["vendor"]],
+      ["Old SaaS", ["vendor"]],
+      ["Jane Designer", ["contractor"]],
+    ] as const) {
+      contact[name] = randomUUID();
+      await owner({ type: "party.save", id: contact[name], expected_version: 0, name, roles });
+    }
+    const posted = async (date: string, memo: string, money: string, cents: number, other: string, kind: string, payee?: string) => {
+      const saved = await owner({
+        type: "draft.save",
+        id: randomUUID(),
+        expected_version: 0,
+        entry_date: date,
+        memo,
+        kind,
+        ...(payee ? { payee_id: payee } : {}),
+        lines: [
+          { account_id: money, amount_cents: String(cents) },
+          { account_id: other, amount_cents: String(-cents) },
+        ],
+      });
+      await owner({ type: "entry.post", id: saved.id, expected_version: saved.version });
+    };
+    for (const [date, cents] of [
+      ["2025-09-28", 1600],
+      ["2025-10-28", 1600],
+      ["2025-11-28", 1600],
+      ["2025-12-28", 2000],
+    ] as const)
+      await posted(date, "NOTION LABS", opsCard, -cents, office, "expense", contact.Notion);
+    for (const date of ["2023-01-20", "2024-01-20", "2025-01-20"]) await posted(date, "NAMECHEAP", opsCard, -1500, office, "expense", contact.Namecheap);
+    for (const date of ["2025-05-10", "2025-06-10", "2025-07-10"]) await posted(date, "OLD SAAS", opsCard, -900, account(6), "expense", contact["Old SaaS"]);
+    await posted("2025-11-14", "Owner contribution", account(9), 80000, account(4), "owner");
+    await posted("2025-11-15", "Jane design work", account(9), -80000, labor, "expense", contact["Jane Designer"]);
     await db.exec("RESET ROLE;");
     await db.query("SELECT set_config('request.jwt.claim.sub','',false)");
+    // A payroll run for the January salary journal, as an import would record it.
+    await db.exec("SET session_replication_role = replica;");
+    await db.query(
+      `INSERT INTO accounting.payroll_runs(provider_run_id,pay_date,period_start,period_end,gross_cents,net_cents,employee_withholding_cents,employer_tax_cents,components,entry_id,status)
+       SELECT 'run-2026-01','2026-01-25','2026-01-01','2026-01-31',100000,100000,0,0,'[]',id,'posted' FROM accounting.journal_entries WHERE memo='Salary journal'`,
+    );
+    await db.exec("SET session_replication_role = origin;");
     await seedCardGap(db);
 
     // Alex's key, with the production scopes.

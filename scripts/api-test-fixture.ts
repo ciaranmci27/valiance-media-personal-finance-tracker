@@ -101,7 +101,7 @@ export async function seedApiFixture(options: { maxRows?: number } = {}) {
     for (const [k, scopes] of [
       [
         fullKey,
-        ["accounting.read", "accounting.draft", "income.read", "income.manage", "expenses.read", "expenses.manage", "net_worth.read", "net_worth.manage", "tax.read"],
+        ["accounting.read", "accounting.draft", "accounting.payroll", "income.read", "income.manage", "expenses.read", "expenses.manage", "net_worth.read", "net_worth.manage", "tax.read"],
       ],
       [booksOnly, ["accounting.read"]],
     ] as const)

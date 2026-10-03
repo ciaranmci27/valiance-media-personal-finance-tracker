@@ -107,6 +107,18 @@ export const MCP_TOOL_NAMES = {
     tool: "books_add_missed_transaction",
     lead: "Draft a bank transaction the feed missed, gap checked.",
   },
+  "books.breakdown": {
+    tool: "books_breakdown",
+    lead: "Official books: totals by month, category, contact or role.",
+  },
+  "books.recurring": {
+    tool: "books_recurring",
+    lead: "Find recurring charges and subscriptions in the books.",
+  },
+  "books.support_report": {
+    tool: "books_get_support_report",
+    lead: "Payroll register, 1099 worksheet or tax workpapers.",
+  },
   "tracker.income": {
     tool: "tracker_income_summary",
     lead: "Owner's manual tracker: monthly take-home income.",

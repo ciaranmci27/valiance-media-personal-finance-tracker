@@ -380,6 +380,26 @@ export function databaseError(message: string, permission: string): ApiError {
           hint: "An account, category or contact id does not exist, is archived or does not fit here. Look it up again.",
         },
       );
+    case "ACCT_TAX_RANGE":
+      return new ApiError(
+        422,
+        "VALIDATION_ERROR",
+        "These reports cover one calendar year, up to today.",
+        {
+          reason: "invalid_range",
+          hint: "Pass year, or from and to inside one year (tax workpapers start on January 1 and end today at the latest).",
+        },
+      );
+    case "ACCT_CONTRACTOR_YEAR_RULE_REQUIRED":
+      return new ApiError(
+        422,
+        "VALIDATION_ERROR",
+        "The books have no 1099 threshold for that year.",
+        {
+          reason: "invalid_range",
+          hint: "The contractor worksheet covers 2022 to 2026.",
+        },
+      );
     case "ACCT_INVALID_FILTER":
     case "ACCT_REPORT_RANGE":
     case "ACCT_REPORT_KIND":

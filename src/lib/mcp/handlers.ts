@@ -15,6 +15,9 @@ import * as revision from "@/app/api/v1/books/revision/route";
 import * as reconciliation from "@/app/api/v1/books/reconciliation/route";
 import * as attention from "@/app/api/v1/books/attention/route";
 import * as missed from "@/app/api/v1/books/missed-transactions/route";
+import * as breakdown from "@/app/api/v1/books/breakdown/route";
+import * as recurring from "@/app/api/v1/books/recurring/route";
+import * as supportReport from "@/app/api/v1/books/support-reports/[id]/route";
 import * as contacts from "@/app/api/v1/books/contacts/route";
 import * as contact from "@/app/api/v1/books/contacts/[id]/route";
 import * as contactAssign from "@/app/api/v1/books/contacts/[id]/assign/route";
@@ -62,6 +65,9 @@ export const ROUTE_MODULES: Record<
   "/api/v1/books/reconciliation": reconciliation,
   "/api/v1/books/attention": attention,
   "/api/v1/books/missed-transactions": missed,
+  "/api/v1/books/breakdown": breakdown,
+  "/api/v1/books/recurring": recurring,
+  "/api/v1/books/support-reports/{id}": supportReport,
   "/api/v1/books/contacts": contacts,
   "/api/v1/books/contacts/{id}": contact,
   "/api/v1/books/contacts/{id}/assign": contactAssign,

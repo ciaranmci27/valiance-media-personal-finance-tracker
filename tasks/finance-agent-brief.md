@@ -62,8 +62,13 @@ plugin and toolset names follow the fleet's usual rules.
 **Then:**
 - `accounting.draft`: drafts, categorize, split, bulk categorize, proposed
   rules, suggested contacts and setting a contact on transactions.
-- Agents hold `accounting.read`, `accounting.draft` and `api.use` by default.
-  The owner grants anything else in Team > Access.
+- Agents hold `accounting.read`, `accounting.draft`, `accounting.payroll` and
+  `api.use` by default. The owner grants anything else in Team > Access.
+
+**Payroll and 1099 reports:** `accounting.payroll` ("Payroll and 1099 reports"
+in Settings > API) opens `books_get_support_report`, read only. The owner
+approved it for Alex, but no key carries it until the owner creates a key with
+it ticked; keys cannot be edited, so that means a new key for Alex.
 
 **Only if the owner asks:** `income.manage`, `expenses.manage`,
 `net_worth.manage`.
@@ -82,6 +87,16 @@ and each key only sees the tools its scopes allow.
 - `books_list_reports`, `books_get_report`
 - `books_list_contacts`, `books_list_rules`
 - `books_revision`: poll this; re-read only when it changes.
+- `books_breakdown`: totals by month, quarter, category, contact, bank account
+  or role (activity or balances), with a comparison period and top N + Other.
+- `books_recurring`: recurring charges and subscriptions found in the books
+  (cadence, price change, next expected, active or stopped, annual cost).
+- `books_reconciliation`, `books_attention`: books against the bank, and what
+  needs the owner.
+
+**Books support reports** (needs `accounting.payroll`):
+- `books_get_support_report`: payroll register, contractor (1099) worksheet,
+  tax workpapers, asset and loan registers.
 
 **Books drafts:**
 - `books_create_draft`, `books_replace_draft`
@@ -89,6 +104,7 @@ and each key only sees the tools its scopes allow.
 - `books_propose_rule`
 - `books_add_contact`, `books_update_contact` (suggestions only),
   `books_assign_contact` (fills a blank contact, drafts or posted)
+- `books_add_missed_transaction` (a bank movement the feed missed, gap checked)
 
 **Trackers:**
 - `tracker_income_summary`, `tracker_list_income_items`
