@@ -564,7 +564,7 @@ async function main() {
     };
     const ids = Object.values(doc.paths).flatMap((p) => Object.values(p).map((o) => o.operationId));
     check("openapi: every operation", ids.length === API_OPERATIONS.length && ids.includes("books.draft_create") && ids.includes("tax.estimate"), ids);
-    check("openapi: path parameters", doc.paths["/api/v1/books/reports/{id}"]?.get?.parameters.length === 6);
+    check("openapi: path parameters", doc.paths["/api/v1/books/reports/{id}"]?.get?.parameters.length === 10);
     const create = doc.paths["/api/v1/books/drafts"]?.post;
     check(
       "openapi: creates carry a body and the Idempotency-Key",

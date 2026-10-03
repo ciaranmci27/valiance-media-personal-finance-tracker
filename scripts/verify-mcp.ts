@@ -10,7 +10,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest } from "next/server";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { AGENT, seedApiFixture } from "./api-test-fixture";
+import { AGENT, booksDay, seedApiFixture, seedCardGap } from "./api-test-fixture";
 import { fixtureAccountId as account } from "../src/lib/accounting/fixtures";
 import { API_OPERATIONS, type ApiOperation } from "../src/lib/api/operations";
 import { GUIDE_TOOL, MCP_TOOLS, MCP_TOOL_NAMES } from "../src/lib/mcp/tools";
@@ -278,6 +278,186 @@ async function main() {
       check("contacts: a set contact is never replaced over MCP", reassigned.structuredContent?.error?.reason === "contact_already_set", reassigned.structuredContent);
       const proposed = await call(legacy, "books_propose_rule", { name: "Hosting", conditions: { descriptor_key: { contains: "HOSTING" } }, actions: { account_id: account(6) } });
       check("write: a proposed rule links to the rules screen", proposed.structuredContent?.data?.review_url === "http://localhost/accounting?view=manage&section=rules", proposed.structuredContent);
+
+      // ---- Agent tools: totals, sort, ranges, compact rows, report filters and top-N, ledger limit, contacts.
+      const cashAccounts = new Set([account(1), account(3), account(9)]);
+      const fullYear = await call(legacy, "books_search_transactions", { from: "2026-01-01", to: "2026-12-31", limit: 100 });
+      const yearRows = (await call(legacy, "books_get_transaction", { id: fullYear.structuredContent?.data?.transactions?.[0]?.id })).structuredContent?.data;
+      check("x1: full rows still read back whole", !!yearRows?.lines);
+      // Totals from each row's own lines: one bank, card or cash line is money in or out; anything else adds to neither side.
+      let expectIn = BigInt(0),
+        expectOut = BigInt(0),
+        expectOther = 0;
+      for (const row of fullYear.structuredContent?.data?.transactions ?? []) {
+        const detail = (await call(legacy, "books_get_transaction", { id: row.id })).structuredContent?.data;
+        const cash = (detail?.lines ?? []).filter((l: Payload) => cashAccounts.has(l.account_id));
+        if (cash.length !== 1) expectOther++;
+        else if (BigInt(cash[0].amount_cents) > BigInt(0)) expectIn += BigInt(cash[0].amount_cents);
+        else expectOut -= BigInt(cash[0].amount_cents);
+      }
+      const totals = fullYear.structuredContent?.data?.totals;
+      check(
+        "x1: totals add every match's bank line, money in and out apart",
+        totals?.count === fullYear.structuredContent?.data?.total && totals?.in_cents === String(expectIn) && totals?.out_cents === String(expectOut) && totals?.net_cents === String(expectIn - expectOut) && totals?.without_bank_line === expectOther,
+        { totals, expectIn: String(expectIn), expectOut: String(expectOut), expectOther },
+      );
+      const pageOfTwo = await call(legacy, "books_search_transactions", { from: "2026-01-01", to: "2026-12-31", limit: 2 });
+      check("x1: totals are over every match, not the page", JSON.stringify(pageOfTwo.structuredContent?.data?.totals) === JSON.stringify(totals) && pageOfTwo.structuredContent?.data?.transactions?.length === 2);
+      const compact = await call(legacy, "books_search_transactions", { from: "2026-01-01", to: "2026-12-31", view: "compact", limit: 100 });
+      const compactRows = (compact.structuredContent?.data?.transactions ?? []) as Payload[];
+      check(
+        "x1: compact rows carry exactly the short fields",
+        compactRows.length === totals?.count &&
+          compactRows.every((r) => JSON.stringify(Object.keys(r).sort()) === JSON.stringify(["amount_cents", "bank_account", "categories", "contact_name", "date", "description", "id", "reviewed", "status", "transfer"])),
+        compactRows[0],
+      );
+      const perRow = JSON.stringify(compactRows).length / Math.max(compactRows.length, 1);
+      check("x1: a compact row is small enough that 100 fit far under the cap", perRow < 300 && perRow * 100 < 30_000, perRow);
+      const fullPerRow = JSON.stringify(fullYear.structuredContent?.data?.transactions).length / Math.max(compactRows.length, 1);
+      check("x1: compact rows are well under half a full row", perRow * 2 < fullPerRow, { perRow, fullPerRow });
+      const byAmount = (await call(legacy, "books_search_transactions", { from: "2026-01-01", to: "2026-12-31", sort: "amount_desc", view: "compact", limit: 100 })).structuredContent?.data?.transactions as Payload[];
+      const sizes = byAmount.map((r) => (BigInt(r.amount_cents) < BigInt(0) ? -BigInt(r.amount_cents) : BigInt(r.amount_cents)));
+      check("x1: sort=amount_desc is biggest first", sizes.every((s, i) => i === 0 || sizes[i - 1] >= s) && sizes.length > 2, sizes.map(String));
+      const byDate = (await call(legacy, "books_search_transactions", { from: "2026-01-01", to: "2026-12-31", sort: "date_asc", view: "compact", limit: 100 })).structuredContent?.data?.transactions as Payload[];
+      check("x1: sort=date_asc is oldest first", byDate.every((r, i) => i === 0 || byDate[i - 1].date <= r.date));
+      const ranged = (await call(legacy, "books_search_transactions", { from: "2026-01-01", to: "2026-12-31", min_cents: "10000", max_cents: "50000", view: "compact", limit: 100 })).structuredContent?.data;
+      check(
+        "x1: min_cents and max_cents bound the size",
+        ranged?.transactions?.length > 0 && ranged.transactions.every((r: Payload) => { const s = BigInt(String(r.amount_cents).replace("-", "")); return s >= BigInt(10000) && s <= BigInt(50000); }) && ranged.totals.count === ranged.transactions.length,
+        ranged?.transactions?.map((r: Payload) => r.amount_cents),
+      );
+      const upsideDown = await call(legacy, "books_search_transactions", { min_cents: "500", max_cents: "100" });
+      check("x1: min above max is ok:false 422", upsideDown.structuredContent?.status === 422 && upsideDown.structuredContent?.error?.reason === "invalid_range", upsideDown.structuredContent);
+      const onlyTransfers = (await call(legacy, "books_search_transactions", { from: "2026-01-01", to: "2026-12-31", transfers: "only", view: "compact" })).structuredContent?.data;
+      check("x1: transfers=only lists the card payment", onlyTransfers?.transactions?.length >= 1 && onlyTransfers.transactions.every((r: Payload) => r.transfer === true), onlyTransfers?.transactions);
+      const noTransfers = (await call(legacy, "books_search_transactions", { from: "2026-01-01", to: "2026-12-31", transfers: "exclude", view: "compact", limit: 100 })).structuredContent?.data;
+      check("x1: transfers=exclude leaves them out", noTransfers?.totals?.count === totals?.count - onlyTransfers?.totals?.count && noTransfers.transactions.every((r: Payload) => r.transfer === false));
+      const manual = (await call(legacy, "books_search_transactions", { from: "2026-01-01", to: "2026-12-31", kind: "manual" })).structuredContent?.data;
+      const refunds = (await call(legacy, "books_search_transactions", { from: "2026-01-01", to: "2026-12-31", kind: "refund" })).structuredContent?.data;
+      check("x1: kind filters", manual?.totals?.count > 0 && refunds?.totals?.count === 0, { manual: manual?.totals, refunds: refunds?.totals });
+      const badKind = await call(legacy, "books_search_transactions", { kind: "bogus" });
+      check("x1: an unknown kind is 422", badKind.structuredContent?.status === 422);
+
+      const plain = (await call(legacy, "books_get_report", { id: "profit-loss", from: "2026-01-01", to: "2026-12-31" })).structuredContent?.data;
+      const softwareOnly = (await call(legacy, "books_get_report", { id: "profit-loss", from: "2026-01-01", to: "2026-12-31", category: account(6) })).structuredContent?.data;
+      const softwareRows = (softwareOnly?.rows ?? []).filter((r: Payload) => r.kind === "account");
+      check("x2: category narrows the report to that account", softwareRows.length === 1 && softwareRows[0].key === account(6) && softwareRows[0].values[0] === plain?.rows?.find((r: Payload) => r.key === account(6))?.values?.[0], softwareOnly?.rows);
+      const incomeOnly = (await call(legacy, "books_get_report", { id: "profit-loss", from: "2026-01-01", to: "2026-12-31", account_types: "income" })).structuredContent?.data;
+      check("x2: account_types narrows the report", (incomeOnly?.rows ?? []).filter((r: Payload) => r.kind === "account").every((r: Payload) => r.key === account(5)) && incomeOnly?.rows?.some((r: Payload) => r.key === account(5)), incomeOnly?.rows);
+      const twoCats = await call(legacy, "books_get_report", { id: "profit-loss", from: "2026-01-01", to: "2026-12-31", category: `${account(6)},${account(7)}` });
+      check("x2: category takes a comma-separated list", (twoCats.structuredContent?.data?.rows ?? []).filter((r: Payload) => r.kind === "account").length === 2, twoCats.structuredContent?.data?.rows);
+      const noContact = (await call(legacy, "books_get_report", { id: "vendor-expenses", from: "2026-01-01", to: "2026-12-31", contact: "none" })).structuredContent?.data;
+      check("x2: contact=none keeps only Unassigned", (noContact?.rows ?? []).filter((r: Payload) => r.kind === "account").every((r: Payload) => r.key === "unassigned"), noContact?.rows);
+      const topOne = (await call(legacy, "books_get_report", { id: "profit-loss", from: "2026-01-01", to: "2026-12-31", top: 1 })).structuredContent?.data;
+      const sections: Payload[][] = [];
+      let open: Payload[] | null = null;
+      for (const row of topOne?.rows ?? []) {
+        if (row.kind === "account") (open ??= []).push(row);
+        else if (row.kind === "subtotal" && open) {
+          sections.push([...open, row]);
+          open = null;
+        }
+      }
+      check(
+        "x2: top keeps that many per section, Other makes the rows add up to each subtotal",
+        sections.length >= 2 &&
+          sections.every((s) => {
+            const rows = s.slice(0, -1);
+            const sum = rows.reduce((n, r) => n + BigInt(r.values[0]), BigInt(0));
+            return rows.filter((r) => !String(r.key).startsWith("other-")).length <= 1 && sum === BigInt(s[s.length - 1].values[0]);
+          }) &&
+          (topOne?.rows ?? []).some((r: Payload) => /^Other \(\d+ categor/.test(r.label)),
+        topOne?.rows,
+      );
+      const vendorsTop = (await call(legacy, "books_get_report", { id: "vendor-expenses", from: "2026-01-01", to: "2026-12-31", top: 1 })).structuredContent?.data;
+      const vendorRows = (vendorsTop?.rows ?? []).filter((r: Payload) => r.kind === "account");
+      const vendorTotal = vendorsTop?.rows?.find((r: Payload) => r.kind === "total");
+      check(
+        "x2: vendor top rows plus Other sum to the total",
+        vendorRows.reduce((n: bigint, r: Payload) => n + BigInt(r.values[0]), BigInt(0)) === BigInt(vendorTotal?.values?.[0] ?? "-1") && vendorRows.filter((r: Payload) => !String(r.key).startsWith("other-")).length <= 1,
+        vendorsTop?.rows,
+      );
+      const sortedVendors = (await call(legacy, "books_get_report", { id: "vendor-expenses", from: "2026-01-01", to: "2026-12-31", top: 200 })).structuredContent?.data?.rows?.filter((r: Payload) => r.kind === "account") ?? [];
+      check("x2: top sorts biggest first", sortedVendors.every((r: Payload, i: number) => i === 0 || BigInt(sortedVendors[i - 1].values[0]) >= BigInt(r.values[0])), sortedVendors);
+      const topBalance = await call(legacy, "books_get_report", { id: "balance-sheet", top: 3 });
+      check("x2: top on another report is ok:false 422", topBalance.structuredContent?.status === 422, topBalance.structuredContent);
+      const badCategory = await call(legacy, "books_get_report", { id: "profit-loss", category: "not-an-id" });
+      check("x2: a bad category id is 422", badCategory.structuredContent?.status === 422);
+
+      const ledgerTool = MCP_TOOLS.find((t) => t.definition.name === "books_account_ledger");
+      check("x3: the ledger tool defaults to 50 lines", (ledgerTool?.definition.inputSchema.properties as Payload)?.limit?.default === 50);
+      const ledgerTwo = (await call(legacy, "books_account_ledger", { id: account(1), from: "2026-01-01", to: "2026-12-31", limit: 2 })).structuredContent?.data;
+      check("x3: limit sets the page size", ledgerTwo?.lines?.length === 2 && ledgerTwo?.next_offset === 2 && ledgerTwo?.total > 2, ledgerTwo);
+      const ledgerNext = (await call(legacy, "books_account_ledger", { id: account(1), from: "2026-01-01", to: "2026-12-31", limit: 2, offset: 2 })).structuredContent?.data;
+      check("x3: the next page continues the running balance", ledgerNext?.lines?.[0]?.running_cents === String(BigInt(ledgerTwo?.lines?.[1]?.running_cents ?? "0") + BigInt(ledgerNext?.lines?.[0]?.amount_cents ?? "0")));
+
+      const hetznerFull = (await call(legacy, "books_list_contacts", { q: "hetzner" })).structuredContent?.data?.contacts?.[0];
+      const hetznerTx = (await call(legacy, "books_search_transactions", { contact: hetznerId, view: "compact", limit: 100 })).structuredContent?.data;
+      const hetznerDates = (hetznerTx?.transactions ?? []).map((r: Payload) => r.date).sort();
+      check(
+        "x4: first and last seen, money in and out match the contact's transactions",
+        hetznerFull?.first_date === hetznerDates[0] && hetznerFull?.last_date === hetznerDates[hetznerDates.length - 1] && hetznerFull?.in_cents === hetznerTx?.totals?.in_cents && hetznerFull?.out_cents === hetznerTx?.totals?.out_cents,
+        { hetznerFull, totals: hetznerTx?.totals, hetznerDates },
+      );
+      const compactContacts = (await call(legacy, "books_list_contacts", { view: "compact" })).structuredContent?.data?.contacts as Payload[];
+      check(
+        "x4: compact contacts carry the short fields",
+        compactContacts.length > 0 &&
+          compactContacts.every((c) => JSON.stringify(Object.keys(c).sort()) === JSON.stringify(["first_date", "id", "in_cents", "last_date", "name", "out_cents", "review_status", "roles", "top_category", "transaction_count"])),
+        compactContacts[0],
+      );
+
+      // ---- Reconciliation, attention and the missed-transaction write, on a card feed with a $9.71 gap.
+      const cardGap = await seedCardGap(db);
+      const recon = (await call(legacy, "books_reconciliation", {})).structuredContent?.data;
+      const cardRow = recon?.accounts?.find((a: Payload) => a.account.id === account(3));
+      check("t2: the card shows the gap, owed-positive", cardRow?.gap_cents === "-971" && cardRow?.bank_cents === "971" && cardRow?.book_cents === "0" && cardRow?.status === "gap", cardRow);
+      check("t2: off since the first report that disagreed", Date.parse(cardRow?.off_since) === cardGap.offSince * 1000, cardRow?.off_since);
+      check("t2: the feed is named and fresh", cardRow?.feed?.connection === "Synthetic Amex" && cardRow?.feed?.stale === false, cardRow?.feed);
+      check("t2: unmapped money accounts are no_feed", recon?.accounts?.filter((a: Payload) => a.account.id !== account(3)).every((a: Payload) => a.status === "no_feed" && a.gap_cents === null));
+      const oneAccount = (await call(narrow, "books_reconciliation", { account: account(3) })).structuredContent?.data;
+      check("t2: account narrows it, and a read-only key may read it", oneAccount?.accounts?.length === 1 && oneAccount.accounts[0].gap_cents === "-971", oneAccount);
+      const notMoney = await call(legacy, "books_reconciliation", { account: account(6) });
+      check("t2: a category is 404", notMoney.structuredContent?.status === 404, notMoney.structuredContent);
+      const attention = (await call(narrow, "books_attention", {})).structuredContent?.data;
+      const gapItem = attention?.items?.find((i: Payload) => i.kind === "recon_gap");
+      check("t3: a gap over a day is an alert, alert=true", attention?.alert === true && gapItem?.severity === "alert" && gapItem?.amount_cents === "-971", attention);
+      check("t3: links are full URLs into the app", gapItem?.link === "http://localhost/accounting?view=accounts" && attention.items.every((i: Payload) => !i.link || i.link.startsWith("http://localhost/accounting")), attention.items);
+      const attentionAgain = (await call(legacy, "books_attention", { include_info: "false" })).structuredContent?.data;
+      check("t3: the same issue keeps its id; include_info=false is alerts only", attentionAgain?.items?.find((i: Payload) => i.kind === "recon_gap")?.id === gapItem?.id && attentionAgain.items.every((i: Payload) => i.severity === "alert"), attentionAgain);
+
+      const missedArgs = { bank_account_id: account(3), entry_date: booksDay(-3), amount_cents: "-971", description: "OPENAI CHATGPT", account_id: account(6) };
+      const tooMuch = await call(legacy, "books_add_missed_transaction", { ...missedArgs, amount_cents: "-1971" });
+      check("missed: more than the gap is ok:false exceeds_gap with the closing amount", tooMuch.isError !== true && tooMuch.structuredContent?.status === 422 && tooMuch.structuredContent?.error?.reason === "exceeds_gap" && tooMuch.structuredContent?.error?.closes_with_cents === "-971", tooMuch.structuredContent);
+      const wrongWay = await call(legacy, "books_add_missed_transaction", { ...missedArgs, amount_cents: "971" });
+      check("missed: the wrong direction is ok:false wrong_direction", wrongWay.structuredContent?.error?.reason === "wrong_direction", wrongWay.structuredContent);
+      const zero = await call(legacy, "books_add_missed_transaction", { ...missedArgs, amount_cents: "0" });
+      check("missed: zero is 422", zero.structuredContent?.status === 422, zero.structuredContent);
+      const narrowMissed = await call(narrow, "books_add_missed_transaction", missedArgs);
+      check("missed: a read-only key cannot reach it", narrowMissed.structuredContent?.error?.reason === "unknown_tool");
+      const missedTool = MCP_TOOLS.find((t) => t.definition.name === "books_add_missed_transaction");
+      check("missed: annotated as an additive create with an idempotency key", missedTool?.definition.annotations.destructiveHint === false && missedTool?.definition.annotations.readOnlyHint === false && Object.hasOwn((missedTool?.definition.inputSchema.properties ?? {}) as object, "idempotency_key"));
+      const addedMissed = await call(legacy, "books_add_missed_transaction", { ...missedArgs, contact_id: hetznerId, note: "Owner reported it" });
+      check("missed: within the gap it is a draft with a review link", addedMissed.structuredContent?.ok === true && addedMissed.structuredContent?.data?.status === "draft" && String(addedMissed.structuredContent?.data?.review_url).includes(addedMissed.structuredContent?.data?.id), addedMissed.structuredContent);
+      const missedRow = (await call(legacy, "books_get_transaction", { id: addedMissed.structuredContent?.data?.id })).structuredContent?.data;
+      check("missed: the draft hits the card and the category", missedRow?.status === "draft" && missedRow?.bank_account?.id === account(3) && missedRow?.amount_cents === "-971" && missedRow?.categories?.[0]?.account_id === account(6) && missedRow?.contact_id === hetznerId, missedRow);
+      // The missed draft gives Hetzner a category (its other entries are transit legs, which never count).
+      const hetznerNow = (await call(legacy, "books_list_contacts", { q: "hetzner" })).structuredContent?.data?.contacts?.[0];
+      if (hetznerNow?.top_category?.id) {
+        const sameCategory = (await call(legacy, "books_list_contacts", { category: hetznerNow.top_category.id, view: "compact" })).structuredContent?.data?.contacts as Payload[];
+        check("x4: category lists contacts by top category", sameCategory.some((c) => c.id === hetznerId) && sameCategory.every((c) => c.top_category === hetznerNow.top_category.name), sameCategory);
+      } else check("x4: the assigned contact has a top category", false, hetznerNow);
+      const closed = (await call(legacy, "books_reconciliation", { account: account(3) })).structuredContent?.data?.accounts?.[0];
+      check("missed: the gap closes in the working books", closed?.gap_cents === "0" && closed?.status === "ok" && closed?.book_posted_cents === "0", closed);
+      const noGapNow = await call(legacy, "books_add_missed_transaction", { ...missedArgs, amount_cents: "-100" });
+      check("missed: with no gap it is ok:false no_gap (409)", noGapNow.structuredContent?.status === 409 && noGapNow.structuredContent?.error?.reason === "no_gap", noGapNow.structuredContent);
+      const cashDraft = await call(legacy, "books_create_draft", { entry_date: booksDay(-3), memo: "Card line", lines: [{ account_id: account(6), amount_cents: "100" }, { account_id: account(3), amount_cents: "-100" }] });
+      check("missed: books_create_draft still refuses a card line", cashDraft.structuredContent?.error?.reason === "bank_lines_not_allowed", cashDraft.structuredContent);
+      const { databaseError } = await import("../src/lib/api/http");
+      const dup = databaseError(`API_MISSED_DUPLICATE ${JSON.stringify({ candidate: { entry_id: "x", amount_cents: "-971" } })}`, "accounting.draft");
+      check("missed: a likely duplicate is 409 possible_duplicate with the candidate", dup.status === 409 && dup.details.reason === "possible_duplicate" && (dup.details.candidate as Payload)?.entry_id === "x", dup.details);
+      const afterGap = (await call(legacy, "books_attention", {})).structuredContent?.data;
+      check("t3: with the gap closed alert is false", afterGap?.alert === false && !afterGap.items.some((i: Payload) => i.kind === "recon_gap"), afterGap);
 
       const narrowWrite = await call(narrow, "books_create_draft", draftArgs);
       check("write: a read-only key cannot reach a write tool", narrowWrite.structuredContent?.error?.reason === "unknown_tool");

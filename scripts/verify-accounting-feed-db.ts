@@ -298,6 +298,14 @@ async function main() {
     );
     check(JSON.stringify(feeds).includes("synthetic-encrypted-access"), false);
     check(feeds.worker.source, "fixture");
+    // Every balance the feed reports is kept once per report time, signed as the account stores it.
+    check(
+      await raw(
+        "SELECT balance_cents::text balance, extract(epoch FROM observed_at)::bigint::text at FROM accounting.balance_observations WHERE bank_account_id=$1",
+        [bank],
+      ),
+      [{ balance: "10000", at: String(stamp) }],
+    );
     check(typeof feeds.worker.last_tick_at, "string");
     console.log(
       `SimpleFIN durable chunks, checkpoints and worker isolation: ${checks} assertions passed.`,

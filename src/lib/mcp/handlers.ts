@@ -12,6 +12,9 @@ import * as categorizeBulk from "@/app/api/v1/books/transactions/categorize/rout
 import * as reports from "@/app/api/v1/books/reports/route";
 import * as report from "@/app/api/v1/books/reports/[id]/route";
 import * as revision from "@/app/api/v1/books/revision/route";
+import * as reconciliation from "@/app/api/v1/books/reconciliation/route";
+import * as attention from "@/app/api/v1/books/attention/route";
+import * as missed from "@/app/api/v1/books/missed-transactions/route";
 import * as contacts from "@/app/api/v1/books/contacts/route";
 import * as contact from "@/app/api/v1/books/contacts/[id]/route";
 import * as contactAssign from "@/app/api/v1/books/contacts/[id]/assign/route";
@@ -56,6 +59,9 @@ export const ROUTE_MODULES: Record<
   "/api/v1/books/reports": reports,
   "/api/v1/books/reports/{id}": report,
   "/api/v1/books/revision": revision,
+  "/api/v1/books/reconciliation": reconciliation,
+  "/api/v1/books/attention": attention,
+  "/api/v1/books/missed-transactions": missed,
   "/api/v1/books/contacts": contacts,
   "/api/v1/books/contacts/{id}": contact,
   "/api/v1/books/contacts/{id}/assign": contactAssign,

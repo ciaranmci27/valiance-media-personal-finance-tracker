@@ -33,7 +33,7 @@ export const MCP_TOOL_NAMES = {
   },
   "books.transactions": {
     tool: "books_search_transactions",
-    lead: "Find books transactions, such as drafts needing review.",
+    lead: "Find books transactions, with totals over every match.",
   },
   "books.transaction": {
     tool: "books_get_transaction",
@@ -94,6 +94,18 @@ export const MCP_TOOL_NAMES = {
   "books.contact_assign": {
     tool: "books_assign_contact",
     lead: "Set a contact on transactions that have none.",
+  },
+  "books.reconciliation": {
+    tool: "books_reconciliation",
+    lead: "Compare each bank and card balance with the books.",
+  },
+  "books.attention": {
+    tool: "books_attention",
+    lead: "Check whether anything in the books needs the owner.",
+  },
+  "books.missed_create": {
+    tool: "books_add_missed_transaction",
+    lead: "Draft a bank transaction the feed missed, gap checked.",
   },
   "tracker.income": {
     tool: "tracker_income_summary",
@@ -194,6 +206,8 @@ const MCP_OVERRIDES: Partial<
   // About 270 characters a row: 100 stays well under the result cap.
   "books.contacts": { defaults: { limit: 100 } },
   "books.rules": { defaults: { limit: 100 } },
+  // About 300 characters a line: 50 stays well under the cap with long memos.
+  "books.account_ledger": { defaults: { limit: 50 } },
   "books.transactions": {
     defaults: { limit: 25 },
     present: (data) => {
@@ -201,7 +215,9 @@ const MCP_OVERRIDES: Partial<
       if (!page?.transactions) return data;
       return {
         ...page,
+        // Compact rows (view=compact) are already small; only full rows lose their lines.
         transactions: page.transactions.map((row) => {
+          if (!("lines" in row)) return row;
           const { lines, created_at, ...rest } = row;
           void created_at;
           return {

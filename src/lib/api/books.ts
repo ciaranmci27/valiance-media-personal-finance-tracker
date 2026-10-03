@@ -180,6 +180,23 @@ export function presentEntry(
   };
 }
 
+/** A register row cut to what a list needs, so 100 fit in one agent answer. */
+export function compactEntry(row: ReturnType<typeof presentEntry>) {
+  const memo = row.memo || row.description || "";
+  return {
+    id: row.id,
+    date: row.date,
+    amount_cents: row.amount_cents,
+    description: memo.length > 80 ? `${memo.slice(0, 77)}...` : memo,
+    contact_name: row.contact_name,
+    categories: row.categories.map((category) => category.account_name),
+    bank_account: row.bank_account?.name ?? null,
+    status: row.status,
+    reviewed: row.reviewed,
+    transfer: row.transfer,
+  };
+}
+
 /** Account names and presentation profiles, read once for a page of transactions. */
 export async function accountIndex(client: AccountingRpc, today: string) {
   const report = await booksRead<ReportData>(client, "report", {
@@ -215,7 +232,8 @@ export async function booksCommand(
     | "rule.create"
     | "contact.create"
     | "contact.update"
-    | "contact.assign",
+    | "contact.assign"
+    | "missed.create",
   key: string,
   args: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {

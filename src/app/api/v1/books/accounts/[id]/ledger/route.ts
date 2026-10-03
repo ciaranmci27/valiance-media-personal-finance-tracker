@@ -35,7 +35,13 @@ export const GET = withApi(
     const client = booksClient(service, keyHash);
     const ledger = await booksRead<LedgerLines>(client, "report_lines", {
       kind: "general_ledger",
-      params: { from, to, offset: query.offset, mode: query.mode },
+      params: {
+        from,
+        to,
+        offset: query.offset,
+        limit: query.limit,
+        mode: query.mode,
+      },
       account: params.id,
     });
     // The ledger read answers an unknown account with an empty page; only then is

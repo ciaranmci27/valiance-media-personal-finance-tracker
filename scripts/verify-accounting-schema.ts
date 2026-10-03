@@ -55,6 +55,7 @@ async function main() {
       "bank_accounts",
       "bank_transactions",
       "bank_matches",
+      "balance_observations",
       "feed_worker",
       "documents",
       "document_links",

@@ -112,6 +112,82 @@ export function databaseError(message: string, permission: string): ApiError {
           hint: "Leave that transaction out and retry the rest.",
         },
       );
+    case "API_MISSED_NO_GAP":
+    case "API_MISSED_WRONG_DIRECTION":
+    case "API_MISSED_EXCEEDS_GAP":
+    case "API_MISSED_AFTER_BALANCE": {
+      const details = refusalDetails(message);
+      const gap = {
+        gap_cents: details.gap_cents ?? null,
+        bank_cents: details.bank_cents ?? null,
+        bank_observed_at: details.bank_observed_at ?? null,
+        closes_with_cents: details.closes_with_cents ?? null,
+      };
+      return code === "API_MISSED_NO_GAP"
+        ? new ApiError(
+            409,
+            "CONFLICT",
+            "The books and the bank agree on this account, so there is no missed transaction to add.",
+            {
+              reason: "no_gap",
+              ...gap,
+              hint: "Nothing is missing by the bank's last balance. If the owner says a charge is missing, it may not have reached the bank yet; tell them.",
+            },
+          )
+        : code === "API_MISSED_WRONG_DIRECTION"
+          ? new ApiError(
+              422,
+              "VALIDATION_ERROR",
+              "This amount would widen the gap between the books and the bank.",
+              {
+                reason: "wrong_direction",
+                ...gap,
+                hint: "Check the sign: money out of the account is negative. closes_with_cents is the amount that would close the gap.",
+              },
+            )
+          : code === "API_MISSED_EXCEEDS_GAP"
+            ? new ApiError(
+                422,
+                "VALIDATION_ERROR",
+                "This amount is larger than the gap between the books and the bank.",
+                {
+                  reason: "exceeds_gap",
+                  ...gap,
+                  hint: "Recheck the amount with the owner. closes_with_cents is the most this account is missing.",
+                },
+              )
+            : new ApiError(
+                422,
+                "VALIDATION_ERROR",
+                "This date is after the bank's latest balance, so the gap cannot say whether it is missing.",
+                {
+                  reason: "after_balance",
+                  ...gap,
+                  hint: "Wait for the next bank sync; if it still does not appear, add it then.",
+                },
+              );
+    }
+    case "API_MISSED_DUPLICATE":
+      return new ApiError(
+        409,
+        "CONFLICT",
+        "The same amount is already on this account within 10 days, so this is probably already recorded.",
+        {
+          reason: "possible_duplicate",
+          candidate: refusalDetails(message).candidate,
+          hint: "Show the owner the candidate. Do not add it again unless the owner says both are real; then the owner adds it in the app.",
+        },
+      );
+    case "API_MISSED_DATE":
+      return new ApiError(
+        422,
+        "VALIDATION_ERROR",
+        "That date is in the future or before the books start.",
+        {
+          reason: "invalid_date",
+          hint: "Use the date the bank posted it, on or before today.",
+        },
+      );
     case "API_KEY_INVALID":
       return new ApiError(401, "UNAUTHORIZED", "Invalid or revoked API key.", {
         reason: "invalid_api_key",

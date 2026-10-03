@@ -46,6 +46,21 @@ Workflows
 - Long lists (contacts, rules, accounts) take q to search names and page with offset and limit.
 - Reports: books_list_reports, then books_get_report for a date range.
 
+Totals and top lists
+- books_search_transactions answers "how much in total" in one call: totals (count, in_cents, out_cents, net_cents) covers every match of the filters, not just the page. Filter with contact, account, q, kind, min_cents and max_cents (by size), and transfers=exclude to leave out moves between the business's own accounts and card payments. sort=amount_desc lists the biggest first. view=compact gives short rows, so limit=100 fits.
+- books_get_report takes category (account ids, comma separated), contact and account_types. vendor-expenses with category set to one expense account lists who that money went to. top=N (profit-loss, customer-income, vendor-expenses) sorts biggest first and rolls the rest into one Other row, so the rows still add up to the total.
+- books_list_contacts takes category (a top_category id) and view=compact, and every row carries first_date, last_date, in_cents and out_cents. A contact whose first_date falls in a period is new in it.
+- books_account_ledger takes limit; lower it when long memos make a page too large.
+
+Reconciliation and attention
+- books_reconciliation compares each bank, card and cash account with what its bank last reported. gap_cents is books minus bank on the day the bank reported (cash held and card debt owed are both positive); off_since says since when the gap has lasted without a break. status: ok, gap, no_feed or stale_feed (the feed is down or has not synced for a day, so the bank figure is old). unmatched counts bank lines that never reached the books.
+- books_attention lists what needs the owner. Each item keeps the same id while the issue lasts, so you can tell a new issue from one you already reported. alert=true is what justifies messaging the owner unprompted; info items (review backlog, suggested contacts, uncategorized totals) can wait for a summary or a question.
+- A gap can mean the feed missed a transaction, or one was recorded twice. Say which account, how much and since when; do not guess the cause.
+
+Missed bank transactions
+- books_add_missed_transaction drafts a bank, card or cash movement the feed never delivered. Use it only when the owner tells you about a specific missing charge or deposit, or when books_reconciliation shows a gap and the owner has given you the details (date, amount, who, what for). Never invent a transaction to close a gap.
+- amount_cents is signed from the account's side: a charge or payment is negative, money in positive. It must shrink the current gap and cannot exceed it (reasons no_gap, wrong_direction, exceeds_gap, after_balance; details.closes_with_cents is the amount that would close the gap). The same amount on that account within 10 days is refused as possible_duplicate with the candidate: show it to the owner. It is a draft the owner reviews, like every books write.
+
 Contacts
 - A contact is who the business paid or who paid it. Roles: client (pays us), vendor (we buy from), contractor (a 1099 worker or firm; feeds the year-end 1099 worksheet), employee, government (tax agencies), financial (banks, cards, lenders, brokers), owner. A contact can hold several.
 - Each books_list_contacts row carries top_category: the category most of that contact's money went through, or null. It shows where that contact's transactions usually go, and the owner's Contacts list groups vendors by it.

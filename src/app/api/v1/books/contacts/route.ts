@@ -13,10 +13,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 interface Contact {
+  id: string;
   name: string;
   roles: string[];
   review_status: string;
   is_archived: boolean;
+  transaction_count: number;
+  top_category: { id: string; name: string } | null;
+  first_date: string | null;
+  last_date: string | null;
+  in_cents: string;
+  out_cents: string;
 }
 
 /** Contacts, through the books' reader check (accounting.payees_list), filtered, searched and paged by name. */
@@ -37,10 +44,33 @@ export const GET = withApi(
         (contact) =>
           !query.review_status || contact.review_status === query.review_status,
       )
+      .filter(
+        (contact) =>
+          !query.category || contact.top_category?.id === query.category.toLowerCase(),
+      )
       .filter((contact) => nameMatches(contact.name, query.q))
       .sort((a, b) => a.name.localeCompare(b.name));
     const { rows, ...page } = pageOf(matching, query);
-    return { data: { ...page, contacts: rows } };
+    return {
+      data: {
+        ...page,
+        contacts:
+          query.view === "compact"
+            ? rows.map((contact) => ({
+                id: contact.id,
+                name: contact.name,
+                roles: contact.roles,
+                review_status: contact.review_status,
+                top_category: contact.top_category?.name ?? null,
+                transaction_count: contact.transaction_count,
+                first_date: contact.first_date,
+                last_date: contact.last_date,
+                in_cents: contact.in_cents,
+                out_cents: contact.out_cents,
+              }))
+            : rows,
+      },
+    };
   },
 );
 

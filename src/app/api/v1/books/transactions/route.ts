@@ -6,6 +6,7 @@ import {
   booksClient,
   booksRead,
   booksToday,
+  compactEntry,
   presentEntry,
   type EntryRow,
 } from "@/lib/api/books";
@@ -17,6 +18,13 @@ interface Register {
   entries: EntryRow[];
   total: number;
   needs_review_count: number;
+  totals: {
+    count: number;
+    in_cents: string;
+    out_cents: string;
+    net_cents: string;
+    without_bank_line: number;
+  };
 }
 
 export const GET = withApi(
@@ -27,6 +35,17 @@ export const GET = withApi(
         422,
         "VALIDATION_ERROR",
         "from must be on or before to.",
+        { reason: "invalid_range" },
+      );
+    if (
+      query.min_cents &&
+      query.max_cents &&
+      BigInt(query.min_cents) > BigInt(query.max_cents)
+    )
+      throw new ApiError(
+        422,
+        "VALIDATION_ERROR",
+        "min_cents must be at most max_cents.",
         { reason: "invalid_range" },
       );
     const client = booksClient(service, keyHash);
@@ -44,11 +63,15 @@ export const GET = withApi(
         : {}),
       ...(query.q ? { query: query.q } : {}),
       ...(query.descriptor_key ? { descriptor_key: query.descriptor_key } : {}),
+      ...(query.min_cents ? { min_cents: query.min_cents } : {}),
+      ...(query.max_cents ? { max_cents: query.max_cents } : {}),
+      ...(query.kind ? { kind: query.kind } : {}),
+      ...(query.transfers !== "include" ? { transfers: query.transfers } : {}),
     };
     const [register, index] = await Promise.all([
       booksRead<Register>(client, "transactions", {
         filter,
-        page: { offset: query.offset, limit: query.limit },
+        page: { offset: query.offset, limit: query.limit, sort: query.sort },
       }),
       booksToday(service).then((today) => accountIndex(client, today)),
     ]);
@@ -63,9 +86,11 @@ export const GET = withApi(
           register.entries.length > 0 && reached < register.total
             ? reached
             : null,
-        transactions: register.entries.map((entry) =>
-          presentEntry(entry, index.names, index.profiles),
-        ),
+        totals: register.totals,
+        transactions: register.entries.map((entry) => {
+          const row = presentEntry(entry, index.names, index.profiles);
+          return query.view === "compact" ? compactEntry(row) : row;
+        }),
       },
     };
   },

@@ -321,6 +321,154 @@ const transaction = z.object({
   posted_at: z.string().nullable(),
 });
 
+/** The kinds the books give a transaction (journal_entries.kind). */
+const ENTRY_KINDS = [
+  "manual",
+  "income",
+  "expense",
+  "refund",
+  "transfer",
+  "owner",
+  "payroll",
+  "loan",
+  "asset",
+  "opening",
+  "correction",
+] as const;
+
+/** A page row small enough that 100 fit far under the MCP result cap. */
+const compactTransaction = z.object({
+  id: uuid,
+  date,
+  amount_cents: cents.describe(
+    "Signed movement on the bank or card line: positive is money in",
+  ),
+  description: z
+    .string()
+    .describe("The memo, shortened to 80 characters"),
+  contact_name: z.string().nullable(),
+  categories: z.array(z.string()).describe("Category names"),
+  bank_account: z.string().nullable(),
+  status: z.enum(["draft", "posted", "discarded"]),
+  reviewed: z.boolean(),
+  transfer: z.boolean(),
+});
+
+const totals = z
+  .object({
+    count: z.number().describe("Every match, not just this page"),
+    in_cents: cents.describe("Money in across every match"),
+    out_cents: cents.describe("Money out across every match, as a positive amount"),
+    net_cents: cents.describe("in_cents minus out_cents"),
+    without_bank_line: z
+      .number()
+      .describe(
+        "Matches with no single bank, card or cash line (adjustments, or a transfer kept as one entry): counted, but in neither in_cents nor out_cents",
+      ),
+  })
+  .describe(
+    "Sums of amount_cents over every match of the filters, not only this page",
+  );
+
+/** A comma-separated list in one query parameter, such as "a,b,c". */
+const commaList = <T extends z.ZodType<unknown, string>>(
+  item: T,
+  max: number,
+  what: string,
+) =>
+  z
+    .string()
+    .trim()
+    .min(1)
+    .transform((value) =>
+      value
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean),
+    )
+    .pipe(z.array(item).min(1).max(max))
+    .describe(`${what}, comma separated (up to ${max})`);
+
+const ACCOUNT_TYPES = [
+  "asset",
+  "liability",
+  "equity",
+  "income",
+  "expense",
+] as const;
+
+const contactSeen = {
+  first_date: date
+    .nullable()
+    .describe("Date of this contact's first transaction, or null with none"),
+  last_date: date.nullable().describe("Date of the latest transaction"),
+  in_cents: cents.describe(
+    "Money received from this contact, all time (drafts and reviewed)",
+  ),
+  out_cents: cents.describe(
+    "Money paid to this contact, all time, as a positive amount",
+  ),
+};
+
+const reconciliationAccount = z.object({
+  account: z.object({
+    id: uuid,
+    name: z.string(),
+    code: z.string().nullable(),
+    kind: z.enum(["bank", "card", "cash"]),
+    institution: z.string().nullable(),
+    mask: z.string().nullable(),
+  }),
+  book_cents: cents.describe(
+    "Balance in the books today, drafts included. Normal side: cash held positive, card debt owed positive",
+  ),
+  book_posted_cents: cents.describe("The same, reviewed transactions only"),
+  bank_cents: cents
+    .nullable()
+    .describe("The balance the bank reported, same sign; null without a feed"),
+  bank_observed_at: z
+    .string()
+    .nullable()
+    .describe("When the bank reported that balance"),
+  gap_cents: cents
+    .nullable()
+    .describe(
+      "Books minus bank on the day the bank reported, same sign. Zero means they match",
+    ),
+  off_since: z
+    .string()
+    .nullable()
+    .describe(
+      "When the gap began: the first bank report since which it has been non-zero without a break; null when they match",
+    ),
+  pending_count: z.number().describe("Bank lines still pending"),
+  unmatched: z.object({
+    count: z.number(),
+    amount_cents: cents,
+    oldest: date.nullable(),
+  }).describe("Posted bank lines that never became a transaction in the books"),
+  last_reconciled_through: date
+    .nullable()
+    .describe("End of the latest completed statement reconciliation"),
+  feed: z
+    .object({
+      connection_id: uuid,
+      connection: z.string(),
+      status: z.string().describe("active, reconnect_required or disconnected"),
+      last_success_at: z.string().nullable(),
+      last_error: z.string().nullable(),
+      stale: z
+        .boolean()
+        .describe("Not active, or no successful sync for over 24 hours"),
+    })
+    .nullable(),
+  status: z
+    .enum(["ok", "gap", "no_feed", "stale_feed"])
+    .describe(
+      "no_feed: no bank feed; stale_feed: the feed is down or silent, so the bank figure is old; gap: books and bank differ; ok: they match",
+    ),
+});
+
 const account = z.object({
   id: uuid,
   code: z.string().nullable(),
@@ -476,6 +624,9 @@ export const API_OPERATIONS = [
         to: date.optional().describe("Defaults to today"),
         mode: bookMode,
         offset,
+        limit: limit(100, 100).describe(
+          "Lines per page; lower it when long memos make a page too large",
+        ),
       })
       .strict(),
     response: z.object({
@@ -510,9 +661,45 @@ export const API_OPERATIONS = [
     tag: "Books",
     summary: "Search transactions",
     description:
-      "The transaction register, newest first, as the Transactions screen shows it: bank line, categories, review state. Page with `offset` and `limit`.",
+      "The transaction register, newest first unless `sort` says otherwise, as the Transactions screen shows it: bank line, categories, review state. `totals` sums every match, not just the page, so one call answers how much in total. `view=compact` gives short rows (100 fit in one answer). Page with `offset` and `limit`.",
     query: z
       .object({
+        sort: z
+          .enum(["date_desc", "date_asc", "amount_desc", "amount_asc"])
+          .default("date_desc")
+          .describe(
+            "amount_desc lists the biggest first, by size whatever the direction",
+          ),
+        min_cents: z
+          .string()
+          .regex(/^\d{1,13}$/, "Whole cents, not negative")
+          .optional()
+          .describe(
+            "Only transactions at least this big (cents, by size whatever the direction)",
+          ),
+        max_cents: z
+          .string()
+          .regex(/^\d{1,13}$/, "Whole cents, not negative")
+          .optional()
+          .describe("Only transactions at most this big (cents, by size)"),
+        kind: z
+          .enum(ENTRY_KINDS)
+          .optional()
+          .describe(
+            "Only this kind, such as expense, income, refund, owner or payroll",
+          ),
+        transfers: z
+          .enum(["include", "exclude", "only"])
+          .default("include")
+          .describe(
+            "Transfers between the business's own accounts (card payments included): exclude leaves them out, only lists just them",
+          ),
+        view: z
+          .enum(["full", "compact"])
+          .default("full")
+          .describe(
+            "compact: id, date, amount, memo, contact, category names, bank account, status, reviewed and transfer only",
+          ),
         from: date.optional(),
         to: date.optional(),
         account: uuid
@@ -555,7 +742,8 @@ export const API_OPERATIONS = [
       offset: z.number(),
       limit: z.number(),
       next_offset: z.number().nullable(),
-      transactions: z.array(transaction),
+      totals,
+      transactions: z.array(z.union([transaction, compactTransaction])),
     }),
   },
   {
@@ -602,7 +790,7 @@ export const API_OPERATIONS = [
     tag: "Books",
     summary: "A financial report",
     description:
-      "The same report the Reports screen shows, row for row: profit-loss, balance-sheet, cash-flow, customer-income, vendor-expenses, trial-balance, general-ledger or owner-activity. Add compare_from and compare_to for a comparison column.",
+      "The same report the Reports screen shows, row for row: profit-loss, balance-sheet, cash-flow, customer-income, vendor-expenses, trial-balance, general-ledger or owner-activity. Add compare_from and compare_to for a comparison column. Narrow it with `category` (account ids), `contact` and `account_types`: vendor-expenses with category set to Meals lists who the meals were bought from. `top` (profit-loss, customer-income, vendor-expenses) sorts the rows biggest first, keeps that many, and rolls the rest into one Other row so the rows still add up to the total.",
     params: z.object({
       id: z.enum([
         "profit-loss",
@@ -622,6 +810,31 @@ export const API_OPERATIONS = [
         compare_from: date.optional(),
         compare_to: date.optional(),
         mode: bookMode,
+        category: commaList(
+          uuid,
+          50,
+          "Only these accounts (categories are income and expense accounts)",
+        ).optional(),
+        contact: z
+          .union([uuid, z.literal("none")])
+          .optional()
+          .describe(
+            "Only this contact's transactions, or none for those without a contact",
+          ),
+        account_types: commaList(
+          z.enum(ACCOUNT_TYPES),
+          5,
+          "Only these account types: asset, liability, equity, income, expense",
+        ).optional(),
+        top: z.coerce
+          .number()
+          .int()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe(
+            "profit-loss, customer-income and vendor-expenses: biggest rows first, this many per section, the rest as one Other row",
+          ),
       })
       .strict(),
     response: z.object({
@@ -1014,11 +1227,22 @@ export const API_OPERATIONS = [
     tag: "Books",
     summary: "Contacts",
     description:
-      "Who the business pays and who pays it: roles, contact details, whether the owner has approved each one (review_status) and how many transactions name it. Search here before adding a contact. Sorted by name; page with `offset` and `limit`.",
+      "Who the business pays and who pays it: roles, contact details, whether the owner has approved each one (review_status), how many transactions name it, when they started and last appeared, and money in and out all time. Search here before adding a contact. `category` lists the contacts whose money mostly goes through one category; `view=compact` gives short rows. Sorted by name; page with `offset` and `limit`.",
     query: z
       .object({
         q: nameSearch,
         role: contactRole.optional(),
+        category: uuid
+          .optional()
+          .describe(
+            "Only contacts whose top_category is this account, such as the hosting vendors",
+          ),
+        view: z
+          .enum(["full", "compact"])
+          .default("full")
+          .describe(
+            "compact: id, name, roles, review_status, top category name, transaction count, first and last date, money in and out",
+          ),
         review_status: z
           .enum(["suggested", "confirmed"])
           .optional()
@@ -1051,7 +1275,18 @@ export const API_OPERATIONS = [
             .describe(
               "The category most of this contact's money went through (drafts and reviewed, by amount), or null with no categorized transactions",
             ),
-        }),
+          ...contactSeen,
+        }).or(
+          z.object({
+            id: uuid,
+            name: z.string(),
+            roles: z.array(contactRole),
+            review_status: z.enum(["suggested", "confirmed"]),
+            top_category: z.string().nullable(),
+            transaction_count: z.number(),
+            ...contactSeen,
+          }),
+        ),
       ),
     }),
   },
@@ -1350,6 +1585,130 @@ export const API_OPERATIONS = [
         .describe("Descriptions another contact already owns"),
       review_url: z.string().describe("Where the owner sees the contact"),
     }),
+  },
+  {
+    id: "books.reconciliation",
+    method: "GET",
+    path: "/api/v1/books/reconciliation",
+    permission: "accounting.read",
+    source: "books",
+    tag: "Books",
+    summary: "Bank balances against the books",
+    description:
+      "For every bank, card and cash account: the balance in the books, the balance the bank last reported, the gap between them on the day the bank reported, since when that gap has lasted (off_since), bank lines still pending or never taken into the books, and whether the bank feed is working. Amounts are on each account's normal side: cash held positive, card debt owed positive.",
+    query: z
+      .object({
+        account: uuid
+          .optional()
+          .describe("Only this bank, card or cash account"),
+      })
+      .strict(),
+    response: z.object({
+      as_of: date,
+      checked_at: z.string(),
+      accounts: z.array(reconciliationAccount),
+      revision: z.string(),
+    }),
+  },
+  {
+    id: "books.attention",
+    method: "GET",
+    path: "/api/v1/books/attention",
+    permission: "accounting.read",
+    source: "books",
+    tag: "Books",
+    summary: "What needs the owner",
+    description:
+      "Whether anything in the books is genuinely wrong. Alerts: a gap between the books and the bank lasting over a day, a bank feed down or silent for a day, a single transaction over $1,000 waiting for review for two days, a likely duplicate charge, drafts that do not balance, bank lines left out of a closed month. Info: the review backlog, contacts waiting for approval, what still sits in Uncategorized. Each item keeps the same id while the issue lasts. `alert` is true only when an alert item exists.",
+    query: z
+      .object({
+        include_info: z
+          .enum(["true", "false"])
+          .default("true")
+          .describe("false: alert items only"),
+      })
+      .strict(),
+    response: z.object({
+      as_of: date,
+      checked_at: z.string(),
+      alert: z
+        .boolean()
+        .describe("True only when at least one alert item exists"),
+      counts: z.object({ alert: z.number(), info: z.number() }),
+      items: z.array(
+        z.object({
+          id: z
+            .string()
+            .describe("Stays the same while the same issue lasts"),
+          severity: z.enum(["alert", "info"]),
+          kind: z.enum([
+            "recon_gap",
+            "feed_down",
+            "large_unreviewed",
+            "possible_duplicate",
+            "unbalanced_drafts",
+            "closed_month_unmatched",
+            "review_backlog",
+            "suggested_contacts",
+            "uncategorized",
+          ]),
+          title: z.string(),
+          detail: z.string(),
+          since: z
+            .string()
+            .optional()
+            .describe("When the issue began: a date or a timestamp"),
+          amount_cents: cents.optional(),
+          link: z.string().optional().describe("Where the owner fixes it"),
+        }),
+      ),
+      revision: z.string(),
+    }),
+  },
+  {
+    id: "books.missed_create",
+    method: "POST",
+    path: "/api/v1/books/missed-transactions",
+    permission: "accounting.draft",
+    source: "books",
+    tag: "Books",
+    summary: "Add a bank transaction the feed missed",
+    description:
+      "Drafts a bank, card or cash movement the bank feed never delivered, for the owner to review. Use it only when the owner tells you about a specific missing charge or deposit, or when books_reconciliation shows a gap and the owner gave you the details; never invent a transaction to close a gap. It is accepted only while that account shows a gap right now, in the direction that shrinks the gap and never by more than the gap (reasons no_gap, wrong_direction, exceeds_gap, after_balance; details.closes_with_cents is the amount that would close it). The same amount on that account within 10 days, in the books or the bank's records, is refused as a likely duplicate (reason possible_duplicate, with the candidate). The date must be in an open month, not in the future and not before the books start. Send an Idempotency-Key.",
+    query: z.object({}).strict(),
+    body: z
+      .object({
+        bank_account_id: uuid.describe(
+          "The bank, card or cash account the movement hit (an account id from books_reconciliation)",
+        ),
+        entry_date: date,
+        amount_cents: centsInput
+          .refine((value) => BigInt(value) !== BigInt(0), "Must not be zero")
+          .describe(
+            "Signed from the account's point of view: money out (a charge, a payment) negative, money in positive",
+          ),
+        description: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .describe("What the bank statement says, such as AMAZON WEB SERVICES"),
+        account_id: uuid.describe(
+          "The category: an income or expense account (not bank, card or cash)",
+        ),
+        contact_id: uuid
+          .optional()
+          .describe("Who it was with: a contact id from books_list_contacts"),
+        note: z
+          .string()
+          .trim()
+          .max(500)
+          .optional()
+          .describe("Where the details came from, for the owner"),
+      })
+      .strict(),
+    idempotent: true,
+    response: written,
   },
 ] as const satisfies readonly ApiOperation[];
 

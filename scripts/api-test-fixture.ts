@@ -126,3 +126,56 @@ export async function seedApiFixture(options: { maxRows?: number } = {}) {
     throw error;
   }
 }
+
+/** Days from today in the books time zone (the fixture keeps America/Phoenix), as YYYY-MM-DD. */
+export function booksDay(offset = 0): string {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Phoenix" }).format(new Date());
+  const d = new Date(`${today}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + offset);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * A bank feed on the fixture's business card that agrees with the books five
+ * days ago and reports $9.71 more owed from two days ago: a charge the feed
+ * never sent. The balances go through sync_server, as the worker sends them.
+ */
+export async function seedCardGap(db: Awaited<ReturnType<typeof accountingTestDb>>) {
+  const connection = randomUUID(),
+    feed = randomUUID();
+  await db.exec("RESET ROLE; SET ROLE authenticated;");
+  await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [fixtureOwner]);
+  const cmd = async (command: Record<string, unknown>) =>
+    db.query("SELECT accounting.operate($1)", [JSON.stringify({ key: randomUUID(), command })]);
+  await cmd({ type: "feed.claim", id: connection, name: "Synthetic Amex", access_url_encrypted: "synthetic-encrypted-access", expected_version: 0 });
+  await cmd({
+    type: "feed.map",
+    id: feed,
+    expected_version: 0,
+    account_id: account(3),
+    connection_id: connection,
+    provider_account_id: '["synthetic", "card"]',
+    coverage_from: "2025-12-01",
+  });
+  const noon = (offset: number) => Date.parse(`${booksDay(offset)}T12:00:00-07:00`) / 1000;
+  await db.exec("RESET ROLE; SET ROLE service_role;");
+  for (const [balance, at] of [
+    ["0", noon(-5)],
+    ["-971", noon(-2)],
+  ] as const) {
+    const run = randomUUID();
+    await db.query("SELECT accounting.sync_server($1)", [JSON.stringify({ id: connection, run_id: run, action: "lease" })]);
+    await db.query("SELECT accounting.sync_server($1)", [
+      JSON.stringify({
+        id: connection,
+        run_id: run,
+        action: "complete",
+        discovery: true,
+        accounts: [{ provider_connection_id: "synthetic", provider_account_id: "card", currency: "USD", name: "Synthetic card", institution: "Synthetic", balance_cents: balance, balance_at: at, complete: true, transactions: [] }],
+      }),
+    ]);
+  }
+  await db.exec("RESET ROLE;");
+  await db.query("SELECT set_config('request.jwt.claim.sub','',false)");
+  return { connection, feed, offSince: noon(-2) };
+}

@@ -4,6 +4,14 @@ import { ApiError } from "@/lib/api/http";
 import { booksClient, booksRange, booksRead, quality } from "@/lib/api/books";
 import { buildReportModel } from "@/lib/accounting/report-model";
 import type { ReportData } from "@/lib/accounting/reports";
+import { topRows } from "@/lib/api/report-top";
+
+/** The reports top-N applies to, and what their rows are. */
+const TOP_NOUNS: Record<string, { one: string; many: string }> = {
+  "profit-loss": { one: "category", many: "categories" },
+  "customer-income": { one: "contact", many: "contacts" },
+  "vendor-expenses": { one: "contact", many: "contacts" },
+};
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +21,8 @@ export const dynamic = "force-dynamic";
  * general ledger for that report) and the same buildReportModel, so every row
  * matches the screen. The customer and vendor reports read contact roles, as
  * the screen does: clients on one, everyone the business pays on the other.
+ * The filters are the ones accounting.report already takes (account_ids,
+ * account_types, payee); top sorts and rolls up the rows afterwards.
  */
 export const GET = withApi(
   apiOperation("books.report"),
@@ -27,6 +37,16 @@ export const GET = withApi(
         "VALIDATION_ERROR",
         "Send both compare_from and compare_to, in order.",
         { reason: "invalid_range" },
+      );
+    if (query.top !== undefined && !TOP_NOUNS[params.id])
+      throw new ApiError(
+        422,
+        "VALIDATION_ERROR",
+        "top works on profit-loss, customer-income and vendor-expenses.",
+        {
+          reason: "invalid_parameters",
+          hint: "Leave top out for this report, or read one of those three.",
+        },
       );
     const client = booksClient(service, keyHash);
     const byContact =
@@ -49,6 +69,11 @@ export const GET = withApi(
           from,
           to,
           mode: query.mode,
+          ...(query.category ? { account_ids: query.category } : {}),
+          ...(query.account_types ? { account_types: query.account_types } : {}),
+          ...(query.contact
+            ? { payee: query.contact === "none" ? "unassigned" : query.contact }
+            : {}),
           ...(query.compare_from
             ? { compare_from: query.compare_from, compare_to: query.compare_to }
             : {}),
@@ -56,6 +81,10 @@ export const GET = withApi(
       },
     );
     const model = buildReportModel(params.id, report, false, contacts);
+    const rows =
+      query.top !== undefined
+        ? topRows(model.rows, query.top, TOP_NOUNS[params.id])
+        : model.rows;
     return {
       data: {
         id: model.id,
@@ -64,14 +93,20 @@ export const GET = withApi(
         to,
         book_mode: query.mode,
         columns: model.columns,
-        rows: model.rows.map(({ key, label, kind, code, values }) => ({
+        rows: rows.map(({ key, label, kind, code, values }) => ({
           key,
           label,
           kind,
           ...(code ? { code } : {}),
           values,
         })),
-        footnotes: model.footnotes,
+        footnotes:
+          query.top !== undefined
+            ? [
+                ...model.footnotes,
+                "Rows are sorted biggest first; Other is each section total less the rows shown.",
+              ]
+            : model.footnotes,
         quality: quality(report),
         revision: report.revision,
       },
