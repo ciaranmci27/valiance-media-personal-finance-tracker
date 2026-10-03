@@ -143,7 +143,7 @@ export function EmployeesListContent({ employees }: Props) {
             type="button"
             onClick={() => setActiveTab(tab.value)}
             className={cn(
-              "flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+              "flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
               activeTab === tab.value
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:text-foreground hover:bg-secondary",
@@ -201,7 +201,7 @@ export function EmployeesListContent({ employees }: Props) {
               className={cn(
                 "w-full text-left glass-card rounded-xl p-4 transition-all duration-200",
                 "hover:border-primary/30 hover:scale-[1.01]",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
                 "animate-fade-up",
                 `stagger-${Math.min(index + 1, 6)}`,
                 employee.status === "terminated" && "opacity-60",

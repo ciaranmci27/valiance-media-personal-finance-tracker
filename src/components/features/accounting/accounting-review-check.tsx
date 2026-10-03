@@ -50,7 +50,7 @@ export function ReviewCheck({
         aria-pressed={reviewed}
         className={cn(
           "flex h-8 w-8 items-center justify-center rounded-full border transition-colors",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
           "disabled:cursor-default",
           reviewed
             ? "border-primary/20 bg-primary/15 text-teal-light enabled:hover:bg-primary/25"

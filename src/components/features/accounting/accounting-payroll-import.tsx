@@ -279,7 +279,7 @@ export function AccountingPayrollImport({
             <button
               type="button"
               onClick={() => setStep(1)}
-              className="flex w-full items-center gap-3 rounded-xl border border-border bg-secondary/20 p-3 text-left transition-colors hover:bg-secondary/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:gap-4"
+              className="flex w-full items-center gap-3 rounded-xl border border-border bg-secondary/20 p-3 text-left transition-colors hover:bg-secondary/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:gap-4"
             >
               <span className="flex h-18 w-18 shrink-0 items-center justify-center rounded-lg border border-[#e4e4e7] bg-[#ffffff] p-1.5">
                 <Image

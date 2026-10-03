@@ -113,7 +113,7 @@ export function PayrollEncryptionGuard() {
                   type="button"
                   onClick={handleCopy}
                   aria-label={copied ? "Copied to clipboard" : "Click to copy env line"}
-                  className="group relative block w-full cursor-pointer rounded-lg bg-background p-3 text-left font-mono text-xs leading-relaxed transition-colors hover:bg-background/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  className="group relative block w-full cursor-pointer rounded-lg bg-background p-3 text-left font-mono text-xs leading-relaxed transition-colors hover:bg-background/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                 >
                   <span className="block whitespace-pre-wrap break-all">
                     AES_ENCRYPTION_KEY={generatedKey}
@@ -143,7 +143,7 @@ export function PayrollEncryptionGuard() {
           </div>
 
           <details className="group">
-            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded">
+            <summary className="cursor-pointer text-xs text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring rounded">
               Prefer the command line?
             </summary>
             <pre className="mt-2 overflow-x-auto rounded-lg bg-background p-3 font-mono text-xs">
@@ -159,7 +159,7 @@ export function PayrollEncryptionGuard() {
 
         <Link
           href="/"
-          className="inline-flex items-center rounded text-sm font-medium text-teal underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="inline-flex items-center rounded text-sm font-medium text-teal underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
         >
           Back to dashboard
         </Link>

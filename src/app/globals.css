@@ -165,9 +165,17 @@
 
   --border: rgba(255, 255, 255, 0.08); /* app surface-border, true alpha */
   --input: rgba(255, 255, 255, 0.03); /* app input-bg */
-  /* Soft focus ring for ring-* utilities (app input-ring: brand @ 30%);
-     the :focus-visible outline uses the solid brand-400 shade separately */
-  --ring: color-mix(in srgb, var(--teal) 30%, transparent);
+  /* Keyboard focus indicator (WCAG 2.1 AA, SC 1.4.11 + 2.4.7): one solid
+     brand shade per theme that keeps at least 3:1 against every surface it
+     sits on. Here #8db3b3 measures 8.8:1 on the canvas, 7.9:1 under the
+     ambient radial, 8.1:1 on glass and the sidebar, 8.0:1 on dialogs and
+     6.7:1 on hover wells. The old soft ring (brand at 30%) was about 1.5:1.
+     --ring and --input-ring point here, and the Tailwind color tokens are
+     re-derived so a nested dark subtree (the sidebar) keeps its own shade. */
+  --focus-ring: var(--teal-light);
+  --ring: var(--focus-ring);
+  --color-focus-ring: var(--focus-ring);
+  --color-ring: var(--ring);
 
   /* Glass specific - panels sit LIGHTER than the base (app values verbatim) */
   --glass-bg: rgba(26, 28, 35, 0.55);
@@ -296,7 +304,12 @@
 
   --border: rgba(0, 0, 0, 0.1); /* app light surface-border */
   --input: rgba(0, 0, 0, 0.02); /* app light input-bg */
-  --ring: color-mix(in srgb, var(--teal) 30%, transparent);
+  /* Focus indicator, light: #3a5959 measures 6.2:1 on the canvas under the
+     ambient radial, 7.0:1 on the canvas, 7.5:1 on glass and 7.6:1 on cards */
+  --focus-ring: var(--teal-light);
+  --ring: var(--focus-ring);
+  --color-focus-ring: var(--focus-ring);
+  --color-ring: var(--ring);
 
   /* Glass specific (app light values verbatim) */
   --glass-bg: rgba(255, 255, 255, 0.72);
@@ -746,6 +759,13 @@ a.bg-teal {
     0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
+/* Keyboard focus is an outline, not a ring: the unlayered box-shadow above
+   would cancel a Tailwind ring utility on the active item. */
+.seg-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 /* Provisional meter segment (projected credits): hatched so it reads as not
    yet in hand. Theme-aware through the --ink triplet. */
 .meter-hatch {
@@ -1006,10 +1026,10 @@ a.bg-teal {
    ============================================================================ */
 
 /* In @layer base so outline-none utilities can override (app parity);
-   solid brand-400 like the app's focus ring. */
+   the solid per-theme --focus-ring shade, 3:1 or better on every surface. */
 @layer base {
   *:focus-visible {
-    outline: 2px solid var(--teal-mid);
+    outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }
 }
@@ -1084,6 +1104,7 @@ a.bg-teal {
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-focus-ring: var(--focus-ring);
 
   /* Brand colors */
   --color-teal: var(--teal);
@@ -1134,8 +1155,8 @@ a.bg-teal {
   --input-accent-fg: #ffffff;
   --input-accent-subtle: color-mix(in srgb, var(--teal) 14%, transparent);
   --input-accent-subtle-fg: var(--teal-light);
-  --input-ring: color-mix(in srgb, var(--teal) 30%, transparent);
-  --input-ring-error: rgba(248, 113, 113, 0.25);
+  --input-ring: var(--focus-ring);
+  --input-ring-error: var(--error);
   --input-error: #f87171;
   --input-warning: #fbbf24;
 }
@@ -1159,8 +1180,8 @@ a.bg-teal {
   --input-accent-fg: #ffffff;
   --input-accent-subtle: color-mix(in srgb, var(--teal) 14%, transparent);
   --input-accent-subtle-fg: var(--teal-light);
-  --input-ring: color-mix(in srgb, var(--teal) 30%, transparent);
-  --input-ring-error: rgba(248, 113, 113, 0.25);
+  --input-ring: var(--focus-ring);
+  --input-ring-error: var(--error);
   --input-error: #f87171;
   --input-warning: #fbbf24;
 }

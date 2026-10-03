@@ -392,7 +392,7 @@ function ExpenseRow({
                 }
                 className={cn(
                   "p-1.5 rounded-md transition-colors",
-                  "hover:bg-secondary focus:outline-none focus:ring-2 focus:ring-primary/50",
+                  "hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   isToggling && "opacity-50 cursor-not-allowed",
                 )}
               >

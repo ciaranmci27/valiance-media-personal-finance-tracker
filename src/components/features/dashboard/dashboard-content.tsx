@@ -89,7 +89,7 @@ function StatStrip({ children }: { children: React.ReactNode }) {
 
   // Small solid discs sitting on the faded edge, in line with the cards.
   const arrowClass =
-    "absolute top-1/2 z-10 hidden h-7 w-7 -translate-y-1/2 place-items-center rounded-full border border-border bg-card text-foreground shadow-md transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary lg:grid";
+    "absolute top-1/2 z-10 hidden h-7 w-7 -translate-y-1/2 place-items-center rounded-full border border-border bg-card text-foreground shadow-md transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:grid";
 
   return (
     <div className="relative">

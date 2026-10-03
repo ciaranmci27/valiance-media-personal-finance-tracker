@@ -516,7 +516,7 @@ export function ApiSettingsContent({ available, isOwner, memberId }: Props) {
               aria-pressed={tab === value}
               onClick={() => setTab(value)}
               className={cn(
-                "seg-item focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "seg-item",
                 tab === value && "is-active",
               )}
             >

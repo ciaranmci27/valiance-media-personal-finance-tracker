@@ -88,7 +88,7 @@ function RailUI({ active }: { active: 1 | 2 | 3 }) {
                   aria-current={isActive ? "step" : undefined}
                   className={cn(
                     "flex w-full h-full items-center gap-2.5 rounded-lg px-3 py-2 border transition-all duration-200",
-                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
                     isActive &&
                       "bg-primary/10 border-primary/40 text-foreground shadow-sm",
                     isDone &&

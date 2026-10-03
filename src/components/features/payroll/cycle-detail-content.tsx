@@ -452,7 +452,7 @@ export function CycleDetailContent({
                     )}
                     <Link
                       href={`/payroll/runs/${run.id}`}
-                      className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
+                      className="inline-flex items-center text-xs text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring rounded"
                     >
                       Open
                       <ChevronRight
@@ -472,7 +472,7 @@ export function CycleDetailContent({
       <div className="pt-2">
         <Link
           href="/payroll/runs"
-          className="text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
+          className="text-xs text-muted-foreground hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring rounded"
         >
           View all pay runs
         </Link>

@@ -335,7 +335,7 @@ export function AccountingPayrollRuns({
         <button
           type="button"
           onClick={() => setDetailId(r.id)}
-          className="text-left transition-colors hover:text-teal-light focus-visible:outline-none focus-visible:underline"
+          className="text-left transition-colors hover:text-teal-light rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span className="block truncate">{runLabel(r.provider_run_id)}</span>
           {r.document_id && (

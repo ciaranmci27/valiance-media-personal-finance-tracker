@@ -216,7 +216,7 @@ function CreditReductionEditor({
                 <button
                   type="button"
                   onClick={() => removeState(code)}
-                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/60 hover:text-error hover:bg-error/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                  className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/60 hover:text-error hover:bg-error/10 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                   aria-label={`Remove ${code} from credit-reduction states`}
                 >
                   <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -231,7 +231,7 @@ function CreditReductionEditor({
         type="button"
         onClick={addState}
         disabled={availableOptions.length === 0}
-        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-md px-1 py-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring rounded-md px-1 py-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <Plus className="h-3.5 w-3.5" aria-hidden="true" />
         Add State
@@ -598,7 +598,7 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
                 onClick={() => setActiveStatus(status)}
                 className={cn(
                   "px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                  "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
                   activeStatus === status
                     ? "bg-primary text-primary-foreground"
                     : "bg-secondary text-muted-foreground hover:text-foreground",
@@ -696,7 +696,7 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
                   <button
                     type="button"
                     onClick={() => removeBracket(idx)}
-                    className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/60 hover:text-error hover:bg-error/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/60 hover:text-error hover:bg-error/10 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                     aria-label={`Remove bracket row ${idx + 1}`}
                   >
                     <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
@@ -709,7 +709,7 @@ export function FederalYearEditorContent({ year, initial, priorYear }: Props) {
           <button
             type="button"
             onClick={addBracket}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-md px-1 py-0.5"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring rounded-md px-1 py-0.5"
           >
             <Plus className="h-3.5 w-3.5" aria-hidden="true" />
             Add Row

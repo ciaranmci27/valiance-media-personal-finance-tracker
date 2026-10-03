@@ -34,7 +34,7 @@ export default async function RunPayrollPage({ searchParams }: PageProps) {
       <div className="space-y-6 max-w-3xl mx-auto">
         <Link
           href="/payroll"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
           aria-label="Back to payroll"
         >
           <ArrowLeft className="h-4 w-4" aria-hidden="true" />

@@ -672,7 +672,7 @@ function PortalEditor({
               )
             }
             className={cn(
-              "relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+              "relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
               enabled ? "bg-primary" : "bg-secondary",
             )}
           >
@@ -834,7 +834,7 @@ function FlatElectedEditor({
               <button
                 type="button"
                 onClick={() => onRemoveRate(r)}
-                className="text-teal-light/70 hover:text-teal-light transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded"
+                className="text-teal-light/70 hover:text-teal-light transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring rounded"
                 aria-label={`Remove ${(r * 100).toFixed(2)}% rate`}
               >
                 <X className="h-3.5 w-3.5" aria-hidden="true" />
@@ -985,7 +985,7 @@ function ProgressiveEditor({
               <button
                 type="button"
                 onClick={() => remove(idx)}
-                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/60 hover:text-error hover:bg-error/10 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground/60 hover:text-error hover:bg-error/10 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                 aria-label={`Remove row ${idx + 1}`}
               >
                 <X className="h-3.5 w-3.5" aria-hidden="true" />
@@ -997,7 +997,7 @@ function ProgressiveEditor({
       <button
         type="button"
         onClick={add}
-        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-md px-1 py-0.5"
+        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring rounded-md px-1 py-0.5"
       >
         <Plus className="h-3.5 w-3.5" aria-hidden="true" />
         Add Row

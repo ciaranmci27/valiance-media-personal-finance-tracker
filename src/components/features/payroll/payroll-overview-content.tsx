@@ -366,7 +366,7 @@ export function PayrollOverviewContent({
                   <Link
                     key={w.id}
                     href={href}
-                    className="flex items-center justify-between gap-3 flex-wrap text-sm hover:bg-secondary rounded-md -mx-2 px-2 py-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    className="flex items-center justify-between gap-3 flex-wrap text-sm hover:bg-secondary rounded-md -mx-2 px-2 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                   >
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-teal-light flex-shrink-0">
@@ -696,7 +696,7 @@ function NavCard({
       className={cn(
         "glass-card rounded-xl p-4 flex items-center gap-4 transition-all duration-200",
         "hover:border-primary/30 hover:scale-[1.01]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
       )}
     >
       <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-teal-light">

@@ -262,7 +262,7 @@ export function AccountingMore({
                     type="button"
                     aria-pressed={registerKind === kind}
                     className={cn(
-                      "seg-item focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "seg-item",
                       registerKind === kind && "is-active",
                     )}
                     onClick={() => setRegisterKind(kind)}

@@ -1296,7 +1296,7 @@ export function AccountingTransactions({
                 <button
                   type="button"
                   onClick={() => openAction(transactionRowAction(e), e)}
-                  className="min-w-0 truncate text-left font-medium transition-colors hover:text-teal-light focus-visible:outline-none focus-visible:underline"
+                  className="min-w-0 truncate text-left font-medium transition-colors hover:text-teal-light rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   {e.memo}
                 </button>
@@ -1437,7 +1437,7 @@ export function AccountingTransactions({
             <div className="min-w-0">
               <button
                 type="button"
-                className="block max-w-full truncate text-left text-sm font-medium focus-visible:outline-none focus-visible:underline"
+                className="block max-w-full truncate text-left text-sm font-medium rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={() => openAction(transactionRowAction(e), e)}
               >
                 {e.memo}

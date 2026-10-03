@@ -394,7 +394,7 @@ export function AccountingReports({
                         onClick={() => navigate(r.id)}
                         onPointerEnter={() => warm(r.id)}
                         onFocus={() => warm(r.id)}
-                        className="group h-auto w-full justify-between gap-5 rounded-none p-5 text-left font-normal whitespace-normal focus-visible:ring-inset focus-visible:ring-offset-0"
+                        className="group h-auto w-full justify-between gap-5 rounded-none p-5 text-left font-normal whitespace-normal focus-visible:-outline-offset-2"
                       >
                         <span className="min-w-0">
                           <span className="block font-medium group-hover:text-teal-light">
@@ -700,7 +700,7 @@ export function AccountingReports({
                       aria-pressed={detail === v}
                       onClick={() => setDetail(v)}
                       className={cn(
-                        "seg-item focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "seg-item",
                         detail === v && "is-active",
                       )}
                     >

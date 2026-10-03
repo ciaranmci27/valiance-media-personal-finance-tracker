@@ -393,7 +393,7 @@ export function AccountingTransactionEditor({
                       aria-pressed={direction === d}
                       onClick={() => chooseDirection(d)}
                       className={cn(
-                        "seg-item gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "seg-item gap-1.5",
                         direction === d && "is-active",
                       )}
                     >

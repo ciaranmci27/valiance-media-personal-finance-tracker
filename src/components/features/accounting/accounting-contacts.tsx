@@ -357,7 +357,7 @@ export function AccountingContacts({
                     aria-expanded={open}
                     aria-controls={panelId}
                     onClick={() => toggle(group, open)}
-                    className="h-auto w-full justify-start gap-2 whitespace-normal rounded-none px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground focus-visible:ring-inset focus-visible:ring-offset-0"
+                    className="h-auto w-full justify-start gap-2 whitespace-normal rounded-none px-5 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground focus-visible:-outline-offset-2"
                   >
                     <ChevronDown
                       aria-hidden="true"

@@ -262,7 +262,7 @@ mcp_servers:
             trust it: every books write is still a draft for your review.
           </p>
           <details className="group">
-            <summary className="cursor-pointer text-foreground rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-light">
+            <summary className="cursor-pointer text-foreground rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring">
               All {MCP_TOOLS.length} tools
             </summary>
             <ul className="mt-2 divide-y divide-border/50">

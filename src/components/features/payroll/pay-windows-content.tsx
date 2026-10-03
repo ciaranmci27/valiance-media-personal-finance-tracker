@@ -189,7 +189,7 @@ function WindowCard({ window: w }: { window: PayWindow }) {
       className={cn(
         "group glass-card rounded-xl p-4 flex flex-col gap-3 transition-colors",
         "hover:border-primary/30 hover:bg-secondary",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
       )}
     >
       <div className="flex items-start justify-between gap-3">

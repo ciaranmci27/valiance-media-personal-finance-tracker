@@ -51,7 +51,7 @@ export function RowActionsMenu({
             className={cn(
               "inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors",
               "hover:bg-secondary hover:text-foreground",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+              "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
               "data-[state=open]:bg-secondary data-[state=open]:text-foreground",
               className,
             )}
@@ -77,7 +77,7 @@ export function RowActionsMenu({
                 disabled={action.disabled}
                 onSelect={action.onSelect}
                 className={cn(
-                  "flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm outline-none transition-colors",
+                  "flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm outline-none transition-colors focus-visible:outline-solid focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring",
                   "data-[disabled]:pointer-events-none data-[disabled]:opacity-40",
                   action.variant === "danger"
                     ? "text-error data-[highlighted]:bg-error/10"

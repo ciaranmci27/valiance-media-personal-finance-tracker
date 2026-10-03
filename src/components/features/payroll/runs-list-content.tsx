@@ -125,7 +125,7 @@ export function RunsListContent({ runs }: { runs: PayrollRunListItem[] }) {
               type="button"
               onClick={() => setStatusFilter(opt.value)}
               className={cn(
-                "px-3 py-1.5 text-sm font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                "px-3 py-1.5 text-sm font-medium rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
                 statusFilter === opt.value
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary",
@@ -181,7 +181,7 @@ export function RunsListContent({ runs }: { runs: PayrollRunListItem[] }) {
               className={cn(
                 "w-full text-left glass-card rounded-xl p-4 transition-all duration-200",
                 "hover:border-primary/30 hover:scale-[1.005]",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
                 "animate-fade-up",
                 `stagger-${Math.min(index + 1, 6)}`,
                 run.status === "voided" && "opacity-60",

@@ -1489,7 +1489,7 @@ function DepositList({
             {linked ? (
               <Link
                 href="/payroll/deposits"
-                className="flex items-center justify-between gap-2 flex-wrap text-xs rounded-md -mx-1 px-1 py-0.5 hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                className="flex items-center justify-between gap-2 flex-wrap text-xs rounded-md -mx-1 px-1 py-0.5 hover:bg-secondary transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
               >
                 {inner}
               </Link>

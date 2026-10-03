@@ -105,7 +105,7 @@ export function FederalListContent({ configs }: Props) {
               setShowAddYear(false);
               setNewYear("");
             }}
-            className="text-sm text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-md px-1 py-0.5"
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring rounded-md px-1 py-0.5"
           >
             Cancel
           </button>

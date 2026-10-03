@@ -959,7 +959,7 @@ export function IncomeDetailContent({
             ) : canManage ? (
               <button
                 type="button"
-                className="rounded-xl glass-card flex min-h-[160px] w-full items-start justify-start px-4 py-4 text-left cursor-pointer hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                className="rounded-xl glass-card flex min-h-[160px] w-full items-start justify-start px-4 py-4 text-left cursor-pointer hover:bg-secondary transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                 onClick={() => setIsEditingNotes(true)}
               >
                 <p

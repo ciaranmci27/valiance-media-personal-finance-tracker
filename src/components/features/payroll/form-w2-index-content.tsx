@@ -106,7 +106,7 @@ function EmployeeRow({
       href={href}
       className={cn(
         "glass-card rounded-xl p-3 flex items-center gap-3 transition-colors hover:border-primary/30 hover:bg-secondary",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
         muted && "opacity-70",
       )}
     >

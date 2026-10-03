@@ -132,7 +132,7 @@ export function AccessDialog({ open, onOpenChange, team, initialMemberId = null 
       aria-selected={target === value}
       onClick={() => setTarget(value)}
       className={cn(
-        "flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+        "flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         target === value
           ? "bg-[rgba(var(--ink),0.09)] text-foreground shadow-[inset_0_1px_0_rgba(var(--ink),0.16)]"
           : "text-muted-foreground hover:text-foreground",
@@ -217,7 +217,7 @@ export function AccessDialog({ open, onOpenChange, team, initialMemberId = null 
                           disabled={isMember && !memberId}
                           onClick={() => (isMember ? void cycleMember(permission.key) : void toggleRole(permission.key))}
                           aria-label={`${permission.label}: ${state}. ${isMember ? "Click to cycle Inherit, Allow, Deny." : "Click to toggle."}`}
-                          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-[rgba(var(--ink),0.03)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary disabled:opacity-50"
+                          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-[rgba(var(--ink),0.03)] focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring disabled:opacity-50"
                         >
                           <span className="min-w-0">
                             <span className="block text-sm font-medium text-foreground">{permission.label}</span>

@@ -368,7 +368,7 @@ export function DepositsListContent({
               type="button"
               onClick={() => setStatusFilter(opt.value)}
               className={cn(
-                "px-3 py-1.5 text-sm font-medium rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                "px-3 py-1.5 text-sm font-medium rounded-md transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
                 statusFilter === opt.value
                   ? "bg-primary text-primary-foreground"
                   : "text-muted-foreground hover:text-foreground hover:bg-secondary",
@@ -524,7 +524,7 @@ function DepositRow({
         aria-controls={panelId}
         onClick={onToggleHistory}
         onKeyDown={handleRowKeyDown}
-        className="border-t border-border hover:bg-secondary focus-visible:outline-none focus-visible:bg-secondary/30"
+        className="border-t border-border hover:bg-secondary focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring"
       >
         <td className="px-4 py-3 font-medium">
           <div className="flex items-center gap-2 flex-wrap">
@@ -689,7 +689,7 @@ function DepositCard({
           onClick={onToggleHistory}
           aria-expanded={isExpanded}
           aria-controls={panelId}
-          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
         >
           <HistoryIconLucide className="h-3.5 w-3.5" aria-hidden="true" />
           {isExpanded ? "Hide details" : "Details"}
@@ -734,7 +734,7 @@ function PayAtPortalButton({
       href={destination.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background whitespace-nowrap"
+      className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring whitespace-nowrap"
     >
       Pay at {destination.portal}
       <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
@@ -812,7 +812,7 @@ function PaymentInstructions({
           href={destination.url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background shrink-0"
+          className="inline-flex items-center gap-1.5 rounded-md bg-primary px-2.5 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring shrink-0"
         >
           Open {destination.portal}
           <ExternalLink className="h-3 w-3" aria-hidden="true" />
@@ -840,7 +840,7 @@ function SourceRunsList({ runIds }: { runIds: string[] }) {
           <Link
             key={id}
             href={`/payroll/runs/${id}`}
-            className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs text-foreground hover:bg-primary/10 hover:text-teal-light transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-0.5 text-xs text-foreground hover:bg-primary/10 hover:text-teal-light transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
           >
             Pay run {idx + 1}
             <ArrowUpRight className="h-3 w-3" aria-hidden="true" />

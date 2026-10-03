@@ -228,7 +228,7 @@ export function AccountingTaxWorkpapers({
       {loading && !data && <ManagePanelSkeleton rows={6} />}
       {data && !loading && (
         <>
-          <nav aria-label="Tax workpapers" className="overflow-x-auto">
+          <nav aria-label="Tax workpapers" className="-m-1 overflow-x-auto p-1">
             <div className="seg-track">
               {[
                 ["accounts", "Account treatment"],
@@ -241,7 +241,7 @@ export function AccountingTaxWorkpapers({
                   aria-current={tab === id ? "page" : undefined}
                   onClick={() => navigate(id)}
                   className={cn(
-                    "seg-item focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "seg-item",
                     tab === id && "is-active",
                   )}
                 >

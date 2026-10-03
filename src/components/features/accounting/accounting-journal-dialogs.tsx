@@ -662,7 +662,7 @@ export function JournalEditorDialog({
                       aria-pressed={tab === section}
                       onClick={() => setTab(section)}
                       className={cn(
-                        "seg-item focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "seg-item",
                         tab === section && "is-active",
                       )}
                     >

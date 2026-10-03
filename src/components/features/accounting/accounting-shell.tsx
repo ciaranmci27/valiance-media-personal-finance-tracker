@@ -691,7 +691,7 @@ function AccountingBooksInner({
             <Menu.Item
               key={item.label}
               onSelect={item.run}
-              className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm outline-none data-[highlighted]:bg-secondary"
+              className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2.5 text-sm outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring data-[highlighted]:bg-secondary"
             >
               <item.icon size={15} aria-hidden="true" />
               {item.label}

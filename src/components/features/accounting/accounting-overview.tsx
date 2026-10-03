@@ -778,7 +778,7 @@ export function AccountingOverview({
               key={c.account.id}
               type="button"
               onClick={onAccounts}
-              className="glass-card glass-card-interactive flex min-w-[240px] shrink-0 snap-start flex-col gap-3 rounded-xl p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:min-w-0"
+              className="glass-card glass-card-interactive flex min-w-[240px] shrink-0 snap-start flex-col gap-3 rounded-xl p-4 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring lg:min-w-0"
             >
               <span className="flex items-center gap-3">
                 <InstitutionLogo

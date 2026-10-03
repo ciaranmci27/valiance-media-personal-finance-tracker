@@ -171,7 +171,7 @@ export function AppearanceSettingsContent() {
                 aria-checked={isSelected}
                 onClick={() => void handleThemeChange(t.value)}
                 className={cn(
-                  "group relative glass-card glass-card-interactive rounded-xl p-5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                  "group relative glass-card glass-card-interactive rounded-xl p-5 text-left focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
                   isSelected
                     ? "border-primary/50 bg-primary/5"
                     : "hover:border-primary/30 hover:scale-[1.01]",

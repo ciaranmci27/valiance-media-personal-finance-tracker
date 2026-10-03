@@ -406,7 +406,7 @@ export function SmtpSettingsContent({ encryptionConfigured }: Props) {
                       type="button"
                       onClick={() => copyEnvLine(generatedKey, setCopied)}
                       aria-label={copied ? "Copied" : "Click to copy env line"}
-                      className="group relative block w-full cursor-pointer rounded-lg border border-white/[0.06] bg-secondary p-3 text-left font-mono text-xs leading-relaxed transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      className="group relative block w-full cursor-pointer rounded-lg border border-white/[0.06] bg-secondary p-3 text-left font-mono text-xs leading-relaxed transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                     >
                       <span className="block whitespace-pre-wrap break-all pr-8">
                         SMTP_ENCRYPTION_KEY={generatedKey}
@@ -855,7 +855,7 @@ function KeyRecoveryBanner({
           <button
             type="button"
             onClick={() => onPath("lost")}
-            className="glass-card rounded-lg p-3 flex items-start gap-3 text-left hover:border-primary/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="glass-card rounded-lg p-3 flex items-start gap-3 text-left hover:border-primary/30 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
           >
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 shrink-0">
               <Search className="h-4 w-4 text-teal-light" aria-hidden="true" />
@@ -872,7 +872,7 @@ function KeyRecoveryBanner({
           <button
             type="button"
             onClick={() => onPath("generate")}
-            className="glass-card rounded-lg p-3 flex items-start gap-3 text-left hover:border-primary/30 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="glass-card rounded-lg p-3 flex items-start gap-3 text-left hover:border-primary/30 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
           >
             <div className="flex h-8 w-8 items-center justify-center rounded-md bg-warning/15 shrink-0">
               <Sparkles className="h-4 w-4 text-warning" aria-hidden="true" />
@@ -970,7 +970,7 @@ function KeyRecoveryBanner({
                     type="button"
                     onClick={onCopy}
                     aria-label={copied ? "Copied" : "Click to copy env line"}
-                    className="group relative block w-full cursor-pointer rounded-lg border border-white/[0.06] bg-secondary p-3 text-left font-mono text-xs leading-relaxed transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    className="group relative block w-full cursor-pointer rounded-lg border border-white/[0.06] bg-secondary p-3 text-left font-mono text-xs leading-relaxed transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
                   >
                     <span className="block whitespace-pre-wrap break-all pr-8">
                       SMTP_ENCRYPTION_KEY={recoveryKey}
