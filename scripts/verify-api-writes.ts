@@ -62,6 +62,33 @@ async function main() {
         )
       ).rows[0];
     };
+    /** A bank draft as the feeds make them: the owner's, one bank line and one category line. */
+    const ownerBankDraft = async (memo: string, bankCents: string, category: string) => {
+      await as(fixtureOwner);
+      const r = (
+        await db.query<{ r: Record<string, unknown> }>("SELECT accounting.operate($1) r", [
+          JSON.stringify({
+            key: randomUUID(),
+            command: {
+              type: "draft.save",
+              id: randomUUID(),
+              expected_version: 0,
+              entry_date: "2026-03-05",
+              memo,
+              lines: [
+                { account_id: account(1), amount_cents: bankCents },
+                { account_id: category, amount_cents: (-BigInt(bankCents)).toString() },
+              ],
+            },
+          }),
+        ])
+      ).rows[0].r;
+      return { id: r.id as string, version: r.version as number };
+    };
+    const kindOf = async (id: string) => {
+      await superuser();
+      return (await db.query<{ kind: string }>("SELECT kind FROM accounting.journal_entries WHERE id=$1", [id])).rows[0]?.kind;
+    };
     const linesOf = async (id: string) => {
       await superuser();
       return (
@@ -155,9 +182,10 @@ async function main() {
     const draftArgs = {
       entry_date: "2026-03-05",
       memo: "Figma subscription",
+      // An accrual: an adjustment between non-cash accounts.
       lines: [
         { account_id: account(6), amount_cents: "1500" },
-        { account_id: account(1), amount_cents: "-1500" },
+        { account_id: account(8), amount_cents: "-1500" },
       ],
       kind: "expense",
     };
@@ -219,34 +247,77 @@ async function main() {
     check("a stale version is refused", /ACCT_STALE_VERSION/.test(stale.error ?? ""), stale.error);
     const onPosted = await write(drafter.secret, "draft.update", randomUUID(), { ...draftArgs, id: posted.id, expected_version: postedEntry.version ?? 2 });
     check("a posted entry cannot be replaced", /ACCT_POSTED_IMMUTABLE/.test(onPosted.error ?? ""), onPosted.error);
-    const v2 = (await entry(draftId)).version;
-    const categorized = await write(drafter.secret, "categorize", randomUUID(), { id: draftId, expected_version: v2, account_id: account(7) });
-    const afterCat = await linesOf(draftId);
+    // API drafts are adjustments only: no bank, card or cash lines.
+    const bankLine = await write(drafter.secret, "draft.create", randomUUID(), {
+      ...draftArgs,
+      memo: "Bank line try",
+      lines: [
+        { account_id: account(6), amount_cents: "1500" },
+        { account_id: account(1), amount_cents: "-1500" },
+      ],
+    });
+    check("a draft with a bank line is refused", /API_DRAFTS_NO_CASH/.test(bankLine.error ?? ""), bankLine.error);
+    const cardLine = await write(drafter.secret, "draft.create", randomUUID(), {
+      ...draftArgs,
+      memo: "Card line try",
+      lines: [
+        { account_id: account(6), amount_cents: "1500" },
+        { account_id: account(3), amount_cents: "-1500" },
+      ],
+    });
+    check("a draft with a card line is refused", /API_DRAFTS_NO_CASH/.test(cardLine.error ?? ""), cardLine.error);
+    const bank = await ownerBankDraft("Figma subscription (bank)", "-1500", account(6));
+    const bankId = bank.id;
+    const rewriteBank = await write(drafter.secret, "draft.update", randomUUID(), { ...draftArgs, id: bankId, expected_version: bank.version });
+    check("a bank draft cannot be rewritten, only categorized or split", /API_DRAFTS_NO_CASH/.test(rewriteBank.error ?? ""), rewriteBank.error);
+    const v2 = (await entry(bankId)).version;
+    const categorized = await write(drafter.secret, "categorize", randomUUID(), { id: bankId, expected_version: v2, account_id: account(7) });
+    const afterCat = await linesOf(bankId);
     check(
       "categorize moves the category line, bank line kept",
       !categorized.error && afterCat.some((l) => l.account_id === account(7) && l.amount_cents === "1500") && afterCat.some((l) => l.account_id === account(1)),
       { error: categorized.error, afterCat },
     );
-    check("still a draft after categorize", (await entry(draftId)).status === "draft");
+    check("still a draft after categorize", (await entry(bankId)).status === "draft");
     const postedCat = await write(drafter.secret, "categorize", randomUUID(), { id: posted.id, expected_version: 2, account_id: account(7) });
     check("a posted entry cannot be categorized", /ACCT_POSTED_IMMUTABLE|ACCT_STALE_VERSION/.test(postedCat.error ?? ""), postedCat.error);
-    const v3 = (await entry(draftId)).version;
+    const v3 = (await entry(bankId)).version;
     const split = await write(drafter.secret, "split", randomUUID(), {
-      id: draftId,
+      id: bankId,
       expected_version: v3,
       splits: [
         { account_id: account(6), amount_cents: "1000" },
         { account_id: account(7), amount_cents: "500" },
       ],
     });
-    const afterSplit = await linesOf(draftId);
+    const afterSplit = await linesOf(bankId);
     check("split across two categories", !split.error && afterSplit.length === 3, { error: split.error, afterSplit });
+    check("categorize set the kind: an expense paid out is an expense", (await kindOf(bankId)) === "expense");
+
+    // Money in: an expense category makes it a refund, and amount splits are positive cents.
+    const deposit = await ownerBankDraft("Card refund (bank)", "2000", account(5));
+    const refund = await write(drafter.secret, "categorize", randomUUID(), { id: deposit.id, expected_version: deposit.version, account_id: account(6) });
+    check("categorize: an expense on money in is a refund", !refund.error && (await kindOf(deposit.id)) === "refund", { error: refund.error, kind: await kindOf(deposit.id) });
+    const income = await ownerBankDraft("Client payment (bank)", "3000", account(6));
+    const incomeCat = await write(drafter.secret, "categorize", randomUUID(), { id: income.id, expected_version: income.version, account_id: account(5) });
+    check("categorize: income on money in is income", !incomeCat.error && (await kindOf(income.id)) === "income", incomeCat.error);
+    const depositSplit = await write(drafter.secret, "split", randomUUID(), {
+      id: income.id,
+      expected_version: (await entry(income.id)).version,
+      splits: [
+        { account_id: account(5), amount_cents: "1800" },
+        { account_id: account(6), amount_cents: "1200" },
+      ],
+    });
+    const depositLines = await linesOf(income.id);
+    check(
+      "split: a deposit splits by positive amounts, stored with the books' sign",
+      !depositSplit.error && depositLines.some((l) => l.account_id === account(5) && l.amount_cents === "-1800") && depositLines.some((l) => l.account_id === account(6) && l.amount_cents === "-1200"),
+      { error: depositSplit.error, depositLines },
+    );
 
     // Bulk categorize: all or nothing.
-    const makeDraft = async (memo: string) => {
-      const r = await write(drafter.secret, "draft.create", randomUUID(), { ...draftArgs, memo });
-      return { id: r.rows[0]?.r.id as string, version: (await entry(r.rows[0]?.r.id as string)).version };
-    };
+    const makeDraft = (memo: string) => ownerBankDraft(memo, "-1500", account(6));
     const a1 = await makeDraft("Bulk one");
     const a2 = await makeDraft("Bulk two");
     const bulkBad = await write(drafter.secret, "categorize.bulk", randomUUID(), {

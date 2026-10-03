@@ -1850,6 +1850,28 @@ BEGIN
  RETURN v;
 END $fn$;
 
+-- What categorizing a transaction to an account means for its kind, the
+-- rule the Transactions screen uses (categoryKind in categories.ts): owner
+-- equity is owner; income on money out and expense on money in are refunds;
+-- loans and fixed assets keep their own kind.
+CREATE OR REPLACE FUNCTION public.api_category_kind(p_entry uuid, p_category uuid) RETURNS text LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = '' AS $fn$
+DECLARE money_in boolean; category_type text; category_subtype text;
+BEGIN
+ SELECT coalesce(sum(l.amount_cents), 0) > 0 INTO money_in FROM accounting.journal_lines l JOIN accounting.accounts acc ON acc.id = l.account_id
+  WHERE l.entry_id = p_entry AND acc.subtype IN ('bank', 'card', 'cash');
+ SELECT type, subtype INTO category_type, category_subtype FROM accounting.accounts WHERE id = p_category;
+ IF NOT FOUND THEN RETURN NULL; END IF;
+ RETURN CASE
+  WHEN category_subtype = 'owner_equity' THEN 'owner'
+  WHEN category_type = 'income' THEN CASE WHEN money_in THEN 'income' ELSE 'refund' END
+  WHEN category_type = 'expense' THEN CASE WHEN money_in THEN 'refund' ELSE 'expense' END
+  WHEN category_subtype = 'loan' THEN 'loan'
+  WHEN category_subtype = 'fixed_asset' THEN 'asset'
+  WHEN money_in THEN 'income' ELSE 'expense' END;
+END $fn$;
+
+REVOKE ALL ON FUNCTION public.api_category_kind(uuid, uuid) FROM PUBLIC, anon, authenticated, service_role;
+
 -- Books writes from the API, drafts only. Each operation builds its command
 -- from scratch (nothing the caller sends is forwarded as is) and runs it
 -- through accounting.operate as the key's member, so every books rule,
@@ -1865,7 +1887,7 @@ DECLARE
  kinds text[] := ARRAY['manual', 'income', 'expense', 'refund', 'owner', 'loan', 'asset'];
  keys uuid[] := ARRAY[]::uuid[];
  cmd jsonb; result jsonb; results jsonb := '[]'::jsonb; item jsonb; i integer := 0; k uuid; bad text;
- current_status text; current_kind text; current_payee uuid;
+ current_status text; current_kind text; current_payee uuid; cash_sign integer;
  lines jsonb; splits jsonb; conditions jsonb; actions jsonb; matcher text;
 BEGIN
  IF p_operation IS NULL OR p_operation NOT IN ('draft.create', 'draft.update', 'categorize', 'split', 'categorize.bulk', 'rule.create', 'payee.create') THEN
@@ -1886,7 +1908,14 @@ BEGIN
    SELECT status, kind, payee_id INTO current_status, current_kind, current_payee FROM accounting.journal_entries WHERE id = (a->>'id')::uuid;
    IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
    IF current_status <> 'draft' THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
+   -- A bank or card transaction is categorized or split, never rewritten.
+   IF EXISTS (SELECT 1 FROM accounting.journal_lines l JOIN accounting.accounts acc ON acc.id = l.account_id
+      WHERE l.entry_id = (a->>'id')::uuid AND acc.subtype IN ('bank', 'card', 'cash')) THEN RAISE EXCEPTION 'API_DRAFTS_NO_CASH'; END IF;
   END IF;
+  -- Journal entries from the API are adjustments. Bank, card and cash
+  -- movements come only from the feeds and imports.
+  IF EXISTS (SELECT 1 FROM jsonb_array_elements(coalesce(lines, '[]'::jsonb)) AS t(l) JOIN accounting.accounts acc ON acc.id = (l->>'account_id')::uuid
+     WHERE acc.subtype IN ('bank', 'card', 'cash')) THEN RAISE EXCEPTION 'API_DRAFTS_NO_CASH'; END IF;
   -- An update keeps the kind and payee the caller leaves out.
   cmd := jsonb_build_object('type', 'draft.save',
    'id', CASE WHEN p_operation = 'draft.create' THEN md5('draft:' || p_key::text)::uuid ELSE (a->>'id')::uuid END,
@@ -1898,13 +1927,20 @@ BEGIN
  ELSIF p_operation = 'categorize' THEN
   PERFORM public.api_books_ref('category', a->>'account_id');
   IF a ? 'payee_id' THEN PERFORM public.api_books_ref('payee', a->>'payee_id'); END IF;
+  -- The category sets the kind, as the Transactions screen does.
   cmd := jsonb_strip_nulls(jsonb_build_object('type', 'entry.categorize', 'id', (a->>'id')::uuid,
    'expected_version', (a->>'expected_version')::integer, 'account_id', (a->>'account_id')::uuid,
+   'kind', public.api_category_kind((a->>'id')::uuid, (a->>'account_id')::uuid),
    'payee_id', a->'payee_id', 'memo', a->'memo')) || jsonb_build_object('remember', false);
  ELSIF p_operation = 'split' THEN
   IF a ? 'payee_id' THEN PERFORM public.api_books_ref('payee', a->>'payee_id'); END IF;
+  -- Callers send amounts as positive cents. Category lines take the opposite
+  -- sign of the bank line, so a deposit's amounts are flipped here.
+  SELECT sign(sum(l.amount_cents)) INTO cash_sign FROM accounting.journal_lines l JOIN accounting.accounts acc ON acc.id = l.account_id
+   WHERE l.entry_id = (a->>'id')::uuid AND acc.subtype IN ('bank', 'card', 'cash');
   SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object('account_id', public.api_books_ref('category', s->>'account_id'),
-    'amount_cents', s->'amount_cents', 'share_bps', s->'share_bps')) ORDER BY n)
+    'amount_cents', CASE WHEN s ? 'amount_cents' AND coalesce(cash_sign, 0) > 0 THEN to_jsonb((-((s->>'amount_cents')::bigint))::text) ELSE s->'amount_cents' END,
+    'share_bps', s->'share_bps')) ORDER BY n)
    INTO splits FROM jsonb_array_elements(a->'splits') WITH ORDINALITY AS t(s, n);
   cmd := jsonb_strip_nulls(jsonb_build_object('type', 'entry.split', 'id', (a->>'id')::uuid,
    'expected_version', (a->>'expected_version')::integer, 'splits', splits, 'payee_id', a->'payee_id', 'memo', a->'memo'));
@@ -1953,6 +1989,7 @@ BEGIN
    IF item ? 'payee_id' THEN PERFORM public.api_books_ref('payee', item->>'payee_id'); END IF;
    cmd := jsonb_strip_nulls(jsonb_build_object('type', 'entry.categorize', 'id', (item->>'id')::uuid,
     'expected_version', (item->>'expected_version')::integer, 'account_id', (item->>'account_id')::uuid,
+    'kind', public.api_category_kind((item->>'id')::uuid, (item->>'account_id')::uuid),
     'payee_id', item->'payee_id')) || jsonb_build_object('remember', false);
    results := results || jsonb_build_array(accounting.operate(jsonb_build_object('key', k, 'command', cmd)));
   END LOOP;

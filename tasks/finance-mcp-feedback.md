@@ -84,3 +84,40 @@ money is integer-cents strings. Drafts-only and rules-off are enforced in SQL.
 - No `trust` tiers in this version: every MCP call runs without an approval prompt. The
   read-only pilot relies on the key's scopes, which the server enforces.
 - `${FINANCE_MCP_KEY}` resolves from the container environment.
+
+## Round 2: from building the agent (Alex A.), 2026-10-03
+
+Items 2 and 3 above are fixed in `8c84571` (version on reads, MCP list default 25 without
+lines). New requests, found while writing Alex's policy against the server source:
+
+1. **Enforce "no bank, card or cash lines" on `books_create_draft` and `books_replace_draft`
+   in SQL.** Today it is a prompt rule only: `api_books_command` checks payee and kind but
+   never line accounts, and `scripts/verify-api-writes.ts` itself creates a draft on
+   Checking. A draft with a bank line counts in working-mode numbers and can be bank-matched.
+   Same treatment as `API_DRAFTS_ONLY`: refuse with a reason and a hint.
+2. **Categorize should set `kind`.** `books_categorize_draft` replaces the lines but never
+   updates `kind` (`schema.sql:4539`), so a draft categorized to Shareholder distributions
+   stays kind `expense`. The app's own screen updates it.
+3. **Allow deposit splits by amount.** The API accepts only positive `amount_cents`, the books
+   require the opposite sign of the bank line, so every amount split of money in is refused
+   (`ACCT_INVALID_SPLIT`). Either accept signed amounts or flip the sign server-side for
+   deposits. Alex's policy works around it with `share_bps`.
+4. **Expose account `purpose` on `books_list_accounts`**, and a name next to
+   `prior_treatment.last_category` (today an account id only). Without purpose the agent must
+   infer "never a category" accounts from `subtype`, mirroring `categories.ts:43-57` by hand.
+5. **A cheap "new actionable drafts" signal.** `books_revision` moves on every feed sync (the
+   checkpoint and claim writes), new transactions or not, so the host dispatcher must re-list
+   `review=needed` drafts about every two hours to find nothing. A counter or max `created_at`
+   of uncategorized drafts would let it read one number instead.
+6. Still open from round 1: `payee_name` on rows, a `categorized` filter, `q`/`limit`/`kind` on
+   payees, rules and accounts, absolute `review_url` on every write, refusal hints and
+   `pair_entry_id`, a `limit` on the account ledger.
+
+## Agent-side facts the server can rely on (round 2)
+
+- Alex calls `finance_guide` first in every session and every scheduled run.
+- Scheduled runs act only on rows with `status: draft`, `categorized: false`, `transfer: false`.
+- The host dispatcher (not the agent) polls `GET /api/v1/books/revision` once a minute with
+  Alex's key, and lists `GET /api/v1/books/transactions?review=needed&status=draft&limit=100`
+  only when the revision changed: about 1,440 plus ~15 requests a day against his key's
+  120-a-minute limit.

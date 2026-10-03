@@ -234,18 +234,45 @@ async function main() {
     const draftBody = {
       entry_date: "2026-03-05",
       memo: "Figma subscription",
+      // An accrual: API drafts are adjustments between non-cash accounts.
       lines: [
         { account_id: account(6), amount_cents: "1500" },
-        { account_id: account(1), amount_cents: "-1500" },
+        { account_id: account(8), amount_cents: "-1500" },
       ],
       kind: "expense",
+    };
+    /** A bank draft as the feeds make them, by the owner: the API categorizes and splits these. */
+    const ownerBankDraft = async (memo: string, bankCents: string, category: string) => {
+      await db.exec("RESET ROLE; SET ROLE authenticated;");
+      await db.query("SELECT set_config('request.jwt.claim.sub',$1,false)", [fixtureOwner]);
+      const made = (
+        await db.query<{ r: { id: string } }>("SELECT accounting.operate($1) r", [
+          JSON.stringify({
+            key: randomUUID(),
+            command: {
+              type: "draft.save",
+              id: randomUUID(),
+              expected_version: 0,
+              entry_date: "2026-03-05",
+              memo,
+              lines: [
+                { account_id: account(1), amount_cents: bankCents },
+                { account_id: category, amount_cents: (-BigInt(bankCents)).toString() },
+              ],
+            },
+          }),
+        ])
+      ).rows[0].r;
+      await db.exec("RESET ROLE;");
+      await db.query("SELECT set_config('request.jwt.claim.sub','',false)");
+      return made.id;
     };
     const idem = randomUUID();
     const d1 = await send(routes.drafts.POST, "POST", "/api/v1/books/drafts", draftBody, { idem });
     const draftId = d1.json.data?.id as string;
     check(
       "write: draft created as a draft, with a review link",
-      d1.status === 200 && d1.json.data?.status === "draft" && !!draftId && String(d1.json.data?.review_url).includes(draftId),
+      d1.status === 200 && d1.json.data?.status === "draft" && !!draftId && String(d1.json.data?.review_url) === `http://localhost/accounting?view=journal&entry=${draftId}`,
       d1.json,
     );
     const again = await send(routes.drafts.POST, "POST", "/api/v1/books/drafts", draftBody, { idem });
@@ -286,39 +313,49 @@ async function main() {
       { params: { id: postedId.id } },
     );
     check("write: a posted entry is 409 not_a_draft", onPosted.status === 409 && reason(onPosted) === "not_a_draft", onPosted.json);
+    const bankLine = await send(
+      routes.drafts.POST,
+      "POST",
+      "/api/v1/books/drafts",
+      { ...draftBody, lines: [{ account_id: account(6), amount_cents: "1500" }, { account_id: account(1), amount_cents: "-1500" }] },
+      { idem: randomUUID() },
+    );
+    check("write: a draft with a bank line is 422 bank_lines_not_allowed", bankLine.status === 422 && reason(bankLine) === "bank_lines_not_allowed", bankLine.json);
+    const bankId = await ownerBankDraft("Figma subscription (bank)", "-1500", account(6));
+    const rewriteBank = await send(routes.draft.PUT, "PUT", `/api/v1/books/drafts/${bankId}`, { ...draftBody, expected_version: await versionOf(bankId) }, { params: { id: bankId } });
+    check("write: a bank draft is categorized or split, never rewritten", rewriteBank.status === 422 && reason(rewriteBank) === "bank_lines_not_allowed", rewriteBank.json);
     const categorized = await send(
       routes.categorize.POST,
       "POST",
-      `/api/v1/books/transactions/${draftId}/categorize`,
-      { expected_version: await versionOf(draftId), account_id: account(7) },
-      { params: { id: draftId } },
+      `/api/v1/books/transactions/${bankId}/categorize`,
+      { expected_version: await versionOf(bankId), account_id: account(7) },
+      { params: { id: bankId } },
     );
     check("write: categorized, still a draft", categorized.status === 200 && categorized.json.data?.status === "draft", categorized.json);
     const cashCategory = await send(
       routes.categorize.POST,
       "POST",
-      `/api/v1/books/transactions/${draftId}/categorize`,
-      { expected_version: await versionOf(draftId), account_id: account(9) },
-      { params: { id: draftId } },
+      `/api/v1/books/transactions/${bankId}/categorize`,
+      { expected_version: await versionOf(bankId), account_id: account(9) },
+      { params: { id: bankId } },
     );
     check("write: a bank account as category is 422", cashCategory.status === 422 && reason(cashCategory) === "invalid_parameters", cashCategory.json);
     const split = await send(
       routes.split.POST,
       "POST",
-      `/api/v1/books/transactions/${draftId}/split`,
-      { expected_version: await versionOf(draftId), splits: [{ account_id: account(6), share_bps: 6000 }, { account_id: account(7), share_bps: 4000 }] },
-      { params: { id: draftId } },
+      `/api/v1/books/transactions/${bankId}/split`,
+      { expected_version: await versionOf(bankId), splits: [{ account_id: account(6), share_bps: 6000 }, { account_id: account(7), share_bps: 4000 }] },
+      { params: { id: bankId } },
     );
     check("write: split by shares", split.status === 200, split.json);
-    const second = await send(routes.drafts.POST, "POST", "/api/v1/books/drafts", { ...draftBody, memo: "Second" }, { idem: randomUUID() });
-    const secondId = second.json.data?.id as string;
+    const secondId = await ownerBankDraft("Second (bank)", "-900", account(6));
     const bulk = await send(
       routes.bulk.POST,
       "POST",
       "/api/v1/books/transactions/categorize",
       {
         items: [
-          { id: draftId, expected_version: await versionOf(draftId), account_id: account(7) },
+          { id: bankId, expected_version: await versionOf(bankId), account_id: account(7) },
           { id: secondId, expected_version: await versionOf(secondId), account_id: account(7) },
         ],
       },
@@ -351,6 +388,27 @@ async function main() {
     const payee = await send(routes.payees.POST, "POST", "/api/v1/books/payees", { name: "Figma", kind: "vendor" }, { idem: randomUUID() });
     const payeeList = await call(routes.payees, "/api/v1/books/payees");
     check("write: payee added and listed", payee.status === 200 && payeeList.json.data?.payees?.some((x: { name: string }) => x.name === "Figma"), payeeList.json);
+    check("write: rule and payee creates link to where the owner sees them", rule.json.data?.review_url === "http://localhost/accounting?view=manage&section=rules" && payee.json.data?.review_url === "http://localhost/accounting?view=manage&section=payees", { rule: rule.json.data, payee: payee.json.data });
+    for (const name of ["Adobe", "Amazon Web Services", "Zoom"])
+      await send(routes.payees.POST, "POST", "/api/v1/books/payees", { name, kind: name === "Zoom" ? "customer" : "vendor" }, { idem: randomUUID() });
+    const payeeSearch = await call(routes.payees, "/api/v1/books/payees?q=AMAZON");
+    check("lists: payees search names in any case", payeeSearch.json.data?.payees?.length === 1 && payeeSearch.json.data.payees[0].name === "Amazon Web Services" && payeeSearch.json.data.total === 1, payeeSearch.json.data);
+    const paged = await call(routes.payees, "/api/v1/books/payees?limit=2");
+    check("lists: payees page by name with a total and next_offset", paged.json.data?.payees?.length === 2 && paged.json.data.payees[0].name === "Adobe" && paged.json.data.total === 4 && paged.json.data.next_offset === 2, paged.json.data);
+    const customers = await call(routes.payees, "/api/v1/books/payees?kind=customer");
+    check("lists: payees filter by kind", customers.json.data?.payees?.length === 1 && customers.json.data.payees[0].name === "Zoom", customers.json.data);
+    const ruleSearch = await call(routes.rules, "/api/v1/books/rules?q=figma&enabled=false");
+    check("lists: rules search and filter", ruleSearch.json.data?.rules?.length === 1 && ruleSearch.json.data.total === 1 && ruleSearch.json.data.next_offset === null, ruleSearch.json.data);
+    const onRules = await call(routes.rules, "/api/v1/books/rules?enabled=true");
+    check("lists: rules switched on (none yet)", onRules.json.data?.rules?.length === 0, onRules.json.data);
+    const categories = await call(routes.accounts, "/api/v1/books/accounts?type=expense");
+    check("lists: accounts filter by type", categories.json.data?.accounts?.length > 0 && categories.json.data.accounts.every((a: { type: string }) => a.type === "expense"), categories.json.data?.accounts?.length);
+    const uncategorized = await call(routes.accounts, "/api/v1/books/accounts?q=uncategorized");
+    check("lists: accounts search finds the uncategorized accounts", uncategorized.json.data?.accounts?.length === 2 && uncategorized.json.data.accounts.every((a: { subtype: string; purpose: string | null }) => a.subtype === "uncategorized" && /^uncategorized_(income|expense)$/.test(a.purpose ?? "")), uncategorized.json.data?.accounts);
+    const byDescriptor = await call(routes.transactions, "/api/v1/books/transactions?descriptor_key=nothing-matches-this");
+    check("lists: transactions filter by descriptor_key", byDescriptor.status === 200 && byDescriptor.json.data?.total === 0, byDescriptor.json);
+    const stale = await send(routes.draft.PUT, "PUT", `/api/v1/books/drafts/${draftId}`, { ...draftBody, expected_version: 1 }, { params: { id: draftId } });
+    check("hints: a stale version says what to do", stale.status === 409 && /Read the transaction again/.test(String((stale.json.error as { details?: { hint?: string } })?.details?.hint)), stale.json);
     await db.exec("RESET ROLE;");
     const agentPosted = (
       await db.query(

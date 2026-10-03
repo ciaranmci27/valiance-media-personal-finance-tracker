@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 /** Categorizes one draft; it stays a draft for review. */
 export const POST = withApi(
   apiOperation("books.categorize"),
-  async ({ params, body, idempotencyKey, keyHash, service }) => {
+  async ({ params, body, idempotencyKey, keyHash, origin, service }) => {
     const result = await booksCommand(
       service,
       keyHash,
@@ -16,6 +16,6 @@ export const POST = withApi(
       idempotencyKey,
       { ...body, id: params.id },
     );
-    return { data: writtenDraft(result, params.id) };
+    return { data: writtenDraft(result, params.id, origin) };
   },
 );

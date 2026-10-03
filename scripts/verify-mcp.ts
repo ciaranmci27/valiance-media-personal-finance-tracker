@@ -217,12 +217,12 @@ async function main() {
         memo: "Accrued hosting (MCP)",
         lines: [
           { account_id: account(6), amount_cents: "1500" },
-          { account_id: account(1), amount_cents: "-1500" },
+          { account_id: account(8), amount_cents: "-1500" },
         ],
       };
       const created = await call(legacy, "books_create_draft", draftArgs);
       const draft = created.structuredContent;
-      check("write: books_create_draft makes a draft with a review link", draft?.ok === true && draft?.data?.status === "draft" && /review|accounting/.test(draft?.data?.review_url ?? ""), draft);
+      check("write: books_create_draft makes a draft with a review link", draft?.ok === true && draft?.data?.status === "draft" && String(draft?.data?.review_url).startsWith("http://localhost/accounting?view=journal&entry="), draft);
       check("write: the server made and returned an idempotency key", /^[0-9a-f-]{36}$/.test(draft?.idempotency_key ?? ""), draft?.idempotency_key);
       const stored = await db.query<{ status: string }>("SELECT status FROM accounting.journal_entries WHERE id=$1", [draft?.data?.id]);
       check("write: stored as a draft", stored.rows[0]?.status === "draft", stored.rows);
@@ -249,6 +249,11 @@ async function main() {
 
       const nullKey = await call(legacy, "books_create_draft", { ...draftArgs, memo: "Null key (MCP)", idempotency_key: null });
       check("write: a null idempotency_key is treated as left out", nullKey.structuredContent?.ok === true && /^[0-9a-f-]{36}$/.test(nullKey.structuredContent?.idempotency_key ?? ""), nullKey.structuredContent);
+
+      const payeePage = await call(legacy, "books_list_payees", {});
+      check("read: payees default to 100 a page over MCP", payeePage.structuredContent?.data?.limit === 100, payeePage.structuredContent?.data);
+      const proposed = await call(legacy, "books_propose_rule", { name: "Hosting", conditions: { descriptor_key: { contains: "HOSTING" } }, actions: { account_id: account(6) } });
+      check("write: a proposed rule links to the rules screen", proposed.structuredContent?.data?.review_url === "http://localhost/accounting?view=manage&section=rules", proposed.structuredContent);
 
       const narrowWrite = await call(narrow, "books_create_draft", draftArgs);
       check("write: a read-only key cannot reach a write tool", narrowWrite.structuredContent?.error?.reason === "unknown_tool");

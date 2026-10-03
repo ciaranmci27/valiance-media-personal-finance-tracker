@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 /** Categorizes up to 50 drafts in one transaction: all of them or none. */
 export const POST = withApi(
   apiOperation("books.categorize_bulk"),
-  async ({ body, idempotencyKey, keyHash, service }) => {
+  async ({ body, idempotencyKey, keyHash, origin, service }) => {
     const result = await booksCommand(
       service,
       keyHash,
@@ -22,7 +22,7 @@ export const POST = withApi(
     return {
       data: {
         results: results.map((entry, index) =>
-          writtenDraft(entry ?? {}, body.items[index]?.id ?? ""),
+          writtenDraft(entry ?? {}, body.items[index]?.id ?? "", origin),
         ),
       },
     };

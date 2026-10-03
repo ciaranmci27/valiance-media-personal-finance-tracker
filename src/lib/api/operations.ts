@@ -195,6 +195,19 @@ const ruleActions = z.union([
 ]);
 const limit = (max: number, fallback: number) =>
   z.coerce.number().int().min(1).max(max).default(fallback);
+const nameSearch = z
+  .string()
+  .trim()
+  .min(1)
+  .max(200)
+  .optional()
+  .describe("Only names containing this text (any case)");
+const listPage = {
+  total: z.number(),
+  offset: z.number(),
+  limit: z.number(),
+  next_offset: z.number().nullable(),
+};
 
 const quality = z
   .object({
@@ -246,6 +259,7 @@ const transaction = z.object({
   prior_treatment: z
     .object({
       last_category: z.string().nullable(),
+      last_category_name: z.string().nullable(),
       payee_id: z.string().nullable(),
       count: z.number(),
     })
@@ -275,6 +289,12 @@ const account = z.object({
   name: z.string(),
   type: z.enum(["asset", "liability", "equity", "income", "expense"]),
   subtype: z.string(),
+  purpose: z
+    .string()
+    .nullable()
+    .describe(
+      "A system role such as uncategorized_expense or distributions; null for ordinary accounts",
+    ),
   parent_id: uuid.nullable(),
   is_archived: z.boolean(),
   cash_kind: z.string().describe("bank, card, cash or none"),
@@ -383,6 +403,13 @@ export const API_OPERATIONS = [
         as_of: date.optional().describe("Defaults to today (books time zone)"),
         mode: bookMode,
         include_archived: z.enum(["true", "false"]).default("false"),
+        type: z
+          .enum(["asset", "liability", "equity", "income", "expense"])
+          .optional()
+          .describe(
+            "Only this type; income and expense accounts are the categories",
+          ),
+        q: nameSearch,
       })
       .strict(),
     response: z.object({
@@ -466,6 +493,15 @@ export const API_OPERATIONS = [
           .max(200)
           .optional()
           .describe("Text search over memo, description and amounts"),
+        descriptor_key: z
+          .string()
+          .trim()
+          .min(1)
+          .max(250)
+          .optional()
+          .describe(
+            "Only transactions with this descriptor_key, the bank description rules match on",
+          ),
         offset,
         limit: limit(100, 50),
       })
@@ -935,9 +971,18 @@ export const API_OPERATIONS = [
     tag: "Books",
     summary: "Payees",
     description:
-      "Vendors and customers, with the ids drafts, rules and categorizing take.",
-    query: z.object({}).strict(),
+      "Vendors and customers, with the ids drafts, rules and categorizing take. Sorted by name; page with `offset` and `limit`.",
+    query: z
+      .object({
+        q: nameSearch,
+        kind: z.enum(["vendor", "customer", "both"]).optional(),
+        include_archived: z.enum(["true", "false"]).default("false"),
+        offset,
+        limit: limit(500, 200),
+      })
+      .strict(),
     response: z.object({
+      ...listPage,
       payees: z.array(
         z.object({
           id: uuid,
@@ -959,9 +1004,22 @@ export const API_OPERATIONS = [
     tag: "Books",
     summary: "Categorization rules",
     description:
-      "The rules that categorize imported transactions. Check here before adding one.",
-    query: z.object({}).strict(),
+      "The rules that categorize imported transactions, in the order they apply. Check here before adding one. Page with `offset` and `limit`.",
+    query: z
+      .object({
+        q: nameSearch,
+        enabled: z
+          .enum(["true", "false"])
+          .optional()
+          .describe(
+            "true: only rules that are on; false: only proposals and rules switched off",
+          ),
+        offset,
+        limit: limit(500, 200),
+      })
+      .strict(),
     response: z.object({
+      ...listPage,
       rules: z.array(
         z.object({
           id: uuid,
@@ -985,7 +1043,7 @@ export const API_OPERATIONS = [
     tag: "Books",
     summary: "Prepare a draft transaction",
     description:
-      "Creates a journal entry as a draft. It does not touch the official numbers until the owner reviews and posts it in the app. Lines are signed cents: debits positive, credits negative, adding up to zero. Send an Idempotency-Key.",
+      "Creates a journal entry as a draft. It does not touch the official numbers until the owner reviews and posts it in the app. For adjustments between non-cash accounts (accruals, depreciation, reclassifications): a line on a bank, card or cash account is refused, since those transactions come from the feeds. Lines are signed cents: debits positive, credits negative, adding up to zero. Send an Idempotency-Key.",
     query: z.object({}).strict(),
     body: z.object(draftFields).strict(),
     idempotent: true,
@@ -1000,7 +1058,7 @@ export const API_OPERATIONS = [
     tag: "Books",
     summary: "Replace a draft",
     description:
-      "Rewrites a draft with what you send, including all of its lines. Only drafts can change; a posted transaction is refused with 409. Lines matched to a bank transaction must keep their account and amount.",
+      "Rewrites a draft adjustment with what you send, including all of its lines. Only drafts can change; a posted transaction is refused with 409. A bank or card transaction is categorized or split instead, never rewritten.",
     params: z.object({ id: uuid }),
     query: z.object({}).strict(),
     body: z.object({ expected_version: version, ...draftFields }).strict(),
@@ -1015,7 +1073,7 @@ export const API_OPERATIONS = [
     tag: "Books",
     summary: "Categorize a draft",
     description:
-      "Puts a draft bank or card transaction in one category (an income or expense account), as the Transactions screen does. It stays a draft for the owner to review.",
+      "Puts a draft bank or card transaction in one category (an income or expense account), as the Transactions screen does, which also sets its kind (an expense on money in is a refund). It stays a draft for the owner to review.",
     params: z.object({ id: uuid }),
     query: z.object({}).strict(),
     body: z
@@ -1039,7 +1097,7 @@ export const API_OPERATIONS = [
     tag: "Books",
     summary: "Split a draft across categories",
     description:
-      "Splits a draft bank or card transaction across categories, by amounts that add up to the transaction or by shares in basis points that total 10000. It stays a draft.",
+      "Splits a draft bank or card transaction across categories, by positive amounts that add up to the transaction (for money in or out alike) or by shares in basis points that total 10000. It stays a draft.",
     params: z.object({ id: uuid }),
     query: z.object({}).strict(),
     body: z
@@ -1127,7 +1185,11 @@ export const API_OPERATIONS = [
       })
       .strict(),
     idempotent: true,
-    response: z.object({ id: uuid, version: z.number().nullable() }),
+    response: z.object({
+      id: uuid,
+      version: z.number().nullable(),
+      review_url: z.string().describe("Where the owner sees it in the app"),
+    }),
   },
   {
     id: "books.payee_create",
@@ -1149,7 +1211,11 @@ export const API_OPERATIONS = [
       })
       .strict(),
     idempotent: true,
-    response: z.object({ id: uuid, version: z.number().nullable() }),
+    response: z.object({
+      id: uuid,
+      version: z.number().nullable(),
+      review_url: z.string().describe("Where the owner sees it in the app"),
+    }),
   },
 ] as const satisfies readonly ApiOperation[];
 

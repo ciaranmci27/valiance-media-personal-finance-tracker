@@ -15,7 +15,7 @@ function draftId(key: string): string {
 /** Prepares a draft journal entry for the owner to review. */
 export const POST = withApi(
   apiOperation("books.draft_create"),
-  async ({ body, idempotencyKey, keyHash, service }) => {
+  async ({ body, idempotencyKey, keyHash, origin, service }) => {
     const result = await booksCommand(
       service,
       keyHash,
@@ -23,6 +23,6 @@ export const POST = withApi(
       idempotencyKey,
       body,
     );
-    return { data: writtenDraft(result, draftId(idempotencyKey)) };
+    return { data: writtenDraft(result, draftId(idempotencyKey), origin) };
   },
 );

@@ -1,6 +1,12 @@
 import { apiOperation } from "@/lib/api/operations";
 import { withApi } from "@/lib/api/with-api";
-import { booksClient, booksRead, booksToday, yearStart } from "@/lib/api/books";
+import {
+  booksClient,
+  booksRead,
+  booksToday,
+  nameMatches,
+  yearStart,
+} from "@/lib/api/books";
 import type { ReportData } from "@/lib/accounting/reports";
 
 export const runtime = "nodejs";
@@ -20,6 +26,8 @@ export const GET = withApi(
     );
     const accounts = report.accounts
       .filter((a) => query.include_archived === "true" || !a.is_archived)
+      .filter((a) => !query.type || a.account_type === query.type)
+      .filter((a) => nameMatches(a.name, query.q))
       .map((a) => {
         // As the Accounts screen shows them: positive is the account's normal
         // balance (what an asset holds, what a liability owes, income earned).
@@ -31,6 +39,7 @@ export const GET = withApi(
           name: a.name,
           type: a.account_type,
           subtype: a.subtype,
+          purpose: a.purpose ?? null,
           parent_id: a.parent_account_id,
           is_archived: a.is_archived,
           cash_kind: a.cash_kind,

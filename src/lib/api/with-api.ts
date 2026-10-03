@@ -26,6 +26,8 @@ export interface ApiContext<O extends ApiOperation> {
   idempotencyKey: string;
   /** SHA-256 of the caller's key; every books call re-checks it in SQL. */
   keyHash: string;
+  /** This deployment's origin, for links into the app (review_url). */
+  origin: string;
   service: SupabaseClient;
 }
 
@@ -95,6 +97,7 @@ function validation(
     `Check the ${where} parameters.`,
     {
       reason: "invalid_parameters",
+      hint: "issues names each parameter and what is wrong with it.",
       issues: error.issues.map((issue) => ({
         parameter:
           issue.path.join(".") ||
@@ -246,6 +249,7 @@ export function withApi<const O extends ApiOperation>(
           body: body.data as ApiContext<O>["body"],
           idempotencyKey,
           keyHash,
+          origin: request.nextUrl.origin,
           service,
         });
         if (claimToken) {

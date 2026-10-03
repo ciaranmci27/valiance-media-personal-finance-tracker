@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 /** Replaces a draft, lines included. Posted transactions are refused. */
 export const PUT = withApi(
   apiOperation("books.draft_update"),
-  async ({ params, body, idempotencyKey, keyHash, service }) => {
+  async ({ params, body, idempotencyKey, keyHash, origin, service }) => {
     const result = await booksCommand(
       service,
       keyHash,
@@ -16,6 +16,6 @@ export const PUT = withApi(
       idempotencyKey,
       { ...body, id: params.id },
     );
-    return { data: writtenDraft(result, params.id) };
+    return { data: writtenDraft(result, params.id, origin) };
   },
 );

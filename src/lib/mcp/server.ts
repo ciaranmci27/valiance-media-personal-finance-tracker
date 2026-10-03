@@ -187,7 +187,7 @@ export async function runOperation(
       `The answer is over ${maxChars.toLocaleString("en-US")} characters.`,
       {
         reason: "result_too_large",
-        hint: "Narrow it: a shorter date range, a smaller limit with offset paging, or one account's ledger.",
+        hint: "Narrow it with the tool's filters (a date range, q, type or kind) or a smaller limit with offset paging.",
       },
       requestId,
     );

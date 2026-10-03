@@ -151,7 +151,14 @@ export function presentEntry(
     // What categorization rules match on, and how this description was
     // categorized before: the basis for proposing a rule or a category.
     descriptor_key: entry.descriptor_key ?? null,
-    prior_treatment: entry.prior_treatment ?? null,
+    prior_treatment: entry.prior_treatment
+      ? {
+          ...entry.prior_treatment,
+          last_category_name: entry.prior_treatment.last_category
+            ? (accounts.get(entry.prior_treatment.last_category) ?? null)
+            : null,
+        }
+      : null,
     lines: entry.lines.map((line) => ({
       id: line.id,
       account_id: line.account_id,
@@ -215,16 +222,53 @@ export async function booksCommand(
   return (data ?? {}) as Record<string, unknown>;
 }
 
+/** A full link into the app, so it works wherever the agent sends it (Telegram, email). */
+export function appUrl(origin: string, path: string): string {
+  return `${origin.replace(/\/$/, "")}${path}`;
+}
+
 /** What a books write answers: the draft, its new version, and where the owner reviews it. */
 export function writtenDraft(
   result: Record<string, unknown>,
   fallbackId: string,
+  origin: string,
 ) {
   const id = typeof result.id === "string" ? result.id : fallbackId;
   return {
     id,
     version: typeof result.version === "number" ? result.version : null,
     status: "draft" as const,
-    review_url: `/accounting?view=journal&entry=${id}`,
+    review_url: appUrl(origin, `/accounting?view=journal&entry=${id}`),
   };
+}
+
+/** Case-insensitive name search and a page, for the books lists an agent reads. */
+export function pageOf<T>(
+  rows: T[],
+  query: { offset: number; limit: number },
+): {
+  total: number;
+  offset: number;
+  limit: number;
+  next_offset: number | null;
+  rows: T[];
+} {
+  const rowsOut = rows.slice(query.offset, query.offset + query.limit);
+  const reached = query.offset + rowsOut.length;
+  return {
+    total: rows.length,
+    offset: query.offset,
+    limit: query.limit,
+    next_offset: rowsOut.length > 0 && reached < rows.length ? reached : null,
+    rows: rowsOut,
+  };
+}
+
+export function nameMatches(name: unknown, q: string | undefined): boolean {
+  return (
+    !q ||
+    String(name ?? "")
+      .toLowerCase()
+      .includes(q.toLowerCase())
+  );
 }

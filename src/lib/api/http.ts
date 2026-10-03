@@ -42,10 +42,12 @@ export function databaseError(message: string, permission: string): ApiError {
     case "API_KEY_INVALID":
       return new ApiError(401, "UNAUTHORIZED", "Invalid or revoked API key.", {
         reason: "invalid_api_key",
+        hint: "Check the key, or ask the owner for a new one in Settings > API.",
       });
     case "API_KEY_DISABLED":
       return new ApiError(401, "UNAUTHORIZED", "This API key is disabled.", {
         reason: "api_key_disabled",
+        hint: "The owner turns it back on, or issues a new key, in Settings > API.",
       });
     case "API_KEY_EXPIRED":
       return new ApiError(401, "UNAUTHORIZED", "This API key has expired.", {
@@ -59,6 +61,7 @@ export function databaseError(message: string, permission: string): ApiError {
         "The person behind this key is suspended or has no sign-in.",
         {
           reason: "member_inactive",
+          hint: "The owner reactivates this person, or gives them a sign-in, in Team.",
         },
       );
     case "API_MEMBER_NO_API":
@@ -103,6 +106,7 @@ export function databaseError(message: string, permission: string): ApiError {
         "Too many requests for this key. The limit is 120 a minute.",
         {
           reason: "rate_limited",
+          hint: "Wait until the minute is up (Retry-After says how long), then retry.",
         },
       );
     case "ACCT_FORBIDDEN":
@@ -112,6 +116,7 @@ export function databaseError(message: string, permission: string): ApiError {
         "The books refused this read for the person behind this key.",
         {
           reason: "books_forbidden",
+          hint: "The owner checks this person's books permissions in Team > Access.",
         },
       );
     case "ACCT_STALE_VERSION":
@@ -122,6 +127,7 @@ export function databaseError(message: string, permission: string): ApiError {
         "It changed since you read it. Read it again, then retry with the new version.",
         {
           reason: "stale_version",
+          hint: "Read the transaction again and retry once with its current version.",
         },
       );
     case "ACCT_IDEMPOTENCY_CONFLICT":
@@ -131,6 +137,7 @@ export function databaseError(message: string, permission: string): ApiError {
         "This Idempotency-Key was already used for a different request.",
         {
           reason: "idempotency_conflict",
+          hint: "Use a new key for a different request; reuse a key only to retry the same one.",
         },
       );
     case "API_DRAFTS_ONLY":
@@ -144,6 +151,16 @@ export function databaseError(message: string, permission: string): ApiError {
           hint: "Leave posting to the owner, who reviews drafts in the app.",
         },
       );
+    case "API_DRAFTS_NO_CASH":
+      return new ApiError(
+        422,
+        "VALIDATION_ERROR",
+        "Journal entries from the API cannot touch a bank, card or cash account.",
+        {
+          reason: "bank_lines_not_allowed",
+          hint: "Bank and card transactions come from the feeds: categorize or split those drafts. Drafts here are adjustments between other accounts.",
+        },
+      );
     case "API_COMMAND_NOT_ALLOWED":
       return new ApiError(
         403,
@@ -151,6 +168,7 @@ export function databaseError(message: string, permission: string): ApiError {
         "This command is not available through the API.",
         {
           reason: "command_not_allowed",
+          hint: "This change stays with the owner in the app.",
         },
       );
     case "ACCT_POSTED_IMMUTABLE":
@@ -162,6 +180,7 @@ export function databaseError(message: string, permission: string): ApiError {
         "Only drafts can change, and this one has been reviewed or discarded.",
         {
           reason: "not_a_draft",
+          hint: "It was reviewed or discarded, so it is the owner's now. Leave it and move on.",
         },
       );
     case "ACCT_TRANSFER_PAIR_CONFIRM":
@@ -198,7 +217,7 @@ export function databaseError(message: string, permission: string): ApiError {
                 : code === "ACCT_MATCHED_LINE_IMMUTABLE" ||
                     code === "ACCT_BANK_SOURCE_CHANGED"
                   ? "Lines matched to a bank transaction keep their account, amount and date."
-                  : undefined,
+                  : "books_code says what the books refused; change the request rather than repeating it.",
         },
       );
     case "API_INVALID_INPUT":
@@ -206,7 +225,10 @@ export function databaseError(message: string, permission: string): ApiError {
         422,
         "VALIDATION_ERROR",
         "A value is not allowed here.",
-        { reason: "invalid_parameters" },
+        {
+          reason: "invalid_parameters",
+          hint: "An account, category or payee id does not exist or does not fit here. Look it up again.",
+        },
       );
     case "ACCT_INVALID_FILTER":
     case "ACCT_REPORT_RANGE":
@@ -215,12 +237,16 @@ export function databaseError(message: string, permission: string): ApiError {
         422,
         "VALIDATION_ERROR",
         "The books refused these parameters.",
-        { reason: "invalid_parameters" },
+        {
+          reason: "invalid_parameters",
+          hint: "Check the dates (from on or before to) and the filter values.",
+        },
       );
     case "ACCT_NOT_FOUND":
     case "ACCT_ACCOUNT_NOT_FOUND":
       return new ApiError(404, "NOT_FOUND", "Not found.", {
         reason: "not_found",
+        hint: "Check the id; search again to find the current one.",
       });
     default:
       if (/violates (check|foreign key) constraint/i.test(message))

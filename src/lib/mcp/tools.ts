@@ -65,7 +65,7 @@ export const MCP_TOOL_NAMES = {
   },
   "books.draft_update": {
     tool: "books_replace_draft",
-    lead: "Replace a draft books transaction, lines included.",
+    lead: "Replace a draft adjustment, lines included.",
   },
   "books.categorize": {
     tool: "books_categorize_draft",
@@ -176,13 +176,16 @@ export interface McpTool {
 }
 
 /**
- * Where an agent reads differently from REST: a page of transactions with
- * every line runs past the result cap at REST's default of 50, so the list
- * is 25 rows without lines; books_get_transaction has them.
+ * Where an agent reads differently from REST: smaller default pages, and a
+ * page of transactions without lines (it runs past the result cap at REST's
+ * default of 50 with them); books_get_transaction has the lines.
  */
 const MCP_OVERRIDES: Partial<
   Record<ApiOperationId, Pick<McpTool, "defaults" | "present">>
 > = {
+  // About 270 characters a row: 100 stays well under the result cap.
+  "books.payees": { defaults: { limit: 100 } },
+  "books.rules": { defaults: { limit: 100 } },
   "books.transactions": {
     defaults: { limit: 25 },
     present: (data) => {

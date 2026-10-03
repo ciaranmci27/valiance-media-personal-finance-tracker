@@ -1,27 +1,45 @@
 import { apiOperation } from "@/lib/api/operations";
 import { withApi } from "@/lib/api/with-api";
-import { booksClient, booksCommand, booksRead } from "@/lib/api/books";
+import {
+  appUrl,
+  booksClient,
+  booksCommand,
+  booksRead,
+  nameMatches,
+  pageOf,
+} from "@/lib/api/books";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Categorization rules, through the books' reader check (accounting.rules_list). */
+interface Rule {
+  name: string;
+  enabled: boolean;
+}
+
+/** Categorization rules, through the books' reader check (accounting.rules_list), in their order, searched and paged. */
 export const GET = withApi(
   apiOperation("books.rules"),
-  async ({ keyHash, service }) => {
-    const result = await booksRead<{ rules: unknown[] }>(
+  async ({ query, keyHash, service }) => {
+    const result = await booksRead<{ rules: Rule[] | null }>(
       booksClient(service, keyHash),
       "rules",
       {},
     );
-    return { data: { rules: result.rules } };
+    const matching = (result.rules ?? [])
+      .filter(
+        (rule) => !query.enabled || String(rule.enabled) === query.enabled,
+      )
+      .filter((rule) => nameMatches(rule.name, query.q));
+    const { rows, ...page } = pageOf(matching, query);
+    return { data: { ...page, rules: rows } };
   },
 );
 
 /** Adds a rule that never posts on its own (auto_post is forced off in SQL). Create-only. */
 export const POST = withApi(
   apiOperation("books.rule_create"),
-  async ({ body, idempotencyKey, keyHash, service }) => {
+  async ({ body, idempotencyKey, keyHash, origin, service }) => {
     const result = await booksCommand(
       service,
       keyHash,
@@ -33,6 +51,7 @@ export const POST = withApi(
       data: {
         id: String(result.id ?? ""),
         version: typeof result.version === "number" ? result.version : null,
+        review_url: appUrl(origin, "/accounting?view=manage&section=rules"),
       },
     };
   },

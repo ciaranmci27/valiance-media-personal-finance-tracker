@@ -40,6 +40,7 @@ export const GET = withApi(
         ? { review: query.review === "needed" ? "needs_review" : "reviewed" }
         : {}),
       ...(query.q ? { query: query.q } : {}),
+      ...(query.descriptor_key ? { descriptor_key: query.descriptor_key } : {}),
     };
     const [register, index] = await Promise.all([
       booksRead<Register>(client, "transactions", {
