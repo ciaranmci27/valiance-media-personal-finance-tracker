@@ -190,8 +190,54 @@ export const reportOptionsSchema = z
     ]),
     show_zero: z.boolean(),
     details: z.boolean(),
+    /**
+     * The export layout the owner captured with. Absent on snapshots taken
+     * before the profit and loss redesign, which keep their original CSV
+     * columns; 2 is the branded statement with % of income (profit and loss).
+     */
+    layout: z.literal(2).optional(),
   })
   .strict();
+
+/** The monthly series behind the profit and loss chart (accounting.breakdown). */
+export const breakdownFilterSchema = z
+  .object({
+    from: dateSchema,
+    to: dateSchema,
+    mode: z.enum(["posted", "working"]).default(DEFAULT_BOOK_MODE),
+    group_by: z.literal("month"),
+    payee: dimension,
+    compare_from: dateSchema.optional(),
+    compare_to: dateSchema.optional(),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      v.from <= v.to &&
+      Boolean(v.compare_from) === Boolean(v.compare_to) &&
+      (!v.compare_from || v.compare_from <= v.compare_to!),
+    "Choose valid current and comparison dates.",
+  );
+export type BreakdownFilter = z.infer<typeof breakdownFilterSchema>;
+type BreakdownAmounts = {
+  income_cents: string;
+  expense_cents: string;
+  net_cents: string;
+};
+export interface BreakdownData {
+  from: string;
+  to: string;
+  compare: { from: string; to: string } | null;
+  rows: (BreakdownAmounts & {
+    key: string;
+    label: string;
+    count: number;
+    compare?: BreakdownAmounts;
+    change?: BreakdownAmounts;
+  })[];
+  total: BreakdownAmounts;
+  revision: string;
+}
 export const reportCaptureCommand = z
   .object({
     type: z.literal("report.capture"),

@@ -72,6 +72,11 @@
   --color-brand-300: var(--teal-light);
   --color-brand-400: var(--teal-mid);
 
+  /* Copper as a data mark (expense bars, payroll in a meter): the brand
+     copper on dark; deepened on white so a bar keeps 3:1 against the card. */
+  --copper-strong: #c5a68f;
+  --color-copper-strong: var(--copper-strong);
+
   /* Semantic colors - the app's palette (emerald/amber/red/blue), remapped
      per theme exactly like the app's ramps. --destructive is the deeper
      red-600 the app uses for solid destructive fills. */
@@ -218,6 +223,7 @@
   /* Brand text shade darkened for legibility on white (app brand-300 -> 700) */
   --teal-light: #3a5959;
   --teal-mid: #4a7171;
+  --copper-strong: #9b7b62;
 
   /* Semantic colors, light (app's -700-tier remaps) */
   --success: #047857;
@@ -1112,6 +1118,7 @@ a.bg-teal {
   --color-teal-mid: var(--teal-mid);
   --color-teal-dark: var(--teal-dark);
   --color-copper: var(--copper);
+  --color-copper-strong: var(--copper-strong);
 
   /* Full app brand scale, for 1:1 markup portability */
   --color-brand-50: #f0f5f5;

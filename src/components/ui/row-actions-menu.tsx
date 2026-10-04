@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 
 export interface RowAction {
   label: string;
+  /** A muted second line under the label, e.g. what an export contains. */
+  description?: string;
   icon?: React.ReactNode;
   /** Marks the current choice in a pick-one menu. */
   checked?: boolean;
@@ -92,7 +94,16 @@ export function RowActionsMenu({
                     {action.icon}
                   </span>
                 )}
-                {action.label}
+                {action.description ? (
+                  <span className="min-w-0">
+                    <span className="block">{action.label}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {action.description}
+                    </span>
+                  </span>
+                ) : (
+                  action.label
+                )}
                 {action.checked && (
                   <Check
                     size={14}

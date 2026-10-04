@@ -209,6 +209,22 @@ async function main() {
     const filter = { from: "2026-01-01", to: "2026-06-30", mode: "posted" };
     for (const view of ["report", "ledger-report", "report-detail"])
       await read(view, { p_filter: filter });
+    // The profit and loss chart's months, with the comparison shifted onto them.
+    const months = await read("breakdown", {
+      p_filter: {
+        ...filter,
+        group_by: "month",
+        compare_from: "2025-01-01",
+        compare_to: "2025-06-30",
+      },
+    });
+    check(months.rows.length, 6);
+    check(
+      months.rows.find((r: { key: string }) => r.key === "2026-06-01")
+        ?.income_cents,
+      "12345",
+    );
+    check(months.rows[0].compare?.income_cents, "0");
     check(
       Array.isArray(
         (await read("ledger-report", { p_filter: filter })).accounts,

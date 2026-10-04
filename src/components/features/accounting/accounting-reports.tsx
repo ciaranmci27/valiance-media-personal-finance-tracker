@@ -1,7 +1,7 @@
 "use client";
 import { Disclosure } from "@/components/ui/disclosure";
 import { DateInput } from "@/components/ui/inputs/DateInput";
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowUpRight,
@@ -19,7 +19,6 @@ import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { DataTable, type DataTableColumn } from "@/components/ui/data-table";
 import { MaskedValue } from "@/components/ui/masked-value";
 import { Select } from "@/components/ui/inputs/Select";
-import { usePrivacy } from "@/contexts/privacy-context";
 import { cn } from "@/lib/utils";
 import type { BooksMetadata } from "./types";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
@@ -31,7 +30,6 @@ import {
 import {
   buildReportModel,
   reportCatalog,
-  ratioPercent,
   type ReportId,
   type ReportModel,
   type ReportRow,
@@ -41,10 +39,11 @@ import {
   type SupportReportId,
 } from "@/lib/accounting/support-reports";
 import { AccountingSupportReport } from "./accounting-support-report";
+import { AccountingProfitLoss } from "./accounting-profit-loss";
+import { useReportExport } from "./use-report-export";
 import { AccountingBooksPackage } from "./accounting-books-package";
 import { booksPackageCatalog } from "@/lib/accounting/books-package";
 import { AccountingPicker } from "./accounting-picker";
-import { useAccountingCommand } from "./use-accounting-command";
 import { useAccountingRead } from "./use-accounting-read";
 import { useAccountingCache } from "./accounting-cache";
 import { defaultReportFilter, reportQuery } from "@/lib/accounting/preload";
@@ -58,10 +57,8 @@ import {
   countLabel,
   dateLabel,
   money,
-  monthLabel,
   timestampLabel,
   todayInBooks,
-  monthShortLabel,
 } from "./format";
 import {
   AccountingPageHeader,
@@ -201,20 +198,17 @@ export function AccountingReports({
       title: string;
       filter: ReportFilter;
     } | null>(null);
-  const exportCommand = useAccountingCommand();
-  const [exporting, setExporting] = useState(false);
-  const capture = useRef<{
-    signature: string;
-    id: string;
-    saved: boolean;
-  } | null>(null);
+  const exporter = useReportExport();
+  const exporting = !!exporter.exporting;
   const presets = datePresets(todayInBooks());
   const reportId = report?.id;
   const cache = useAccountingCache();
   // The statement comes from the shared cache: a card that was pointed at
   // has it ready, and a write elsewhere refreshes it behind the reader.
   const reportRead = useAccountingRead<ReportData>(
-    reportId ? reportQuery(reportId, applied) : null,
+    reportId && reportId !== "profit-loss"
+      ? reportQuery(reportId, applied)
+      : null,
     { enabled: !demo },
   );
   const data = reportRead.data ?? null;
@@ -280,55 +274,12 @@ export function AccountingReports({
   }
   async function exportReport(format: "csv" | "pdf") {
     if (!data || !model || exporting) return;
-    setExporting(true);
     setError("");
-    const options = {
-      report_id: model.id,
-      show_zero: showZero,
-      details: detail,
-    };
-    const signature = JSON.stringify({
-      revision: data.revision,
-      filter: data.filter,
-      options,
-    });
-    if (capture.current?.signature !== signature)
-      capture.current = { signature, id: crypto.randomUUID(), saved: false };
-    try {
-      if (!capture.current.saved) {
-        const result = await exportCommand.execute({
-          type: "report.capture",
-          id: capture.current.id,
-          expected_revision: data.revision,
-          filter: data.filter,
-          options,
-        });
-        if (!result) return;
-        capture.current.saved = true;
-      }
-      const response = await fetch(
-        `/api/accounting/reports/${capture.current.id}?format=${format}`,
-        { cache: "no-store" },
-      );
-      if (!response.ok) {
-        const body = await response.json();
-        throw new Error(
-          body.error ?? "Unable to download the retained report.",
-        );
-      }
-      const url = URL.createObjectURL(await response.blob()),
-        anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${model.id}-${data.filter.from}-${data.filter.to}.${format}`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "Unable to export this report.",
-      );
-    } finally {
-      setExporting(false);
-    }
+    await exporter.run(
+      data,
+      { report_id: model.id, show_zero: showZero, details: detail },
+      format,
+    );
   }
   const support = supportReportCatalog.find((r) => r.id === candidate);
   if (candidate === "books-package" && !demo)
@@ -337,6 +288,18 @@ export function AccountingReports({
         to={to}
         revision={revision}
         onBack={() => navigate()}
+      />
+    );
+  if (report?.id === "profit-loss")
+    return (
+      <AccountingProfitLoss
+        from={from}
+        to={to}
+        manage={manage}
+        onBack={() => navigate()}
+        onEntry={onEntry}
+        onReview={onReview}
+        demo={demo}
       />
     );
   if (support && !demo)
@@ -613,12 +576,12 @@ export function AccountingReports({
           </div>
         )}
       </form>
-      {(error || exportCommand.error) && (
+      {(error || exporter.error) && (
         <p
           role="alert"
           className="rounded-lg border border-error/30 p-4 text-sm text-error"
         >
-          {error || exportCommand.error}
+          {error || exporter.error}
         </p>
       )}
       {demo && (
@@ -668,7 +631,6 @@ export function AccountingReports({
             </div>
           )}
           <ReportHighlights id={report.id} data={data} />
-          {report.id === "profit-loss" && <MonthlyResults data={data} />}
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-xs text-muted-foreground">
               {data.legal_name} · {dateLabel(data.filter.from)} to{" "}
@@ -936,17 +898,7 @@ function StatementTable({
 function ReportHighlights({ id, data }: { id: ReportId; data: ReportData }) {
   const t = data.totals;
   const values =
-    id === "profit-loss"
-      ? [
-          ["Income", t.income_cents],
-          ["Cost of sales", t.cogs_cents],
-          [
-            "Operating expenses",
-            (BigInt(t.expense_cents) - BigInt(t.cogs_cents)).toString(),
-          ],
-          ["Net profit", t.net_cents],
-        ]
-      : id === "balance-sheet"
+    id === "balance-sheet"
         ? [
             ["Assets", t.assets_cents],
             ["Liabilities", t.liabilities_cents],
@@ -994,151 +946,8 @@ function ReportHighlights({ id, data }: { id: ReportId; data: ReportData }) {
           >
             <MaskedValue value={money(value)} className="tabular-nums" />
           </div>
-          {id === "profit-loss" && i === 3 && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              <MaskedValue
-                value={`${ratioPercent(value, t.income_cents) ?? "No revenue"}${BigInt(t.income_cents) !== BigInt(0) ? " margin" : ""}`}
-              />
-            </p>
-          )}
         </div>
       ))}
     </div>
-  );
-}
-function MonthlyResults({ data }: { data: ReportData }) {
-  const { isHidden } = usePrivacy();
-  const [hover, setHover] = useState<number | null>(null);
-  if (isHidden)
-    return (
-      <div className="glass-card rounded-xl p-5 text-xs text-muted-foreground">
-        Monthly chart hidden while privacy mode is on.
-      </div>
-    );
-  const abs = (s: string) => {
-      const b = BigInt(s);
-      return b < BigInt(0) ? -b : b;
-    },
-    max = data.monthly.reduce(
-      (m, v) =>
-        [abs(v.income_cents), abs(v.expense_cents), abs(v.net_cents), m].reduce(
-          (a, b) => (a > b ? a : b),
-        ),
-      BigInt(1),
-    );
-  const width = Math.max(640, data.monthly.length * 56),
-    step = (width - 64) / Math.max(1, data.monthly.length),
-    height = (s: string) => Number((BigInt(s) * BigInt(6500)) / max) / 100;
-  return (
-    <section className="glass-card rounded-xl p-5">
-      <div className="flex flex-wrap justify-between gap-2">
-        <h2 className="text-sm font-medium">Monthly performance</h2>
-        <div className="flex gap-4 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <span
-              aria-hidden="true"
-              className="h-2 w-2 rounded-sm bg-teal-light"
-            />
-            Income
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span aria-hidden="true" className="h-2 w-2 rounded-sm bg-copper" />
-            Expenses
-          </span>
-          <span className="flex items-center gap-1.5">
-            <span aria-hidden="true" className="h-0.5 w-3 bg-foreground/60" />
-            Net profit
-          </span>
-        </div>
-      </div>
-      <div className="mt-4 overflow-x-auto">
-        <svg
-          role="img"
-          aria-label="Monthly income, expenses and net profit. Exact amounts are available by focusing each month."
-          width={width}
-          height="210"
-          className="min-w-full"
-        >
-          <line
-            x1="24"
-            x2={width - 24}
-            y1="90"
-            y2="90"
-            stroke="var(--border)"
-          />
-          {data.monthly.map((m, i) => {
-            const x = 32 + step * i + step / 2,
-              ih = height(m.income_cents),
-              eh = height(m.expense_cents),
-              nh = height(m.net_cents);
-            return (
-              <g
-                key={m.month}
-                tabIndex={0}
-                role="img"
-                aria-label={`${monthLabel(m.month)}: income ${money(m.income_cents)}, expenses ${money(m.expense_cents)}, net ${money(m.net_cents)}`}
-                onFocus={() => setHover(i)}
-                onBlur={() => setHover(null)}
-                onMouseEnter={() => setHover(i)}
-                onMouseLeave={() => setHover(null)}
-              >
-                <rect
-                  x={x - step / 2}
-                  y="5"
-                  width={step}
-                  height="178"
-                  fill={hover === i ? "var(--secondary)" : "transparent"}
-                  opacity="0.5"
-                />
-                <rect
-                  x={x - 14}
-                  y={ih >= 0 ? 90 - ih : 90}
-                  width="11"
-                  height={Math.max(1, Math.abs(ih))}
-                  rx="2"
-                  fill="var(--teal-light)"
-                />
-                <rect
-                  x={x + 2}
-                  y={eh >= 0 ? 90 - eh : 90}
-                  width="11"
-                  height={Math.max(1, Math.abs(eh))}
-                  rx="2"
-                  fill="var(--copper)"
-                />
-                <circle cx={x} cy={90 - nh} r="3" fill="var(--foreground)" />
-                <text
-                  x={x}
-                  y="178"
-                  textAnchor="middle"
-                  fontSize="10"
-                  fill="var(--muted-foreground)"
-                >
-                  {monthShortLabel(m.month, data.monthly.length > 12)}
-                </text>
-              </g>
-            );
-          })}
-          <polyline
-            points={data.monthly
-              .map(
-                (m, i) =>
-                  `${32 + step * i + step / 2},${90 - height(m.net_cents)}`,
-              )
-              .join(" ")}
-            fill="none"
-            stroke="var(--foreground)"
-            strokeOpacity="0.5"
-            strokeWidth="1.5"
-            pointerEvents="none"
-          />
-        </svg>
-      </div>
-      <p className="min-h-5 text-xs text-muted-foreground">
-        {hover === null
-          ? "Hover or focus a month for exact figures."
-          : `${monthLabel(data.monthly[hover].month)} · Income ${money(data.monthly[hover].income_cents)} · Expenses ${money(data.monthly[hover].expense_cents)} · Net ${money(data.monthly[hover].net_cents)}`}
-      </p>
-    </section>
   );
 }

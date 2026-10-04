@@ -164,6 +164,40 @@ async function main() {
     check(csv.includes('"Net profit",750.00,2000.00,-1250.00'), true);
     const pdf = await reportPdf(document);
     check(pdf.subarray(0, 5).toString(), "%PDF-");
+    // The redesigned profit and loss captures export layout 2; the books keep
+    // the option with the snapshot, and the CSV becomes a flat sheet.
+    const brandedId = randomUUID();
+    await cmd({
+      ...capture,
+      id: brandedId,
+      options: { ...capture.options, layout: 2 },
+    });
+    const brandedSnapshot = await read<DetailedReportSnapshot>(
+      "acct_snapshot_read",
+      brandedId,
+    );
+    check(brandedSnapshot.payload.options.layout, 2);
+    const brandedDocument = reportDocument(brandedSnapshot);
+    check(brandedDocument.columns, [
+      "Section",
+      "Account",
+      "Amount",
+      "% of income",
+      "Comparison",
+      "Change",
+      "Change %",
+    ]);
+    const brandedCsv = documentCsv(brandedDocument);
+    check(
+      brandedCsv.includes('"Net profit","",750.00,39.47,2000.00,-1250.00,-62.50'),
+      true,
+    );
+    check(
+      brandedCsv.includes('"Income","Total income",1900.00,100.00,2000.00,-100.00,-5.00'),
+      true,
+    );
+    const brandedPdf = await reportPdf(brandedDocument);
+    check(brandedPdf.subarray(0, 5).toString(), "%PDF-");
     if (process.env.ACCOUNTING_REPORT_ARTIFACT_DIR) {
       await mkdir(process.env.ACCOUNTING_REPORT_ARTIFACT_DIR, {
         recursive: true,

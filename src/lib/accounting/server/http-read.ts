@@ -17,6 +17,7 @@ import { supportReportFilterSchema } from "@/lib/accounting/support-reports";
 import { booksPackageScopeSchema } from "@/lib/accounting/books-package";
 import {
   DEFAULT_BOOK_MODE,
+  breakdownFilterSchema,
   reportFilterSchema,
 } from "@/lib/accounting/reports";
 import {
@@ -343,6 +344,25 @@ export async function answerAccountingRead(
           : "report-detail",
         { p_filter: parsed.data },
       );
+    } else if (view === "breakdown") {
+      let input: unknown;
+      try {
+        input = JSON.parse(params.get("filter") ?? "{}");
+      } catch {
+        return NextResponse.json(
+          { error: "Invalid breakdown filters." },
+          { status: 400 },
+        );
+      }
+      const parsed = breakdownFilterSchema.safeParse(input);
+      if (!parsed.success)
+        return NextResponse.json(
+          { error: "Choose valid report dates and filters." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "breakdown", {
+        p_filter: parsed.data,
+      });
     } else if (view === "cash-review") {
       const line = z.guid().safeParse(params.get("line"));
       if (!line.success)

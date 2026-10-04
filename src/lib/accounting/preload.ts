@@ -1,5 +1,9 @@
 import type { AccountingQuery } from "./read-cache";
-import { DEFAULT_BOOK_MODE, type ReportFilter } from "./reports";
+import {
+  DEFAULT_BOOK_MODE,
+  type BreakdownFilter,
+  type ReportFilter,
+} from "./reports";
 import type { AccountingView } from "./views";
 import { registerFilterSchema, type RegisterFilter } from "./workflows";
 
@@ -142,6 +146,24 @@ export function reportQuery(
   filter: ReportFilter,
 ): AccountingQuery {
   return { view: "report", report, filter: reportSignature(filter) };
+}
+
+/**
+ * The profit and loss chart's months with their comparison months beside
+ * them: the same scope as the report, grouped by month in SQL.
+ */
+export function breakdownQuery(filter: ReportFilter): AccountingQuery {
+  const months: BreakdownFilter = {
+    from: filter.from,
+    to: filter.to,
+    mode: filter.mode,
+    group_by: "month",
+    ...(filter.payee ? { payee: filter.payee } : {}),
+    ...(filter.compare_from && filter.compare_to
+      ? { compare_from: filter.compare_from, compare_to: filter.compare_to }
+      : {}),
+  };
+  return { view: "breakdown", filter: JSON.stringify(months) };
 }
 
 export function payrollListFilter(input: {

@@ -61,6 +61,7 @@ export function AccountingReportDetail({
   onEntry,
   onChanged,
   inline = false,
+  load,
 }: {
   title: string;
   filter: ReportFilter;
@@ -69,6 +70,8 @@ export function AccountingReportDetail({
   onEntry: (id: string) => void;
   onChanged: () => void;
   inline?: boolean;
+  /** Where the lines come from; the books by default, a fixture in demo. */
+  load?: (filter: ReportFilter) => Promise<ReportDetail>;
 }) {
   const [offset, setOffset] = useState(0),
     [data, setData] = useState<ReportDetail | null>(null),
@@ -81,11 +84,16 @@ export function AccountingReportDetail({
     setLoading(true);
     setError("");
     setData(null);
-    accountingGet<ReportDetail>(
-      { view: "report-detail", filter: signature },
-      controller.signal,
+    (load
+      ? load(JSON.parse(signature) as ReportFilter)
+      : accountingGet<ReportDetail>(
+          { view: "report-detail", filter: signature },
+          controller.signal,
+        )
     )
-      .then(setData)
+      .then((value) => {
+        if (!controller.signal.aborted) setData(value);
+      })
       .catch((e) => {
         if (!controller.signal.aborted) setError(e.message);
       })
@@ -93,6 +101,8 @@ export function AccountingReportDetail({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
+    // The loader is a fixed source for the dialog's lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signature, revision]);
   const stale = data && data.revision !== revision;
   const cashMode = !!filter.cash_class;

@@ -143,6 +143,8 @@ export async function readAccounting(
       return client.rpc("report", { kind: "summary", params: p.filter });
     case "ledger-report":
       return client.rpc("report", { kind: "general_ledger", params: p.filter });
+    case "breakdown":
+      return client.rpc("breakdown", { params: p.filter });
     case "report-detail":
       return client.rpc("report_lines", {
         kind: filter.cash_class ? "cash_movements" : "general_ledger",
