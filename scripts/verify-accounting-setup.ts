@@ -458,7 +458,7 @@ const profileKey = buildSetupGuide({
   const payroll = everything.steps.find((s) => s.key === "payroll-registers")!;
   check(
     "payroll step asks for the registers, not a report that does not exist",
-    payroll.title === "Attach the Patriot register to 2 payroll runs" &&
+    payroll.title === "Attach the payroll register to 2 payroll runs" &&
       /Open each run on the Payroll screen/.test(payroll.detail) &&
       payroll.action.target.kind === "link" &&
       payroll.action.target.href === "/accounting?view=payroll",

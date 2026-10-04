@@ -202,8 +202,12 @@ async function main() {
   const clients = incomeByContact(data, demoParties);
   check(clients[0].label, "Northwind Traders");
   check(clients[0].tag, "Client");
-  const focus = concentration(clients);
-  check(focus?.count, 2);
+  // The demo's income is spread past two clients; the rule itself on fixed rows.
+  check(concentration(clients), null);
+  const row = (key: string, share: number) => ({ key, label: key, amount: big(share), share });
+  check(concentration([row("a", 80), row("b", 20)])?.count, 1);
+  check(concentration([row("a", 50), row("b", 30), row("c", 20)])?.count, 2);
+  check(concentration([row("unassigned", 80), row("b", 20)]), null);
   const categories = expenseByCategory(data);
   check(categories.length, 9);
   check(categories.at(-1)?.key, "rest");

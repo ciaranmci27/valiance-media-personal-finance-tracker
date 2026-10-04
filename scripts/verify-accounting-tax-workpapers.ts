@@ -6,6 +6,8 @@ import {
   type SupportReportSnapshot,
 } from "../src/lib/accounting/support-reports";
 import { accountingTestDb } from "./accounting-test-db";
+import { supportStatementDocument } from "../src/lib/accounting/support-report-document";
+import { taxBridge } from "../src/lib/accounting/tax-workpaper-report";
 import {
   taxWorkpaperCommandSchema,
   type TaxSource,
@@ -366,6 +368,16 @@ async function main() {
   check(saved.payload.data.total_cells, reportData.total_cells);
   const printable = supportReportDocument(saved);
   check(printable.title, "Tax workpapers");
+  // The redesigned workpapers read the same retained source: the bridge
+  // from book profit lands on the books' ordinary income figure.
+  const branded = supportStatementDocument(saved);
+  check(branded.rows.at(-1)?.cells.slice(3, 6), ["804.99", "45.00", "849.99"]);
+  const savedBridge = taxBridge(saved.payload.data.tax_workpaper!);
+  check(
+    savedBridge.start + savedBridge.lines.reduce((s, l) => s + l.amount, BigInt(0)),
+    BigInt(84999),
+  );
+  check(savedBridge.lines.some((l) => l.key === "other"), false);
   check(
     printable.metadata.find(([label]) => label === "Period")?.[1],
     "2026-01-01 through 2026-08-31",

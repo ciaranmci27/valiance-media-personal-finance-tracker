@@ -11,6 +11,7 @@ import {
   supportReportDocument,
   type SupportReportSnapshot,
 } from "@/lib/accounting/support-reports";
+import { supportStatementDocument } from "@/lib/accounting/support-report-document";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,7 +30,10 @@ export async function GET(
   }
   try {
     const { id } = await params,
-      format = req.nextUrl.searchParams.get("format") ?? "pdf";
+      format = req.nextUrl.searchParams.get("format") ?? "pdf",
+      // Support reports keep their data either way; layout 2 is the branded
+      // statement the redesigned screens download.
+      layout = req.nextUrl.searchParams.get("layout") === "2" ? 2 : 1;
     if (!z.guid().safeParse(id).success || !["pdf", "csv"].includes(format))
       return NextResponse.json(
         { error: "Choose a saved report and a supported format." },
@@ -55,7 +59,9 @@ export async function GET(
 
     const support = snapshot.payload.type === "support_report";
     const doc = support
-      ? supportReportDocument(snapshot as SupportReportSnapshot)
+      ? layout === 2
+        ? supportStatementDocument(snapshot as SupportReportSnapshot)
+        : supportReportDocument(snapshot as SupportReportSnapshot)
       : reportDocument(snapshot as DetailedReportSnapshot);
     const filename = support
       ? `${(snapshot as SupportReportSnapshot).payload.data.report_id}-${(snapshot as SupportReportSnapshot).payload.data.filter.to}.${format}`

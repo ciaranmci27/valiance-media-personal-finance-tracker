@@ -322,7 +322,7 @@ export function buildSetupGuide({
     steps.push({
       key: "payroll-registers",
       level: "info",
-      title: `Attach the Patriot register to ${plural(status.runs_without_register, "payroll run")}`,
+      title: `Attach the payroll register to ${plural(status.runs_without_register, "payroll run")}`,
       detail:
         "Runs without their register cannot be checked against the provider. Open each run on the Payroll screen and attach it.",
       action: {

@@ -870,7 +870,6 @@ function FlatElectedEditor({
         }}
         options={defaultRateOptions}
         placeholder="Select a rate"
-        size="sm"
       />
     </div>
   );

@@ -1,4 +1,5 @@
 import type { ReportAccount, ReportData, ReportFilter } from "./reports";
+import { fiscalPriorEnd, fiscalYearStart } from "./fiscal-year";
 
 export const reportCatalog = [
   {
@@ -16,43 +17,43 @@ export const reportCatalog = [
   },
   {
     id: "cash-flow",
-    title: "Bank cash movements",
+    title: "Cash flow",
     description:
-      "Follow cash from opening to closing, including transfers and unresolved classifications.",
+      "Where your cash came from and where it went, and why profit and cash differ.",
     group: "Financial statements",
   },
   {
     id: "customer-income",
     title: "Income by customer",
     description:
-      "Recognized revenue and directly attributed costs for each customer.",
+      "Who pays you, how much, and how much rides on any one client.",
     group: "Business performance",
   },
   {
     id: "vendor-expenses",
     title: "Expenses by vendor",
-    description: "Review spending by contact, including unassigned expenses.",
+    description: "Who you pay, where the money goes, and what keeps charging you.",
     group: "Business performance",
   },
   {
     id: "trial-balance",
     title: "Trial balance",
     description:
-      "Opening balances, debits, credits and closing balances for every account.",
+      "Every account's balance on a date, ready for your accountant: do the books balance?",
     group: "Detailed accounting",
   },
   {
     id: "general-ledger",
     title: "General ledger",
     description:
-      "Every contributing journal line, with running balances and source evidence.",
+      "Each account's lines for the period, with a running balance and each entry a click away.",
     group: "Detailed accounting",
   },
   {
     id: "owner-activity",
     title: "Owner activity",
     description:
-      "Contributions, distributions and shareholder balances in the books.",
+      "What you put in and took out, beside your salary and what the business earned.",
     group: "Detailed accounting",
   },
 ] as const;
@@ -113,6 +114,8 @@ export function buildReportModel(
   data: ReportData,
   showZero = false,
   parties?: { id: string; roles: string[] }[],
+  /** The fiscal year's start month (business settings); January when absent. */
+  fiscalStartMonth = 1,
 ): ReportModel {
   const meta = reportCatalog.find((r) => r.id === id)!;
   const comparison = !!data.filter.compare_from;
@@ -127,8 +130,8 @@ export function buildReportModel(
     from: data.filter.compare_from ?? data.filter.from,
     to: data.filter.compare_to ?? data.filter.to,
   };
-  const yearStart = (date: string) => `${date.slice(0, 4)}-01-01`;
-  const priorEnd = (date: string) => `${Number(date.slice(0, 4)) - 1}-12-31`;
+  const yearStart = (date: string) => fiscalYearStart(date, fiscalStartMonth);
+  const priorEnd = (date: string) => fiscalPriorEnd(date, fiscalStartMonth);
   const scope = (
     which: "period" | "asof" | "prior" | "year",
     previous = false,
@@ -597,7 +600,9 @@ export function buildReportModel(
     );
   return {
     id,
-    title: meta.title,
+    // The older cash view (the books package, exports without a layout) keeps
+    // its own name: it is a bank movement summary, not a cash flow statement.
+    title: id === "cash-flow" ? "Bank cash movements" : meta.title,
     description: meta.description,
     columns,
     rows,

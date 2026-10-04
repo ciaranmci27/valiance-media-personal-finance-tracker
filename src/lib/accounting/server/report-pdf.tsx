@@ -1,7 +1,13 @@
 import React from "react";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { ReportDocument, StatementDocument } from "../report-document";
+import type {
+  PanelLine,
+  RankedPanel,
+  ReportDocument,
+  StatementDocument,
+  StatementPanel,
+} from "../report-document";
 
 /**
  * Retained reports on paper, in the brand's design language: the logo, one
@@ -370,14 +376,18 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
    * Rows in page-safe blocks. A heading never sits at the foot of a page
    * with one row under it: it travels with the next three rows of its
    * section (or the whole section when it is shorter), and moves to the
-   * next page with them when they do not fit.
+   * next page with them when they do not fit. Totals stay with the line
+   * above them.
    */
   function blocks<T extends { kind: string }>(rows: T[], keep = 3): T[][] {
     const out: T[][] = [];
     let i = 0;
     while (i < rows.length) {
       if (rows[i].kind !== "heading") {
-        out.push([rows[i]]);
+        // A subtotal or total never opens a page alone: it travels with
+        // the row before it.
+        if (rows[i].kind !== "account" && out.length) out[out.length - 1].push(rows[i]);
+        else out.push([rows[i]]);
         i++;
         continue;
       }
@@ -466,7 +476,17 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
           ) : null}
           <Tiles statement={doc.statement} />
           <MonthlyChart statement={doc.statement} />
-          <EquityExplained statement={doc.statement} />
+          {doc.statement.panels.map((panel) => (
+            <Panel key={panel.title} panel={panel} />
+          ))}
+          {doc.statement.ranked?.map((panel) => (
+            <Ranked key={panel.title} panel={panel} />
+          ))}
+          {doc.statement.checks ? <Checks checks={doc.statement.checks} /> : null}
+          {/* The statement starts on the next page unless its title, column
+              heads and first rows fit here: the repeating column heads
+              would otherwise sit alone at the foot of this page. */}
+          <View minPresenceAhead={240} />
           <Statement statement={doc.statement} />
           {notes}
           {footer}
@@ -478,7 +498,7 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
     return (
       <View style={s.tiles} wrap={false}>
         {statement.tiles.map((t, i) => {
-          const accent = i === 2;
+          const accent = i === statement.accentTile;
           const negative = t.value.startsWith("-");
           return (
             <View key={t.label} style={[s.tile, ...(accent ? [s.tileAccent] : [])]}>
@@ -514,23 +534,28 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
   }
 
   /**
-   * The balance sheet's equity as a waterfall: each plain-language line
-   * moves the running total from where the last one left it, and the last
-   * bar is total equity, so the lines visibly add up.
+   * A waterfall card (the balance sheet's equity, the cash flow's bridge
+   * and profit vs cash): each line moves the running total on from where
+   * the last one left it, an optional first bar starts from zero, and the
+   * last bar is the total, so the lines visibly add up. Each card stays
+   * together on one page.
    */
-  function EquityExplained({ statement }: { statement: StatementDocument }) {
-    const equity = statement.equity;
-    if (!equity) return null;
-    const labelW = 168,
+  function Panel({ panel }: { panel: StatementPanel }) {
+    const labelW = 188,
       valueW = 92,
       barW = 612 - MARGIN_X * 2 - labelW - valueW - 16;
-    let running = 0;
-    const steps = equity.lines.map((l) => {
+    let running = panel.start?.amount ?? 0;
+    const steps = panel.lines.map((l) => {
       const start = running;
       running += l.amount;
       return { ...l, start, end: running };
     });
-    const points = [0, equity.total.amount, ...steps.flatMap((s) => [s.start, s.end])];
+    const points = [
+      0,
+      panel.total.amount,
+      ...(panel.start ? [panel.start.amount] : []),
+      ...steps.flatMap((s) => [s.start, s.end]),
+    ];
     const low = Math.min(...points),
       high = Math.max(...points),
       span = high - low || 1;
@@ -554,13 +579,13 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
     };
     const row = (
       key: string,
-      label: string,
-      value: string,
+      line: PanelLine,
       graphic: React.ReactNode,
       strong = false,
     ) => (
       <View
         key={key}
+        wrap={false}
         style={{
           flexDirection: "row",
           alignItems: "center",
@@ -570,14 +595,21 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
           marginTop: strong ? 3 : 0,
         }}
       >
-        <Text
-          style={[
-            s.label,
-            { width: labelW, fontWeight: strong ? 600 : 400, color: strong ? paper.ink : paper.body },
-          ]}
-        >
-          {label}
-        </Text>
+        <View style={{ width: labelW }}>
+          <Text
+            style={[
+              s.label,
+              { fontWeight: strong ? 600 : 400, color: strong ? paper.ink : paper.body },
+            ]}
+          >
+            {line.label}
+          </Text>
+          {line.hint ? (
+            <Text style={{ fontSize: 7, color: paper.muted, lineHeight: 1.35 }}>
+              {line.hint}
+            </Text>
+          ) : null}
+        </View>
         <View style={{ width: barW, marginHorizontal: 8 }}>{graphic}</View>
         <Text
           style={[
@@ -586,36 +618,179 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
               width: valueW,
               textAlign: "right",
               fontWeight: strong ? 500 : 400,
-              color: value.startsWith("-") ? paper.rose : strong ? paper.accentDeep : paper.ink,
+              color: line.value.startsWith("-")
+                ? paper.rose
+                : strong
+                  ? paper.accentDeep
+                  : paper.ink,
             },
           ]}
         >
-          {value}
+          {line.value}
         </Text>
       </View>
     );
+    // A card stays on one page unless it is too long for one; then its
+    // title and first lines still travel together.
+    const long = steps.length > 14;
     return (
-      <View style={{ marginTop: 24 }} wrap={false}>
-        <View style={s.sectionHead}>
-          <Text style={s.sectionTitle}>Equity, explained</Text>
+      <View style={{ marginTop: 24 }} wrap={long}>
+        <View style={s.sectionHead} minPresenceAhead={long ? 90 : 0}>
+          <Text style={s.sectionTitle}>{panel.title}</Text>
         </View>
-        <Text style={[s.scope, { marginTop: 0, marginBottom: 8 }]}>
-          {equity.sentence}
+        <Text style={[s.scope, { marginTop: 0, marginBottom: 8, lineHeight: 1.4 }]}>
+          {panel.sentence}
         </Text>
+        {panel.start
+          ? row("start", panel.start, bar(0, panel.start.amount, paper.hairlineStrong))
+          : null}
         {steps.map((step, i) =>
           row(
-            `equity-${i}`,
-            step.label,
-            step.value,
+            `line-${i}`,
+            step,
             bar(step.start, step.end, step.amount < 0 ? paper.expense : paper.income),
           ),
         )}
         {row(
-          "equity-total",
-          equity.total.label,
-          equity.total.value,
-          bar(0, equity.total.amount, equity.total.amount < 0 ? paper.rose : paper.accent),
+          "total",
+          panel.total,
+          bar(0, panel.total.amount, panel.total.amount < 0 ? paper.rose : paper.accent),
           true,
+        )}
+        {panel.footer ? (
+          <Text style={[s.scope, { marginTop: 8, lineHeight: 1.4 }]}>{panel.footer}</Text>
+        ) : null}
+      </View>
+    );
+  }
+
+  /**
+   * A ranked list on paper (who paid you, other income): each line with its
+   * amount, its share and a bar against the biggest line, then the total.
+   * A list stays on one page unless it is too long for one.
+   */
+  function Ranked({ panel }: { panel: RankedPanel }) {
+    const labelW = 200,
+      valueW = 86,
+      shareW = 44,
+      barW = 612 - MARGIN_X * 2 - labelW - valueW - shareW - 16;
+    const max = Math.max(...panel.rows.map((r) => Math.abs(r.amount)), 0) || 1;
+    // A long list may break across pages; its title still travels with its first rows.
+    const long = panel.rows.length > 8;
+    return (
+      <View style={{ marginTop: 24 }} wrap={long}>
+        <View style={s.sectionHead} minPresenceAhead={long ? 90 : 0}>
+          <Text style={s.sectionTitle}>{panel.title}</Text>
+        </View>
+        <Text style={[s.scope, { marginTop: 0, marginBottom: panel.note ? 3 : 8, lineHeight: 1.4 }]}>
+          {panel.sentence}
+        </Text>
+        {panel.note ? (
+          <Text style={[s.scope, { marginTop: 0, marginBottom: 8, lineHeight: 1.4, color: paper.muted }]}>
+            {panel.note}
+          </Text>
+        ) : null}
+        {panel.rows.map((r, i) => (
+          <View
+            key={`${r.label}-${i}`}
+            wrap={false}
+            style={{ flexDirection: "row", alignItems: "center", paddingVertical: 3.5 }}
+          >
+            <View style={{ width: labelW }}>
+              <Text style={[s.label, { color: paper.body }]}>
+                {r.label}
+                {r.tag ? <Text style={{ fontSize: 7, color: paper.muted }}>{`  ${r.tag}`}</Text> : null}
+              </Text>
+              {r.hint ? (
+                <Text style={{ fontSize: 7, color: paper.muted, lineHeight: 1.35 }}>{r.hint}</Text>
+              ) : null}
+            </View>
+            <View style={{ width: barW, marginHorizontal: 8 }}>
+              <Svg width={barW} height={7}>
+                <Rect x={0} y={0} width={barW} height={7} rx={2} fill={paper.row} />
+                <Rect
+                  x={0}
+                  y={0}
+                  width={Math.max(1, (Math.abs(r.amount) / max) * barW)}
+                  height={7}
+                  rx={2}
+                  fill={r.amount < 0 ? paper.rose : (r.tone ?? panel.tone) === "expense" ? paper.expense : paper.income}
+                />
+              </Svg>
+            </View>
+            <Text
+              style={[
+                s.figure,
+                { width: valueW, textAlign: "right", color: r.value.startsWith("-") ? paper.rose : paper.ink },
+              ]}
+            >
+              {r.value}
+            </Text>
+            <Text style={[s.figure, { width: shareW, textAlign: "right", fontSize: 7.5, color: paper.muted }]}>
+              {r.share}
+            </Text>
+          </View>
+        ))}
+        <View
+          wrap={false}
+          style={{
+            flexDirection: "row",
+            justifyContent: "space-between",
+            paddingVertical: 4,
+            borderTopWidth: 0.75,
+            borderTopColor: paper.hairlineStrong,
+            marginTop: 3,
+          }}
+        >
+          <Text style={[s.label, { fontWeight: 600, color: paper.ink }]}>{panel.total.label}</Text>
+          <Text style={[s.figure, { fontWeight: 500, color: paper.accentDeep, paddingRight: shareW }]}>
+            {panel.total.value}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  /** The trial balance's checks: a short list, or a plain all-clear. */
+  function Checks({ checks }: { checks: NonNullable<StatementDocument["checks"]> }) {
+    return (
+      <View style={{ marginTop: 24 }} wrap={checks.items.length > 8}>
+        <View style={s.sectionHead}>
+          <Text style={s.sectionTitle}>{checks.title}</Text>
+        </View>
+        {checks.items.length === 0 ? (
+          <Text style={[s.scope, { marginTop: 0 }]}>{checks.empty}</Text>
+        ) : (
+          checks.items.map((c, i) => (
+            <View
+              key={`${c.title}-${i}`}
+              wrap={false}
+              style={{
+                flexDirection: "row",
+                gap: 8,
+                paddingVertical: 5,
+                borderTopWidth: i === 0 ? 0 : 0.5,
+                borderTopColor: paper.hairline,
+              }}
+            >
+              <Text
+                style={{
+                  width: 34,
+                  fontFamily: MONO,
+                  fontSize: 6.5,
+                  letterSpacing: 0.6,
+                  color: c.tone === "look" ? paper.copper : paper.muted,
+                  paddingTop: 1.5,
+                }}
+              >
+                {c.tone === "look" ? "LOOK" : "NOTE"}
+              </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={[s.label, { color: paper.ink, fontWeight: 500 }]}>{c.title}</Text>
+                <Text style={{ fontSize: 7.5, color: paper.muted, lineHeight: 1.4 }}>{c.detail}</Text>
+              </View>
+            </View>
+          ))
         )}
       </View>
     );
@@ -751,8 +926,18 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
   }
 
   function Statement({ statement }: { statement: StatementDocument }) {
-    const comparing = statement.columns.length > 2;
-    const widths = comparing ? [86, 62, 86, 82] : [104, 70];
+    const comparing = statement.columns.length > (statement.shareColumn ? 2 : 1);
+    // The share column (when there is one) is second and narrower.
+    const share = statement.shareColumn ? 1 : -1;
+    const widths = statement.shareColumn
+      ? comparing
+        ? [86, 62, 86, 82]
+        : [104, 70]
+      : statement.columns.length === 4
+        ? [80, 80, 92, 90]
+        : comparing
+          ? [96, 96, 90]
+          : [110];
     const cell = (i: number) => ({
       width: widths[i],
       textAlign: "right" as const,
@@ -778,6 +963,11 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
             ...(r.kind === "total" ? [s.total] : []),
           ]}
         >
+          {statement.dateWidth ? (
+            <Text style={[s.label, { width: statement.dateWidth, paddingLeft: 8, color: paper.muted }]}>
+              {r.date ?? ""}
+            </Text>
+          ) : null}
           <Text
             style={[
               s.label,
@@ -787,9 +977,11 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
                   r.kind === "total"
                     ? 8
                     : r.kind === "account"
-                      ? r.indent
-                        ? 18
-                        : 8
+                      ? statement.dateWidth
+                        ? 0
+                        : r.indent
+                          ? 18
+                          : 8
                       : 0,
                 fontWeight: r.kind === "total" ? 700 : strong ? 600 : 400,
                 color: strong ? paper.ink : paper.body,
@@ -808,12 +1000,12 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
                 {
                   fontWeight: strong ? 500 : 400,
                   fontSize:
-                    r.kind === "total" && i === 0 ? 9.5 : i === 1 ? 7.75 : 8.5,
+                    r.kind === "total" && i === 0 ? 9.5 : i === share ? 7.75 : 8.5,
                   // The smaller percent sits on the amounts' baseline.
-                  marginTop: i === 1 ? 0.8 : 0,
+                  marginTop: i === share ? 0.8 : 0,
                   color:
                     tone(r.tones[i]) ??
-                    (i === 1
+                    (i === share
                       ? paper.muted
                       : r.kind === "total"
                         ? paper.accentDeep
@@ -832,10 +1024,13 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
     return (
       <View style={{ marginTop: 26 }}>
         <View style={s.sectionHead}>
-          <Text style={s.sectionTitle}>Statement</Text>
+          <Text style={s.sectionTitle}>{statement.statementTitle ?? "Statement"}</Text>
         </View>
         <View style={s.tableHead} fixed>
-          <Text style={[s.th, { flex: 1 }]}>Account</Text>
+          {statement.dateWidth ? (
+            <Text style={[s.th, { width: statement.dateWidth, paddingLeft: 8 }]}>Date</Text>
+          ) : null}
+          <Text style={[s.th, { flex: 1 }]}>{statement.labelHead ?? "Account"}</Text>
           {statement.columns.map((c, i) => (
             <Text key={c} style={[s.th, cell(i)]}>
               {c}

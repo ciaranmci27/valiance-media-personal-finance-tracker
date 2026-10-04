@@ -145,6 +145,8 @@ export interface JournalEntry {
   restores_entry_id?: string | null;
   replacement_entry_id?: string | null;
   payroll_run_id?: string | null;
+  /** Every posted payroll run on this entry; several when runs share one journal. */
+  payroll_run_ids?: string[];
   /** Both legs of a recorded or linked transfer share one group. */
   transfer_group_id?: string | null;
   restore_workflow?: "payroll" | "transfer" | "register" | null;

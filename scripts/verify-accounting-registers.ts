@@ -5,6 +5,9 @@ import {
   supportReportDocument,
   type SupportReportSnapshot,
 } from "../src/lib/accounting/support-reports";
+import { supportStatementDocument } from "../src/lib/accounting/support-report-document";
+import { assetTies } from "../src/lib/accounting/fixed-assets";
+import { loanMovements, loanTies } from "../src/lib/accounting/loan-balances";
 async function main() {
   const db = await accountingTestDb();
   let checks = 0;
@@ -374,6 +377,10 @@ async function main() {
       "0.00",
       "2000.00",
     ]);
+    // The redesigned register reads the same retained rows and controls.
+    const branded = supportStatementDocument(retained);
+    check(branded.rows.at(-1)?.cells, ["Total", "", "2000.00", "0.00", "2000.00", ""]);
+    check(branded.statement?.checks?.items.length, 0);
     const mismatch = await cmd({
       type: "transaction.review",
       id: randomUUID(),
@@ -386,6 +393,11 @@ async function main() {
       ],
     });
     check((await report()).controls.ready, false);
+    // The redesigned register names the account that holds more than the register.
+    const off = assetTies(await report()).filter((x) => x.tone === "look");
+    check(off.length, 1);
+    check(off[0].books - off[0].register, BigInt(1000));
+    check(off[0].title.endsWith("$10.00 more than the register"), true);
     check(
       (await report()).controls.rows.find(
         (r: any) => r.account_id === accounts.asset,
@@ -417,6 +429,22 @@ async function main() {
     await voidMovement(loan.id, scheduledPost.entry_id, "2026-08-11");
     await post(loan.id, { ...scheduled, date: "2026-08-12" });
     check((await detail(loan.id)).book_cents, "-399000");
+    // The redesigned loan page reads the register's detail: its movements
+    // add up to what is owed, voided payments drop out, and the loan
+    // account ties to the register.
+    const loanDetail = (
+      await db.query<{ r: any }>(
+        "SELECT accounting.registers(jsonb_build_object('view','detail','id',$1::text,'date','2026-12-31')) r",
+        [loan.id],
+      )
+    ).rows[0].r;
+    const moves = loanMovements(loanDetail, "2026-12-31");
+    check(
+      moves.reduce((s, m) => s + m.drawn - m.repaid, BigInt(0)),
+      BigInt(399000),
+    );
+    const loanReport = await report("loan-register", "2026-12-31");
+    check(loanTies(loanReport).every((x) => x.tone === "good"), true);
     check(retained.payload.data.total_cells[2], "200000");
     await fail(
       () =>

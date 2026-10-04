@@ -5,6 +5,7 @@ import {
   supportReportDocument,
   type SupportReportSnapshot,
 } from "../src/lib/accounting/support-reports";
+import { supportStatementDocument } from "../src/lib/accounting/support-report-document";
 async function main() {
   const db = await accountingTestDb();
   let checks = 0;
@@ -140,6 +141,18 @@ async function main() {
       "",
       "990.00",
       "1000.00",
+    ]);
+    // The redesigned worksheet reads the same retained rows: the bank
+    // payments net of the refund count, the card payment is left out.
+    check(supportStatementDocument(saved).rows[0].cells, [
+      "Synthetic contractor",
+      "Individual",
+      "Received",
+      "990.00",
+      "1000.00",
+      "1990.00",
+      "No",
+      "Under the 2026 line",
     ]);
     await journal(bank, "101000");
     check((await read()).rows[0].paid_cents, "200000");

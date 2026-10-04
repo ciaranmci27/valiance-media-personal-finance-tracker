@@ -56,6 +56,12 @@ export function accountingError(message: string): string {
       "Use this transaction's payroll, transfer, register or reconciliation workflow to change it. No changes were saved.",
     ACCT_PATRIOT_CHANGED:
       "The books changed since the preview. Refresh the preview before importing. No payrolls from this request were saved.",
+    ACCT_GUSTO_CHANGED:
+      "The books changed since the preview. Refresh the preview before importing. No payrolls from this request were saved.",
+    ACCT_GUSTO_GROUP_CHOICE:
+      "Payrolls that share one entry in your books are imported together. Choose the same option for each of them.",
+    ACCT_PAYROLL_ENTRY_SHARED:
+      "Several payrolls are linked to this entry. Undo their import in Payroll before changing or deleting it.",
     ACCT_TAX_RANGE:
       "Choose a cutoff inside the tax year that is not in the future.",
     ACCT_TAX_CONCEPT: "Choose a treatment that fits this account type.",
@@ -63,7 +69,7 @@ export function accountingError(message: string): string {
     ACCT_TAX_MAPPING:
       "Choose a tax concept and deductible percentage appropriate for this income or expense account.",
     ACCT_PAYROLL_EVIDENCE:
-      "Attach the verified Patriot register and confirm that its amounts and mappings agree.",
+      "Attach the verified payroll register and confirm that its amounts and mappings agree.",
     ACCT_CATEGORY_REQUIRED:
       "Choose a category for every amount before marking the transaction reviewed.",
     ACCT_RESTORE_UNAVAILABLE:

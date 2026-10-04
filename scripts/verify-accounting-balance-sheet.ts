@@ -166,6 +166,10 @@ async function main() {
   const advance = owe.find((r) => r.label === "Net salary payable")!;
   check(advance.amount < big(0), true);
   check(advance.hint, "Paid more than was owed: the business is owed this back");
+  check(
+    own.find((r) => r.label === "Accumulated depreciation")?.hint,
+    "Equipment wear to date, subtracted from what you own",
+  );
   check(owe.at(-1)?.label, "Net salary payable", "Negative balances sort last");
   check(owe.reduce((s, r) => s + r.amount, big(0)), current.liabilities);
   check(owe.every((r) => reportFilterSchema.safeParse(r.filter).success), true);
@@ -173,10 +177,13 @@ async function main() {
   check(detail.total_cents, named("Operating checking").ending_cents);
 
   // Month-end balances: twelve months ending at the as-of date.
-  const cards = data.accounts.filter((a) => a.cash_kind === "card").map((a) => a.id);
-  const series = balanceSeriesFilters("2026-10-03", "working", cards);
+  const series = balanceSeriesFilters("2026-10-03", "working", data.accounts);
+  // Accumulated depreciation is read apart and subtracted, never added.
+  check(series.contraAssets?.account_ids, [named("Accumulated depreciation").id]);
+  check(series.assets?.account_ids?.includes(named("Accumulated depreciation").id), false);
   const months = balanceMonths("2026-10-03", {
     assets: demoBalanceBreakdown(series.assets!),
+    contraAssets: demoBalanceBreakdown(series.contraAssets!),
     liabilities: demoBalanceBreakdown(series.liabilities!),
     cash: demoBalanceBreakdown(series.cash!),
     cards: demoBalanceBreakdown(series.cards!),
@@ -220,7 +227,7 @@ async function main() {
     true,
   );
   check(csv.includes("$"), false);
-  check(branded.statement?.equity?.lines.length, lines.length);
+  check(branded.statement?.panels[0]?.lines.length, lines.length);
   check(branded.statement?.tiles.map((t) => t.label), ["Assets", "Liabilities", "Equity", "Cash position"]);
   const plain = demoReportData(balanceFilter("2026-10-03", "working"));
   check(reportDocument(snapshot(plain, 2)).columns.length, 4);

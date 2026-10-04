@@ -1,5 +1,5 @@
 "use client";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUpRight,
   ChevronDown,
@@ -303,6 +303,206 @@ export function MetricTile({
   );
 }
 
+/**
+ * A headline figure that drives nothing: for reports without a chart (the
+ * trial balance). Same look as MetricTile, but not a button, and no trend
+ * line where there is none to draw.
+ */
+export function StatTile({
+  label,
+  value,
+  context,
+  tone = "neutral",
+  change,
+}: {
+  label: string;
+  value: string;
+  context: string;
+  /** "good" marks a passing check (Balanced), "bad" a failing one. */
+  tone?: "neutral" | "good" | "bad";
+  change?: TileChange | null;
+}) {
+  const { isHidden, isRevealed, showValue, hoverProps } = useMaskedHover();
+  const hide = isHidden && !isRevealed;
+  const isMoney = /^-?\$/.test(value);
+  const [whole, cents] = isMoney && value.includes(".") ? value.split(".") : [value, ""];
+  const toneClass = hide
+    ? "text-muted-foreground"
+    : change?.tone === "good"
+      ? "text-success"
+      : change?.tone === "bad"
+        ? "text-error"
+        : "text-muted-foreground";
+  return (
+    <div {...hoverProps} className="glass-card relative flex min-w-0 flex-col rounded-xl p-4 lg:p-5">
+      <span className="text-xs font-medium text-muted-foreground lg:text-sm">{label}</span>
+      <span
+        className={cn(
+          "mt-1.5 text-xl font-semibold leading-none tracking-tight tabular-nums lg:text-[28px]",
+          !hide && tone === "good" && "text-success",
+          !hide && tone === "bad" && "text-error",
+        )}
+      >
+        {showValue || !isMoney ? (
+          <>
+            {whole}
+            {cents && <span className="text-[0.6em] font-medium text-muted-foreground">.{cents}</span>}
+          </>
+        ) : (
+          "•••••"
+        )}
+      </span>
+      <span className="mt-3 flex min-h-4 items-start gap-1 text-xs">
+        {change ? (
+          <span className={cn("min-w-0 font-medium leading-snug", toneClass)}>
+            {showValue ? change.text : "Change hidden"}
+          </span>
+        ) : (
+          <span className="truncate text-muted-foreground">{context}</span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * A chart's legend, naming only what the chart is showing: an entry with
+ * `shown: false` (a "below zero" color no bar uses) is left out.
+ */
+export function LegendRow({
+  items,
+}: {
+  items: { label: string; swatch: string; shown?: boolean }[];
+}) {
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 text-xs text-muted-foreground sm:px-0">
+      {items
+        .filter((item) => item.shown !== false)
+        .map((item) => (
+          <span key={item.label} className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className={cn("h-2.5 w-2.5 rounded-sm", item.swatch)} />
+            {item.label}
+          </span>
+        ))}
+    </div>
+  );
+}
+
+/**
+ * Cards side by side on wide screens, stacked below. Cards in a row are
+ * always the same height: each fills its cell (SectionCard is h-full), and
+ * its content uses the extra height, a total row pinned to the bottom with
+ * CardTotal or the WaterfallList total, so a short card never leaves empty
+ * background under it. `wide` holds the pair stacked until xl for content
+ * that needs the width, such as waterfall bars.
+ */
+export function CardRow({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+  return (
+    <div
+      className={cn(
+        "grid items-stretch gap-5",
+        wide ? "xl:grid-cols-2 xl:gap-6" : "lg:grid-cols-2 lg:gap-6",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+/**
+ * A card's row list: rows keep their own height and never stretch. The list
+ * asks for its rows' height up to about six rows (LIST_CAP); past that it
+ * scrolls inside the card, so a long list never makes its pair taller. When
+ * the card beside it is taller, the list grows into the extra height and
+ * shows more rows before it scrolls; a short list simply ends, and the spare
+ * height sits above the card's total (pinned with mt-auto). While it scrolls
+ * it is a named region in the tab order, with a focus ring and a soft fade
+ * at the foot while more rows sit below. It scrolls up and down only.
+ */
+const LIST_CAP_REM = 22;
+
+export function ScrollList({
+  label,
+  children,
+  className,
+  cap = LIST_CAP_REM,
+}: {
+  /** What the list holds, for screen readers: "Income by client". */
+  label: string;
+  children: ReactNode;
+  className?: string;
+  /** The most height (rem) the list asks of its card before it scrolls. */
+  cap?: number;
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [scrolls, setScrolls] = useState(false);
+  const [more, setMore] = useState(false);
+  const [floor, setFloor] = useState<number | null>(null);
+  const measure = useCallback(() => {
+    const node = ref.current;
+    if (!node) return;
+    // The rows' own height, capped: what the list asks of its card.
+    const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+    const content = Array.from(node.children).reduce(
+      (sum, child) => sum + (child as HTMLElement).offsetHeight,
+      0,
+    );
+    setFloor(Math.min(content, cap * rem));
+    const overflow = node.scrollHeight > node.clientHeight + 1;
+    setScrolls(overflow);
+    setMore(overflow && Math.ceil(node.scrollTop + node.clientHeight) < node.scrollHeight - 2);
+  }, [cap]);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    for (const child of Array.from(node.children) as Element[]) observer.observe(child);
+    return () => observer.disconnect();
+  }, [measure, children]);
+  return (
+    <div
+      className={cn("relative flex min-w-0 flex-1 basis-0 flex-col", className)}
+      // Until measured, the cap keeps a long list from setting the pair's height.
+      style={{ minHeight: floor ?? undefined, maxHeight: floor === null ? `${cap}rem` : undefined }}
+    >
+      <div
+        ref={ref}
+        onScroll={measure}
+        {...(scrolls ? { role: "region", "aria-label": label, tabIndex: 0 } : {})}
+        className={cn(
+          // Relative, so screen-reader-only text in the rows scrolls with them
+          // instead of stretching the page.
+          "relative min-h-0 min-w-0 flex-1 basis-0 overflow-x-hidden overflow-y-auto overscroll-contain rounded-md",
+          "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring",
+        )}
+      >
+        {children}
+      </div>
+      <div
+        aria-hidden="true"
+        className={cn(
+          "pointer-events-none absolute inset-x-0 bottom-0 h-8 rounded-b-md bg-linear-to-t from-[rgba(var(--ink),0.07)] to-transparent transition-opacity",
+          more ? "opacity-100" : "opacity-0",
+        )}
+      />
+    </div>
+  );
+}
+
+/** A card's closing total, pinned to its foot so paired cards line up. */
+export function CardTotal({ label, amount }: { label: string; amount: bigint }) {
+  return (
+    <div className="mt-auto flex items-center justify-between gap-4 border-t border-border px-5 py-3.5 text-sm font-semibold lg:px-6">
+      <span>{label}</span>
+      <span className={cn("tabular-nums", amount < ZERO && "text-error")}>
+        <MaskedValue value={money(amount)} />
+      </span>
+    </div>
+  );
+}
+
 /** The card frame every section shares: a title row, then content. */
 export function SectionCard({
   title,
@@ -321,7 +521,7 @@ export function SectionCard({
 }) {
   return (
     <Card
-      className={cn("flex min-w-0 flex-col", className)}
+      className={cn("flex h-full min-w-0 flex-col", className)}
       role="region"
       aria-labelledby={labelledBy}
     >
@@ -338,6 +538,50 @@ export function SectionCard({
       </div>
       {children}
     </Card>
+  );
+}
+
+/**
+ * The period or as-of presets, with Custom last. Each segment sizes to its
+ * own label, so nothing clips; on a phone the shorter labels show, and below
+ * about 340px the track scrolls inside itself rather than widening the page.
+ */
+export function PresetSegments<T extends string>({
+  label,
+  options,
+  value,
+  onChoose,
+}: {
+  label: string;
+  options: { value: T | "custom"; label: string; short: string }[];
+  /** The active option, or "custom". */
+  value: T | "custom";
+  onChoose: (value: T | "custom") => void;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="seg-track seg-sm w-full max-w-full overflow-x-auto [scrollbar-width:none] sm:w-auto [&::-webkit-scrollbar]:hidden"
+    >
+      {options.map((p) => (
+        <button
+          key={p.value}
+          type="button"
+          aria-pressed={value === p.value}
+          onClick={() => onChoose(p.value)}
+          className={cn(
+            // .seg-item sets its padding and size outside the utility layer,
+            // so the phone overrides need the important flag to apply at all.
+            "seg-item shrink-0 grow max-sm:px-2! max-sm:text-[12.5px]! sm:grow-0",
+            value === p.value && "is-active",
+          )}
+        >
+          <span className="sm:hidden">{p.short}</span>
+          <span className="hidden sm:inline">{p.label}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -393,11 +637,14 @@ export function RankedList({
   tone,
   onDrill,
   empty,
+  label,
 }: {
   rows: RankedRow[];
   tone: "teal" | "copper";
   onDrill: Drill;
   empty: string;
+  /** What the list holds, for the scroll region's name. */
+  label: string;
 }) {
   const abs = (v: bigint) => (v < ZERO ? -v : v);
   const max = rows.reduce((m, r) => (abs(r.amount) > m ? abs(r.amount) : m), ZERO);
@@ -406,7 +653,8 @@ export function RankedList({
       <p className="px-5 pb-6 text-sm text-muted-foreground lg:px-6">{empty}</p>
     );
   return (
-    <ul className="space-y-0.5 px-2.5 pb-3 lg:px-3.5">
+    <ScrollList label={label} className="mx-2.5 mb-3 lg:mx-3.5">
+    <ul className="space-y-0.5">
       {rows.map((r) => {
         const negative = r.amount < ZERO;
         const share =
@@ -419,7 +667,9 @@ export function RankedList({
               {r.icon}
               <span className="min-w-0">
                 <span className="flex min-w-0 items-center gap-2">
-                  <span className="truncate text-sm">{r.label}</span>
+                  <span className="truncate text-sm" title={r.label}>
+                    {r.label}
+                  </span>
                   {r.tag && (
                     <Badge size="sm" className="shrink-0">
                       {r.tag}
@@ -488,6 +738,7 @@ export function RankedList({
         );
       })}
     </ul>
+    </ScrollList>
   );
 }
 
@@ -510,7 +761,8 @@ export function StatementTable({
   rows: StatementRow[];
   /** What each line is a share of: income, or total assets. */
   base: bigint;
-  shareHeader: string;
+  /** The share column's name; without one, the statement has no share column. */
+  shareHeader?: string;
   amountHeader?: string;
   /** The amount column's name when a comparison sits beside it. */
   currentHeader?: string;
@@ -536,7 +788,7 @@ export function StatementTable({
     // Under privacy mode the color alone would say which way it moved.
     if (isHidden) return "text-muted-foreground";
     const diff = BigInt(r.values[2]);
-    if (diff === ZERO) return "text-muted-foreground";
+    if (diff === ZERO || r.side === "neutral") return "text-muted-foreground";
     const good = r.side === "expense" ? diff < ZERO : diff > ZERO;
     return good ? "text-success" : "text-error";
   };
@@ -605,13 +857,17 @@ export function StatementTable({
       className: "py-2.5 whitespace-nowrap",
       render: (r) => amount(r, 0),
     },
-    {
-      key: "share",
-      header: shareHeader,
-      align: "right",
-      className: "w-28 py-2.5 whitespace-nowrap",
-      render: share,
-    },
+    ...(shareHeader
+      ? [
+          {
+            key: "share",
+            header: shareHeader,
+            align: "right" as const,
+            className: "w-28 py-2.5 whitespace-nowrap",
+            render: share,
+          },
+        ]
+      : []),
     ...(comparing
       ? [
           {
@@ -673,7 +929,7 @@ export function StatementTable({
                   r.kind !== "account" && "font-semibold",
                 )}
               >
-                {share(r)}
+                {shareHeader && share(r)}
                 {amount(r, 0)}
               </div>
             </div>
@@ -852,6 +1108,179 @@ export function CoverageDisclosure({
   );
 }
 
+export interface WaterfallLine {
+  key: string;
+  label: string;
+  amount: bigint;
+  /** A few words under the label saying what the movement means. */
+  hint?: string;
+  filter?: Partial<ReportFilter>;
+}
+
+/**
+ * A waterfall as rows: each line moves a running total on from where the
+ * last one left it, so the lines visibly add up to the total at the bottom.
+ * An optional start row (starting cash, profit) is the first bar from zero.
+ * Bars are decorative (the amounts are the text); every line with a filter
+ * opens its transactions.
+ */
+export function WaterfallList({
+  start,
+  lines,
+  total,
+  onDrill,
+  hide,
+  label,
+}: {
+  /** What the lines explain, for the scroll region's name. */
+  label: string;
+  start?: { label: string; amount: bigint; hint?: string; filter?: Partial<ReportFilter> };
+  lines: WaterfallLine[];
+  total: { label: string; amount: bigint };
+  onDrill: Drill;
+  /** Privacy mode with the card not hovered. */
+  hide: boolean;
+}) {
+  let running = start?.amount ?? ZERO;
+  const steps = lines.map((l) => {
+    const from = running;
+    running += l.amount;
+    return { line: l, from, to: running };
+  });
+  const points = [
+    ZERO,
+    total.amount,
+    ...(start ? [start.amount] : []),
+    ...steps.flatMap((s) => [s.from, s.to]),
+  ];
+  const low = points.reduce((m, v) => (v < m ? v : m), ZERO),
+    high = points.reduce((m, v) => (v > m ? v : m), ZERO);
+  const span = high - low || BigInt(1);
+  const pos = (v: bigint) => Number(((v - low) * BigInt(10000)) / span) / 100;
+  const zero = pos(ZERO);
+  const segment = (from: bigint, to: bigint) => ({
+    left: `${Math.min(pos(from), pos(to))}%`,
+    width: `${Math.max(0.6, Math.abs(pos(to) - pos(from)))}%`,
+  });
+  const row = (
+    key: string,
+    label: string,
+    amount: bigint,
+    bar: { left: string; width: string },
+    fill: string,
+    strong: boolean,
+    hint?: string,
+    filter?: Partial<ReportFilter>,
+  ) => {
+    const content = (
+      <>
+        <span
+          className={cn(
+            "col-start-1 row-start-1 min-w-0 text-sm",
+            strong && "font-semibold",
+          )}
+        >
+          <span className="block break-words @[40rem]:truncate" title={label}>
+            {label}
+          </span>
+          {hint && (
+            <span className="block text-xs font-normal text-muted-foreground">
+              {hint}
+            </span>
+          )}
+        </span>
+        <span
+          aria-hidden="true"
+          className="relative col-span-2 col-start-1 row-start-2 h-2.5 rounded-full bg-[rgba(var(--ink),0.05)] @[40rem]:col-span-1 @[40rem]:col-start-2 @[40rem]:row-start-1"
+        >
+          <span
+            className="absolute inset-y-0 w-px bg-[rgba(var(--ink),0.25)]"
+            style={{ left: `${zero}%` }}
+          />
+          <span
+            className={cn("absolute inset-y-0 rounded-full", fill)}
+            style={bar}
+          />
+        </span>
+        <span
+          className={cn(
+            // Phones: name and amount share a line, the bar runs under them.
+            "col-start-2 row-start-1 text-right text-sm tabular-nums @[40rem]:col-start-3",
+            strong && "font-semibold",
+            !hide && amount < ZERO && "text-error",
+          )}
+        >
+          <MaskedValue value={money(amount)} inheritHover />
+        </span>
+      </>
+    );
+    const layout =
+      "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 rounded-lg px-2.5 py-2 @[40rem]:grid-cols-[minmax(0,16rem)_minmax(0,1fr)_8.5rem]";
+    return (
+      <li key={key}>
+        {filter ? (
+          <button
+            type="button"
+            onClick={() => onDrill(label, filter)}
+            className={cn(
+              layout,
+              "text-left transition-colors hover:bg-[rgba(var(--ink),0.05)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring",
+            )}
+          >
+            {content}
+            <span className="sr-only">, show transactions</span>
+          </button>
+        ) : (
+          <div className={layout}>{content}</div>
+        )}
+      </li>
+    );
+  };
+  return (
+    // Rows lay out by the card's own width, not the window's: in a pair of
+    // cards the bars move under the names, as on a phone, to stay readable.
+    <div className="@container flex flex-1 flex-col gap-1">
+      <ScrollList label={label} className="-mx-2.5">
+      <ul className="space-y-0.5">
+        {start &&
+          row(
+            "start",
+            start.label,
+            start.amount,
+            segment(ZERO, start.amount),
+            "bg-[rgba(var(--ink),0.3)]",
+            false,
+            start.hint,
+            start.filter,
+          )}
+        {steps.map(({ line, from, to }) =>
+          row(
+            line.key,
+            line.label,
+            line.amount,
+            segment(from, to),
+            line.amount < ZERO ? "bg-copper-strong" : "bg-teal",
+            false,
+            line.hint,
+            line.filter,
+          ),
+        )}
+      </ul>
+      </ScrollList>
+      <ul className="-mx-2.5 mt-auto border-t border-border pt-1">
+        {row(
+          "total",
+          total.label,
+          total.amount,
+          segment(ZERO, total.amount),
+          total.amount < ZERO ? "bg-error" : "bg-teal-dark",
+          true,
+        )}
+      </ul>
+    </div>
+  );
+}
+
 /** The header's Export menu: a branded PDF and a spreadsheet CSV. */
 export function ExportMenu({
   label,
@@ -859,12 +1288,17 @@ export function ExportMenu({
   exporting,
   demo,
   onExport,
+  pdfDescription = "Branded statement for your accountant",
+  csvDescription = "Every account, ready for a spreadsheet",
 }: {
   label: string;
   disabled: boolean;
   exporting: "csv" | "pdf" | null;
   demo: boolean;
   onExport: (format: "csv" | "pdf") => void;
+  /** What each format holds, under its name in the menu. */
+  pdfDescription?: string;
+  csvDescription?: string;
 }) {
   const unavailable = "Available with your own books";
   return (
@@ -886,14 +1320,14 @@ export function ExportMenu({
       actions={[
         {
           label: "PDF",
-          description: demo ? unavailable : "Branded statement for your accountant",
+          description: demo ? unavailable : pdfDescription,
           icon: <FileText />,
           disabled: demo,
           onSelect: () => onExport("pdf"),
         },
         {
           label: "CSV",
-          description: demo ? unavailable : "Every account, ready for a spreadsheet",
+          description: demo ? unavailable : csvDescription,
           icon: <FileSpreadsheet />,
           disabled: demo,
           onSelect: () => onExport("csv"),

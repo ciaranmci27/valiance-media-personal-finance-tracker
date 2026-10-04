@@ -18,6 +18,7 @@ import { buildReportModel } from "@/lib/accounting/report-model";
 import {
   reportFilterSchema,
   type BreakdownData,
+  type BreakdownFilter,
   type ReportData,
   type ReportFilter,
 } from "@/lib/accounting/reports";
@@ -57,18 +58,23 @@ import { AccountingReportDetail } from "./accounting-report-detail";
 import { AccountingAccountLogo } from "./accounting-bank-identity";
 import { useAccountingRead } from "./use-accounting-read";
 import { useReportExport } from "./use-report-export";
+import { useFiscalStartMonth } from "./use-fiscal-year";
 import { todayInBooks } from "./format";
 import { EquityCard } from "./balance-sheet-sections";
 import {
+  CardRow,
+  CardTotal,
   CoverageDisclosure,
   ExportMenu,
   FilterChip,
   HealthLine,
+  LegendRow,
   MetricTile,
   RankedList,
   ReportSkeleton,
   ScopeNotice,
   SectionCard,
+  PresetSegments,
   Segmented,
   StatementTable,
   readReportFilter,
@@ -124,6 +130,8 @@ export function AccountingBalanceSheet({
 }) {
   const params = useSearchParams();
   const today = todayInBooks();
+  // The fiscal year (business settings) shapes the year presets and drills.
+  const fiscalStart = useFiscalStartMonth(demo);
   const filter = readReportFilter(
     params.get("report_filter"),
     balanceFilter(today, "working"),
@@ -132,8 +140,8 @@ export function AccountingBalanceSheet({
   const asOf = filter.to;
   const normalized = balanceFilter(asOf, filter.mode, filter.compare_to);
   const signature = JSON.stringify(normalized);
-  const preset = asOfPresetOf(asOf, today);
-  const compareMode = balanceCompareOf(normalized);
+  const preset = asOfPresetOf(asOf, today, fiscalStart);
+  const compareMode = balanceCompareOf(normalized, fiscalStart);
 
   const [customOpen, setCustomOpen] = useState(preset === "custom");
   const [custom, setCustom] = useState(asOf);
@@ -148,7 +156,7 @@ export function AccountingBalanceSheet({
 
   useEffect(() => {
     setCustom(asOf);
-    if (asOfPresetOf(asOf, today) === "custom") setCustomOpen(true);
+    if (asOfPresetOf(asOf, today, fiscalStart) === "custom") setCustomOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [asOf]);
   // A typed date applies once the owner pauses.
@@ -170,54 +178,60 @@ export function AccountingBalanceSheet({
     [demo, signature],
   );
   const data = demo ? demoData : (reportRead.data ?? null);
-  const cardIds = useMemo(
-    () =>
-      (data?.accounts ?? [])
-        .filter((a) => a.cash_kind === "card")
-        .map((a) => a.id),
-    [data],
+  // Which accounts are ordinary and which are contra comes from the report.
+  const seriesFilters = balanceSeriesFilters(
+    asOf,
+    normalized.mode,
+    data?.accounts ?? [],
   );
-  const seriesFilters = balanceSeriesFilters(asOf, normalized.mode, cardIds);
-  const assetsRead = useAccountingRead<BreakdownData>(
-    balanceSeriesQuery(seriesFilters.assets!),
-    { enabled: live, keepPrevious: true },
-  );
-  const liabilitiesRead = useAccountingRead<BreakdownData>(
-    balanceSeriesQuery(seriesFilters.liabilities!),
-    { enabled: live, keepPrevious: true },
-  );
-  const cashRead = useAccountingRead<BreakdownData>(
-    balanceSeriesQuery(seriesFilters.cash!),
-    { enabled: live, keepPrevious: true },
-  );
-  const cardsRead = useAccountingRead<BreakdownData>(
-    seriesFilters.cards ? balanceSeriesQuery(seriesFilters.cards) : null,
-    { enabled: live && !!data, keepPrevious: true },
-  );
+  const read = (f: BreakdownFilter | null) =>
+    f && data ? balanceSeriesQuery(f) : null;
+  const options = { enabled: live, keepPrevious: true };
+  const assetsRead = useAccountingRead<BreakdownData>(read(seriesFilters.assets), options);
+  const contraAssetsRead = useAccountingRead<BreakdownData>(read(seriesFilters.contraAssets), options);
+  const liabilitiesRead = useAccountingRead<BreakdownData>(read(seriesFilters.liabilities), options);
+  const contraLiabilitiesRead = useAccountingRead<BreakdownData>(read(seriesFilters.contraLiabilities), options);
+  const cashRead = useAccountingRead<BreakdownData>(read(seriesFilters.cash), options);
+  const cardsRead = useAccountingRead<BreakdownData>(read(seriesFilters.cards), options);
   const seriesKey = JSON.stringify(seriesFilters);
   const months = useMemo<BalanceMonth[]>(
-    () =>
-      demo
-        ? balanceMonths(asOf, {
-            assets: demoBalanceBreakdown(seriesFilters.assets!),
-            liabilities: demoBalanceBreakdown(seriesFilters.liabilities!),
-            cash: demoBalanceBreakdown(seriesFilters.cash!),
-            cards: seriesFilters.cards
-              ? demoBalanceBreakdown(seriesFilters.cards)
-              : null,
-          })
-        : balanceMonths(asOf, {
-            assets: assetsRead.data,
-            liabilities: liabilitiesRead.data,
-            cash: cashRead.data,
-            cards: cardsRead.data,
-          }),
+    () => {
+      if (demo) {
+        const demoSeries = (f: BreakdownFilter | null) =>
+          f ? demoBalanceBreakdown(f) : null;
+        return balanceMonths(asOf, {
+          assets: demoSeries(seriesFilters.assets),
+          contraAssets: demoSeries(seriesFilters.contraAssets),
+          liabilities: demoSeries(seriesFilters.liabilities),
+          contraLiabilities: demoSeries(seriesFilters.contraLiabilities),
+          cash: demoSeries(seriesFilters.cash),
+          cards: demoSeries(seriesFilters.cards),
+        });
+      }
+      return balanceMonths(asOf, {
+        assets: assetsRead.data,
+        contraAssets: contraAssetsRead.data,
+        liabilities: liabilitiesRead.data,
+        contraLiabilities: contraLiabilitiesRead.data,
+        cash: cashRead.data,
+        cards: cardsRead.data,
+      });
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [demo, seriesKey, assetsRead.data, liabilitiesRead.data, cashRead.data, cardsRead.data],
+    [
+      demo,
+      seriesKey,
+      assetsRead.data,
+      contraAssetsRead.data,
+      liabilitiesRead.data,
+      contraLiabilitiesRead.data,
+      cashRead.data,
+      cardsRead.data,
+    ],
   );
   const seriesLoading =
     live &&
-    (assetsRead.loading || liabilitiesRead.loading || cashRead.loading);
+    (!data || assetsRead.loading || liabilitiesRead.loading || cashRead.loading);
   const loading = live && reportRead.loading;
   const updating =
     live && (reportRead.isPlaceholder || reportRead.revalidating);
@@ -231,7 +245,7 @@ export function AccountingBalanceSheet({
     const compare =
       compareMode === "none" || compareMode === "custom"
         ? normalized.compare_to
-        : compareDate(compareMode, date);
+        : compareDate(compareMode, date, fiscalStart);
     apply(balanceFilter(date, normalized.mode, compare), replace);
   }
   function choosePreset(value: AsOfPreset | "custom") {
@@ -240,14 +254,14 @@ export function AccountingBalanceSheet({
       return;
     }
     setCustomOpen(false);
-    setAsOf(asOfDate(value, today));
+    setAsOf(asOfDate(value, today, fiscalStart));
   }
   function chooseCompare(mode: BalanceCompare) {
     apply(
       balanceFilter(
         asOf,
         normalized.mode,
-        mode === "none" || mode === "custom" ? undefined : compareDate(mode, asOf),
+        mode === "none" || mode === "custom" ? undefined : compareDate(mode, asOf, fiscalStart),
       ),
     );
   }
@@ -257,10 +271,10 @@ export function AccountingBalanceSheet({
   };
 
   const model = useMemo(
-    () => (data ? buildReportModel("balance-sheet", data) : null),
-    [data],
+    () => (data ? buildReportModel("balance-sheet", data, false, undefined, fiscalStart) : null),
+    [data, fiscalStart],
   );
-  const compared = balanceCompareLabel(normalized);
+  const compared = balanceCompareLabel(normalized, fiscalStart);
 
   const header = (
     <AccountingPageHeader
@@ -294,37 +308,15 @@ export function AccountingBalanceSheet({
   const controls = (
     <div className="space-y-2.5">
       <div className="flex flex-wrap items-center gap-2.5">
-        <div
-          role="group"
-          aria-label="As of"
-          // Each segment sizes to its label; below 340px the track scrolls
-          // inside itself rather than widening the page.
-          className="seg-track seg-sm w-full max-w-full overflow-x-auto [scrollbar-width:none] sm:w-auto [&::-webkit-scrollbar]:hidden"
-        >
-          {[
+        <PresetSegments
+          label="As of"
+          options={[
             ...AS_OF_PRESETS,
             { value: "custom" as const, label: "Custom date", short: "Custom" },
-          ].map((p) => {
-            const active =
-              p.value === "custom" ? customOpen : !customOpen && preset === p.value;
-            return (
-              <button
-                key={p.value}
-                type="button"
-                aria-pressed={active}
-                onClick={() => choosePreset(p.value)}
-                className={cn(
-                  // .seg-item sets padding and size outside the utility layer.
-                  "seg-item shrink-0 grow max-sm:px-2! max-sm:text-[12.5px]! sm:grow-0",
-                  active && "is-active",
-                )}
-              >
-                <span className="sm:hidden">{p.short}</span>
-                <span className="hidden sm:inline">{p.label}</span>
-              </button>
-            );
-          })}
-        </div>
+          ]}
+          value={customOpen ? "custom" : preset}
+          onChoose={choosePreset}
+        />
         {customOpen && (
           <div className="w-full sm:w-44">
             <DateInput
@@ -604,7 +596,7 @@ function BalanceReport({
         }
       >
         <div className="px-3 pb-5 sm:px-5 lg:px-6 lg:pb-6" {...hoverProps}>
-          <BalanceLegend metric={metric} underwater={underwater} />
+          <BalanceLegend metric={metric} underwater={underwater} months={months} />
           {seriesLoading && !months.some((m) => m.assets !== ZERO) ? (
             <div role="status" aria-label="Loading month-end balances">
               <div className="skeleton h-[230px] w-full rounded-lg sm:h-[300px]" />
@@ -621,40 +613,36 @@ function BalanceReport({
         </div>
       </SectionCard>
 
-      <div className="grid gap-5 lg:grid-cols-2 lg:gap-6">
+      <CardRow>
         <SectionCard
           labelledBy="bs-own"
           title="What you own"
-          description={
-            <>
-              <MaskedValue value={formatCents(current.assets)} /> in total
-            </>
-          }
+          description="Everything the business has, largest first."
         >
           <RankedList
             rows={own}
+            label="What the business owns"
             tone="teal"
             onDrill={onDrill}
             empty="No assets on this date."
           />
+          <CardTotal label="Total assets" amount={current.assets} />
         </SectionCard>
         <SectionCard
           labelledBy="bs-owe"
           title="What you owe"
-          description={
-            <>
-              <MaskedValue value={formatCents(current.liabilities)} /> in total
-            </>
-          }
+          description="Everything the business owes, largest first."
         >
           <RankedList
             rows={owe}
+            label="What the business owes"
             tone="copper"
             onDrill={onDrill}
             empty="Nothing owed on this date."
           />
+          <CardTotal label="Total liabilities" amount={current.liabilities} />
         </SectionCard>
-      </div>
+      </CardRow>
 
       <EquityCard
         lines={equity.lines}
@@ -722,36 +710,29 @@ function BalanceReport({
 function BalanceLegend({
   metric,
   underwater,
+  months,
 }: {
   metric: BalanceMetric;
   underwater: boolean;
+  months: BalanceMonth[];
 }) {
-  const items: [string, string][] =
+  const below = months.some((m) => (metric === "equity" ? m.equity : m.cash) < ZERO);
+  const items =
     metric === "assets"
       ? underwater
         ? [
-            ["Assets", "bg-teal"],
-            ["Liabilities", "bg-copper-strong"],
+            { label: "Assets", swatch: "bg-teal" },
+            { label: "Liabilities", swatch: "bg-copper-strong" },
           ]
         : [
-            ["Owed to others", "bg-copper-strong"],
-            ["Yours (equity)", "bg-teal"],
+            { label: "Owed to others", swatch: "bg-copper-strong" },
+            { label: "Yours (equity)", swatch: "bg-teal" },
           ]
       : metric === "liabilities"
-        ? [["Liabilities", "bg-copper-strong"]]
+        ? [{ label: "Liabilities", swatch: "bg-copper-strong" }]
         : [
-            [metric === "equity" ? "Equity" : "Cash position", "bg-teal"],
-            ["Below zero", "bg-error"],
+            { label: metric === "equity" ? "Equity" : "Cash position", swatch: "bg-teal" },
+            { label: "Below zero", swatch: "bg-error", shown: below },
           ];
-  return (
-    <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 px-2 text-xs text-muted-foreground sm:px-0">
-      {items.map(([label, swatch]) => (
-        <span key={label} className="inline-flex items-center gap-1.5">
-          <span aria-hidden="true" className={cn("h-2.5 w-2.5 rounded-sm", swatch)} />
-          {label}
-        </span>
-      ))}
-    </div>
-  );
+  return <LegendRow items={items} />;
 }
-

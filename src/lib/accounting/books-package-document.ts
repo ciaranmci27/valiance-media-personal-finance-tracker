@@ -1,12 +1,28 @@
-import { reportDocument, type ReportDocument } from "./report-document";
+import { reportDocument, type ReportDocument, type StatementDocument } from "./report-document";
 import { supportReportDocument } from "./support-reports";
+import { supportStatementDocument } from "./support-report-document";
+import { formatCents } from "./money";
+import { rangeLabel } from "./profit-loss";
+import {
+  PACKAGE_CONTENTS,
+  PACKAGE_GROUPS,
+  PACKAGE_NOTES,
+  packageChecks,
+  packageSummary,
+} from "./year-end-package";
 import { payrollFactLabels } from "./payroll";
 import { centsToDecimal } from "./money";
 import type { BooksPackageSnapshot } from "./books-package";
 import type { TaxSource } from "./tax-workpapers";
 
+/**
+ * The package's documents. Layout 1 is the original tables, kept for
+ * downloads of earlier packages; layout 2 is the branded statements the
+ * redesigned reports export, with a cover page first.
+ */
 export function booksPackageDocuments(
   snapshot: BooksPackageSnapshot,
+  layout: 1 | 2 = 1,
 ): { id: string; document: ReportDocument }[] {
   const p = snapshot.payload;
   if (
@@ -27,14 +43,25 @@ export function booksPackageDocuments(
       "The retained package is incomplete or contains inconsistent report revisions.",
     );
   const documents = (
-    [
-      "profit-loss",
-      "balance-sheet",
-      "cash-flow",
-      "trial-balance",
-      "general-ledger",
-      "owner-activity",
-    ] as const
+    layout === 2
+      ? ([
+          "profit-loss",
+          "balance-sheet",
+          "cash-flow",
+          "trial-balance",
+          "general-ledger",
+          "owner-activity",
+          "customer-income",
+          "vendor-expenses",
+        ] as const)
+      : ([
+          "profit-loss",
+          "balance-sheet",
+          "cash-flow",
+          "trial-balance",
+          "general-ledger",
+          "owner-activity",
+        ] as const)
   ).map((id) => ({
     id,
     document: reportDocument({
@@ -46,7 +73,10 @@ export function booksPackageDocuments(
         export_definition: 1,
         data: p.core,
         ledger: id === "general-ledger" ? p.ledger : undefined,
-        options: { report_id: id, show_zero: true, details: true },
+        options:
+          layout === 2
+            ? { report_id: id, show_zero: false, details: true, layout: 2 }
+            : { report_id: id, show_zero: true, details: true },
       },
     }),
   }));
@@ -155,7 +185,7 @@ export function booksPackageDocuments(
       p.payroll.coverage
         ? `Provider worksheet version ${p.payroll.coverage.version}, through ${p.payroll.coverage.through_date}. Source document ${p.payroll.coverage.document_id}. ${p.payroll.coverage.reason}`
         : "No provider year-to-date coverage worksheet has been retained.",
-      "Cash wages, federal taxable wages, Social Security wages and Medicare wages are separate measures. Patriot remains responsible for payroll execution, remittances and filing.",
+      "Cash wages, federal taxable wages, Social Security wages and Medicare wages are separate measures. The payroll provider remains responsible for payroll execution, remittances and filing.",
     ],
   };
   const evidence: ReportDocument = {
@@ -179,18 +209,109 @@ export function booksPackageDocuments(
       "Index of all accounting evidence known at package capture. This index contains metadata, not the actual receipt files. Open source documents in the authenticated app using their retained IDs.",
     ],
   };
+  const support = p.support.map((data) => {
+    const retained = { id: snapshot.id, created_at: snapshot.created_at, payload: { type: "support_report" as const, export_definition: 1 as const, data } };
+    return { id: data.report_id, document: layout === 2 ? supportStatementDocument(retained) : supportReportDocument(retained) };
+  });
+  if (layout === 2) {
+    const all = [...documents, ...support, { id: "account-mappings", document: accountMapping }, { id: "officer-payroll-reconciliation", document: officer }, { id: "source-document-index", document: evidence }];
+    // In the order the cover lists them.
+    const ordered = PACKAGE_CONTENTS.map((item) => all.find((d) => d.id === item.id)).filter(
+      (d): d is { id: string; document: ReportDocument } => !!d,
+    );
+    return [{ id: "cover", document: packageCover(snapshot, ordered.map((d) => d.id)) }, ...ordered];
+  }
   return [
     ...documents,
-    ...p.support.map((data) => ({
-      id: data.report_id,
-      document: supportReportDocument({
-        id: snapshot.id,
-        created_at: snapshot.created_at,
-        payload: { type: "support_report", export_definition: 1, data },
-      }),
-    })),
+    ...support,
     { id: "account-mappings", document: accountMapping },
     { id: "officer-payroll-reconciliation", document: officer },
     { id: "source-document-index", document: evidence },
   ];
+}
+
+/**
+ * The package's cover in the branded layout: the business, the year, the
+ * readiness of the year (the same checks the page shows) and the contents.
+ */
+export function packageCover(snapshot: BooksPackageSnapshot, included: string[]): ReportDocument {
+  const p = snapshot.payload;
+  const support = (id: string) => p.support.find((s) => s.report_id === id) ?? null;
+  const checks = packageChecks({
+    core: p.core,
+    tax: support("tax-workpapers"),
+    contractor: support("contractor-worksheet"),
+    payroll: support("payroll-register"),
+    asset: support("asset-register"),
+    loan: support("loan-register"),
+    reviewItems: p.review_items,
+  });
+  const summary = packageSummary(checks);
+  const contents = PACKAGE_CONTENTS.filter((item) => included.includes(item.id));
+  const rows: StatementDocument["rows"] = [];
+  for (const group of PACKAGE_GROUPS) {
+    const list = contents.filter((c) => c.group === group);
+    if (!list.length) continue;
+    rows.push({ key: `h-${group}`, kind: "heading", label: group, indent: false, section: true, cells: [], tones: [] });
+    for (const item of list)
+      rows.push({
+        key: item.id,
+        kind: "account",
+        label: `${item.title}: ${item.answers}`,
+        indent: true,
+        section: false,
+        cells: [item.pdf ? "PDF, CSV" : "CSV"],
+        tones: [null],
+      });
+  }
+  const statement: StatementDocument = {
+    periodLabel: rangeLabel(p.core.filter.from, p.through),
+    comparisonLabel: null,
+    scopeNote: `${summary.text} Reviewed transactions only, at book revision ${snapshot.revision}.`,
+    tiles: [
+      { label: "Profit", value: formatCents(BigInt(p.core.totals.net_cents)), note: "Book profit for the year", change: null, tone: "flat" },
+      { label: "Journal lines", value: p.ledger_count.toLocaleString("en-US"), note: "In the general ledger", change: null, tone: "flat" },
+      { label: "Reports", value: String(contents.length), note: "In this package", change: null, tone: "flat" },
+      {
+        label: "Readiness",
+        value: summary.ready ? "Ready" : `${summary.look} open`,
+        note: summary.ready ? "Nothing needs a look" : "See the checks below",
+        change: null,
+        tone: summary.ready ? "good" : "bad",
+      },
+    ],
+    accentTile: 3,
+    months: [],
+    columns: ["Files"],
+    shareColumn: false,
+    rows,
+    hiddenNote: null,
+    panels: [],
+    statementTitle: "Contents",
+    labelHead: "Report",
+    checks: {
+      title: "Readiness",
+      empty: "Every check passes: the books balance, every transaction is reviewed, and the support reports tie out.",
+      items: checks
+        .filter((c) => c.status === "look" || c.status === "info")
+        .map((c) => ({ tone: c.status === "look" ? ("look" as const) : ("info" as const), title: c.title, detail: c.detail })),
+    },
+  };
+  return {
+    title: "Year-end package",
+    company: p.core.legal_name,
+    snapshotId: snapshot.id,
+    metadata: [
+      ["Period", `${p.core.filter.from} through ${p.through}`],
+      ["Currency", "USD"],
+      ["Data revision", snapshot.revision],
+      ["Retained at", snapshot.created_at],
+    ],
+    columns: ["Report", "Answers", "Files"],
+    numeric: [false, false, false],
+    rows: contents.map((c) => ({ key: c.id, kind: "account" as const, cells: [c.title, c.answers, c.pdf ? "PDF, CSV" : "CSV"] })),
+    // The readiness is on the cover itself; the notes say what the package is.
+    notes: PACKAGE_NOTES,
+    statement,
+  };
 }

@@ -54,14 +54,25 @@ const PAGE = 100;
 const runLabel = (id: string) =>
   id.startsWith("Undone Patriot ")
     ? "Patriot payroll (import undone)"
-    : /^Patriot [0-9-]{10} [a-f0-9]{64}$/.test(id)
-      ? `Patriot payroll · ${dateLabel(id.slice(8, 18))}`
-      : id;
+    : id.startsWith("Undone Gusto ")
+      ? "Undone Gusto import"
+      : /^Patriot [0-9-]{10} [a-f0-9]{64}$/.test(id)
+        ? `Patriot payroll · ${dateLabel(id.slice(8, 18))}`
+        : /^Gusto [0-9-]{10} [a-f0-9]{64}$/.test(id)
+          ? `Gusto ${dateLabel(id.slice(6, 16))}`
+          : id;
+/** Shown with a run that shares its journal entry with other payrolls. */
+const SHARED_NOTE = "Shares its journal entry";
 
 /** What the void dialog needs; built from the list row or the open detail. */
 type VoidTarget = Pick<
   PayrollRun,
-  "id" | "version" | "pay_date" | "provider_run_id" | "import_mode"
+  | "id"
+  | "version"
+  | "pay_date"
+  | "provider_run_id"
+  | "import_mode"
+  | "entry_shared"
 >;
 
 /**
@@ -170,10 +181,11 @@ function ActionFooter({
 }
 
 /**
- * Payroll runs from Patriot, recorded the way a one-owner S corporation
- * actually experiences them: one register per pay date, the totals from the
- * register, and one journal entry. The Patriot debits that hit the bank are
- * matched to it from Transactions.
+ * Payroll runs from Gusto or Patriot, recorded the way a one-owner S
+ * corporation actually experiences them: one register per pay date, the
+ * totals from the register, and one journal entry (a monthly entry can hold
+ * several Gusto runs). The provider's debits that hit the bank are matched to
+ * it from Transactions.
  */
 export function AccountingPayrollRuns({
   accounts,
@@ -338,6 +350,11 @@ export function AccountingPayrollRuns({
           className="text-left transition-colors hover:text-teal-light rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <span className="block truncate">{runLabel(r.provider_run_id)}</span>
+          {r.entry_shared && r.status !== "voided" && (
+            <span className="mt-0.5 block text-[11px] text-muted-foreground">
+              {SHARED_NOTE}
+            </span>
+          )}
           {r.document_id && (
             <span className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
               <FileText size={11} aria-hidden="true" /> Register attached
@@ -518,6 +535,7 @@ export function AccountingPayrollRuns({
             prefix={<Search size={15} aria-hidden="true" />}
             value={query}
             onChange={(nextValue) => setQuery(nextValue)}
+            size="sm"
           />
         </div>
         {(error || list.error || cmd.error) && (
@@ -551,6 +569,9 @@ export function AccountingPayrollRuns({
                   {dateLabel(r.pay_date)}
                   <span className="block text-xs font-normal text-muted-foreground">
                     {runLabel(r.provider_run_id)}
+                    {r.entry_shared &&
+                      r.status !== "voided" &&
+                      ` · ${SHARED_NOTE}`}
                   </span>
                 </button>
                 <Badge variant={STATUS[r.status].variant}>
@@ -614,6 +635,7 @@ export function AccountingPayrollRuns({
               pay_date: detail.register.body.pay_date,
               provider_run_id: detail.provider_run_id,
               import_mode: detail.import_mode,
+              entry_shared: detail.entry_shared,
             })
           }
           onEntry={onEntry}
@@ -706,6 +728,9 @@ function RunDetail({
           <span className="text-muted-foreground">
             {runLabel(detail.provider_run_id)} · {dateLabel(body.period_from)}{" "}
             to {dateLabel(body.period_to)}
+            {detail.entry_shared &&
+              detail.status !== "voided" &&
+              ` · ${SHARED_NOTE} with other payrolls`}
           </span>
           {detail.posting?.entry_id && onEntry && (
             <Button
@@ -825,7 +850,7 @@ function RunDetail({
             </Disclosure>
             {!hasRegister && (
               <p className="text-sm text-muted-foreground">
-                Attach the Patriot register to record this run.
+                Attach the payroll register to record this run.
               </p>
             )}
           </>
@@ -1018,7 +1043,7 @@ function RunForm({
     setError("");
     try {
       if (!state.providerId.trim())
-        throw new Error("Enter the Patriot payroll number or date.");
+        throw new Error("Enter the payroll number or date from your provider.");
       if (!state.employeeName.trim())
         throw new Error("Enter the employee name.");
       const gross = usdCents(state.gross, true);
@@ -1189,7 +1214,7 @@ function RunForm({
       >
         <div className="grid gap-4 sm:grid-cols-2">
           <TextInput
-            label="Patriot run"
+            label="Provider run"
             required
             disabled={!!record}
             value={state.providerId}
@@ -1218,7 +1243,7 @@ function RunForm({
         />
 
         <AccountingDocumentPicker
-          label="Patriot register"
+          label="Payroll register"
           required={false}
           value={state.document}
           onChange={(v) => set({ document: v })}
@@ -1259,7 +1284,7 @@ function RunForm({
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             {moneyField("Reimbursements paid", "reimbursement")}
-            {moneyField("Patriot service fee", "fee")}
+            {moneyField("Payroll service fee", "fee")}
           </div>
 
           <Caption>Posting accounts</Caption>
@@ -1415,9 +1440,11 @@ function VoidDialog({
       >
         {run.import_mode && (
           <p className="text-sm text-muted-foreground">
-            {run.import_mode === "linked"
-              ? "Removes the imported payroll record and keeps your existing journal unchanged."
-              : `Removes the journal created by this import as of ${dateLabel(date)}. Reports before that date keep its original effect.`}{" "}
+            {run.import_mode === "linked" && run.entry_shared
+              ? "This payroll shares one journal entry with other payrolls. Undoing it removes the imported records for every payroll on that entry, and the entry itself stays unchanged."
+              : run.import_mode === "linked"
+                ? "Removes the imported payroll record and keeps your existing journal unchanged."
+                : `Removes the journal created by this import as of ${dateLabel(date)}. Reports before that date keep its original effect.`}{" "}
             You can upload the report again afterward. The original report
             remains in history.
           </p>

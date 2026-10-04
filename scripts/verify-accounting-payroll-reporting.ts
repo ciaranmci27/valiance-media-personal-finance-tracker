@@ -7,6 +7,13 @@ import {
   type SupportReportData,
 } from "../src/lib/accounting/support-reports";
 import type { PayrollEmployee } from "../src/lib/accounting/payroll";
+import { supportStatementDocument } from "../src/lib/accounting/support-report-document";
+import {
+  payrollTies,
+  registerRuns,
+  runIndex,
+  type PayrollYearRead,
+} from "../src/lib/accounting/payroll-register";
 async function main() {
   const db = await accountingTestDb();
   let checks = 0;
@@ -220,6 +227,22 @@ async function main() {
     "0.00",
     "0.00",
     "1000.00",
+  ]);
+  // The redesigned register reads the same retained runs, and the payroll
+  // year's rows carry each run's journal entry for the ties.
+  check(supportStatementDocument(retained).rows.at(-1)?.cells.slice(3), [
+    "1000.00",
+    "0.00",
+    "0.00",
+    "1000.00",
+    "1000.00",
+  ]);
+  const live = registerRuns(await report());
+  const details = (await year()) as unknown as PayrollYearRead;
+  check(!!runIndex(details).get(run.id)?.entry_id, true);
+  check(payrollTies(live, details, null).map((x) => [x.key, x.tone]), [
+    ["math", "good"],
+    ["journal", "good"],
   ]);
   await cmd({
     type: "payroll.void",

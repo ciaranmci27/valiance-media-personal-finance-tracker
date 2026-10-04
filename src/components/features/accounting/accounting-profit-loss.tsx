@@ -5,7 +5,7 @@ import { BarChart3, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DateInput } from "@/components/ui/inputs/DateInput";
-import { MaskedValue, useMaskedHover } from "@/components/ui/masked-value";
+import { useMaskedHover } from "@/components/ui/masked-value";
 import {
   ProfitLossChart,
   type ChartMetric,
@@ -64,6 +64,7 @@ import { AccountingPageHeader } from "./accounting-page-header";
 import { AccountingReportDetail } from "./accounting-report-detail";
 import { useAccountingRead } from "./use-accounting-read";
 import { useReportExport } from "./use-report-export";
+import { useFiscalStartMonth } from "./use-fiscal-year";
 import { todayInBooks } from "./format";
 import {
   ChangesList,
@@ -71,6 +72,8 @@ import {
   DollarCard,
 } from "./profit-loss-sections";
 import {
+  CardRow,
+  CardTotal,
   CoverageDisclosure,
   ExportMenu,
   FilterChip,
@@ -80,6 +83,7 @@ import {
   ReportSkeleton,
   ScopeNotice,
   SectionCard,
+  PresetSegments,
   Segmented,
   StatementTable,
   readReportFilter,
@@ -142,13 +146,15 @@ export function AccountingProfitLoss({
 }) {
   const params = useSearchParams();
   const today = todayInBooks();
+  // The fiscal year (business settings) shapes the year presets and drills.
+  const fiscalStart = useFiscalStartMonth(demo);
   // Demo books have no workspace dates worth defaulting to: open on this year.
   const fallback = demo
     ? defaultReportFilter(`${today.slice(0, 4)}-01-01`, today)
     : defaultReportFilter(from, to);
   const filter = readReportFilter(params.get("report_filter"), fallback);
   const signature = JSON.stringify(filter);
-  const preset = presetOf(filter.from, filter.to, today);
+  const preset = presetOf(filter.from, filter.to, today, fiscalStart);
   const compareMode = compareModeOf(filter);
   const comparing = compareMode !== "none";
 
@@ -172,7 +178,7 @@ export function AccountingProfitLoss({
   // The address bar is the source of truth; the date inputs follow it.
   useEffect(() => {
     setRange({ from: filter.from, to: filter.to });
-    if (presetOf(filter.from, filter.to, today) === "custom") setCustomOpen(true);
+    if (presetOf(filter.from, filter.to, today, fiscalStart) === "custom") setCustomOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter.from, filter.to]);
 
@@ -240,7 +246,7 @@ export function AccountingProfitLoss({
     }
     setCustomOpen(false);
     setRangeError("");
-    apply(presetRange(value, today));
+    apply(presetRange(value, today, fiscalStart));
   }
   function chooseCompare(mode: CompareMode) {
     if (mode === "none")
@@ -296,39 +302,15 @@ export function AccountingProfitLoss({
   const controls = (
     <div className="space-y-2.5">
       <div className="flex flex-wrap items-center gap-2.5">
-        <div
-          role="group"
-          aria-label="Period"
-          // Each segment sizes to its own label (flex-auto, not equal thirds), so
-          // "Last year" and "Custom" never clip; below 340px the track scrolls
-          // inside itself rather than widening the page.
-          className="seg-track seg-sm w-full max-w-full overflow-x-auto [scrollbar-width:none] sm:w-auto [&::-webkit-scrollbar]:hidden"
-        >
-          {[
+        <PresetSegments
+          label="Period"
+          options={[
             ...PERIOD_PRESETS,
             { value: "custom" as const, label: "Custom", short: "Custom" },
-          ].map((p) => {
-            const active =
-              p.value === "custom" ? customOpen : !customOpen && preset === p.value;
-            return (
-              <button
-                key={p.value}
-                type="button"
-                aria-pressed={active}
-                onClick={() => choosePreset(p.value)}
-                className={cn(
-                  // .seg-item sets its padding and size outside the utility layer, so the
-                  // phone overrides need the important flag to apply at all.
-                  "seg-item shrink-0 grow max-sm:px-2! max-sm:text-[12.5px]! sm:grow-0",
-                  active && "is-active",
-                )}
-              >
-                <span className="sm:hidden">{p.short}</span>
-                <span className="hidden sm:inline">{p.label}</span>
-              </button>
-            );
-          })}
-        </div>
+          ]}
+          value={customOpen ? "custom" : preset}
+          onChoose={choosePreset}
+        />
         {customOpen && (
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
             <div className="min-w-0 flex-1 sm:w-40 sm:flex-none">
@@ -762,15 +744,11 @@ function Report({
 
       <DollarCard split={split} />
 
-      <div className="grid gap-5 lg:grid-cols-2 lg:gap-6">
+      <CardRow>
         <SectionCard
           labelledBy="pl-income"
           title="Where income came from"
-          description={
-            <>
-              <MaskedValue value={formatCents(current.income)} /> in total
-            </>
-          }
+          description={`By ${incomeBy === "clients" ? "client" : "category"}, largest first.`}
           action={
             <Segmented
               label="Group income by"
@@ -785,20 +763,18 @@ function Report({
         >
           <RankedList
             rows={incomeRows}
+            label="Where income came from"
             tone="teal"
             onDrill={onDrill}
             empty="No income in this period."
           />
           {incomeBy === "clients" && <ConcentrationNote rows={incomeRows} />}
+          <CardTotal label="Total income" amount={current.income} />
         </SectionCard>
         <SectionCard
           labelledBy="pl-expense"
           title="Where it went"
-          description={
-            <>
-              <MaskedValue value={formatCents(current.expense)} /> in total
-            </>
-          }
+          description={`By ${expenseBy === "categories" ? "category" : "vendor"}, largest first.`}
           action={
             <Segmented
               label="Group expenses by"
@@ -813,12 +789,14 @@ function Report({
         >
           <RankedList
             rows={expenseRows}
+            label="Where expenses went"
             tone="copper"
             onDrill={onDrill}
             empty="No expenses in this period."
           />
+          <CardTotal label="Total expenses" amount={current.expense} />
         </SectionCard>
-      </div>
+      </CardRow>
 
       {comparing && movers.length > 0 && (
         <SectionCard

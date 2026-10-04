@@ -1,13 +1,12 @@
 "use client";
-import { MaskedValue, useMaskedHover } from "@/components/ui/masked-value";
-import { cn } from "@/lib/utils";
+import { useMaskedHover } from "@/components/ui/masked-value";
 import { formatCents } from "@/lib/accounting/money";
 import {
   ownershipSentence,
   type BalanceTotals,
   type EquityLine,
 } from "@/lib/accounting/balance-sheet";
-import { SectionCard, type Drill } from "./report-kit";
+import { SectionCard, WaterfallList, type Drill } from "./report-kit";
 
 const ZERO = BigInt(0);
 const money = (value: bigint) => formatCents(value);
@@ -37,89 +36,6 @@ export function EquityCard({
   const hide = isHidden && !showValue;
   const { assets, liabilities } = totals;
   const owed = Math.min(100, Math.max(0, share(liabilities, assets)));
-  // The waterfall's scale covers every running total and zero.
-  let running = ZERO;
-  const steps = lines.map((l) => {
-    const start = running;
-    running += l.amount;
-    return { line: l, start, end: running };
-  });
-  const points = [ZERO, total, ...steps.flatMap((s) => [s.start, s.end])];
-  const low = points.reduce((m, v) => (v < m ? v : m), ZERO),
-    high = points.reduce((m, v) => (v > m ? v : m), ZERO);
-  const span = high - low || BigInt(1);
-  const pos = (v: bigint) => Number(((v - low) * BigInt(10000)) / span) / 100;
-  const zero = pos(ZERO);
-  const segment = (from: bigint, to: bigint) => ({
-    left: `${Math.min(pos(from), pos(to))}%`,
-    width: `${Math.max(0.6, Math.abs(pos(to) - pos(from)))}%`,
-  });
-  const row = (
-    key: string,
-    label: string,
-    amount: bigint,
-    bar: { left: string; width: string },
-    fill: string,
-    strong: boolean,
-    drill?: () => void,
-  ) => {
-    const content = (
-      <>
-        <span
-          className={cn(
-            "col-start-1 row-start-1 min-w-0 text-sm sm:truncate",
-            strong && "font-semibold",
-          )}
-        >
-          {label}
-        </span>
-        <span
-          aria-hidden="true"
-          className="relative col-span-2 col-start-1 row-start-2 h-2.5 rounded-full bg-[rgba(var(--ink),0.05)] sm:col-span-1 sm:col-start-2 sm:row-start-1"
-        >
-          <span
-            className="absolute inset-y-0 w-px bg-[rgba(var(--ink),0.25)]"
-            style={{ left: `${zero}%` }}
-          />
-          <span
-            className={cn("absolute inset-y-0 rounded-full", fill)}
-            style={bar}
-          />
-        </span>
-        <span
-          className={cn(
-            // Phones: name and amount share a line, the bar runs under them.
-            "col-start-2 row-start-1 text-right text-sm tabular-nums sm:col-start-3",
-            strong && "font-semibold",
-            !hide && amount < ZERO && "text-error",
-          )}
-        >
-          <MaskedValue value={money(amount)} inheritHover />
-        </span>
-      </>
-    );
-    const layout =
-      "grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-1.5 rounded-lg px-2.5 py-2 sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_8.5rem]";
-    return (
-      <li key={key}>
-        {drill ? (
-          <button
-            type="button"
-            onClick={drill}
-            className={cn(
-              layout,
-              "text-left transition-colors hover:bg-[rgba(var(--ink),0.05)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus-ring",
-            )}
-          >
-            {content}
-            <span className="sr-only">, show transactions</span>
-          </button>
-        ) : (
-          <div className={layout}>{content}</div>
-        )}
-      </li>
-    );
-  };
   return (
     <SectionCard
       labelledBy="bs-equity"
@@ -165,29 +81,13 @@ export function EquityCard({
             </p>
           </div>
         )}
-        <ul className="-mx-2.5 space-y-0.5">
-          {steps.map(({ line, start, end }) =>
-            row(
-              line.key,
-              line.label,
-              line.amount,
-              segment(start, end),
-              line.amount < ZERO ? "bg-copper-strong" : "bg-teal",
-              false,
-              line.filter ? () => onDrill(line.label, line.filter!) : undefined,
-            ),
-          )}
-        </ul>
-        <ul className="-mx-2.5 border-t border-border pt-1">
-          {row(
-            "total",
-            "Total equity",
-            total,
-            segment(ZERO, total),
-            total < ZERO ? "bg-error" : "bg-teal-dark",
-            true,
-          )}
-        </ul>
+        <WaterfallList
+          label="Equity, line by line"
+          lines={lines}
+          total={{ label: "Total equity", amount: total }}
+          onDrill={onDrill}
+          hide={hide}
+        />
       </div>
     </SectionCard>
   );

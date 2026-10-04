@@ -26,6 +26,7 @@ import {
   type SetupStatus,
 } from "@/lib/accounting/setup-guide";
 import type { FeedData } from "@/lib/accounting/feeds";
+import { recurringFilterSchema } from "@/lib/accounting/recurring";
 
 /**
  * Answers one read of the books (GET /api/accounting) from its query string.
@@ -361,6 +362,25 @@ export async function answerAccountingRead(
           { status: 400 },
         );
       result = await readAccounting(client, "breakdown", {
+        p_filter: parsed.data,
+      });
+    } else if (view === "recurring") {
+      let input: unknown;
+      try {
+        input = JSON.parse(params.get("filter") ?? "{}");
+      } catch {
+        return NextResponse.json(
+          { error: "Invalid recurring filters." },
+          { status: 400 },
+        );
+      }
+      const parsed = recurringFilterSchema.safeParse(input);
+      if (!parsed.success)
+        return NextResponse.json(
+          { error: "Choose a valid date for recurring charges." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "recurring", {
         p_filter: parsed.data,
       });
     } else if (view === "cash-review") {

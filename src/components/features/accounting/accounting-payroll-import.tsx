@@ -15,18 +15,74 @@ import {
   type PatriotMapping,
   type PatriotPreview,
 } from "@/lib/accounting/patriot-import";
+import {
+  gustoCreditNote,
+  gustoSkippedNote,
+  type GustoPreview,
+  type GustoSkipped,
+} from "@/lib/accounting/gusto-import";
+import {
+  correctChoice,
+  gustoDefaultChoices,
+  gustoFeeDefaults,
+  gustoFeeSummary,
+  gustoRunChoices,
+  linkChoice,
+  gustoSummary,
+  gustoUnits,
+  type GustoUnit,
+} from "@/lib/accounting/gusto-review";
+import { accountingHref } from "@/lib/accounting/views";
 import { WorkflowDialog } from "./accounting-dialog";
 import { JournalTotals } from "./accounting-journal-totals";
 import { uploadEvidence } from "./accounting-documents";
+import {
+  GustoFees,
+  GustoReview,
+  GustoSummaryTiles,
+} from "./accounting-payroll-gusto-review";
 import { dateLabel, money } from "./format";
 
+type Provider = "gusto" | "patriot";
 type Inspection = {
-  company_name: string;
-  company_id: string;
+  company_name?: string;
+  company_id?: string;
+  /** Gusto: first and last check dates in the export. */
+  from?: string;
+  to?: string;
+  /** Gusto: $0 catch-up payrolls left out of the import. */
+  skipped?: GustoSkipped[];
   employees: string[];
   payroll_count: number;
   mapping: PatriotMapping | null;
+  /** Gusto: the account whose purpose is payroll fees, if any. */
+  fee_account?: string | null;
+  /** Gusto: the years the file covers (payrolls and the file name's range). */
+  years?: number[];
+  /** Gusto: the books' first year, the earliest year the owner can pick. */
+  first_year?: number;
+  /** Gusto: no payrolls and no range in the name, so the owner picks the year. */
+  needs_year?: boolean;
 };
+type GustoDone = {
+  linked: number;
+  corrected: number;
+  posted: number;
+  fees: number;
+  years: string[];
+};
+
+/** The payroll register for one calendar year, in Reports. */
+const registerHref = (year: string) =>
+  accountingHref("reports", undefined, {
+    report: "payroll-register",
+    support_filter: JSON.stringify({
+      report_id: "payroll-register",
+      from: `${year}-01-01`,
+      to: `${year}-12-31`,
+      offset: 0,
+    }),
+  });
 const roles = [
   ["wages", "Wages expense", "expense"],
   ["employer_tax", "Employer payroll tax expense", "expense"],
@@ -55,6 +111,16 @@ export function AccountingPayrollImport({
 }) {
   const { confirm, dialog } = useConfirmationDialog();
   const [step, setStep] = useState(0);
+  const [provider, setProvider] = useState<Provider>("gusto");
+  const [gusto, setGusto] = useState<{
+    preview: GustoPreview;
+    units: GustoUnit[];
+  } | null>(null);
+  const [unitChoices, setUnitChoices] = useState<Record<string, string>>({});
+  const [gustoDone, setGustoDone] = useState<GustoDone | null>(null);
+  const [feeAccount, setFeeAccount] = useState("");
+  const [feeYear, setFeeYear] = useState("");
+  const [feeChoices, setFeeChoices] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   const [inspection, setInspection] = useState<Inspection | null>(null);
@@ -98,9 +164,11 @@ export function AccountingPayrollImport({
       setInspection(null);
       setFile(chosen);
       setPreview(null);
+      setGusto(null);
       evidence.current = null;
       const form = new FormData();
       form.set("mode", "inspect");
+      form.set("provider", provider);
       form.set("file", chosen);
       const data = (await request(form)) as Inspection;
       setInspection(data);
@@ -119,6 +187,8 @@ export function AccountingPayrollImport({
           officers: [],
         },
       );
+      if (provider === "gusto")
+        setFeeAccount(data.fee_account || guess("expense", /payroll.*fee/i));
     });
   }
   function review() {
@@ -126,8 +196,35 @@ export function AccountingPayrollImport({
     void work(async () => {
       const form = new FormData();
       form.set("mode", "preview");
+      form.set("provider", provider);
       form.set("file", file);
       form.set("mapping", JSON.stringify(mapping));
+      if (provider === "gusto") {
+        form.set("fee_account", feeAccount);
+        if (inspection?.needs_year) form.set("year", feeYear);
+        const data = (await request(form)) as GustoPreview;
+        const units = gustoUnits(data.results);
+        setGusto({ preview: data, units });
+        setFeeChoices(new Set(gustoFeeDefaults(data.fees ?? [])));
+        // A refreshed preview keeps the owner's choices that are still on offer.
+        setUnitChoices((previous) => {
+          const next = gustoDefaultChoices(units);
+          for (const unit of units) {
+            const kept = previous[unit.key];
+            if (kept === undefined) continue;
+            const offered =
+              unit.state === "new"
+                ? ["new", ""]
+                : unit.state === "date_match" || unit.state === "difference"
+                  ? [linkChoice(unit), correctChoice(unit)]
+                  : [];
+            if (offered.includes(kept)) next[unit.key] = kept;
+          }
+          return next;
+        });
+        setStep(3);
+        return;
+      }
       const data = (await request(form)) as PatriotPreview;
       setPreview(data);
       setPage(0);
@@ -145,7 +242,96 @@ export function AccountingPayrollImport({
       setStep(3);
     });
   }
+  function commitGusto() {
+    if (!file || !gusto) return;
+    void work(async () => {
+      const corrections = gusto.units.filter((u) =>
+        unitChoices[u.key]?.startsWith("correct:"),
+      );
+      const feeMoves = (gusto.preview.fees ?? []).filter((r) =>
+        feeChoices.has(r.id),
+      );
+      const changed = corrections.length + feeMoves.length;
+      if (
+        changed &&
+        !(await confirm({
+          title:
+            changed === 1
+              ? `Change 1 entry${gustoCount ? " and import" : ""}?`
+              : `Change ${changed} entries${gustoCount ? " and import" : ""}?`,
+          confirmLabel: gustoCount ? "Change and import" : "Change entries",
+          variant: "warning",
+          description: (
+            <span className="block space-y-3">
+              {corrections.map((unit) => {
+                const entry = unit.runs[0].entry;
+                return (
+                  <span className="block" key={unit.key}>
+                    {entry?.memo || "Payroll entry"}:{" "}
+                    {unit.state === "date_match"
+                      ? `moves from ${dateLabel(entry?.entry_date)} to ${dateLabel(unit.runs[0].pay_date)} with the same amounts.`
+                      : `takes Gusto's amounts and keeps ${dateLabel(entry?.entry_date)}.`}
+                  </span>
+                );
+              })}
+              {feeMoves.length > 0 && (
+                <span className="block">
+                  {gustoFeeSummary(
+                    gusto.preview.fees ?? [],
+                    feeChoices,
+                    accountName,
+                    money,
+                  )}
+                </span>
+              )}
+              <span className="block">
+                Each original entry and its reversal stay in history.
+                {gustoCount
+                  ? " The other selected payrolls are imported too."
+                  : ""}
+              </span>
+            </span>
+          ),
+        }))
+      )
+        return;
+      const runChoices = gustoRunChoices(gusto.units, unitChoices);
+      if (evidence.current?.file !== file)
+        evidence.current = { file, id: crypto.randomUUID() };
+      const doc = await uploadEvidence(file, evidence.current.id);
+      const form = new FormData();
+      form.set("mode", "commit");
+      form.set("provider", "gusto");
+      form.set("document_id", doc.id);
+      form.set("mapping", JSON.stringify(mapping));
+      form.set("choices", JSON.stringify(runChoices));
+      form.set("fee_account", feeAccount);
+      if (inspection?.needs_year) form.set("year", feeYear);
+      form.set(
+        "fees",
+        JSON.stringify(feeMoves.map((r) => ({ id: r.id, version: r.version }))),
+      );
+      const result = (await request(form)) as GustoPreview;
+      const saved = result.results.filter((r) => runChoices[r.key] && r.run_id);
+      const by = (prefix: string) =>
+        saved.filter((r) => runChoices[r.key].startsWith(prefix)).length;
+      setGustoDone({
+        linked: by("link:"),
+        corrected: by("correct:"),
+        posted: by("new"),
+        fees: feeMoves.length,
+        years: [...new Set(saved.map((r) => r.pay_date.slice(0, 4)))].sort(),
+      });
+      setStep(4);
+      try {
+        await onSaved();
+      } catch {
+        setRefreshFailed(true);
+      }
+    });
+  }
   function commit() {
+    if (provider === "gusto") return commitGusto();
     if (!file || !preview || !Object.keys(choices).length) return;
     void work(async () => {
       const corrections = preview.results.filter((r) =>
@@ -186,6 +372,7 @@ export function AccountingPayrollImport({
       const doc = await uploadEvidence(file, evidence.current.id);
       const form = new FormData();
       form.set("mode", "commit");
+      form.set("provider", "patriot");
       form.set("document_id", doc.id);
       form.set("mapping", JSON.stringify(mapping));
       form.set("choices", JSON.stringify(choices));
@@ -227,9 +414,55 @@ export function AccountingPayrollImport({
     .filter(Boolean)
     .join(" and ");
   const validMapping = patriotMappingSchema.safeParse(mapping).success;
+  const gustoTotals = gusto ? gustoSummary(gusto.units, unitChoices) : null;
+  const gustoAllImported =
+    !!gusto && gusto.units.every((u) => u.state === "duplicate");
+  const gustoCount = gustoTotals ? gustoTotals.link + gustoTotals.posted : 0;
+  const feeCount = (gusto?.preview.fees ?? []).filter((r) =>
+    feeChoices.has(r.id),
+  ).length;
+  const accountName = (id: string) =>
+    accounts.find((a) => a.id === id)?.name ?? "Account";
+  const gustoNothingToDo = gustoAllImported && feeCount === 0;
+  /** A Gusto file with no payrolls: only fees and refunds can move. */
+  const gustoFeesOnly = !!gusto && gusto.units.length === 0;
+  const yearsLabel = (years: number[] | undefined) =>
+    !years?.length
+      ? ""
+      : years.length > 2 && years.every((y, i) => !i || y === years[i - 1] + 1)
+        ? `${years[0]} to ${years.at(-1)}`
+        : years.join(" and ");
+  const thisYear = new Date().getFullYear();
+  const pickableYears = Array.from(
+    {
+      length: Math.max(1, thisYear - (inspection?.first_year ?? thisYear) + 1),
+    },
+    (_, i) => String(thisYear - i),
+  );
+  const isGusto = provider === "gusto";
+  function chooseProvider(next: Provider) {
+    if (next !== provider) {
+      setFile(null);
+      setInspection(null);
+      setPreview(null);
+      setGusto(null);
+      setChoices({});
+      setUnitChoices({});
+      evidence.current = null;
+    }
+    setProvider(next);
+    setStep(1);
+  }
   return (
     <WorkflowDialog
-      title={step === 4 ? "Payroll imported" : "Import payroll"}
+      title={
+        step !== 4
+          ? "Import payroll"
+          : gustoDone &&
+              !(gustoDone.linked + gustoDone.corrected + gustoDone.posted)
+            ? "Import finished"
+            : "Payroll imported"
+      }
       onClose={onClose}
       busy={busy}
       size="md"
@@ -276,39 +509,135 @@ export function AccountingPayrollImport({
                 Bring in the report. We’ll handle the accounting entry.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setStep(1)}
-              className="flex w-full items-center gap-3 rounded-xl border border-border bg-secondary/20 p-3 text-left transition-colors hover:bg-secondary/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:gap-4"
-            >
-              <span className="flex h-18 w-18 shrink-0 items-center justify-center rounded-lg border border-[#e4e4e7] bg-[#ffffff] p-1.5">
-                <Image
-                  src="/logos/providers/patriot.png"
-                  alt=""
-                  width={1746}
-                  height={755}
-                  sizes="58px"
-                  className="h-full w-full object-contain"
-                />
-              </span>
-              <span
-                className="w-px self-stretch bg-border"
-                aria-hidden="true"
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block font-semibold">Patriot</span>
-                <span className="mt-1 block text-sm text-muted-foreground">
-                  Payroll Details CSV
+            {(
+              [
+                {
+                  id: "gusto",
+                  name: "Gusto",
+                  report: "Payroll data export (Excel)",
+                  logo: "/logos/providers/gusto.svg",
+                  width: 147,
+                  height: 56,
+                },
+                {
+                  id: "patriot",
+                  name: "Patriot",
+                  report: "Payroll Details CSV",
+                  logo: "/logos/providers/patriot.png",
+                  width: 1746,
+                  height: 755,
+                },
+              ] as const
+            ).map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => chooseProvider(option.id)}
+                className="flex w-full items-center gap-3 rounded-xl border border-border bg-secondary/20 p-3 text-left transition-colors hover:bg-secondary/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring sm:gap-4"
+              >
+                <span className="flex h-18 w-18 shrink-0 items-center justify-center rounded-lg border border-[#e4e4e7] bg-[#ffffff] p-1.5">
+                  <Image
+                    src={option.logo}
+                    alt=""
+                    width={option.width}
+                    height={option.height}
+                    sizes="58px"
+                    unoptimized={option.logo.endsWith(".svg")}
+                    className="h-full w-full object-contain"
+                  />
                 </span>
-              </span>
-              <ArrowRight size={18} className="shrink-0" aria-hidden="true" />
-            </button>
-            <p className="text-xs text-muted-foreground">
-              Patriot is currently supported.
+                <span
+                  className="w-px self-stretch bg-border"
+                  aria-hidden="true"
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block font-semibold">{option.name}</span>
+                  <span className="mt-1 block text-sm text-muted-foreground">
+                    {option.report}
+                  </span>
+                </span>
+                <ArrowRight size={18} className="shrink-0" aria-hidden="true" />
+              </button>
+            ))}
+          </div>
+        )}
+        {step === 1 && isGusto && (
+          <div className="space-y-5">
+            <div>
+              <h3 className="text-lg font-semibold">Get your Gusto export</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Download one Excel file from Gusto, then upload it in the next
+                step.
+              </p>
+            </div>
+            <ol className="space-y-4">
+              {[
+                [
+                  "Open Payroll data export",
+                  <>
+                    In Gusto, open{" "}
+                    <strong className="font-medium text-foreground">
+                      Reports
+                    </strong>
+                    , then{" "}
+                    <strong className="font-medium text-foreground">
+                      Payroll data export
+                    </strong>
+                    .
+                  </>,
+                ],
+                [
+                  "Choose the dates",
+                  <>
+                    Choose{" "}
+                    <strong className="font-medium text-foreground">
+                      Annually
+                    </strong>{" "}
+                    and a year, or a custom date range covering the payrolls you
+                    want. One file can cover several years.
+                  </>,
+                ],
+                [
+                  "Generate the report",
+                  <>
+                    Click{" "}
+                    <strong className="font-medium text-foreground">
+                      Generate report
+                    </strong>{" "}
+                    and download the Excel file. Keep it unchanged.
+                  </>,
+                ],
+                [
+                  "Upload the Excel file here",
+                  <>
+                    The next step reads the file and shows how each payroll
+                    lines up with your books before anything is saved.
+                  </>,
+                ],
+              ].map(([title, description], i) => (
+                <li key={i} className="flex gap-3">
+                  <span
+                    aria-hidden="true"
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary"
+                  >
+                    {i + 1}
+                  </span>
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-semibold">{title}</h4>
+                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
+                      {description}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+            <p className="rounded-xl bg-secondary/40 px-4 py-3 text-xs leading-relaxed text-muted-foreground">
+              Payrolls already in your books are linked, not added again.
+              Payments to Gusto from your bank are left as they are.
             </p>
           </div>
         )}
-        {step === 1 && (
+        {step === 1 && !isGusto && (
           <div className="space-y-5">
             <div>
               <h3 className="text-lg font-semibold">Get your Patriot report</h3>
@@ -407,18 +736,29 @@ export function AccountingPayrollImport({
           <div className="space-y-5">
             <div>
               <h3 className="text-lg font-semibold">
-                Upload your Patriot report
+                {isGusto
+                  ? "Upload your Gusto export"
+                  : "Upload your Patriot report"}
               </h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                One payday or a full year. Each payroll keeps its original pay
-                date.
+                {isGusto
+                  ? "One year or several. Each payroll keeps its own pay date."
+                  : "One payday or a full year. Each payroll keeps its original pay date."}
               </p>
             </div>
             <FileInput
               ref={fileInput}
-              accept=".csv,text/csv"
+              accept={
+                isGusto
+                  ? ".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  : ".csv,text/csv"
+              }
               className="sr-only"
-              aria-label="Patriot Payroll Details CSV"
+              aria-label={
+                isGusto
+                  ? "Gusto payroll data export (.xlsx)"
+                  : "Patriot Payroll Details CSV"
+              }
               disabled={busy}
               onChange={(e) => {
                 const chosen = e.target.files?.[0];
@@ -446,24 +786,53 @@ export function AccountingPayrollImport({
               <span className="max-w-full break-all font-medium">
                 {busy
                   ? "Reading report..."
-                  : (file?.name ?? "Choose a CSV or drop it here")}
+                  : (file?.name ??
+                    (isGusto
+                      ? "Choose the Excel file or drop it here"
+                      : "Choose a CSV or drop it here"))}
               </span>
               <span className="text-xs text-muted-foreground">
-                Payroll Details · Group By: Check · Up to 2 MB
+                {isGusto
+                  ? "Payroll data export · .xlsx · Up to 2 MB"
+                  : "Payroll Details · Group By: Check · Up to 2 MB"}
               </span>
             </button>
             {inspection && (
               <>
                 <div className="rounded-xl bg-primary/5 px-4 py-3">
-                  <p className="font-medium">{inspection.company_name}</p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {inspection.company_id} · {inspection.payroll_count}{" "}
-                    {inspection.payroll_count === 1 ? "payroll" : "payrolls"} ·{" "}
-                    {inspection.employees.length}{" "}
-                    {inspection.employees.length === 1
-                      ? "employee"
-                      : "employees"}
+                  <p className="font-medium">
+                    {!isGusto
+                      ? inspection.company_name
+                      : inspection.payroll_count
+                        ? `Gusto payrolls ${dateLabel(inspection.from)} to ${dateLabel(inspection.to)}`
+                        : `No Gusto payrolls in this file${inspection.years?.length ? ` (${yearsLabel(inspection.years)})` : ""}`}
                   </p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {isGusto && !inspection.payroll_count
+                      ? "Only Gusto fees and refunds in your books can be moved with it."
+                      : `${isGusto ? "" : `${inspection.company_id} · `}${inspection.payroll_count} ${inspection.payroll_count === 1 ? "payroll" : "payrolls"} · ${inspection.employees.length} ${inspection.employees.length === 1 ? "employee" : "employees"}`}
+                  </p>
+                  {isGusto && inspection.needs_year && (
+                    <Select
+                      className="mt-3"
+                      label="Year this file covers"
+                      visibleLabel="Year this file covers"
+                      helperText="The file name has no date range, so choose the year you exported."
+                      value={feeYear}
+                      options={pickableYears.map((y) => ({
+                        value: y,
+                        label: y,
+                      }))}
+                      onChange={(value) => setFeeYear(value)}
+                      disabled={busy}
+                    />
+                  )}
+                  {isGusto && !!inspection.skipped?.length && (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      {gustoSkippedNote(inspection.skipped, dateLabel)}{" "}
+                      {gustoCreditNote(inspection.skipped, dateLabel)}
+                    </p>
+                  )}
                 </div>
                 <details
                   open={!inspection.mapping || !validMapping}
@@ -494,6 +863,20 @@ export function AccountingPayrollImport({
                         disabled={busy}
                       />
                     ))}
+                    {isGusto && (
+                      <Select
+                        label="Payroll fees"
+                        visibleLabel="Payroll fees"
+                        helperText="Gusto's monthly fees and fee refunds move here in the review. Any expense account works."
+                        value={feeAccount}
+                        searchable
+                        options={usable
+                          .filter((a) => a.account_type === "expense")
+                          .map((a) => ({ value: a.id, label: a.name }))}
+                        onChange={(value) => setFeeAccount(value)}
+                        disabled={busy}
+                      />
+                    )}
                     <fieldset className="space-y-2 border-t border-border pt-3">
                       <legend className="text-sm font-medium">
                         Company officers
@@ -523,6 +906,97 @@ export function AccountingPayrollImport({
                 </details>
               </>
             )}
+          </div>
+        )}
+        {step === 3 && isGusto && gusto && gustoTotals && (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-lg font-semibold">Review your payrolls</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {gustoFeesOnly
+                  ? `Gusto · ${yearsLabel(gusto.preview.years)}. Nothing is saved until you import.`
+                  : `Gusto · ${dateLabel(gusto.preview.from)} to ${dateLabel(gusto.preview.to)}. Nothing is saved until you import.`}
+              </p>
+            </div>
+            {gustoFeesOnly && (
+              <p className="rounded-xl bg-secondary/40 px-4 py-3 text-sm text-muted-foreground">
+                {gusto.preview.fees?.length
+                  ? `No Gusto payrolls in this file (${yearsLabel(gusto.preview.years)}). Only Gusto fees and refunds are listed.`
+                  : `Nothing to import for ${yearsLabel(gusto.preview.years)}.`}
+              </p>
+            )}
+            {!!gusto.preview.skipped?.length && (
+              <p className="rounded-xl bg-secondary/40 px-4 py-3 text-sm text-muted-foreground">
+                {gustoSkippedNote(gusto.preview.skipped, dateLabel)}{" "}
+                {gustoCreditNote(gusto.preview.skipped, dateLabel)}
+              </p>
+            )}
+            {!gustoFeesOnly && <GustoSummaryTiles summary={gustoTotals} />}
+            <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+              <span
+                className={
+                  gustoTotals.needChoice
+                    ? "text-warning"
+                    : "text-muted-foreground"
+                }
+              >
+                {gustoFeesOnly
+                  ? ""
+                  : gustoTotals.needChoice
+                    ? `Choose what happens to ${gustoTotals.needChoice} ${gustoTotals.needChoice === 1 ? "payroll" : "payrolls"} marked below.`
+                    : gustoAllImported
+                      ? "Every payroll in this file is already imported."
+                      : "Every payroll has what it needs."}
+              </span>
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={busy}
+                onClick={review}
+              >
+                Refresh preview
+              </Button>
+            </div>
+            <GustoReview
+              units={gusto.units}
+              choices={unitChoices}
+              accounts={accounts}
+              busy={busy}
+              onChoose={(key, value) =>
+                setUnitChoices((current) => ({
+                  ...current,
+                  [key]: value ?? "",
+                }))
+              }
+            />
+            {!gustoFeesOnly && (
+              <p className="text-xs text-muted-foreground">
+                Linked payrolls attach to the entries already in your books.
+                Corrections reverse the old entry and keep it in history. The
+                Excel file stays attached to every imported payroll.
+              </p>
+            )}
+            <GustoFees
+              rows={gusto.preview.fees ?? []}
+              selected={feeChoices}
+              accountName={accountName}
+              busy={busy}
+              onToggle={(id, checked) =>
+                setFeeChoices((current) => {
+                  const next = new Set(current);
+                  if (checked) next.add(id);
+                  else next.delete(id);
+                  return next;
+                })
+              }
+              onAll={(checked) =>
+                setFeeChoices(
+                  new Set(
+                    checked ? gustoFeeDefaults(gusto.preview.fees ?? []) : [],
+                  ),
+                )
+              }
+            />
           </div>
         )}
         {step === 3 && preview && (
@@ -935,7 +1409,64 @@ export function AccountingPayrollImport({
             </p>
           </div>
         )}
-        {step === 4 && (
+        {step === 4 && isGusto && gustoDone && (
+          <div className="space-y-4 py-5 text-center">
+            <CheckCircle2 size={42} className="mx-auto text-primary" />
+            <h3 className="text-xl font-semibold">
+              {gustoDone.linked + gustoDone.corrected + gustoDone.posted > 0
+                ? `${gustoDone.linked + gustoDone.corrected + gustoDone.posted} ${gustoDone.linked + gustoDone.corrected + gustoDone.posted === 1 ? "payroll" : "payrolls"} imported from Gusto`
+                : "Gusto fees updated"}
+            </h3>
+            <ul className="mx-auto max-w-sm space-y-1 text-sm text-muted-foreground">
+              {(
+                [
+                  [gustoDone.linked, "linked to entries already in your books"],
+                  [
+                    gustoDone.corrected,
+                    "linked after correcting their entries",
+                  ],
+                  [
+                    gustoDone.posted,
+                    gustoDone.posted === 1
+                      ? "posted as a new payroll entry"
+                      : "posted as new payroll entries",
+                  ],
+                  [
+                    gustoDone.fees,
+                    gustoDone.fees === 1
+                      ? "Gusto fee or refund moved to its payroll account"
+                      : "Gusto fees and refunds moved to their payroll accounts",
+                  ],
+                ] as const
+              )
+                .filter(([n]) => n > 0)
+                .map(([n, text]) => (
+                  <li key={text}>
+                    <span className="font-medium text-foreground">{n}</span>{" "}
+                    {text}
+                  </li>
+                ))}
+            </ul>
+            <div className="flex flex-wrap justify-center gap-x-4 gap-y-2">
+              {gustoDone.years.map((year) => (
+                <Link
+                  key={year}
+                  href={registerHref(year)}
+                  onClick={onClose}
+                  className="text-sm font-medium text-primary underline underline-offset-4"
+                >
+                  Open the {year} payroll register
+                </Link>
+              ))}
+            </div>
+            {refreshFailed && (
+              <p role="alert" className="text-sm text-warning">
+                Saved successfully. Refresh the page to reload the books.
+              </p>
+            )}
+          </div>
+        )}
+        {step === 4 && !isGusto && (
           <div className="space-y-4 py-5 text-center">
             <CheckCircle2 size={42} className="mx-auto text-primary" />
             <h3 className="text-xl font-semibold">
@@ -990,14 +1521,50 @@ export function AccountingPayrollImport({
           {step === 2 && (
             <Button
               type="button"
-              disabled={busy || !inspection || !validMapping}
+              disabled={
+                busy ||
+                !inspection ||
+                !validMapping ||
+                (isGusto && !!inspection.needs_year && !feeYear)
+              }
               onClick={review}
             >
               {busy ? "Reading..." : "Review payrolls"}
               <ArrowRight size={15} />
             </Button>
           )}
-          {step === 3 && (
+          {step === 3 && isGusto && gustoTotals && (
+            <Button
+              type="button"
+              disabled={
+                busy ||
+                (gustoFeesOnly && feeCount === 0) ||
+                (!gustoNothingToDo &&
+                  (gustoTotals.needChoice > 0 || gustoCount + feeCount === 0))
+              }
+              onClick={gustoNothingToDo ? onClose : commit}
+            >
+              {busy
+                ? "Importing..."
+                : gustoFeesOnly && feeCount === 0
+                  ? "Nothing to import"
+                  : gustoNothingToDo
+                    ? "Done"
+                    : gustoTotals.needChoice > 0
+                      ? `Choose for ${gustoTotals.needChoice} more`
+                      : [
+                          gustoCount
+                            ? `Import ${gustoCount} ${gustoCount === 1 ? "payroll" : "payrolls"}`
+                            : "",
+                          feeCount
+                            ? `${gustoCount ? "move" : "Move"} ${feeCount} ${feeCount === 1 ? "fee entry" : "fee entries"}`
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" and ")}
+            </Button>
+          )}
+          {step === 3 && !isGusto && (
             <div className="flex gap-2">
               <Button
                 type="button"

@@ -209,6 +209,13 @@ async function main() {
     const filter = { from: "2026-01-01", to: "2026-06-30", mode: "posted" };
     for (const view of ["report", "ledger-report", "report-detail"])
       await read(view, { p_filter: filter });
+    // Recurring charges, read the way the expenses report asks for them.
+    const recurring = await read("recurring", {
+      p_filter: { as_of: "2026-06-30", mode: "posted", status: "all", limit: 100 },
+    });
+    check(recurring.as_of, "2026-06-30");
+    check(Array.isArray(recurring.series), true);
+    check(typeof recurring.totals.active_monthly_cents, "string");
     // The profit and loss chart's months, with the comparison shifted onto them.
     const months = await read("breakdown", {
       p_filter: {

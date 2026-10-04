@@ -7,7 +7,8 @@ import {
   fixtureAccountId as account,
 } from "../src/lib/accounting/fixtures";
 import { booksPackageDocuments } from "../src/lib/accounting/books-package-document";
-import { booksPackageZip } from "../src/lib/accounting/server/books-package-zip";
+import { booksPackageFiles, booksPackageZip } from "../src/lib/accounting/server/books-package-zip";
+import { PACKAGE_CONTENTS } from "../src/lib/accounting/year-end-package";
 import {
   booksPackageCommandSchema,
   type BooksPackageSnapshot,
@@ -291,6 +292,18 @@ async function main() {
         .includes("not a completed tax return"),
       true,
     );
+    // The branded package reads the same retained data: a cover, then every
+    // report in the cover's order, a CSV for each.
+    const branded = booksPackageDocuments(saved, 2);
+    equal(
+      branded.map((d) => d.id),
+      ["cover", ...PACKAGE_CONTENTS.map((c) => c.id)],
+    );
+    equal(branded[0].document.title, "Year-end package");
+    const brandedNames: string[] = [];
+    for await (const f of booksPackageFiles(saved, false, 2))
+      brandedNames.push(f.name);
+    equal(brandedNames.filter((n) => n.startsWith("csv/")).length, 16);
     const broken = structuredClone(saved);
     broken.payload.support[0].revision = "0";
     assert.throws(() => booksPackageDocuments(broken), /inconsistent/);

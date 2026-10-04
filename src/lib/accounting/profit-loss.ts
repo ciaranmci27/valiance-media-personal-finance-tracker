@@ -1,4 +1,5 @@
 import { isCostOfSales, type ReportModel, type ReportRow } from "./report-model";
+import { fiscalPriorEnd, fiscalYearStart } from "./fiscal-year";
 import type {
   BreakdownData,
   ReportAccount,
@@ -58,10 +59,14 @@ export const PERIOD_PRESETS: {
   { value: "last-year", label: "Last year", short: "Last year" },
 ];
 
-/** The dates a preset covers on `today` (the books' date). */
+/**
+ * The dates a preset covers on `today` (the books' date). "Year to date" and
+ * "Last year" follow the fiscal year (the business settings' start month).
+ */
 export function presetRange(
   preset: PeriodPreset,
   today: string,
+  fiscalMonth = 1,
 ): { from: string; to: string } {
   const d = utc(today),
     y = d.getUTCFullYear(),
@@ -75,9 +80,11 @@ export function presetRange(
         to: today,
       };
     case "year":
-      return { from: `${y}-01-01`, to: today };
-    case "last-year":
-      return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31` };
+      return { from: fiscalYearStart(today, fiscalMonth), to: today };
+    case "last-year": {
+      const end = fiscalPriorEnd(today, fiscalMonth);
+      return { from: fiscalYearStart(end, fiscalMonth), to: end };
+    }
   }
 }
 
@@ -86,10 +93,11 @@ export function presetOf(
   from: string,
   to: string,
   today: string,
+  fiscalMonth = 1,
 ): PeriodPreset | "custom" {
   return (
     PERIOD_PRESETS.find((p) => {
-      const r = presetRange(p.value, today);
+      const r = presetRange(p.value, today, fiscalMonth);
       return r.from === from && r.to === to;
     })?.value ?? "custom"
   );
@@ -695,8 +703,11 @@ export function topMovers(data: ReportData, limit = 8): Mover[] {
 export interface StatementRow extends ReportRow {
   /** Section the row belongs to, for the CSV and for change coloring. */
   section: string;
-  /** Income rows rise well; expense rows rise badly; results follow income. */
-  side: "income" | "expense" | "result";
+  /**
+   * Income rows rise well; expense rows rise badly; results follow income.
+   * Neutral rows (money between the owner and the business) are not colored.
+   */
+  side: "income" | "expense" | "result" | "neutral";
 }
 
 const COST_OF_SALES = new Set([

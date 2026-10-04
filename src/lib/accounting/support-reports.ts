@@ -2,48 +2,41 @@ import { z } from "zod";
 import { dateSchema } from "./contracts";
 import { centsToDecimal } from "./money";
 import type { ReportDocument } from "./report-document";
-import { treatmentLabel } from "./tax-workpapers";
+import { treatmentLabel, type TaxSource } from "./tax-workpapers";
 export const supportReportCatalog = [
   {
     id: "tax-workpapers",
     title: "Tax workpapers",
     description:
-      "Reviewed account treatment, book-to-tax adjustments and supported shareholder basis.",
+      "What to hand your tax preparer for the year, and what is not ready yet.",
     group: "Payroll & year end",
   },
   {
     id: "contractor-worksheet",
     title: "Contractor worksheet",
     description:
-      "Payments, refunds, exclusions and unresolved reporting decisions by contact.",
+      "Who needs a 1099 for the year, and what is missing before you can file.",
     group: "Payroll & year end",
   },
   {
     id: "asset-register",
     title: "Fixed assets",
     description:
-      "Cost, book depreciation and carrying value, with source schedules and account controls.",
+      "What the business owns, what it is worth on the books, and whether the register agrees.",
     group: "Payroll & year end",
   },
   {
     id: "loan-register",
     title: "Loan balances",
     description:
-      "Documented principal, repayments and agreement with each loan account.",
+      "What you owe on each loan, what you have paid down, and whether the register agrees.",
     group: "Payroll & year end",
   },
   {
     id: "payroll-register",
     title: "Payroll register",
     description:
-      "Cash wages, deductions, employer costs and net pay, with each approved run and journal.",
-    group: "Payroll & year end",
-  },
-  {
-    id: "payroll-liabilities",
-    title: "Payroll amounts payable",
-    description:
-      "Open payroll obligations, expected dates and exact bank-payment settlements.",
+      "What payroll cost for the year, what was taken home, and whether every run ties to the books.",
     group: "Payroll & year end",
   },
 ] as const;
@@ -52,7 +45,6 @@ export const supportReportFilterSchema = z
   .object({
     report_id: z.enum([
       "payroll-register",
-      "payroll-liabilities",
       "contractor-worksheet",
       "asset-register",
       "loan-register",
@@ -104,6 +96,8 @@ export interface SupportReportData {
   total_cells: string[];
   count: number;
   notes: string[];
+  /** Tax workpapers: the tax source the rows come from (accounting.tax_source). */
+  tax_workpaper?: TaxSource;
 }
 export interface SupportReportSnapshot {
   id: string;

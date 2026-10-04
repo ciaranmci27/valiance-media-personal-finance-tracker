@@ -1,4 +1,5 @@
 import type { ReportModel } from "./report-model";
+import { fiscalPriorEnd } from "./fiscal-year";
 import type {
   BreakdownData,
   BreakdownFilter,
@@ -56,7 +57,8 @@ function endOfPreviousMonth(date: string) {
   return iso(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 0)));
 }
 
-export function asOfDate(preset: AsOfPreset, today: string): string {
+/** "End of last year" is the end of the last fiscal year (business settings). */
+export function asOfDate(preset: AsOfPreset, today: string, fiscalMonth = 1): string {
   const d = utc(today),
     y = d.getUTCFullYear(),
     m = d.getUTCMonth();
@@ -68,13 +70,17 @@ export function asOfDate(preset: AsOfPreset, today: string): string {
     case "quarter":
       return iso(new Date(Date.UTC(y, Math.floor(m / 3) * 3, 0)));
     case "year":
-      return `${y - 1}-12-31`;
+      return fiscalPriorEnd(today, fiscalMonth);
   }
 }
 
-export function asOfPresetOf(asOf: string, today: string): AsOfPreset | "custom" {
+export function asOfPresetOf(
+  asOf: string,
+  today: string,
+  fiscalMonth = 1,
+): AsOfPreset | "custom" {
   return (
-    AS_OF_PRESETS.find((p) => asOfDate(p.value, today) === asOf)?.value ??
+    AS_OF_PRESETS.find((p) => asOfDate(p.value, today, fiscalMonth) === asOf)?.value ??
     "custom"
   );
 }
@@ -101,9 +107,10 @@ function yearBefore(date: string) {
 export function compareDate(
   mode: Exclude<BalanceCompare, "none" | "custom">,
   asOf: string,
+  fiscalMonth = 1,
 ): string {
   if (mode === "month") return endOfPreviousMonth(asOf);
-  if (mode === "year-end") return `${Number(asOf.slice(0, 4)) - 1}-12-31`;
+  if (mode === "year-end") return fiscalPriorEnd(asOf, fiscalMonth);
   return yearBefore(asOf);
 }
 
@@ -132,31 +139,39 @@ export function balanceFilter(
   };
 }
 
-export function balanceCompareOf(filter: {
-  to: string;
-  compare_to?: string;
-}): BalanceCompare {
+export function balanceCompareOf(
+  filter: {
+    to: string;
+    compare_to?: string;
+  },
+  fiscalMonth = 1,
+): BalanceCompare {
   if (!filter.compare_to) return "none";
   return (
     (["month", "year-end", "year"] as const).find(
-      (m) => compareDate(m, filter.to) === filter.compare_to,
+      (m) => compareDate(m, filter.to, fiscalMonth) === filter.compare_to,
     ) ?? "custom"
   );
 }
 
 /** "Sep 30, 2026": what the comparison is, for column heads and tiles. */
-export function balanceCompareLabel(filter: {
-  to: string;
-  compare_to?: string;
-}): { short: string; long: string } | null {
-  const mode = balanceCompareOf(filter);
+export function balanceCompareLabel(
+  filter: {
+    to: string;
+    compare_to?: string;
+  },
+  fiscalMonth = 1,
+): { short: string; long: string } | null {
+  const mode = balanceCompareOf(filter, fiscalMonth);
   if (mode === "none") return null;
   const date = dateText(filter.compare_to!);
   const what =
     mode === "month"
       ? "end of the previous month"
       : mode === "year-end"
-        ? "end of the previous year"
+        ? fiscalMonth === 1
+          ? "end of the previous year"
+          : "end of the previous fiscal year"
         : mode === "year"
           ? "same date last year"
           : "comparison date";
@@ -309,6 +324,25 @@ function ranked(
   });
 }
 
+/**
+ * What a contra account is, in words that do not lean on its own name: the
+ * balance that reduces another one, and which way.
+ */
+function contraHint(
+  a: Pick<ReportAccount, "purpose" | "subtype" | "name">,
+  side: "asset" | "liability",
+): string {
+  const kind = `${a.purpose ?? ""} ${a.subtype ?? ""} ${a.name}`.toLowerCase();
+  if (side === "liability") return "Lowers what you owe, for example a loan fee paid up front";
+  if (kind.includes("depreciation"))
+    return "Equipment wear to date, subtracted from what you own";
+  if (kind.includes("amortization"))
+    return "Wear on software, licenses and similar to date, subtracted from what you own";
+  if (kind.includes("doubtful") || kind.includes("allowance") || kind.includes("bad debt"))
+    return "Customer balances you may not collect, subtracted from what you own";
+  return "Subtracted from another asset's value";
+}
+
 /** Asset accounts by balance; a contra or overdrawn account stays, with a hint. */
 export function whatYouOwn(data: ReportData): BalanceRow[] {
   return ranked(
@@ -320,7 +354,7 @@ export function whatYouOwn(data: ReportData): BalanceRow[] {
       value >= ZERO
         ? undefined
         : a.normal_side === "credit"
-          ? "Reduces assets (for example, depreciation)"
+          ? contraHint(a, "asset")
           : isCash(a)
             ? "Overdrawn: more went out than was in the account"
             : "Below zero: more was recorded out than in",
@@ -337,9 +371,11 @@ export function whatYouOwe(data: ReportData): BalanceRow[] {
     (a, value) =>
       value >= ZERO
         ? undefined
-        : a.cash_kind === "card"
-          ? "Overpaid: the card owes the business a credit"
-          : "Paid more than was owed: the business is owed this back",
+        : a.normal_side === "debit"
+          ? contraHint(a, "liability")
+          : a.cash_kind === "card"
+            ? "Overpaid: the card owes the business a credit"
+            : "Paid more than was owed: the business is owed this back",
   );
 }
 
@@ -537,17 +573,28 @@ export function seriesStart(asOf: string): string {
   return iso(new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - 11, 1)));
 }
 
+export type BalanceSeries =
+  | "assets"
+  | "contraAssets"
+  | "liabilities"
+  | "contraLiabilities"
+  | "cash"
+  | "cards";
+
 /**
- * The four month-end series the chart and sparklines need, as breakdown
- * reads: assets, liabilities, bank and cash (the books' default for a
- * balance), and the card accounts (owed, positive). Cash position is bank
- * and cash less cards owed.
+ * The month-end series the chart and sparklines need, as breakdown reads.
+ * The books sign each account on its own normal side, so a contra account
+ * (accumulated depreciation) would add to a type total instead of reducing
+ * it; assets and liabilities are therefore read as their ordinary accounts
+ * and their contra accounts apart, and the contra series is subtracted.
+ * Bank and cash is the books' default for a balance; cards are owed,
+ * positive. Cash position is bank and cash less cards owed.
  */
 export function balanceSeriesFilters(
   asOf: string,
   mode: ReportFilter["mode"],
-  cardIds: string[],
-): Record<"assets" | "liabilities" | "cash" | "cards", BreakdownFilter | null> {
+  accounts: Pick<ReportAccount, "id" | "account_type" | "normal_side" | "cash_kind">[],
+): Record<BalanceSeries, BreakdownFilter | null> {
   const base = {
     from: seriesStart(asOf),
     to: asOf,
@@ -555,24 +602,41 @@ export function balanceSeriesFilters(
     group_by: "month" as const,
     measure: "balance" as const,
   };
+  const ids = (match: (a: (typeof accounts)[number]) => boolean) => {
+    const list = accounts.filter(match).map((a) => a.id);
+    return list.length ? { ...base, account_ids: list.slice(0, 500) } : null;
+  };
   return {
-    assets: { ...base, account_types: ["asset"] },
-    liabilities: { ...base, account_types: ["liability"] },
+    assets: ids((a) => a.account_type === "asset" && a.normal_side === "debit"),
+    contraAssets: ids((a) => a.account_type === "asset" && a.normal_side === "credit"),
+    liabilities: ids((a) => a.account_type === "liability" && a.normal_side === "credit"),
+    contraLiabilities: ids((a) => a.account_type === "liability" && a.normal_side === "debit"),
     cash: base,
-    cards: cardIds.length ? { ...base, account_ids: cardIds } : null,
+    cards: ids((a) => a.cash_kind === "card"),
   };
 }
 
 export function balanceMonths(
   asOf: string,
-  series: Partial<Record<"assets" | "liabilities" | "cash" | "cards", BreakdownData | null>>,
+  series: Partial<Record<BalanceSeries, BreakdownData | null>>,
 ): BalanceMonth[] {
   const pick = (data: BreakdownData | null | undefined) =>
     new Map((data?.rows ?? []).map((r) => [r.key.slice(0, 7), big(r.balance_cents)]));
-  const assets = pick(series.assets),
-    liabilities = pick(series.liabilities),
+  const ordinaryAssets = pick(series.assets),
+    contraAssets = pick(series.contraAssets),
+    ordinaryLiabilities = pick(series.liabilities),
+    contraLiabilities = pick(series.contraLiabilities),
     cash = pick(series.cash),
     cards = pick(series.cards);
+  const net = (main: Map<string, bigint>, contra: Map<string, bigint>) =>
+    new Map(
+      [...new Set([...main.keys(), ...contra.keys()])].map((k) => [
+        k,
+        (main.get(k) ?? ZERO) - (contra.get(k) ?? ZERO),
+      ]),
+    );
+  const assets = net(ordinaryAssets, contraAssets),
+    liabilities = net(ordinaryLiabilities, contraLiabilities);
   const months: BalanceMonth[] = [];
   for (
     let m = utc(seriesStart(asOf));

@@ -52,7 +52,7 @@ export function accountingHeader(
       return {
         title: "Payroll",
         subtitle:
-          "Import payroll already processed in Patriot. Your report becomes a payroll record and a balanced journal entry.",
+          "Import payroll already processed in Gusto or Patriot. Payrolls already in your books are linked; new ones become a payroll record and a balanced journal entry.",
       };
     case "reports":
       return {

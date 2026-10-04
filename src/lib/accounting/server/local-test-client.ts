@@ -33,6 +33,8 @@ const allowed = new Map<string, readonly string[]>([
   ["tax_source", ["year", "cutoff"]],
   ["payroll", ["view"]],
   ["patriot_import", ["request"]],
+  ["gusto_import", ["request"]],
+  ["gusto_fees", ["request"]],
   ["registers", ["view"]],
   ["contractor_report", ["year", "cutoff"]],
   ["report", ["kind", "params"]],

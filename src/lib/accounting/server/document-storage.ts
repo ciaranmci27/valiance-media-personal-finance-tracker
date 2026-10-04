@@ -4,6 +4,10 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createClient } from "@/lib/supabase/server";
 import { localAccountingTestClient } from "./local-test-client";
+import { readXlsx } from "../xlsx";
+
+const XLSX_MIME =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 export function documentMime(bytes: Uint8Array, name: string): string {
   const b = Buffer.from(bytes);
@@ -20,7 +24,14 @@ export function documentMime(bytes: Uint8Array, name: string): string {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     if (!text.includes("\0")) return "text/csv";
   }
-  throw new Error("Use a PDF, PNG, JPEG, WebP, or UTF-8 CSV file.");
+  if (name.toLowerCase().endsWith(".xlsx")) {
+    // Throws unless the zip holds a real workbook.
+    readXlsx(bytes, []);
+    return XLSX_MIME;
+  }
+  throw new Error(
+    "Use a PDF, PNG, JPEG, WebP, UTF-8 CSV, or Excel (.xlsx) file.",
+  );
 }
 function validatedPath(value: string) {
   if (!/^[a-f0-9-]{36}\/[a-f0-9]{64}$/.test(value))

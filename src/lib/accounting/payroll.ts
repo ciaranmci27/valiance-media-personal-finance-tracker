@@ -225,6 +225,9 @@ export interface PayrollPreview {
 export interface PayrollRun {
   import_mode?: "created" | "linked" | null;
   import_undone?: boolean;
+  provider?: "patriot" | "gusto";
+  /** One of several runs linked to the same journal entry. */
+  entry_shared?: boolean;
   id: string;
   version: number;
   provider_run_id: string;
@@ -272,6 +275,8 @@ export interface PayrollRevision {
 export interface PayrollDetail {
   import_mode?: "created" | "linked" | null;
   import_undone?: boolean;
+  provider?: "patriot" | "gusto";
+  entry_shared?: boolean;
   id: string;
   version: number;
   provider_run_id: string;

@@ -129,7 +129,7 @@ export function EvidenceUpload({
           className="sr-only"
           tabIndex={-1}
           aria-label="Choose evidence file"
-          accept=".pdf,.png,.jpg,.jpeg,.webp,.csv"
+          accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx"
           disabled={busy}
           onChange={(e) => choose(e.target.files?.[0] ?? null)}
         />

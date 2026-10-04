@@ -196,6 +196,35 @@ export const reportOptionsSchema = z
      * columns; 2 is the branded statement with % of income (profit and loss).
      */
     layout: z.literal(2).optional(),
+    /**
+     * Income by customer: the contacts that were not clients when the owner
+     * exported (a bank paying interest, a store payout), with their role, so
+     * the retained copy groups them the way the screen did. Roles can change
+     * later; the snapshot keeps what was shown.
+     */
+    other_contacts: z
+      .array(
+        z.object({ id: z.guid(), role: z.string().trim().min(1).max(40) }).strict(),
+      )
+      .max(500)
+      .optional(),
+    /**
+     * The fiscal year's start month at export time (business settings), for
+     * reports whose figures start at the fiscal year: the general ledger's
+     * income and expense balances.
+     */
+    fiscal_start_month: z.number().int().min(1).max(12).optional(),
+    /**
+     * Expenses by vendor: each contact's role at export time (vendor,
+     * contractor, employee, government, financial, client), so the retained
+     * copy tags payees and sorts spending by role as the screen did.
+     */
+    contact_roles: z
+      .array(
+        z.object({ id: z.guid(), role: z.string().trim().min(1).max(40) }).strict(),
+      )
+      .max(1000)
+      .optional(),
   })
   .strict();
 

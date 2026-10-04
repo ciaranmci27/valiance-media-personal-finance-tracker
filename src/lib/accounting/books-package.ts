@@ -27,9 +27,9 @@ export const booksPackageCommandSchema = z
   );
 export const booksPackageCatalog = {
   id: "books-package" as const,
-  title: "Year-end books package",
+  title: "Year-end package",
   description:
-    "A complete review set: statements, ledger, mappings, payroll, contractor and tax support.",
+    "Is the year ready for your tax preparer? Every report, in one download.",
   group: "Payroll & year end",
 };
 export interface BooksPackagePreview {

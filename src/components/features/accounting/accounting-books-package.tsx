@@ -1,449 +1,461 @@
 "use client";
-import { NumberInput } from "@/components/ui/inputs/NumberInput";
-import { DateInput } from "@/components/ui/inputs/DateInput";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Check, Download, FileArchive, RefreshCw } from "lucide-react";
+import { AlertTriangle, ArrowUpRight, CheckCircle2, Download, FileArchive, FileSpreadsheet, FileText, Info, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Disclosure } from "@/components/ui/disclosure";
 import { Pagination } from "@/components/ui/pagination";
-import { SectionHeader } from "@/components/ui/section-header";
-import { TableSkeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+import { usePrivacy } from "@/contexts/privacy-context";
+import { formatCents } from "@/lib/accounting/money";
+import type { ReportData, ReportFilter } from "@/lib/accounting/reports";
+import type { BooksPackageHistory, BooksPackagePreview } from "@/lib/accounting/books-package";
+import { reportQuery } from "@/lib/accounting/preload";
+import { demoReportData, demoReportDetail } from "@/lib/accounting/demo-reports";
+import { accountingHref } from "@/lib/accounting/views";
 import {
-  booksPackageScopeSchema,
-  type BooksPackagePreview,
-  type BooksPackageHistory,
-} from "@/lib/accounting/books-package";
-import { accountingGet, useAccountingCommand } from "./use-accounting-command";
-import { countLabel, dateLabel, timestampLabel, todayInBooks } from "./format";
+  PACKAGE_CONTENTS,
+  PACKAGE_GROUPS,
+  PACKAGE_NOTES,
+  itemReady,
+  packageChecks,
+  packageScope,
+  packageSummary,
+  packageYears,
+  type PackageCheck,
+} from "@/lib/accounting/year-end-package";
 import { AccountingPageHeader } from "./accounting-page-header";
+import { useAccountingCommand } from "./use-accounting-command";
+import { useAccountingRead } from "./use-accounting-read";
+import { countLabel, dateLabel, timestampLabel, todayInBooks } from "./format";
+import { CardRow, ScrollList, SectionCard, StatTile } from "./report-kit";
+import { YearControls, useSupportReport } from "./support-report-kit";
 
-const sections = [
-  [
-    "Financial statements",
-    "Profit & loss, balance sheet, bank cash movements and trial balance.",
-  ],
-  [
-    "Transaction detail",
-    "Complete general ledger and owner activity, with exact amounts.",
-  ],
-  [
-    "Payroll and year-end schedules",
-    "Payroll registers and payables, officer reconciliation, contractors, assets and loans.",
-  ],
-  [
-    "Tax and source support",
-    "Account mappings, reviewed tax adjustments, basis support and a source-document index.",
-  ],
-];
 const PAGE_SIZE = 25;
+const reportHref = (id: string) => accountingHref("reports", undefined, { report: id });
+
+/**
+ * The year-end package: is the year ready to hand to a tax preparer, and
+ * everything in one download. The calendar (tax) year from January 1,
+ * reviewed transactions only, as the books capture it; every report in it
+ * at the same book revision. Readiness is the checks the reports make.
+ */
 export function AccountingBooksPackage({
-  to,
-  revision,
   onBack,
+  onReview,
+  demo = false,
 }: {
-  to: string;
-  revision: string;
   onBack: () => void;
+  onReview: () => void;
+  demo?: boolean;
 }) {
-  const params = useSearchParams(),
-    fallback = to > todayInBooks() ? todayInBooks() : to;
-  const candidate = booksPackageScopeSchema.safeParse({
-    year: Number(params.get("package_year") ?? fallback.slice(0, 4)),
-    through: params.get("package_through") ?? fallback,
+  const params = useSearchParams();
+  const today = todayInBooks();
+  const years = packageYears(today);
+  const savedYear = Number(params.get("package_year"));
+  const year = years.includes(savedYear) ? savedYear : years[0];
+  const savedThrough = params.get("package_through");
+  const scope =
+    savedThrough && savedThrough.startsWith(`${year}-`) && savedThrough <= today
+      ? { year, through: savedThrough }
+      : packageScope(year, today);
+  const from = `${year}-01-01`;
+  const live = !demo;
+
+  // What the package will hold, and what the books say about it.
+  const preview = useAccountingRead<BooksPackagePreview>(
+    { view: "books-package", year: String(year), through: scope.through },
+    { enabled: live, keepPrevious: true },
+  );
+  const [offset, setOffset] = useState(0);
+  const history = useAccountingRead<BooksPackageHistory>(
+    { view: "books-package-history", year: String(year), offset: String(offset) },
+    { enabled: live, keepPrevious: true },
+  );
+  // The checks, from the reports' own reads (the package's scope).
+  const coreScope: ReportFilter = { from, to: scope.through, mode: "posted", offset: 0 };
+  const coreRead = useAccountingRead<ReportData>(reportQuery("trial-balance", coreScope), { enabled: live, keepPrevious: true });
+  const demoCore = useMemo(
+    () => (demo ? demoReportData(coreScope) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [demo, from, scope.through],
+  );
+  const core = demo ? demoCore : (coreRead.data ?? null);
+  // The demo's journal line count, as the package preview would give it.
+  const [demoLines, setDemoLines] = useState<number | null>(null);
+  useEffect(() => {
+    if (!demo) return;
+    void demoReportDetail({ from, to: scope.through, mode: "posted", offset: 0 }).then((d) => setDemoLines(d.total));
+  }, [demo, from, scope.through]);
+  const lineCount = demo ? demoLines : (preview.data?.ledger_count ?? null);
+  const yearScope = (report_id: "tax-workpapers" | "contractor-worksheet" | "payroll-register" | "asset-register" | "loan-register") => ({
+    report_id,
+    from,
+    to: scope.through,
+    offset: 0,
   });
-  const applied = candidate.success
-    ? candidate.data
-    : { year: Number(fallback.slice(0, 4)), through: fallback };
-  const signature = JSON.stringify(applied);
-  const [year, setYear] = useState(String(applied.year)),
-    [through, setThrough] = useState(applied.through),
-    [preview, setPreview] = useState<BooksPackagePreview | null>(null),
-    [history, setHistory] = useState<BooksPackageHistory>({
-      rows: [],
-      count: 0,
-    }),
-    [offset, setOffset] = useState(0),
-    [refresh, setRefresh] = useState(0),
-    [loading, setLoading] = useState(false),
-    [error, setError] = useState(""),
-    [downloading, setDownloading] = useState<string | null>(null);
-  const request = useAccountingCommand(),
-    capture = useRef<{ signature: string; id: string } | null>(null);
-  useEffect(() => {
-    const scope = JSON.parse(signature);
-    setYear(String(scope.year));
-    setThrough(scope.through);
-    setOffset(0);
-  }, [signature]);
-  useEffect(() => {
-    const controller = new AbortController();
-    setLoading(true);
-    setError("");
-    const scope = JSON.parse(signature);
-    Promise.all([
-      accountingGet<BooksPackagePreview>(
-        {
-          view: "books-package",
-          year: String(scope.year),
-          through: scope.through,
-        },
-        controller.signal,
-      ),
-      accountingGet<BooksPackageHistory>(
-        {
-          view: "books-package-history",
-          year: String(scope.year),
-          offset: String(offset),
-        },
-        controller.signal,
-      ),
-    ])
-      .then(([data, history]) => {
-        setPreview(data);
-        setHistory(history);
-      })
-      .catch((e) => {
-        if (!controller.signal.aborted)
-          setError(e.message ?? "Unable to load the books package.");
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
-      });
-    return () => controller.abort();
-  }, [signature, revision, offset, refresh]);
-  function apply() {
-    const scope = booksPackageScopeSchema.safeParse({
-      year: Number(year),
-      through,
-    });
-    if (!scope.success || through > todayInBooks()) {
-      setError("Choose a cutoff within the selected year, through today.");
-      return;
-    }
+  const tax = useSupportReport(yearScope("tax-workpapers"), demo);
+  const contractor = useSupportReport(yearScope("contractor-worksheet"), demo);
+  const payroll = useSupportReport(yearScope("payroll-register"), demo);
+  const asset = useSupportReport(yearScope("asset-register"), demo);
+  const loan = useSupportReport(yearScope("loan-register"), demo);
+  const checks = packageChecks({
+    core,
+    tax: tax.data,
+    contractor: contractor.data,
+    payroll: payroll.data,
+    asset: asset.data,
+    loan: loan.data,
+    reviewItems: preview.data?.review_items,
+  });
+  const summary = packageSummary(checks);
+
+  const pkg = usePackageDownloads(preview.data ?? null, () => void history.reload());
+  function chooseYear(next: number) {
     const url = new URL(window.location.href);
-    url.searchParams.set("package_year", String(scope.data.year));
-    url.searchParams.set("package_through", scope.data.through);
+    url.searchParams.set("package_year", String(next));
+    url.searchParams.set("package_through", packageScope(next, today).through);
     window.history.pushState(null, "", url);
-    setRefresh((n) => n + 1);
+    setOffset(0);
   }
-  async function retain() {
-    if (!preview || loading) return;
-    const key = JSON.stringify({
-      year: preview.year,
-      through: preview.through,
-      revision: preview.revision,
-    });
-    if (capture.current?.signature !== key)
-      capture.current = { signature: key, id: crypto.randomUUID() };
-    const result = await request.execute({
-      type: "report.books.capture",
-      id: capture.current.id,
-      expected_revision: preview.revision,
-      year: preview.year,
-      through: preview.through,
-    });
-    if (result) {
-      capture.current = null;
-      setOffset(0);
-      setRefresh((n) => n + 1);
-    }
-  }
-  async function download(id: string, format: "zip" | "csv-zip" | "json") {
-    if (downloading) return;
-    setDownloading(id);
-    setError("");
-    try {
-      const response = await fetch(
-        `/api/accounting/packages/${id}?format=${format}`,
-        { cache: "no-store" },
-      );
-      if (!response.ok) {
-        const result = await response.json();
-        throw new Error(
-          result.error ?? "Unable to download this retained package.",
-        );
-      }
-      const url = URL.createObjectURL(await response.blob()),
-        anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download =
-        response.headers
-          .get("content-disposition")
-          ?.match(/filename="([^"]+)"/)?.[1] ??
-        `books-package-${id.slice(0, 8)}.${format === "json" ? "json" : "zip"}`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      setError(
-        e instanceof Error
-          ? e.message
-          : "The download was interrupted. Retry the retained package.",
-      );
-    } finally {
-      setDownloading(null);
-    }
-  }
-  const blocked =
-    !preview ||
-    loading ||
-    String(preview.year) !== year ||
-    preview.through !== through ||
-    preview.ledger_count > 100000;
+  const tooBig = (preview.data?.ledger_count ?? 0) > 100000;
+  const unavailable = demo ? "Available with your own books" : tooBig ? "Over the 100,000-line package limit" : "";
+  const errorMessage = pkg.error || (live && !preview.data && preview.error) || "";
+  const reports = PACKAGE_CONTENTS.length;
   return (
     <div className="space-y-5 lg:space-y-6">
       <AccountingPageHeader
         back={{ label: "All reports", onClick: onBack }}
-        title="Year-end books package"
-        subtitle="Keep a complete review set together. Every statement and worksheet is retained at the same book revision."
+        title="Year-end package"
+        subtitle="Is the year ready for your tax preparer? Everything they need, in one download."
         actions={
           <Button
             size="sm"
-            disabled={blocked || request.busy}
-            onClick={() => void retain()}
+            disabled={demo || tooBig || !preview.data || !!pkg.busy}
+            title={unavailable || undefined}
+            onClick={() => void pkg.download({ format: "zip" })}
           >
             <FileArchive aria-hidden="true" />
-            {request.busy ? "Retaining package..." : "Create package"}
+            {pkg.busy === "zip" ? "Preparing the package..." : "Download the package"}
           </Button>
         }
       />
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          apply();
-        }}
-        className="glass-card flex flex-wrap items-end gap-3 rounded-xl p-4"
-      >
-        <NumberInput
-          step={1}
-          id="package-year"
-          label="Year"
-          min={1900}
-          max={2100}
-          value={year}
-          className="w-28"
-          onChange={(nextValue) => {
-            const value = String(nextValue);
-            setYear(value);
-            if (
-              /^\d{4}$/.test(value) &&
-              Number(value) >= 1900 &&
-              Number(value) <= 2100
-            )
-              setThrough(
-                `${value}-12-31` < todayInBooks()
-                  ? `${value}-12-31`
-                  : todayInBooks(),
-              );
-          }}
-        />
-        <DateInput
-          id="package-through"
-          label="Through"
-          value={through}
-          maxDate={todayInBooks()}
-          onChange={(nextValue) => setThrough(nextValue)}
-        />
-        <Button
-          type="submit"
-          variant="outline"
-          disabled={loading || request.busy}
-        >
-          Update scope
-        </Button>
-        <span className="ml-auto pb-2 text-xs text-muted-foreground">
-          Reviewed only · January 1 through cutoff
-        </span>
-      </form>
-      {(error || request.error) && (
-        <p
-          role="alert"
-          className="rounded-lg border border-error/30 p-4 text-sm text-error"
-        >
-          {error || request.error}
+      <YearControls
+        years={years}
+        year={year}
+        from={from}
+        to={scope.through}
+        scope="Calendar year, reviewed transactions only"
+        updating={live && (preview.revalidating || preview.isPlaceholder)}
+        onYear={chooseYear}
+      />
+      {demo && (
+        <p className="text-xs text-muted-foreground">
+          Downloads are available with your own books; the checks and contents below read the demo books.
         </p>
       )}
-      {preview && (
-        <div className="grid gap-5 lg:grid-cols-[1.2fr_1fr]">
-          <section className="glass-card overflow-hidden rounded-xl">
-            <div className="border-b border-border p-5">
-              <SectionHeader
-                className="mb-0"
-                label="Included in your package"
-                action={
-                  <span className="text-xs text-muted-foreground">
-                    Revision {preview.revision}
-                  </span>
-                }
-              />
-            </div>
-            <div className="divide-y divide-border">
-              {sections.map(([title, description]) => (
-                <div className="flex gap-3 p-5" key={title}>
-                  <Check
-                    size={16}
-                    aria-hidden="true"
-                    className="mt-0.5 shrink-0 text-teal-light"
-                  />
-                  <div>
-                    <p className="text-sm font-medium">{title}</p>
-                    <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                      {description}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className="border-t border-border px-5 py-4 text-xs leading-relaxed text-muted-foreground">
-              PDFs for printable schedules, complete CSV detail, retained JSON
-              and file hashes.{" "}
-              {preview.ledger_count > 100000
-                ? "Over 100,000"
-                : preview.ledger_count.toLocaleString()}{" "}
-              journal lines in scope. Actual source files stay in the document
-              library.
+      {errorMessage && (
+        <p role="alert" className="rounded-lg border border-error/30 p-4 text-sm text-error">
+          {errorMessage}
+        </p>
+      )}
+
+      <section aria-label="Summary" className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+        <StatTile
+          label="Readiness"
+          value={summary.text === "Checking the year." ? "-" : summary.ready ? "Ready" : `${summary.look} open`}
+          context={summary.ready ? "Nothing needs a look" : summary.look ? "Things to look at" : "Checking the year"}
+          tone={summary.ready ? "good" : summary.look ? "bad" : "neutral"}
+        />
+        <StatTile label="Profit" value={core ? formatCents(BigInt(core.totals.net_cents)) : "-"} context="Book profit for the year" />
+        <StatTile
+          label="Journal lines"
+          value={lineCount === null ? "-" : lineCount.toLocaleString("en-US")}
+          context={tooBig ? "Over the package limit" : "In the general ledger"}
+          tone={tooBig ? "bad" : "neutral"}
+        />
+        <StatTile label="Reports" value={String(reports)} context="In the package" />
+      </section>
+
+      <CardRow wide>
+        <ReadinessCard checks={checks} text={summary.text} onReview={onReview} />
+        <ContentsCard checks={checks} demo={demo || tooBig} busy={pkg.busy} onDownload={(report, format) => void pkg.download({ report, format })} />
+      </CardRow>
+
+      {live && (
+        <SectionCard
+          labelledBy="yp-history"
+          title="Packages you kept"
+          description="Each download keeps a copy at its book revision. Later edits do not change a kept copy."
+        >
+          {!history.data?.rows.length ? (
+            <p className="border-t border-border px-5 py-5 text-sm text-muted-foreground lg:px-6">
+              {history.loading ? "Reading the packages." : `No package kept for ${year} yet. Downloading one keeps it here.`}
             </p>
-          </section>
-          <section className="glass-card rounded-xl p-5">
-            <SectionHeader
-              label="Review before sharing"
-              description="The package preserves these open items so a reviewer can see the limits of the available data."
-            />
-            {preview.ledger_count > 100000 && (
-              <p className="mt-4 text-sm text-warning">
-                This scope exceeds the 100,000-line package limit. Use
-                individual shorter-period reports.
-              </p>
-            )}
-            <ul className="mt-4 space-y-3 text-sm">
-              {preview.review_items.map((item) => (
-                <li
-                  key={item.kind}
-                  className="flex gap-2 text-muted-foreground"
-                >
-                  <span className="text-warning" aria-hidden="true">
-                    ·
+          ) : (
+            <ul className="divide-y divide-border border-t border-border">
+              {history.data.rows.map((row) => (
+                <li key={row.id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3.5 lg:px-6">
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium">January 1 through {dateLabel(row.to_date)}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      Kept {timestampLabel(row.created_at)} · revision {row.revision} ·{" "}
+                      {row.review_items.length ? countLabel(row.review_items.length, "open item") : "nothing open"}
+                    </span>
                   </span>
-                  {item.message}
+                  <span className="flex flex-wrap gap-2">
+                    <Button size="sm" variant="outline" disabled={!!pkg.busy} onClick={() => void pkg.fetchKept(row.id, "zip")}>
+                      <Download aria-hidden="true" />
+                      ZIP
+                    </Button>
+                    <Button size="sm" variant="ghost" disabled={!!pkg.busy} onClick={() => void pkg.fetchKept(row.id, "csv-zip")}>
+                      CSV only
+                    </Button>
+                    <Button size="sm" variant="ghost" disabled={!!pkg.busy} onClick={() => void pkg.fetchKept(row.id, "json")}>
+                      JSON
+                    </Button>
+                  </span>
                 </li>
               ))}
             </ul>
-            {preview.review_items.length === 0 && (
-              <p className="mt-4 text-sm text-teal-light">
-                No open package review items.
-              </p>
-            )}
-            <p className="mt-5 border-t border-border pt-4 text-xs leading-relaxed text-muted-foreground">
-              This supports accounting and tax preparation. It is not a filed
-              return or a substitute for reviewing tax treatment.
-            </p>
-          </section>
-        </div>
-      )}
-      <section className="glass-card overflow-hidden rounded-xl">
-        <div className="border-b border-border p-5">
-          <SectionHeader
-            className="mb-0"
-            label="Retained packages"
-            count={history.count}
-            action={
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={loading}
-                onClick={() => setRefresh((n) => n + 1)}
-              >
-                <RefreshCw
-                  aria-hidden="true"
-                  className={loading ? "animate-spin" : ""}
-                />
-                Refresh
-              </Button>
-            }
+          )}
+          <Pagination
+            offset={offset}
+            limit={PAGE_SIZE}
+            total={history.data?.count ?? 0}
+            onChange={setOffset}
+            noun="packages"
+            busy={history.revalidating}
+            className="mt-auto border-t border-border"
           />
-        </div>
-        {!history.rows.length ? (
-          loading ? (
-            <div role="status" aria-label="Loading packages..." className="p-5">
-              <TableSkeleton rows={3} />
-            </div>
-          ) : (
-            <p className="p-6 text-sm text-muted-foreground">
-              Create the first package for this year. Later edits will not
-              change a retained copy.
-            </p>
-          )
-        ) : (
-          <div className="divide-y divide-border">
-            {history.rows.map((row) => (
-              <article
-                key={row.id}
-                className="flex flex-wrap items-center justify-between gap-4 p-5"
-              >
-                <div>
-                  <p className="text-sm font-medium">
-                    January 1 through {dateLabel(row.to_date)}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Revision {row.revision} · {timestampLabel(row.created_at)} ·{" "}
-                    {countLabel(row.review_items.length, "review item")}
-                  </p>
-                  <details className="mt-2 text-xs">
-                    <summary className="cursor-pointer text-muted-foreground">
-                      Capture details
-                    </summary>
-                    <p className="mt-2 break-all font-mono text-muted-foreground">
-                      {row.id}
-                    </p>
-                    {row.review_items.map((item) => (
-                      <p className="mt-2 text-muted-foreground" key={item.kind}>
-                        {item.message}
-                      </p>
-                    ))}
-                  </details>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={!!downloading}
-                    onClick={() => void download(row.id, "zip")}
-                  >
-                    <Download aria-hidden="true" />
-                    {downloading === row.id
-                      ? "Preparing download..."
-                      : "Download ZIP"}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={!!downloading}
-                    onClick={() => void download(row.id, "csv-zip")}
-                  >
-                    CSV only
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={!!downloading}
-                    onClick={() => void download(row.id, "json")}
-                  >
-                    JSON
-                  </Button>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-        <Pagination
-          offset={offset}
-          limit={PAGE_SIZE}
-          total={history.count}
-          onChange={setOffset}
-          noun="packages"
-          busy={loading}
-          className="border-t border-border"
-        />
-      </section>
+        </SectionCard>
+      )}
+
+      <Disclosure summary="What the package is" contentClassName="space-y-3 text-xs text-muted-foreground">
+        {PACKAGE_NOTES.map((n) => (
+          <p key={n}>{n}</p>
+        ))}
+        <p>
+          The package follows the calendar (tax) year the books keep for it, even when your fiscal year starts in another month.
+        </p>
+        {preview.data && <p>Book revision {preview.data.revision}</p>}
+      </Disclosure>
     </div>
+  );
+}
+
+/**
+ * Downloads from the package: the books keep a copy at the current revision
+ * (report.books.capture, once per year, cutoff and revision), then the
+ * server draws the whole package or one report from it, in the branded
+ * layout.
+ */
+function usePackageDownloads(preview: BooksPackagePreview | null, onKept: () => void) {
+  const command = useAccountingCommand();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const kept = useRef<{ key: string; id: string; saved: boolean } | null>(null);
+  async function save(url: string, fallback: string) {
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error ?? "Unable to download the package.");
+    }
+    const href = URL.createObjectURL(await response.blob()),
+      anchor = document.createElement("a");
+    anchor.href = href;
+    anchor.download = response.headers.get("content-disposition")?.match(/filename="([^"]+)"/)?.[1] ?? fallback;
+    anchor.click();
+    URL.revokeObjectURL(href);
+  }
+  async function download({ format, report }: { format: "zip" | "pdf" | "csv"; report?: string }) {
+    if (!preview || busy) return;
+    setBusy(report ? `${report}:${format}` : "zip");
+    setError("");
+    try {
+      const key = JSON.stringify({ year: preview.year, through: preview.through, revision: preview.revision });
+      if (kept.current?.key !== key) kept.current = { key, id: crypto.randomUUID(), saved: false };
+      if (!kept.current.saved) {
+        const ok = await command.execute({
+          type: "report.books.capture",
+          id: kept.current.id,
+          expected_revision: preview.revision,
+          year: preview.year,
+          through: preview.through,
+        });
+        if (!ok) return;
+        kept.current.saved = true;
+        onKept();
+      }
+      const id = kept.current.id;
+      await save(
+        report
+          ? `/api/accounting/packages/${id}?report=${report}&format=${format}&layout=2`
+          : `/api/accounting/packages/${id}?format=zip&layout=2`,
+        report ? `${report}-${preview.year}.${format}` : `books-package-${preview.year}.zip`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to download the package.");
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function fetchKept(id: string, format: "zip" | "csv-zip" | "json") {
+    if (busy) return;
+    setBusy(`kept:${id}`);
+    setError("");
+    try {
+      await save(`/api/accounting/packages/${id}?format=${format}&layout=2`, `books-package-${id.slice(0, 8)}.${format === "json" ? "json" : "zip"}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to download the package.");
+    } finally {
+      setBusy(null);
+    }
+  }
+  return { download, fetchKept, busy, error: error || command.error || "" };
+}
+
+/** Each check with a plain status and the page that fixes it. */
+function ReadinessCard({ checks, text, onReview }: { checks: PackageCheck[]; text: string; onReview: () => void }) {
+  // Privacy mode hides the amounts the checks quote.
+  const { isHidden } = usePrivacy();
+  const mask = (s: string) => (isHidden ? s.replace(/-?\$[\d,]+\.\d\d/g, "•••••") : s);
+  const linkClass =
+    "inline-flex items-center gap-1 rounded-md text-xs font-medium text-teal-light hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring";
+  return (
+    <SectionCard labelledBy="yp-ready" title="Is the year ready?" description={text}>
+      <ScrollList label="Readiness checks" className="mx-2.5 mb-3 lg:mx-3.5">
+        <ul className="space-y-1">
+          {checks.map((c) => (
+            <li
+              key={c.key}
+              className={cn(
+                "flex items-start gap-2.5 rounded-lg px-2.5 py-2.5 text-sm",
+                c.status === "look" && "border border-warning/40 bg-warning/5",
+              )}
+            >
+              {c.status === "ready" ? (
+                <CheckCircle2 size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-success" />
+              ) : c.status === "look" ? (
+                <AlertTriangle size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-warning" />
+              ) : c.status === "info" ? (
+                <Info size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-muted-foreground" />
+              ) : (
+                <Loader2 size={16} aria-hidden="true" className="mt-0.5 shrink-0 text-muted-foreground motion-safe:animate-spin" />
+              )}
+              <span className="min-w-0 flex-1">
+                <span className="block font-medium">
+                  {mask(c.title)}
+                  <span className="sr-only">
+                    {c.status === "ready" ? ", ready" : c.status === "look" ? ", needs a look" : c.status === "info" ? ", for information" : ", checking"}
+                  </span>
+                </span>
+                <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{mask(c.detail)}</span>
+                {c.status !== "ready" && c.status !== "waiting" && (c.report || c.review) && (
+                  <span className="mt-1.5 block">
+                    {c.review ? (
+                      <button type="button" onClick={onReview} className={linkClass}>
+                        Review them
+                        <ArrowUpRight size={12} aria-hidden="true" />
+                      </button>
+                    ) : (
+                      <a href={reportHref(c.report!)} className={linkClass}>
+                        Open the report
+                        <ArrowUpRight size={12} aria-hidden="true" />
+                        <span className="sr-only">, {mask(c.title)}</span>
+                      </a>
+                    )}
+                  </span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </ScrollList>
+    </SectionCard>
+  );
+}
+
+/** Every report in the package, what it answers, whether it is ready, and a download of each. */
+function ContentsCard({
+  checks,
+  demo,
+  busy,
+  onDownload,
+}: {
+  checks: PackageCheck[];
+  demo: boolean;
+  busy: string | null;
+  onDownload: (report: string, format: "pdf" | "csv") => void;
+}) {
+  const iconButton =
+    "inline-flex h-8 items-center gap-1 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-[rgba(var(--ink),0.05)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring disabled:pointer-events-none disabled:opacity-40";
+  return (
+    <SectionCard
+      labelledBy="yp-contents"
+      title="What's in the package"
+      description={`${PACKAGE_CONTENTS.length} reports at one book revision, each as a branded PDF and a CSV.`}
+    >
+      <ScrollList label="Package contents" className="mx-2.5 mb-3 lg:mx-3.5">
+        {PACKAGE_GROUPS.map((group) => (
+          <div key={group}>
+            <p className="px-2.5 pt-2 pb-1 font-mono text-[11px] uppercase tracking-[0.12em] text-teal-light">{group}</p>
+            <ul className="space-y-0.5">
+              {PACKAGE_CONTENTS.filter((i) => i.group === group).map((item) => {
+                const ready = itemReady(item, checks);
+                return (
+                  <li key={item.id} className="flex items-center gap-3 rounded-lg px-2.5 py-2">
+                    <span
+                      aria-hidden="true"
+                      className={cn("h-2 w-2 shrink-0 rounded-full", ready ? "bg-success" : "bg-warning")}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm">
+                        {item.page ? (
+                          <a
+                            href={reportHref(item.page)}
+                            className="rounded-sm hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
+                          >
+                            {item.title}
+                          </a>
+                        ) : (
+                          item.title
+                        )}
+                        <span className="sr-only">{ready ? ", ready" : ", needs a look"}</span>
+                      </span>
+                      <span className="block truncate text-xs text-muted-foreground">{item.answers}</span>
+                    </span>
+                    <span className="flex shrink-0 items-center">
+                      {item.pdf && (
+                        <button
+                          type="button"
+                          className={iconButton}
+                          disabled={demo || !!busy}
+                          onClick={() => onDownload(item.id, "pdf")}
+                          aria-label={`Download ${item.title} as PDF`}
+                        >
+                          <FileText size={14} aria-hidden="true" />
+                          {busy === `${item.id}:pdf` ? "..." : "PDF"}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        className={iconButton}
+                        disabled={demo || !!busy}
+                        onClick={() => onDownload(item.id, "csv")}
+                        aria-label={`Download ${item.title} as CSV`}
+                      >
+                        <FileSpreadsheet size={14} aria-hidden="true" />
+                        {busy === `${item.id}:csv` ? "..." : "CSV"}
+                      </button>
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </ScrollList>
+    </SectionCard>
   );
 }

@@ -622,6 +622,7 @@ export function IncomeDetailContent({
                 onChange={(nextValue) => setAddAmount(String(nextValue))}
                 placeholder="0.00"
                 className="tabular-nums"
+                size="sm"
               />
             </div>
             <div className="space-y-3">
@@ -630,6 +631,7 @@ export function IncomeDetailContent({
                 value={addNotes}
                 onChange={(nextValue) => setAddNotes(nextValue)}
                 placeholder="Notes for this item..."
+                size="sm"
               />
               <div className="flex justify-end">
                 <Button
@@ -772,6 +774,7 @@ export function IncomeDetailContent({
                                           setEditAmount(String(nextValue))
                                         }
                                         className="tabular-nums"
+                                        size="sm"
                                       />
                                     </div>
                                     <Textarea
@@ -781,6 +784,7 @@ export function IncomeDetailContent({
                                         setEditNotes(nextValue)
                                       }
                                       placeholder="Notes for this item..."
+                                      size="sm"
                                     />
                                     <div className="flex items-center justify-end gap-2">
                                       <Button

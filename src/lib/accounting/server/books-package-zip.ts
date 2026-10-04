@@ -8,8 +8,9 @@ import type { BooksPackageSnapshot } from "../books-package";
 export async function* booksPackageFiles(
   snapshot: BooksPackageSnapshot,
   includePdf = true,
+  layout: 1 | 2 = 1,
 ): AsyncGenerator<{ name: string; bytes: Uint8Array }> {
-  const documents = booksPackageDocuments(snapshot),
+  const documents = booksPackageDocuments(snapshot, layout),
     p = snapshot.payload;
   const manifest: { name: string; sha256: string; bytes: number }[] = [],
     skipped: string[] = [];
@@ -29,8 +30,11 @@ export async function* booksPackageFiles(
     });
     return { name, bytes: data };
   };
+  let order = 0;
   for (const { id, document } of documents) {
-    yield file(`csv/${id}.csv`, documentCsv(document));
+    // Layout 2 numbers the PDFs in the cover's order, the cover first.
+    const pdfName = layout === 2 ? `pdf/${String(order++).padStart(2, "0")}-${id}.pdf` : `pdf/${id}.pdf`;
+    if (id !== "cover") yield file(`csv/${id}.csv`, documentCsv(document));
     if (
       includePdf &&
       id !== "source-document-index" &&
@@ -39,7 +43,7 @@ export async function* booksPackageFiles(
     ) {
       pdfRows += document.rows.length;
       yield file(
-        `pdf/${id}.pdf`,
+        pdfName,
         await (await import("./report-pdf")).reportPdf(document),
       );
     } else skipped.push(id);
@@ -91,6 +95,7 @@ export async function* booksPackageFiles(
 export async function* booksPackageZip(
   snapshot: BooksPackageSnapshot,
   includePdf = true,
+  layout: 1 | 2 = 1,
 ): AsyncGenerator<Uint8Array> {
   let chunks: Uint8Array[] = [],
     failure: Error | null = null;
@@ -99,7 +104,7 @@ export async function* booksPackageZip(
     else chunks.push(data);
   });
   try {
-    for await (const file of booksPackageFiles(snapshot, includePdf)) {
+    for await (const file of booksPackageFiles(snapshot, includePdf, layout)) {
       const entry = new ZipDeflate(file.name, { level: 6 });
       entry.mtime = new Date(snapshot.created_at);
       zip.add(entry);
