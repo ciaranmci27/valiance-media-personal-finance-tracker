@@ -40,6 +40,7 @@ import {
 } from "@/lib/accounting/support-reports";
 import { AccountingSupportReport } from "./accounting-support-report";
 import { AccountingProfitLoss } from "./accounting-profit-loss";
+import { AccountingBalanceSheet } from "./accounting-balance-sheet";
 import { useReportExport } from "./use-report-export";
 import { AccountingBooksPackage } from "./accounting-books-package";
 import { booksPackageCatalog } from "@/lib/accounting/books-package";
@@ -206,7 +207,7 @@ export function AccountingReports({
   // The statement comes from the shared cache: a card that was pointed at
   // has it ready, and a write elsewhere refreshes it behind the reader.
   const reportRead = useAccountingRead<ReportData>(
-    reportId && reportId !== "profit-loss"
+    reportId && reportId !== "profit-loss" && reportId !== "balance-sheet"
       ? reportQuery(reportId, applied)
       : null,
     { enabled: !demo },
@@ -296,6 +297,15 @@ export function AccountingReports({
         from={from}
         to={to}
         manage={manage}
+        onBack={() => navigate()}
+        onEntry={onEntry}
+        onReview={onReview}
+        demo={demo}
+      />
+    );
+  if (report?.id === "balance-sheet")
+    return (
+      <AccountingBalanceSheet
         onBack={() => navigate()}
         onEntry={onEntry}
         onReview={onReview}
@@ -435,7 +445,7 @@ export function AccountingReports({
             ]}
           />
           <DateInput
-            label={report.id === "balance-sheet" ? "Activity from" : "From"}
+            label="From"
             minDate="1900-01-01"
             maxDate="2100-12-31"
             required
@@ -443,7 +453,7 @@ export function AccountingReports({
             onChange={(nextValue) => setDraft({ ...draft, from: nextValue })}
           />
           <DateInput
-            label={report.id === "balance-sheet" ? "As of" : "Through"}
+            label="Through"
             minDate="1900-01-01"
             maxDate="2100-12-31"
             required
@@ -897,21 +907,9 @@ function StatementTable({
 }
 function ReportHighlights({ id, data }: { id: ReportId; data: ReportData }) {
   const t = data.totals;
+  // Profit and loss and the balance sheet have their own screens.
   const values =
-    id === "balance-sheet"
-        ? [
-            ["Assets", t.assets_cents],
-            ["Liabilities", t.liabilities_cents],
-            [
-              "Equity",
-              (
-                BigInt(t.equity_cents) +
-                BigInt(t.prior_cents) +
-                BigInt(t.year_cents)
-              ).toString(),
-            ],
-          ]
-        : id === "cash-flow"
+    id === "cash-flow"
           ? [
               ["Opening cash", t.cash_opening_cents],
               [

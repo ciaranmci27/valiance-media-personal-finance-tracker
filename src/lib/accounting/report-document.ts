@@ -12,14 +12,24 @@ import {
   rangeLabel,
   statementRows,
 } from "./profit-loss";
+import {
+  balanceCompareLabel,
+  balanceStatementRows,
+  balanceTotals,
+  dateText,
+  equityLines,
+  ownershipSentence,
+} from "./balance-sheet";
 
 type Tone = "good" | "bad" | "flat";
 /**
- * The branded profit and loss the PDF draws (export layout 2): headline
- * tiles, a monthly chart and the statement with % of income. Figures are
- * display strings; the CSV keeps plain numbers in `rows`.
+ * The branded statement the PDF draws (export layout 2): headline tiles,
+ * then a monthly chart (profit and loss) or the equity explained (balance
+ * sheet), then the statement with each line's share. Figures are display
+ * strings; the CSV keeps plain numbers in `rows`.
  */
 export interface StatementDocument {
+  /** "Jan 1 to Oct 3, 2026", or "As of Oct 3, 2026". */
   periodLabel: string;
   comparisonLabel: string | null;
   scopeNote: string | null;
@@ -49,6 +59,12 @@ export interface StatementDocument {
     tones: (Tone | null)[];
   }[];
   hiddenNote: string | null;
+  /** The balance sheet's equity in plain lines that add up to the total. */
+  equity?: {
+    sentence: string;
+    lines: { label: string; value: string; amount: number }[];
+    total: { label: string; value: string; amount: number };
+  };
 }
 
 export interface ReportDocument {
@@ -157,6 +173,25 @@ export function reportDocument(
       })),
       notes,
       snapshotId: snapshot.id,
+    };
+  }
+  if (options.report_id === "balance-sheet" && options.layout === 2) {
+    const statement = balanceSheetDocument(data, model, options.details);
+    const asOf: [string, string][] = [
+      ["As of", data.filter.to],
+      ...metadata.filter(([k]) => k !== "Period" && k !== "Comparison"),
+      ...(data.filter.compare_to
+        ? ([["Comparison", data.filter.compare_to]] as [string, string][])
+        : []),
+    ];
+    return {
+      title: model.title,
+      company: data.legal_name,
+      metadata: asOf,
+      ...statement.table,
+      notes,
+      snapshotId: snapshot.id,
+      statement: statement.document,
     };
   }
   if (options.report_id === "profit-loss" && options.layout === 2) {
@@ -370,6 +405,137 @@ function profitLossDocument(
       : null,
   };
   return { table, document, hiddenNote: document.hiddenNote };
+}
+
+/**
+ * The balance sheet in export layout 2: a flat CSV (Section, Account,
+ * Balance, % of total assets, and Comparison and Change when comparing),
+ * and for the PDF the headline tiles, the equity explained and the
+ * statement as the owner chose it.
+ */
+function balanceSheetDocument(
+  data: ReportData,
+  model: ReportModel,
+  details: boolean,
+) {
+  const comparing = model.comparison;
+  const rows = balanceStatementRows(model);
+  const { current, previous } = balanceTotals(data);
+  const assets = current.assets;
+  const columns = [
+    "Section",
+    "Account",
+    "Balance",
+    "% of total assets",
+    ...(comparing ? ["Comparison", "Change"] : []),
+  ];
+  const table = {
+    columns,
+    numeric: columns.map((_, i) => i >= 2),
+    rows: rows
+      .filter((r) => r.kind !== "heading")
+      .map((r) => ({
+        key: r.key,
+        kind: r.kind,
+        cells: [
+          r.section,
+          r.label,
+          centsToDecimal(r.values[0]),
+          twoDecimals(percentOf(BigInt(r.values[0]), assets)),
+          ...(comparing
+            ? [centsToDecimal(r.values[1]), centsToDecimal(r.values[2])]
+            : []),
+        ],
+      })),
+  };
+  const compared = balanceCompareLabel(data.filter);
+  const tile = (
+    label: string,
+    now: bigint,
+    before: bigint | undefined,
+    invert: boolean,
+    note: string,
+  ) => {
+    if (before === undefined || !compared)
+      return { label, value: formatCents(now), change: null, tone: "flat" as Tone, note };
+    const c = changeOf(now, before);
+    return {
+      label,
+      value: formatCents(now),
+      note,
+      change:
+        c.kind === "none"
+          ? "No change"
+          : c.kind === "near-zero"
+            ? `${signedMoney(c.diff)} vs almost nothing`
+            : `${c.percent > 0 ? "+" : ""}${c.percent.toFixed(1)}% since ${compared.short}`,
+      tone: c.kind === "none" ? ("flat" as Tone) : changeTone(c.diff, invert),
+    };
+  };
+  const equity = equityLines(data);
+  const awaiting = data.quality.draft_count - data.quality.unbalanced_drafts;
+  const document: StatementDocument = {
+    periodLabel: `As of ${dateText(data.filter.to)}`,
+    comparisonLabel: compared?.long ?? null,
+    scopeNote:
+      data.filter.mode === "working"
+        ? awaiting > 0
+          ? `All activity, including ${awaiting} ${awaiting === 1 ? "transaction" : "transactions"} awaiting review.`
+          : null
+        : "Reviewed transactions only.",
+    tiles: [
+      tile("Assets", current.assets, previous?.assets, false, "What the business has"),
+      tile("Liabilities", current.liabilities, previous?.liabilities, true, "What it owes"),
+      tile("Equity", current.equity, previous?.equity, false, "What is left for you"),
+      tile("Cash position", current.cash, previous?.cash, false, "Bank and cash less cards"),
+    ],
+    months: [],
+    columns: comparing
+      ? ["As of", "% of assets", "Comparison", "Change"]
+      : ["Balance", "% of assets"],
+    rows: rows
+      .filter((r) => details || r.kind !== "account")
+      .map((r) => {
+        const heading = r.kind === "heading";
+        const change = comparing && !heading ? BigInt(r.values[2]) : BigInt(0);
+        return {
+          key: r.key,
+          kind: r.kind,
+          label: r.label,
+          indent: !!r.indent,
+          section: heading && r.label === r.section,
+          cells: heading
+            ? []
+            : [
+                formatCents(r.values[0]),
+                percentLabel(BigInt(r.values[0]), assets) ?? "",
+                ...(comparing ? [formatCents(r.values[1]), signedMoney(change)] : []),
+              ],
+          tones: heading
+            ? []
+            : [
+                BigInt(r.values[0]) < BigInt(0) ? ("bad" as Tone) : null,
+                null,
+                ...(comparing ? [null, changeTone(change, r.side === "expense")] : []),
+              ],
+        };
+      }),
+    hiddenNote: null,
+    equity: {
+      sentence: ownershipSentence(current),
+      lines: equity.lines.map((l) => ({
+        label: l.label,
+        value: formatCents(l.amount),
+        amount: Number(l.amount) / 100,
+      })),
+      total: {
+        label: "Total equity",
+        value: formatCents(equity.total),
+        amount: Number(equity.total) / 100,
+      },
+    },
+  };
+  return { table, document };
 }
 
 export function documentCsv(doc: ReportDocument): string {

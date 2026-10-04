@@ -199,14 +199,26 @@ export const reportOptionsSchema = z
   })
   .strict();
 
-/** The monthly series behind the profit and loss chart (accounting.breakdown). */
+/**
+ * The monthly series behind the report charts (accounting.breakdown): the
+ * profit and loss months (measure activity) and the balance sheet's
+ * month-end balances (measure balance, for account types, accounts, or by
+ * default the bank and cash accounts).
+ */
 export const breakdownFilterSchema = z
   .object({
     from: dateSchema,
     to: dateSchema,
     mode: z.enum(["posted", "working"]).default(DEFAULT_BOOK_MODE),
     group_by: z.literal("month"),
+    measure: z.enum(["activity", "balance"]).optional(),
     payee: dimension,
+    account_types: z
+      .array(z.enum(["asset", "liability", "equity", "income", "expense"]))
+      .min(1)
+      .max(5)
+      .optional(),
+    account_ids: z.array(z.guid()).min(1).max(500).optional(),
     compare_from: dateSchema.optional(),
     compare_to: dateSchema.optional(),
   })
@@ -215,14 +227,18 @@ export const breakdownFilterSchema = z
     (v) =>
       v.from <= v.to &&
       Boolean(v.compare_from) === Boolean(v.compare_to) &&
-      (!v.compare_from || v.compare_from <= v.compare_to!),
+      (!v.compare_from || v.compare_from <= v.compare_to!) &&
+      // A balance has no contact; the books refuse the pair.
+      !(v.measure === "balance" && v.payee),
     "Choose valid current and comparison dates.",
   );
 export type BreakdownFilter = z.infer<typeof breakdownFilterSchema>;
 type BreakdownAmounts = {
-  income_cents: string;
-  expense_cents: string;
-  net_cents: string;
+  income_cents?: string;
+  expense_cents?: string;
+  net_cents?: string;
+  /** Measure balance: the balance at each period's end. */
+  balance_cents?: string;
 };
 export interface BreakdownData {
   from: string;

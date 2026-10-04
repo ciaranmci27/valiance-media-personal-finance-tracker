@@ -1,5 +1,6 @@
 import type {
   BreakdownData,
+  BreakdownFilter,
   ReportAccount,
   ReportData,
   ReportDetail,
@@ -8,8 +9,8 @@ import type {
 } from "./reports";
 
 /**
- * A synthetic studio's books for demo mode, so the profit and loss renders
- * in full without a database. Every figure is generated from a fixed seed:
+ * A synthetic studio's books for demo mode, so the profit and loss and the
+ * balance sheet render in full without a database. Every figure is generated from a fixed seed:
  * nothing here is, or is derived from, real company data. Reports are built
  * from the same journal lines the drill-down lists, so totals, months,
  * contacts and comparisons always agree with each other.
@@ -33,6 +34,15 @@ const ACCOUNTS: DemoAccount[] = [
   { n: 1, code: "1000", name: "Operating checking", type: "asset", purpose: "checking", subtype: "bank", cash: "bank" },
   { n: 2, code: "1010", name: "Reserve savings", type: "asset", purpose: "savings", subtype: "bank", cash: "bank" },
   { n: 3, code: "2000", name: "Business card", type: "liability", purpose: "business_card", subtype: "card", cash: "card" },
+  { n: 4, code: "2110", name: "Payroll taxes payable", type: "liability", purpose: "payroll_taxes_payable", subtype: "payroll_liability" },
+  { n: 5, code: "2100", name: "Net salary payable", type: "liability", purpose: "net_salary_payable", subtype: "payroll_liability" },
+  { n: 6, code: "2500", name: "Equipment loan", type: "liability", purpose: "loans_payable", subtype: "loan" },
+  { n: 7, code: "1500", name: "Equipment", type: "asset", purpose: "equipment", subtype: "fixed_asset" },
+  { n: 40, code: "3100", name: "Owner contributions", type: "equity", purpose: "contributions", subtype: "owner_equity" },
+  { n: 41, code: "3200", name: "Owner distributions", type: "equity", purpose: "distributions", subtype: "owner_equity" },
+  { n: 42, code: "3300", name: "Owner Investment / Drawings", type: "equity", purpose: "", subtype: "owner_equity" },
+  { n: 43, code: "3910", name: "Opening retained earnings", type: "equity", purpose: "opening_retained_earnings", subtype: "retained_earnings" },
+  { n: 44, code: "3000", name: "Owner's Equity", type: "equity", purpose: "", subtype: "owner_equity" },
   { n: 10, code: "4000", name: "Consulting revenue", type: "income", purpose: "consulting" },
   { n: 11, code: "4100", name: "Retainer revenue", type: "income", purpose: "retainers" },
   { n: 12, code: "4200", name: "Product and SaaS revenue", type: "income", purpose: "products" },
@@ -198,82 +208,258 @@ function lines(): Line[] {
 const byNumber = new Map(ACCOUNTS.map((a) => [a.n, a]));
 const partyName = new Map(PARTIES.map((p) => [p.n, p.name]));
 
-function live(line: Line, filter: { mode: string; payee?: string }) {
-  if (line.draft && filter.mode !== "working") return false;
+/** One journal line: debit positive, credit negative, as the books keep them. */
+type JournalLine = { account: number; amount: bigint };
+type Entry = {
+  key: string;
+  date: string;
+  memo: string;
+  party: number | null;
+  draft: boolean;
+  lines: JournalLine[];
+};
+
+/** Expenses the studio puts on the business card; the rest leave checking. */
+const CARD_PAID = new Set([21, 22, 23, 24, 27, 29, 35]);
+const pad = (n: number) => String(n).padStart(2, "0");
+const monthKey = (year: number, month: number) => `${year}-${pad(month)}`;
+
+/**
+ * The studio's whole journal, double entry. Every profit and loss line above
+ * becomes an entry against checking, savings, the card or payroll taxes
+ * payable; balance-sheet activity is added around it: the opening capital
+ * and retained earnings, card payments, payroll tax deposits, an equipment
+ * loan, a laptop, quarterly owner distributions, savings transfers and one
+ * payroll advance that leaves Net salary payable below zero.
+ */
+let journal: Entry[] | null = null;
+function entries(): Entry[] {
+  if (journal) return journal;
+  const out: Entry[] = [];
+  const push = (
+    date: string,
+    memo: string,
+    party: number | null,
+    lines: JournalLine[],
+    draft = false,
+    key = `${date}-j${out.length}`,
+  ) => out.push({ key, date, memo, party, draft, lines });
+  const cards = new Map<string, bigint>(),
+    taxes = new Map<string, bigint>();
+  const accrue = (map: Map<string, bigint>, date: string, amount: bigint) =>
+    map.set(date.slice(0, 7), (map.get(date.slice(0, 7)) ?? ZERO) + amount);
+  for (const l of lines()) {
+    const a = byNumber.get(l.account)!;
+    let counter: JournalLine[];
+    if (a.type === "income")
+      counter = [{ account: l.account === 14 ? 2 : 1, amount: l.cents }];
+    else if (l.account === 31) {
+      // Net pay leaves checking; the withholding waits in payroll taxes payable.
+      const withheld = (l.cents * BigInt(20)) / BigInt(100);
+      counter = [
+        { account: 1, amount: -(l.cents - withheld) },
+        { account: 4, amount: -withheld },
+      ];
+      accrue(taxes, l.date, withheld);
+    } else if (l.account === 32) {
+      counter = [{ account: 4, amount: -l.cents }];
+      accrue(taxes, l.date, l.cents);
+    } else if (CARD_PAID.has(l.account)) {
+      counter = [{ account: 3, amount: -l.cents }];
+      accrue(cards, l.date, l.cents);
+    } else counter = [{ account: 1, amount: -l.cents }];
+    push(
+      l.date,
+      l.memo,
+      l.party,
+      [
+        { account: l.account, amount: a.type === "income" ? -l.cents : l.cents },
+        ...counter,
+      ],
+      l.draft,
+      l.key,
+    );
+  }
+  const move = (
+    date: string,
+    memo: string,
+    party: number | null,
+    debit: number,
+    credit: number,
+    cents: number | bigint,
+  ) => {
+    const amount = BigInt(cents);
+    if (amount > ZERO)
+      push(date, memo, party, [
+        { account: debit, amount },
+        { account: credit, amount: -amount },
+      ]);
+  };
+  move("2023-12-31", "Opening balance from the prior books", null, 1, 43, 800000);
+  move("2024-01-02", "Owner contribution", 10, 1, 40, 2500000);
+  // One owner account carries money both ways, as imported charts often do.
+  move("2024-06-03", "Owner transfer in", 10, 1, 42, 150000);
+  move("2024-11-15", "Owner transfer in", 10, 1, 42, 1200000);
+  move("2025-03-10", "Owner draw", 10, 42, 1, 450000);
+  move("2025-09-22", "Owner transfer in", 10, 1, 42, 600000);
+  move("2026-01-12", "Owner draw", 10, 42, 1, 900000);
+  move("2026-07-08", "Owner draw", 10, 42, 1, 350000);
+  move("2023-12-31", "Opening owner's equity", null, 1, 44, 215500);
+  move("2025-02-03", "Equipment loan funded", 7, 1, 6, 1000000);
+  move("2025-06-12", "Laptop", null, 7, 3, 320000);
+  accrue(cards, "2025-06-12", BigInt(320000));
+  move("2026-08-29", "Payroll advance", 10, 5, 1, 25000);
+  let loan = BigInt(1000000);
+  for (let year = 2024; year <= 2026; year++)
+    for (let month = 1; month <= 12; month++) {
+      const key = monthKey(year, month);
+      const next = month === 12 ? monthKey(year + 1, 1) : monthKey(year, month + 1);
+      // Last month's card charges are paid on the 25th; payroll taxes on the 15th.
+      move(`${next}-25`, "Card payment", null, 3, 1, cards.get(key) ?? ZERO);
+      move(`${next}-15`, "Payroll tax deposit", 12, 4, 1, taxes.get(key) ?? ZERO);
+      if (month % 3 === 0)
+        move(
+          `${key}-28`,
+          "Owner distribution",
+          10,
+          41,
+          1,
+          year === 2024 ? 600000 : year === 2025 ? 1200000 : 1500000,
+        );
+      if (year >= 2025 && month % 3 === 1)
+        move(`${key}-05`, "Transfer to savings", null, 2, 1, 300000);
+      if (key >= "2025-03" && loan > ZERO) {
+        move(`${key}-20`, "Loan payment", 7, 6, 1, BigInt(50000));
+        loan -= BigInt(50000);
+      }
+    }
+  journal = out.sort((a, b) => a.date.localeCompare(b.date));
+  return journal;
+}
+
+function live(entry: Entry, filter: { mode: string; payee?: string }) {
+  if (entry.draft && filter.mode !== "working") return false;
   if (!filter.payee) return true;
   return filter.payee === "unassigned"
-    ? line.party === null
-    : line.party !== null && partyId(line.party) === filter.payee;
+    ? entry.party === null
+    : entry.party !== null && partyId(entry.party) === filter.payee;
 }
 const inRange = (date: string, from?: string, to?: string) =>
   !!from && !!to && date >= from && date <= to;
+const typeOf = (n: number) => byNumber.get(n)!.type;
+const yearStart = (date: string) => `${date.slice(0, 4)}-01-01`;
 
-/** A synthetic profit and loss for any period, comparison, scope and contact. */
+/** Sum the lines of `set` that pass `match`. */
+function total(
+  set: Entry[],
+  match: (line: JournalLine, entry: Entry) => boolean,
+): bigint {
+  let s = ZERO;
+  for (const e of set) for (const l of e.lines) if (match(l, e)) s += l.amount;
+  return s;
+}
+
+/** A synthetic report for any period or as-of date, comparison, scope and contact. */
 export function demoReportData(filter: ReportFilter): ReportData {
-  const all = lines().filter((l) => live(l, filter));
-  const current = all.filter((l) => inRange(l.date, filter.from, filter.to));
-  const previous = all.filter((l) =>
-    inRange(l.date, filter.compare_from, filter.compare_to),
-  );
-  const sum = (set: Line[], match: (l: Line) => boolean) =>
-    set.reduce((s, l) => (match(l) ? s + l.cents : s), ZERO);
-  const typeOf = (l: Line) => byNumber.get(l.account)!.type;
-  const totals = (set: Line[]): ReportTotals => {
-    const income = sum(set, (l) => typeOf(l) === "income"),
-      expense = sum(set, (l) => typeOf(l) === "expense");
+  const all = entries().filter((e) => live(e, filter));
+  const comparing = !!filter.compare_from && !!filter.compare_to;
+  const until = (date?: string) => all.filter((e) => !!date && e.date <= date);
+  const between = (from?: string, to?: string) =>
+    all.filter((e) => inRange(e.date, from, to));
+  const current = between(filter.from, filter.to);
+  const previous = comparing
+    ? between(filter.compare_from, filter.compare_to)
+    : [];
+  const ending = until(filter.to),
+    compareEnding = comparing ? until(filter.compare_to) : [];
+  const before = (date: string) => all.filter((e) => e.date < date);
+  const priorSet = before(yearStart(filter.to)),
+    yearSet = between(yearStart(filter.to), filter.to);
+  const comparePrior = comparing ? before(yearStart(filter.compare_to!)) : [],
+    compareYear = comparing
+      ? between(yearStart(filter.compare_to!), filter.compare_to)
+      : [];
+  const of = (n: number) => (l: JournalLine) => l.account === n;
+  const ofType = (type: string) => (l: JournalLine) => typeOf(l.account) === type;
+  const result = (l: JournalLine) =>
+    typeOf(l.account) === "income" || typeOf(l.account) === "expense";
+  const totals = (
+    period: Entry[],
+    end: Entry[],
+    prior: Entry[],
+    year: Entry[],
+  ): ReportTotals => {
+    const income = -total(period, ofType("income")),
+      expense = total(period, ofType("expense")),
+      assets = total(end, ofType("asset")),
+      liabilities = -total(end, ofType("liability")),
+      equity = -total(end, ofType("equity")),
+      priorProfit = -total(prior, result),
+      yearProfit = -total(year, result);
     return {
       income_cents: income.toString(),
       cogs_cents: "0",
       expense_cents: expense.toString(),
       net_cents: (income - expense).toString(),
-      assets_cents: "0",
-      liabilities_cents: "0",
-      equity_cents: "0",
-      prior_cents: "0",
-      year_cents: (income - expense).toString(),
-      difference_cents: "0",
-      cash_opening_cents: "0",
-      cash_ending_cents: "0",
+      assets_cents: assets.toString(),
+      liabilities_cents: liabilities.toString(),
+      equity_cents: equity.toString(),
+      prior_cents: priorProfit.toString(),
+      year_cents: yearProfit.toString(),
+      difference_cents: (
+        assets -
+        liabilities -
+        equity -
+        priorProfit -
+        yearProfit
+      ).toString(),
+      cash_opening_cents: total(
+        before(filter.from),
+        (l) => ["bank", "cash"].includes(byNumber.get(l.account)!.cash ?? ""),
+      ).toString(),
+      cash_ending_cents: total(end, (l) =>
+        ["bank", "cash"].includes(byNumber.get(l.account)!.cash ?? ""),
+      ).toString(),
     };
   };
-  const t = totals(current);
   const accounts: ReportAccount[] = ACCOUNTS.map((a) => {
-    const signed = (set: Line[]) => {
-      if (a.type === "income") return -sum(set, (l) => l.account === a.n);
-      if (a.type === "expense") return sum(set, (l) => l.account === a.n);
-      // Every receipt and payment runs through checking.
-      if (a.n === 1)
-        return (
-          sum(set, (l) => typeOf(l) === "income") -
-          sum(set, (l) => typeOf(l) === "expense")
-        );
-      return ZERO;
-    };
-    const period = signed(current),
-      compare = signed(previous);
+    const period = total(current, of(a.n)),
+      opening = total(before(filter.from), of(a.n));
+    const debit = current.reduce(
+      (s, e) =>
+        s + e.lines.reduce((t, l) => (l.account === a.n && l.amount > ZERO ? t + l.amount : t), ZERO),
+      ZERO,
+    );
     return {
       id: id(a.n),
       name: a.name,
       code: a.code,
       account_type: a.type,
-      normal_side: a.type === "asset" || a.type === "expense" ? "debit" : "credit",
+      normal_side:
+        a.type === "asset" || a.type === "expense" ? "debit" : "credit",
       is_archived: false,
       parent_account_id: null,
       parent_name: null,
-      subtype: a.subtype ?? (a.type === "income" ? "revenue" : a.type === "expense" ? "operating_expense" : "other"),
-      purpose: a.purpose,
+      subtype:
+        a.subtype ??
+        (a.type === "income"
+          ? "revenue"
+          : a.type === "expense"
+            ? "operating_expense"
+            : "other"),
+      purpose: a.purpose || null,
       cash_kind: a.cash ?? "none",
-      opening_cents: "0",
-      debit_cents: (period > ZERO ? period : ZERO).toString(),
-      credit_cents: (period < ZERO ? -period : ZERO).toString(),
+      opening_cents: opening.toString(),
+      debit_cents: debit.toString(),
+      credit_cents: (debit - period).toString(),
       period_cents: period.toString(),
-      ending_cents: period.toString(),
-      prior_cents: "0",
-      year_cents: period.toString(),
-      compare_period_cents: compare.toString(),
-      compare_ending_cents: compare.toString(),
-      compare_prior_cents: "0",
-      compare_year_cents: compare.toString(),
+      ending_cents: total(ending, of(a.n)).toString(),
+      prior_cents: total(priorSet, of(a.n)).toString(),
+      year_cents: total(yearSet, of(a.n)).toString(),
+      compare_period_cents: total(previous, of(a.n)).toString(),
+      compare_ending_cents: total(compareEnding, of(a.n)).toString(),
+      compare_prior_cents: total(comparePrior, of(a.n)).toString(),
+      compare_year_cents: total(compareYear, of(a.n)).toString(),
     };
   });
   const monthly: ReportData["monthly"] = [];
@@ -283,9 +469,9 @@ export function demoReportData(filter: ReportFilter): ReportData {
     m = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth() + 1, 1))
   ) {
     const key = m.toISOString().slice(0, 7);
-    const set = current.filter((l) => l.date.startsWith(key));
-    const income = sum(set, (l) => typeOf(l) === "income"),
-      expense = sum(set, (l) => typeOf(l) === "expense");
+    const set = current.filter((e) => e.date.startsWith(key));
+    const income = -total(set, ofType("income")),
+      expense = total(set, ofType("expense"));
     monthly.push({
       month: `${key}-01`,
       income_cents: income.toString(),
@@ -293,18 +479,19 @@ export function demoReportData(filter: ReportFilter): ReportData {
       net_cents: (income - expense).toString(),
     });
   }
-  const contacts = new Set(
-    [...current, ...previous].map((l) => (l.party === null ? "unassigned" : partyId(l.party))),
-  );
-  const ofContact = (set: Line[], contact: string, type: string) =>
-    sum(
+  const contactOf = (e: Entry) =>
+    e.party === null ? "unassigned" : partyId(e.party);
+  const touched = [...current, ...previous].filter((e) => e.lines.some(result));
+  const contacts = new Set(touched.map(contactOf));
+  const ofContact = (set: Entry[], contact: string, type: "income" | "expense") => {
+    const amount = total(
       set,
-      (l) =>
-        typeOf(l) === type &&
-        (l.party === null ? "unassigned" : partyId(l.party)) === contact,
-    ).toString();
-  const drafts = lines().filter(
-    (l) => l.draft && inRange(l.date, filter.from, filter.to),
+      (l, e) => typeOf(l.account) === type && contactOf(e) === contact,
+    );
+    return (type === "income" ? -amount : amount).toString();
+  };
+  const drafts = entries().filter(
+    (e) => e.draft && inRange(e.date, filter.from, filter.to),
   ).length;
   return {
     legal_name: "Demo Studio LLC",
@@ -315,8 +502,8 @@ export function demoReportData(filter: ReportFilter): ReportData {
     generated_at: `${filter.to}T15:00:00Z`,
     filter: { ...filter, offset: 0 },
     accounts,
-    totals: t,
-    comparison: filter.compare_from ? totals(previous) : totals([]),
+    totals: totals(current, ending, priorSet, yearSet),
+    comparison: totals(previous, compareEnding, comparePrior, compareYear),
     monthly,
     dimensions: [...contacts].map((contact) => ({
       kind: "payee" as const,
@@ -358,12 +545,16 @@ export function demoReportData(filter: ReportFilter): ReportData {
  */
 export function demoBreakdown(filter: ReportFilter): BreakdownData {
   const report = demoReportData(filter);
-  const all = lines().filter((l) => live(l, filter));
+  const all = entries().filter((e) => live(e, filter));
   const monthStart = (d: string) => d.slice(8, 10) === "01";
   const byMonths =
-    !!filter.compare_from && monthStart(filter.from) && monthStart(filter.compare_from);
+    !!filter.compare_from &&
+    monthStart(filter.from) &&
+    monthStart(filter.compare_from);
   const monthShift = byMonths
-    ? (Number(filter.from.slice(0, 4)) - Number(filter.compare_from!.slice(0, 4))) * 12 +
+    ? (Number(filter.from.slice(0, 4)) -
+        Number(filter.compare_from!.slice(0, 4))) *
+        12 +
       Number(filter.from.slice(5, 7)) -
       Number(filter.compare_from!.slice(5, 7))
     : 0;
@@ -372,18 +563,28 @@ export function demoBreakdown(filter: ReportFilter): BreakdownData {
     : 0;
   const bucket = (date: string) => {
     if (byMonths) {
-      const d = new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1 + monthShift, 1));
+      const d = new Date(
+        Date.UTC(
+          Number(date.slice(0, 4)),
+          Number(date.slice(5, 7)) - 1 + monthShift,
+          1,
+        ),
+      );
       return d.toISOString().slice(0, 7);
     }
-    return new Date(Date.parse(date) + dayShift * 86400000).toISOString().slice(0, 7);
+    return new Date(Date.parse(date) + dayShift * 86400000)
+      .toISOString()
+      .slice(0, 7);
   };
   const compare = new Map<string, { income: bigint; expense: bigint }>();
-  for (const l of all) {
-    if (!inRange(l.date, filter.compare_from, filter.compare_to)) continue;
-    const key = bucket(l.date),
+  for (const e of all) {
+    if (!inRange(e.date, filter.compare_from, filter.compare_to)) continue;
+    const key = bucket(e.date),
       entry = compare.get(key) ?? { income: ZERO, expense: ZERO };
-    if (byNumber.get(l.account)!.type === "income") entry.income += l.cents;
-    else if (byNumber.get(l.account)!.type === "expense") entry.expense += l.cents;
+    for (const l of e.lines) {
+      if (typeOf(l.account) === "income") entry.income -= l.amount;
+      else if (typeOf(l.account) === "expense") entry.expense += l.amount;
+    }
     compare.set(key, entry);
   }
   return {
@@ -393,7 +594,10 @@ export function demoBreakdown(filter: ReportFilter): BreakdownData {
       ? { from: filter.compare_from, to: filter.compare_to! }
       : null,
     rows: report.monthly.map((m) => {
-      const c = compare.get(m.month.slice(0, 7)) ?? { income: ZERO, expense: ZERO };
+      const c = compare.get(m.month.slice(0, 7)) ?? {
+        income: ZERO,
+        expense: ZERO,
+      };
       return {
         key: m.month,
         label: m.month.slice(0, 7),
@@ -421,41 +625,95 @@ export function demoBreakdown(filter: ReportFilter): BreakdownData {
   };
 }
 
+/**
+ * Month-end balances as accounting.breakdown answers measure balance: each
+ * account on its normal side (assets and expenses debit positive, the rest
+ * credit positive), for the accounts asked for, or by default bank and cash.
+ */
+export function demoBalanceBreakdown(filter: BreakdownFilter): BreakdownData {
+  const chosen = ACCOUNTS.filter((a) =>
+    filter.account_ids
+      ? filter.account_ids.includes(id(a.n))
+      : filter.account_types
+        ? (filter.account_types as string[]).includes(a.type)
+        : a.subtype === "bank" || a.subtype === "cash",
+  );
+  const sign = new Map(
+    chosen.map((a) => [
+      a.n,
+      a.type === "asset" || a.type === "expense" ? BigInt(1) : BigInt(-1),
+    ]),
+  );
+  const all = entries().filter((e) => live(e, { mode: filter.mode }));
+  const balanceAt = (date: string) => {
+    let s = ZERO;
+    for (const e of all)
+      if (e.date <= date)
+        for (const l of e.lines)
+          if (sign.has(l.account)) s += l.amount * sign.get(l.account)!;
+    return s;
+  };
+  const rows: BreakdownData["rows"] = [];
+  for (
+    let m = new Date(`${filter.from.slice(0, 7)}-01T00:00:00Z`);
+    m.toISOString().slice(0, 7) <= filter.to.slice(0, 7);
+    m = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth() + 1, 1))
+  ) {
+    const key = m.toISOString().slice(0, 10);
+    const end = new Date(Date.UTC(m.getUTCFullYear(), m.getUTCMonth() + 1, 0))
+      .toISOString()
+      .slice(0, 10);
+    rows.push({
+      key,
+      label: key.slice(0, 7),
+      count: 0,
+      balance_cents: balanceAt(end < filter.to ? end : filter.to).toString(),
+    });
+  }
+  return {
+    from: filter.from,
+    to: filter.to,
+    compare: null,
+    rows,
+    total: { balance_cents: balanceAt(filter.to).toString() },
+    revision: "4821",
+  };
+}
+
 /** The journal lines behind a drill-down, the way report_lines pages them. */
 export async function demoReportDetail(
   filter: ReportFilter,
 ): Promise<ReportDetail> {
-  const matching = lines().filter((l) => {
-    const account = byNumber.get(l.account)!;
-    return (
-      live(l, filter) &&
-      inRange(l.date, filter.from, filter.to) &&
-      (!filter.account_ids || filter.account_ids.includes(id(l.account))) &&
-      (!filter.account_types ||
-        (filter.account_types as string[]).includes(account.type))
-    );
-  });
+  const rows: ReportDetail["rows"] = [];
   let running = ZERO;
-  const rows = matching.map((l) => {
-    const account = byNumber.get(l.account)!;
-    // Journal sign: income is a credit (negative), expense a debit.
-    const amount = account.type === "income" ? -l.cents : l.cents;
-    running += amount;
-    return {
-      id: `line-${l.key}`,
-      entry_id: `entry-${l.key}`,
-      entry_date: l.date,
-      memo: `${l.memo}${l.party !== null ? `, ${partyName.get(l.party)}` : ""}`,
-      line_memo: "",
-      account_id: id(l.account),
-      account_name: account.name,
-      account_type: account.type,
-      amount_cents: amount.toString(),
-      running_cents: running.toString(),
-      status: l.draft ? "draft" : "posted",
-      primary_origin: "bank_feed",
-    };
-  });
+  for (const e of entries()) {
+    if (!live(e, filter) || !inRange(e.date, filter.from, filter.to)) continue;
+    e.lines.forEach((l, i) => {
+      const account = byNumber.get(l.account)!;
+      if (filter.account_ids && !filter.account_ids.includes(id(l.account)))
+        return;
+      if (
+        filter.account_types &&
+        !(filter.account_types as string[]).includes(account.type)
+      )
+        return;
+      running += l.amount;
+      rows.push({
+        id: `line-${e.key}-${i}`,
+        entry_id: `entry-${e.key}`,
+        entry_date: e.date,
+        memo: `${e.memo}${e.party !== null ? `, ${partyName.get(e.party)}` : ""}`,
+        line_memo: "",
+        account_id: id(l.account),
+        account_name: account.name,
+        account_type: account.type,
+        amount_cents: l.amount.toString(),
+        running_cents: running.toString(),
+        status: e.draft ? "draft" : "posted",
+        primary_origin: "bank_feed",
+      });
+    });
+  }
   const offset = filter.offset ?? 0;
   return {
     revision: "4821",

@@ -169,7 +169,7 @@ async function main() {
   );
   const months = demoBreakdown(filter);
   check(
-    sum(months.rows.map((r) => r.compare!.income_cents)),
+    sum(months.rows.map((r) => r.compare?.income_cents ?? "0")),
     data.comparison.income_cents,
     "Comparison months add up to the comparison period",
   );

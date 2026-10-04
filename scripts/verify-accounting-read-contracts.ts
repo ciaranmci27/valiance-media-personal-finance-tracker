@@ -225,6 +225,33 @@ async function main() {
       "12345",
     );
     check(months.rows[0].compare?.income_cents, "0");
+    // A balance sheet reads from the start of the books: debits and credits are lifetime.
+    const lifetime = await read("report", {
+      p_filter: { ...filter, from: "1900-01-01" },
+    });
+    const checking = lifetime.accounts.find(
+      (a: { id: string }) => a.id === fixtureAccountId(1),
+    );
+    check(
+      [checking.opening_cents, checking.debit_cents, checking.credit_cents, checking.ending_cents],
+      ["0", "12345", "100", "12245"],
+    );
+    // The balance sheet's month-end balances: assets, and bank and cash by default.
+    const assets = await read("breakdown", {
+      p_filter: {
+        ...filter,
+        group_by: "month",
+        measure: "balance",
+        account_types: ["asset"],
+      },
+    });
+    check(assets.rows.length, 6);
+    check(assets.rows.at(-1)?.balance_cents, "12345");
+    check(assets.rows[0].balance_cents, "0");
+    const bankCash = await read("breakdown", {
+      p_filter: { ...filter, group_by: "month", measure: "balance" },
+    });
+    check(bankCash.rows.at(-1)?.balance_cents, "12345");
     check(
       Array.isArray(
         (await read("ledger-report", { p_filter: filter })).accounts,

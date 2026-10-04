@@ -1,26 +1,11 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import {
-  BarChart3,
-  ChevronDown,
-  CircleAlert,
-  Download,
-  FileSpreadsheet,
-  FileText,
-  Minus,
-  RefreshCw,
-  TrendingDown,
-  TrendingUp,
-} from "lucide-react";
+import { BarChart3, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { DateInput } from "@/components/ui/inputs/DateInput";
-import { Disclosure } from "@/components/ui/disclosure";
 import { MaskedValue, useMaskedHover } from "@/components/ui/masked-value";
-import { RowActionsMenu } from "@/components/ui/row-actions-menu";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Sparkline } from "@/components/ui/sparkline";
 import {
   ProfitLossChart,
   type ChartMetric,
@@ -75,54 +60,38 @@ import {
   demoReportDetail,
 } from "@/lib/accounting/demo-reports";
 import type { BooksMetadata } from "./types";
-import { AccountingPicker } from "./accounting-picker";
 import { AccountingPageHeader } from "./accounting-page-header";
 import { AccountingReportDetail } from "./accounting-report-detail";
 import { useAccountingRead } from "./use-accounting-read";
 import { useReportExport } from "./use-report-export";
-import { countLabel, dateLabel, money, timestampLabel, todayInBooks } from "./format";
+import { todayInBooks } from "./format";
 import {
-  BreakdownList,
   ChangesList,
   ConcentrationNote,
   DollarCard,
+} from "./profit-loss-sections";
+import {
+  CoverageDisclosure,
+  ExportMenu,
+  FilterChip,
   HealthLine,
+  MetricTile,
+  RankedList,
+  ReportSkeleton,
+  ScopeNotice,
   SectionCard,
   Segmented,
   StatementTable,
-} from "./profit-loss-sections";
+  readReportFilter,
+  writeReportFilter,
+} from "./report-kit";
 
 const ZERO = BigInt(0);
 const lowerFirst = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 type Metric = ChartMetric;
 type View = "monthly" | "running";
 
-/** The filter in the address bar, or the default when it is absent or broken. */
-function readFilter(raw: string | null, fallback: ReportFilter): ReportFilter {
-  try {
-    const value = reportFilterSchema.parse(JSON.parse(raw ?? "null"));
-    return {
-      ...value,
-      account_ids: undefined,
-      account_types: undefined,
-      cash_class: undefined,
-      offset: 0,
-    };
-  } catch {
-    /* A broken link must not change the report scope. */
-  }
-  return fallback;
-}
 
-/** Writes the filter to the address bar; the screen reads it back from there. */
-function writeFilter(filter: ReportFilter, replace = false) {
-  const parsed = reportFilterSchema.safeParse(filter);
-  if (!parsed.success) return;
-  const url = new URL(window.location.href);
-  url.searchParams.set("report_filter", JSON.stringify(parsed.data));
-  if (replace) window.history.replaceState(null, "", url);
-  else window.history.pushState(null, "", url);
-}
 
 const metricCopy: Record<
   Metric,
@@ -177,7 +146,7 @@ export function AccountingProfitLoss({
   const fallback = demo
     ? defaultReportFilter(`${today.slice(0, 4)}-01-01`, today)
     : defaultReportFilter(from, to);
-  const filter = readFilter(params.get("report_filter"), fallback);
+  const filter = readReportFilter(params.get("report_filter"), fallback);
   const signature = JSON.stringify(filter);
   const preset = presetOf(filter.from, filter.to, today);
   const compareMode = compareModeOf(filter);
@@ -262,7 +231,7 @@ export function AccountingProfitLoss({
       if (mode === "year") Object.assign(next, samePeriodLastYear(next.from, next.to));
     }
     setDrill(null);
-    writeFilter(next, replace);
+    writeReportFilter(next, replace);
   }
   function choosePreset(value: PeriodPreset | "custom") {
     if (value === "custom") {
@@ -301,65 +270,24 @@ export function AccountingProfitLoss({
       title="Profit & loss"
       subtitle="What the business earned, what it cost, and what was left."
       actions={
-        <RowActionsMenu
+        <ExportMenu
           label="Export profit and loss"
-          align="end"
-          trigger={
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={!data || loading || !!exporter.exporting}
-              aria-label="Export"
-            >
-              <Download aria-hidden="true" />
-              {exporter.exporting
-                ? `Preparing ${exporter.exporting.toUpperCase()}...`
-                : "Export"}
-              <ChevronDown aria-hidden="true" className="opacity-60" />
-            </Button>
+          disabled={!data || loading}
+          exporting={exporter.exporting}
+          demo={demo}
+          onExport={(format) =>
+            data &&
+            void exporter.run(
+              data,
+              {
+                report_id: "profit-loss",
+                show_zero: false,
+                details: detail,
+                layout: 2,
+              },
+              format,
+            )
           }
-          actions={[
-            {
-              label: "PDF",
-              description: demo
-                ? "Available with your own books"
-                : "Branded statement for your accountant",
-              icon: <FileText />,
-              disabled: demo,
-              onSelect: () =>
-                data &&
-                void exporter.run(
-                  data,
-                  {
-                    report_id: "profit-loss",
-                    show_zero: false,
-                    details: detail,
-                    layout: 2,
-                  },
-                  "pdf",
-                ),
-            },
-            {
-              label: "CSV",
-              description: demo
-                ? "Available with your own books"
-                : "Every account, ready for a spreadsheet",
-              icon: <FileSpreadsheet />,
-              disabled: demo,
-              onSelect: () =>
-                data &&
-                void exporter.run(
-                  data,
-                  {
-                    report_id: "profit-loss",
-                    show_zero: false,
-                    details: detail,
-                    layout: 2,
-                  },
-                  "csv",
-                ),
-            },
-          ]}
         />
       }
     />
@@ -511,7 +439,7 @@ export function AccountingProfitLoss({
         </p>
       )}
       {loading && !data ? (
-        <ProfitLossSkeleton />
+        <ReportSkeleton label="Preparing profit and loss" />
       ) : data && model ? (
         <div
           aria-busy={updating || undefined}
@@ -572,107 +500,7 @@ export function AccountingProfitLoss({
   );
 }
 
-/** A picker sized as a chip for the controls row: muted name, then the choice. */
-function FilterChip({
-  label,
-  value,
-  options,
-  onChange,
-  searchable = false,
-}: {
-  label: string;
-  value: string;
-  options: { value: string; label: string }[];
-  onChange: (value: string) => void;
-  searchable?: boolean;
-}) {
-  const chosen = options.find((o) => o.value === value)?.label ?? options[0]?.label;
-  return (
-    <AccountingPicker
-      ariaLabel={label}
-      value={value}
-      options={options}
-      onChange={onChange}
-      searchable={searchable}
-      className="w-auto"
-      triggerClassName="h-8 min-h-0 gap-1.5 rounded-lg border-0 bg-[rgba(var(--ink),0.045)] px-3 text-[13px] shadow-[inset_0_0_0_1px_rgba(var(--ink),0.06)] hover:bg-[rgba(var(--ink),0.08)]"
-    >
-      <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="max-w-[11rem] truncate font-medium">{chosen}</span>
-      </span>
-    </AccountingPicker>
-  );
-}
 
-function ScopeNotice({
-  data,
-  onReview,
-}: {
-  data: ReportData;
-  onReview: () => void;
-}) {
-  const working = data.filter.mode === "working";
-  const awaiting = working
-    ? data.quality.draft_count - data.quality.unbalanced_drafts
-    : data.quality.draft_count;
-  const uncategorized = working
-    ? uncategorizedCents(
-        data.accounts,
-        (a) => a.purpose,
-        (a) => a.period_cents,
-      )
-    : ZERO;
-  const parts: React.ReactNode[] = [];
-  if (working && awaiting > 0)
-    parts.push(`Includes ${countLabel(awaiting, "transaction")} awaiting review.`);
-  if (!working && awaiting > 0)
-    parts.push(
-      `${countLabel(awaiting, "transaction")} awaiting review ${awaiting === 1 ? "is" : "are"} not included.`,
-    );
-  if (uncategorized > ZERO)
-    parts.push(
-      <>
-        <MaskedValue value={money(uncategorized)} /> is still uncategorized.
-      </>,
-    );
-  if (working && data.quality.unbalanced_drafts > 0)
-    parts.push(
-      `${countLabel(data.quality.unbalanced_drafts, "incomplete transaction")} ${data.quality.unbalanced_drafts === 1 ? "is" : "are"} left out.`,
-    );
-  if (data.quality.uncategorized_lines > 0)
-    parts.push(
-      `${countLabel(data.quality.uncategorized_lines, "reviewed line")} still ${data.quality.uncategorized_lines === 1 ? "needs" : "need"} a category.`,
-    );
-  if (!parts.length) return null;
-  return (
-    <div
-      role="status"
-      className="glass-card flex items-center justify-between gap-3 rounded-xl px-4 py-3"
-    >
-      <p className="flex min-w-0 items-start gap-2.5 text-sm">
-        <CircleAlert
-          size={16}
-          aria-hidden="true"
-          className="mt-0.5 shrink-0 text-warning"
-        />
-        <span>
-          {parts.map((p, i) => (
-            <span key={i}>
-              {i > 0 && " "}
-              {p}
-            </span>
-          ))}
-        </span>
-      </p>
-      {(awaiting > 0 || uncategorized > ZERO) && (
-        <Button variant="outline" size="sm" onClick={onReview}>
-          Review
-        </Button>
-      )}
-    </div>
-  );
-}
 
 function EmptyPeriod({
   onYearToDate,
@@ -705,56 +533,6 @@ function EmptyPeriod({
   );
 }
 
-export function ProfitLossSkeleton() {
-  return (
-    <div role="status" aria-label="Preparing profit and loss" className="space-y-5 lg:space-y-6">
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="glass-card space-y-3 rounded-xl p-4 lg:p-5">
-            <div className="flex justify-between">
-              <Skeleton className="h-3.5 w-20" />
-              <Skeleton className="h-5 w-16" />
-            </div>
-            <Skeleton className="h-7 w-32" />
-            <Skeleton className="h-3 w-24" />
-          </div>
-        ))}
-      </div>
-      <div className="glass-card space-y-4 rounded-xl p-5 lg:p-6">
-        <div className="flex justify-between">
-          <Skeleton className="h-5 w-40" />
-          <Skeleton className="h-8 w-44 rounded-lg" />
-        </div>
-        <Skeleton className="h-[230px] w-full rounded-lg sm:h-[300px]" />
-      </div>
-      <div className="glass-card space-y-3 rounded-xl p-5 lg:p-6">
-        <Skeleton className="h-5 w-44" />
-        <Skeleton className="h-3 w-full rounded-full" />
-        <div className="flex gap-8">
-          <Skeleton className="h-8 w-24" />
-          <Skeleton className="h-8 w-24" />
-          <Skeleton className="h-8 w-24" />
-        </div>
-      </div>
-      <div className="grid gap-5 lg:grid-cols-2 lg:gap-6">
-        {[0, 1].map((i) => (
-          <div key={i} className="glass-card space-y-4 rounded-xl p-5 lg:p-6">
-            <Skeleton className="h-5 w-48" />
-            {[0, 1, 2, 3, 4].map((j) => (
-              <div key={j} className="space-y-1.5">
-                <div className="flex justify-between">
-                  <Skeleton className="h-3.5 w-1/3" />
-                  <Skeleton className="h-3.5 w-20" />
-                </div>
-                <Skeleton className="h-1.5 w-full rounded-full" />
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function Report({
   data,
@@ -1005,9 +783,9 @@ function Report({
             />
           }
         >
-          <BreakdownList
+          <RankedList
             rows={incomeRows}
-            tone="income"
+            tone="teal"
             onDrill={onDrill}
             empty="No income in this period."
           />
@@ -1033,9 +811,9 @@ function Report({
             />
           }
         >
-          <BreakdownList
+          <RankedList
             rows={expenseRows}
-            tone="expense"
+            tone="copper"
             onDrill={onDrill}
             empty="No expenses in this period."
           />
@@ -1072,7 +850,8 @@ function Report({
           <StatementTable
             model={model}
             rows={statement.rows}
-            income={current.income}
+            base={current.income}
+            shareHeader="% of income"
             detail={detail}
             onDrill={onDrill}
           />
@@ -1091,59 +870,15 @@ function Report({
         </div>
       </SectionCard>
 
-      <Disclosure
-        summary="Data coverage & reconciliation"
-        contentClassName="space-y-3 text-xs text-muted-foreground"
-      >
-        {model.footnotes
-          .filter(
-            (note) =>
-              !statement.costOfSalesHidden || !note.startsWith("Cost of sales uses"),
-          )
-          .map((note) => (
-            <p key={note}>{note}</p>
-          ))}
-        <p>
-          Reconciliation dates below are account-specific. A balanced ledger
-          alone does not establish that all historical transactions have been
-          imported.
-        </p>
-        {data.accounts
-          .filter((a) => ["bank", "cash", "card"].includes(a.cash_kind))
-          .map((a) => (
-            <div
-              key={a.id}
-              className="flex justify-between gap-4 border-t border-border pt-2"
-            >
-              <span>{a.name}</span>
-              <span>
-                {dateLabel(
-                  data.quality.reconciliations.find((r) => r.account_id === a.id)
-                    ?.through,
-                ) || "Not yet reconciled"}
-              </span>
-            </div>
-          ))}
-        {data.quality.feeds.map((f, i) => (
-          <div key={i} className="flex justify-between gap-4">
-            <span>{f.name}</span>
-            <span>
-              {f.last_success_at
-                ? `Last sync ${timestampLabel(f.last_success_at)}`
-                : "No successful sync"}{" "}
-              · {f.status}
-            </span>
-          </div>
-        ))}
-        <p>
-          Report definition {data.definition_version} ·{" "}
-          {data.filter.mode === "posted" ? "Reviewed only" : "All activity"}
-        </p>
-        <Button size="sm" variant="ghost" onClick={onReload}>
-          <RefreshCw aria-hidden="true" />
-          Refresh coverage
-        </Button>
-      </Disclosure>
+      <CoverageDisclosure
+        data={data}
+        notes={model.footnotes.filter(
+          (note) =>
+            !statement.costOfSalesHidden ||
+            !note.startsWith("Cost of sales uses"),
+        )}
+        onReload={onReload}
+      />
     </>
   );
 }
@@ -1169,126 +904,6 @@ function changeText(
   };
 }
 
-function MetricTile({
-  label,
-  value,
-  negative,
-  change,
-  context,
-  spark,
-  selected,
-  onSelect,
-}: {
-  label: string;
-  value: string;
-  negative: boolean;
-  change: { text: string; tone: "good" | "bad" | "flat" } | null;
-  context: string;
-  spark: number[];
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const { isHidden, isRevealed, showValue, hoverProps } = useMaskedHover();
-  const hide = isHidden && !isRevealed;
-  const [whole, cents] = value.includes(".") ? value.split(".") : [value, ""];
-  const Icon =
-    change?.tone === "flat" || hide
-      ? Minus
-      : change?.text.startsWith("-")
-        ? TrendingDown
-        : TrendingUp;
-  return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onSelect}
-      {...hoverProps}
-      className={cn(
-        "glass-card glass-card-interactive relative flex min-w-0 flex-col rounded-xl p-4 text-left lg:p-5",
-        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring",
-      )}
-    >
-      {/* The glass rule owns box-shadow and border, so the selected ring is its own layer. */}
-      <span
-        aria-hidden="true"
-        className={cn(
-          "pointer-events-none absolute -inset-px rounded-xl transition-opacity",
-          "bg-teal/[0.05] ring-[1.5px] ring-inset ring-teal/70",
-          selected ? "opacity-100" : "opacity-0",
-        )}
-      />
-      <span className="flex items-start justify-between gap-2">
-        <span className="text-xs font-medium text-muted-foreground lg:text-sm">
-          {label}
-        </span>
-        <Sparkline
-          data={spark}
-          width={64}
-          height={20}
-          className={cn(
-            "hidden min-[400px]:block",
-            selected ? "text-teal-light" : "text-muted-foreground/70",
-          )}
-        />
-      </span>
-      <span
-        className={cn(
-          "mt-1.5 text-xl font-semibold leading-none tracking-tight tabular-nums lg:text-[28px]",
-          !hide && negative && "text-error",
-        )}
-      >
-        {showValue ? (
-          <>
-            {whole}
-            {cents && (
-              <span className="text-[0.6em] font-medium text-muted-foreground">
-                .{cents}
-              </span>
-            )}
-          </>
-        ) : (
-          "•••••"
-        )}
-      </span>
-      <span className="mt-3 flex min-h-4 items-center gap-1 text-xs">
-        {change ? (
-          <>
-            <Icon
-              size={12}
-              aria-hidden="true"
-              className={cn(
-                "shrink-0",
-                hide
-                  ? "text-muted-foreground"
-                  : change.tone === "good"
-                    ? "text-success"
-                    : change.tone === "bad"
-                      ? "text-error"
-                      : "text-muted-foreground",
-              )}
-            />
-            <span
-              className={cn(
-                "min-w-0 truncate font-medium",
-                hide
-                  ? "text-muted-foreground"
-                  : change.tone === "good"
-                    ? "text-success"
-                    : change.tone === "bad"
-                      ? "text-error"
-                      : "text-muted-foreground",
-              )}
-            >
-              {showValue ? change.text : "Change hidden"}
-            </span>
-          </>
-        ) : (
-          <span className="truncate text-muted-foreground">{context}</span>
-        )}
-      </span>
-    </button>
-  );
-}
 
 function ChartLegend({
   metric,

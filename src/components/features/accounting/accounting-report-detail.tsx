@@ -241,7 +241,11 @@ export function AccountingReportDetail({
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-3 text-xs text-muted-foreground">
         <span>
-          {dateLabel(filter.from)} to {dateLabel(filter.to)} ·{" "}
+          {/* A cumulative (as-of) drill starts with the books, so it reads as "Through". */}
+          {filter.from <= "1900-01-01"
+            ? `Through ${dateLabel(filter.to)}`
+            : `${dateLabel(filter.from)} to ${dateLabel(filter.to)}`}{" "}
+          ·{" "}
           {filter.mode === "working" ? "All activity" : "Reviewed only"}
         </span>
         {data && <span>{countLabel(data.total, "journal line")}</span>}

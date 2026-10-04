@@ -466,6 +466,7 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
           ) : null}
           <Tiles statement={doc.statement} />
           <MonthlyChart statement={doc.statement} />
+          <EquityExplained statement={doc.statement} />
           <Statement statement={doc.statement} />
           {notes}
           {footer}
@@ -508,6 +509,114 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
             </View>
           );
         })}
+      </View>
+    );
+  }
+
+  /**
+   * The balance sheet's equity as a waterfall: each plain-language line
+   * moves the running total from where the last one left it, and the last
+   * bar is total equity, so the lines visibly add up.
+   */
+  function EquityExplained({ statement }: { statement: StatementDocument }) {
+    const equity = statement.equity;
+    if (!equity) return null;
+    const labelW = 168,
+      valueW = 92,
+      barW = 612 - MARGIN_X * 2 - labelW - valueW - 16;
+    let running = 0;
+    const steps = equity.lines.map((l) => {
+      const start = running;
+      running += l.amount;
+      return { ...l, start, end: running };
+    });
+    const points = [0, equity.total.amount, ...steps.flatMap((s) => [s.start, s.end])];
+    const low = Math.min(...points),
+      high = Math.max(...points),
+      span = high - low || 1;
+    const x = (v: number) => ((v - low) / span) * barW;
+    const bar = (from: number, to: number, fill: string) => {
+      const left = x(Math.min(from, to)),
+        width = Math.max(1, Math.abs(x(to) - x(from)));
+      return (
+        <Svg width={barW} height={9}>
+          <Line
+            x1={x(0)}
+            x2={x(0)}
+            y1={0}
+            y2={9}
+            stroke={paper.hairlineStrong}
+            strokeWidth={0.5}
+          />
+          <Rect x={left} y={1} width={width} height={7} rx={1.5} fill={fill} />
+        </Svg>
+      );
+    };
+    const row = (
+      key: string,
+      label: string,
+      value: string,
+      graphic: React.ReactNode,
+      strong = false,
+    ) => (
+      <View
+        key={key}
+        style={{
+          flexDirection: "row",
+          alignItems: "center",
+          paddingVertical: 4,
+          borderTopWidth: strong ? 0.75 : 0,
+          borderTopColor: paper.hairlineStrong,
+          marginTop: strong ? 3 : 0,
+        }}
+      >
+        <Text
+          style={[
+            s.label,
+            { width: labelW, fontWeight: strong ? 600 : 400, color: strong ? paper.ink : paper.body },
+          ]}
+        >
+          {label}
+        </Text>
+        <View style={{ width: barW, marginHorizontal: 8 }}>{graphic}</View>
+        <Text
+          style={[
+            s.figure,
+            {
+              width: valueW,
+              textAlign: "right",
+              fontWeight: strong ? 500 : 400,
+              color: value.startsWith("-") ? paper.rose : strong ? paper.accentDeep : paper.ink,
+            },
+          ]}
+        >
+          {value}
+        </Text>
+      </View>
+    );
+    return (
+      <View style={{ marginTop: 24 }} wrap={false}>
+        <View style={s.sectionHead}>
+          <Text style={s.sectionTitle}>Equity, explained</Text>
+        </View>
+        <Text style={[s.scope, { marginTop: 0, marginBottom: 8 }]}>
+          {equity.sentence}
+        </Text>
+        {steps.map((step, i) =>
+          row(
+            `equity-${i}`,
+            step.label,
+            step.value,
+            bar(step.start, step.end, step.amount < 0 ? paper.expense : paper.income),
+          ),
+        )}
+        {row(
+          "equity-total",
+          equity.total.label,
+          equity.total.value,
+          bar(0, equity.total.amount, equity.total.amount < 0 ? paper.rose : paper.accent),
+          true,
+        )}
       </View>
     );
   }

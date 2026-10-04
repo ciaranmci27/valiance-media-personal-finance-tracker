@@ -166,6 +166,11 @@ export function breakdownQuery(filter: ReportFilter): AccountingQuery {
   return { view: "breakdown", filter: JSON.stringify(months) };
 }
 
+/** One month-end balance series for the balance sheet (measure balance). */
+export function balanceSeriesQuery(filter: BreakdownFilter): AccountingQuery {
+  return { view: "breakdown", filter: JSON.stringify(filter) };
+}
+
 export function payrollListFilter(input: {
   year: number;
   today: string;
