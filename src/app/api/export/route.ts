@@ -267,6 +267,7 @@ export async function GET(req: NextRequest) {
           cash_kind: p?.cash_kind ?? "none",
           purpose: p?.purpose ?? "",
           archived: a.is_archived,
+          closed_on: a.closed_on ?? null,
           opening_cents: a.opening_cents,
           debits_cents: a.debit_cents,
           credits_cents: a.credit_cents,

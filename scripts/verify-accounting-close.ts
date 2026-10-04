@@ -375,7 +375,7 @@ async function main() {
     ).rows[0].r.rows.find((a: any) => a.id === account(9)).ending_cents;
     const bankReported = (BigInt(reviewedOnly) + BigInt(700)).toString();
     await read(
-      "INSERT INTO accounting.bank_accounts(account_id,observed_balance_cents,observed_at) VALUES($1,$2,now()) ON CONFLICT (account_id) DO UPDATE SET observed_balance_cents=EXCLUDED.observed_balance_cents,observed_at=EXCLUDED.observed_at",
+      "INSERT INTO accounting.bank_accounts(account_id,observed_balance_cents,observed_at) VALUES($1,$2,now()) ON CONFLICT (account_id) WHERE NOT is_closed DO UPDATE SET observed_balance_cents=EXCLUDED.observed_balance_cents,observed_at=EXCLUDED.observed_at",
       [account(9), bankReported],
     );
     const june = (

@@ -56,6 +56,8 @@ export interface ReportAccount {
   account_type: "asset" | "liability" | "equity" | "income" | "expense";
   normal_side: "debit" | "credit";
   is_archived: boolean;
+  /** The day a closed bank, card or cash account closed; null while open. */
+  closed_on?: string | null;
   parent_account_id: string | null;
   parent_name: string | null;
   subtype: string;

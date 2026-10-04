@@ -7,5 +7,5 @@ import type { ManageData } from "@/lib/accounting/workflows";
  */
 export type BooksMetadata = Pick<
   ManageData,
-  "profiles" | "parties" | "periods" | "preferences"
+  "profiles" | "parties" | "periods" | "preferences" | "rule_suggestions"
 >;

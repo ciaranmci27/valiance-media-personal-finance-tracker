@@ -3,7 +3,15 @@ import { Disclosure } from "@/components/ui/disclosure";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { History, Landmark, Search, Pencil, Plus } from "lucide-react";
+import {
+  CircleOff,
+  History,
+  Landmark,
+  Search,
+  Pencil,
+  Plus,
+  RotateCcw,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/inputs/Checkbox";
@@ -31,6 +39,12 @@ import type {
 import type { AccountProfile } from "@/lib/accounting/workflows";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { AccountingBankPanel } from "./accounting-bank-panel";
+import {
+  AccountingAccountClose,
+  closedTag,
+  type AccountCloseIntent,
+} from "./accounting-account-close";
+import { isOpenAccount } from "@/lib/accounting/account-close";
 import { AccountingAccountLabel } from "./accounting-bank-identity";
 import { FilterPopover } from "./accounting-filter-popover";
 import { AccountingPicker } from "./accounting-picker";
@@ -83,11 +97,14 @@ export function AccountingAccounts({
   >();
   const [type, setType] = useState("all");
   const [archived, setArchived] = useState(false);
+  const [hideClosed, setHideClosed] = useState(false);
+  const [closing, setClosing] = useState<AccountCloseIntent | null>(null);
   const [filters, setFilters] = useState(false);
   const [asOf, setAsOf] = useState(data.to);
   // Balances on a past date count as a filter, so the button says so.
   const historic = data.to !== todayInBooks();
-  const activeFilters = (archived ? 1 : 0) + (historic ? 1 : 0);
+  const activeFilters =
+    (archived ? 1 : 0) + (hideClosed ? 1 : 0) + (historic ? 1 : 0);
   const yearStart = `${asOf.slice(0, 4)}-01-01`;
   const [ledger, setLedger] = useState<BalanceRow | null>(null);
   const [seed, setSeed] = useState(false);
@@ -106,11 +123,15 @@ export function AccountingAccounts({
   const profileMap = new Map(profiles.map((p) => [p.account_id, p]));
   const isCash = (a: BalanceRow) =>
     ["bank", "cash", "card"].includes(profileMap.get(a.id)?.cash_kind ?? "");
-  const cashAccounts = data.balances.filter(isCash);
+  // The bank cards are the accounts in use; closed ones live in the chart.
+  const cashAccounts = data.balances.filter(
+    (a) => isCash(a) && isOpenAccount(a),
+  );
   const filtered = data.balances.filter(
     (a) =>
       (type === "all" || a.account_type === type) &&
       (archived || !a.is_archived) &&
+      (!hideClosed || !a.closed_on) &&
       `${a.code} ${a.name}`.toLowerCase().includes(query.toLowerCase()),
   );
   const startEdit = (a: BalanceRow) => {
@@ -130,10 +151,26 @@ export function AccountingAccounts({
       onSelect: () => startEdit(a),
       disabled: demo,
     },
+    ...(isCash(a)
+      ? [
+          a.closed_on
+            ? {
+                label: "Reopen account",
+                icon: <RotateCcw size={14} aria-hidden="true" />,
+                onSelect: () => setClosing({ mode: "reopen", account: a }),
+              }
+            : {
+                label: "Close account",
+                icon: <CircleOff size={14} aria-hidden="true" />,
+                onSelect: () => setClosing({ mode: "close", account: a }),
+              },
+        ]
+      : []),
   ];
   // Bank, card and cash accounts carry their institution mark, as in the
   // transactions list; the code, when there is one, follows the name.
-  const nameCell = (a: BalanceRow) => (
+  // On a phone the closed tag moves to the second line so the name keeps its room.
+  const nameCell = (a: BalanceRow, closedTagInline = true) => (
     <button
       type="button"
       onClick={() => setLedger(a)}
@@ -157,13 +194,18 @@ export function AccountingAccounts({
           Archived
         </Badge>
       )}
+      {closedTagInline && a.closed_on && (
+        <Badge size="sm" className="shrink-0">
+          {closedTag(a.closed_on)}
+        </Badge>
+      )}
     </button>
   );
   const columns: DataTableColumn<BalanceRow>[] = [
     {
       key: "account",
       header: "Account",
-      render: nameCell,
+      render: (a) => nameCell(a),
     },
     {
       key: "type",
@@ -226,6 +268,7 @@ export function AccountingAccounts({
         onLedger={setLedger}
         onReconcile={setReconcile}
         onRefresh={onRefresh}
+        onCloseAccount={(a) => setClosing({ mode: "close", account: a })}
       />
       <section
         className="glass-card overflow-hidden rounded-xl"
@@ -265,6 +308,7 @@ export function AccountingAccounts({
                   width={380}
                   onReset={() => {
                     setArchived(false);
+                    setHideClosed(false);
                     setAsOf(data.to);
                   }}
                 >
@@ -301,6 +345,11 @@ export function AccountingAccounts({
                       onChange={setArchived}
                       label="Include archived"
                     />
+                    <Checkbox
+                      checked={hideClosed}
+                      onChange={setHideClosed}
+                      label="Hide closed accounts"
+                    />
                   </div>
                 </FilterPopover>
                 <TextInput
@@ -327,9 +376,10 @@ export function AccountingAccounts({
               mobileCard={(a) => (
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    {nameCell(a)}
+                    {nameCell(a, false)}
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {enumLabel(a.account_type)}
+                      {a.closed_on ? ` · ${closedTag(a.closed_on)}` : ""}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
@@ -395,6 +445,16 @@ export function AccountingAccounts({
           )}
         </DialogContent>
       </Dialog>
+      {closing && (
+        <AccountingAccountClose
+          key={`${closing.mode}:${closing.account.id}`}
+          intent={closing}
+          profile={profileMap.get(closing.account.id)}
+          demo={demo}
+          onRefresh={onRefresh}
+          onDone={() => setClosing(null)}
+        />
+      )}
       <Dialog
         open={seed}
         onOpenChange={(o) => {

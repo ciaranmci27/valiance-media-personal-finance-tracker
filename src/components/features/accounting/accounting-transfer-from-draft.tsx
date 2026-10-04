@@ -19,6 +19,7 @@ import type {
 } from "@/lib/accounting/contracts";
 import type { AccountProfile } from "@/lib/accounting/workflows";
 import { presentTransaction } from "@/lib/accounting/transactions";
+import { isOpenAccount } from "@/lib/accounting/account-close";
 import { AccountingPicker } from "./accounting-picker";
 import { useAccountingCommand } from "./use-accounting-command";
 import { absMoney, dateLabel } from "./format";
@@ -84,7 +85,7 @@ export function AccountingTransferFromDraft({
     .filter(
       (a) =>
         a.id !== own &&
-        !a.is_archived &&
+        isOpenAccount(a) &&
         ["bank", "cash", "card"].includes(cashKind.get(a.id) ?? "none"),
     )
     .map(option);

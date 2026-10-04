@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { cn } from "@/lib/utils";
 import { parseUsd } from "@/lib/accounting/money";
+import { isOpenAccount } from "@/lib/accounting/account-close";
 import type {
   AccountingAccount,
   JournalEntry,
@@ -201,7 +202,7 @@ export function accountOptions(
   return accounts
     .filter(
       (a) =>
-        !a.is_archived &&
+        isOpenAccount(a) &&
         !profiles.get(a.id)?.purpose?.startsWith("uncategorized") &&
         (kind === "bank"
           ? ["bank", "cash"].includes(profiles.get(a.id)?.cash_kind ?? "none")

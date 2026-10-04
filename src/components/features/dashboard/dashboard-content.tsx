@@ -78,6 +78,8 @@ function StatStrip({ children }: { children: React.ReactNode }) {
 
   const scrollable = canLeft || canRight;
   // Soft edges where more cards wait, instead of a hard cut through a card.
+  // The row keeps 24px of padding top and bottom (cancelled by -my-6) so the
+  // cards' shadows are not cut off by the scroller's overflow clip.
   const fade = 40;
   const mask = !scrollable
     ? undefined
@@ -87,9 +89,11 @@ function StatStrip({ children }: { children: React.ReactNode }) {
         ? `linear-gradient(to right, black calc(100% - ${fade}px), transparent)`
         : `linear-gradient(to right, transparent, black ${fade}px)`;
 
-  // Small solid discs sitting on the faded edge, in line with the cards.
+  // Small solid discs sitting on the faded edge, in line with the cards. The
+  // hover tint is layered over the solid card color: --secondary alone is
+  // translucent and let the card underneath show through the arrow.
   const arrowClass =
-    "absolute top-1/2 z-10 hidden h-7 w-7 -translate-y-1/2 place-items-center rounded-full border border-border bg-card text-foreground shadow-md transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:grid";
+    "absolute top-1/2 z-10 hidden h-7 w-7 -translate-y-1/2 place-items-center rounded-full border border-border bg-card text-foreground shadow-md transition-colors hover:[background-image:linear-gradient(var(--secondary),var(--secondary))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:grid";
 
   return (
     <div className="relative">
@@ -97,7 +101,7 @@ function StatStrip({ children }: { children: React.ReactNode }) {
         ref={ref}
         onScroll={update}
         style={{ maskImage: mask, WebkitMaskImage: mask }}
-        className="-mx-1 flex snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden px-1 py-1 lg:gap-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="-mx-1 -my-6 flex snap-x snap-mandatory gap-3 overflow-x-auto overflow-y-hidden px-1 py-6 lg:gap-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {children}
       </div>

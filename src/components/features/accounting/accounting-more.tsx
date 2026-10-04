@@ -163,11 +163,12 @@ export function AccountingMore({
   const cache = useAccountingCache();
   // Suggestions from an agent wait for the owner; the rail says how many.
   const suggestedCount = suggestedContacts(manage.parties).length;
+  const ruleSuggestions = manage.rule_suggestions ?? 0;
+  const pending = (id: MoreSection) =>
+    id === "payees" ? suggestedCount : id === "rules" ? ruleSuggestions : 0;
   const sectionName = (id: MoreSection) => {
     const name = SECTIONS.find((s) => s.id === id)!.name;
-    return id === "payees" && suggestedCount
-      ? `${name} (${suggestedCount} suggested)`
-      : name;
+    return pending(id) ? `${name} (${pending(id)} suggested)` : name;
   };
   // Pointing at a section warms its chunk and its first read.
   function warm(id: ManageSection) {
@@ -230,12 +231,12 @@ export function AccountingMore({
                         className={section === s.id ? "text-teal-light" : ""}
                       />
                       {s.name}
-                      {s.id === "payees" && suggestedCount > 0 && (
+                      {pending(s.id) > 0 && (
                         <span
                           className="ml-auto rounded-full bg-warning/14 px-1.5 py-0.5 text-[11px] font-medium leading-none tabular-nums text-warning"
-                          aria-label={`${suggestedCount} suggested`}
+                          aria-label={`${pending(s.id)} suggested`}
                         >
-                          {suggestedCount}
+                          {pending(s.id)}
                         </span>
                       )}
                     </button>

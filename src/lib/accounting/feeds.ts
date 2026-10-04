@@ -50,6 +50,25 @@ export const feedCommandSchema = z.discriminatedUnion("type", [
       reason,
     })
     .strict(),
+  /** Link a discovered feed account to an existing bank or card account, closing that account's current feed (a reissued card). */
+  z
+    .object({
+      type: z.literal("feed.link"),
+      id: discovered,
+      expected_version: z.literal(0),
+      account_id: id,
+      reason,
+    })
+    .strict(),
+  /** The discovered account is not a replacement for this feed account. */
+  z
+    .object({
+      type: z.literal("feed.dismiss"),
+      id: discovered,
+      replaces: id,
+      reason,
+    })
+    .strict(),
   z
     .object({
       type: z.literal("feed.skip"),
@@ -91,6 +110,12 @@ export interface FeedCanonicalAccount {
   balance_sign: 1 | -1;
   version: number;
   can_edit_settings: boolean;
+  /** A closed link no longer syncs: its account was closed, or a newer feed (a reissued card) took over. */
+  is_closed?: boolean;
+  closed_on?: string | null;
+  /** The newest movement this link imported, `YYYY-MM-DD`. */
+  last_movement_on?: string | null;
+  created_at?: string;
 }
 export interface FeedIdentity {
   id: string;
@@ -104,6 +129,10 @@ export interface FeedIdentity {
   version: number;
   feed_account_id: string | null;
   last_seen_at: string;
+  /** Unix seconds when the provider last returned this account; missing before the field existed. */
+  seen_at?: number;
+  /** Feed account ids the owner said this account does not replace. */
+  not_replacing?: string[];
   account: FeedCanonicalAccount | null;
   balance: {
     balance_cents: string | null;

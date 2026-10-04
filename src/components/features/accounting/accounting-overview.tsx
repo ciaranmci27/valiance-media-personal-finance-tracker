@@ -39,6 +39,8 @@ import type {
   JournalEntry,
 } from "@/lib/accounting/contracts";
 import type { FeedData } from "@/lib/accounting/feeds";
+import { currentFeedAccount } from "@/lib/accounting/bank-identity";
+import { isOpenAccount } from "@/lib/accounting/account-close";
 import type { ReportData } from "@/lib/accounting/reports";
 import type { CloseChecklist } from "@/lib/accounting/close";
 import {
@@ -166,7 +168,6 @@ export function AccountingOverview({
   onAccounts,
   onFeeds,
   onMonthEnd,
-  onReport,
   onEntry,
   onAdd,
   onIntent,
@@ -182,7 +183,6 @@ export function AccountingOverview({
   onAccounts: () => void;
   onFeeds: () => void;
   onMonthEnd: () => void;
-  onReport: (id: "profit-loss" | "balance-sheet") => void;
   onEntry: (entry: JournalEntry) => void;
   onAdd: (direction: "in" | "out") => void;
   /** A pointer or focus on a link to another screen: warm it before the click. */
@@ -248,7 +248,9 @@ export function AccountingOverview({
   const bankAccounts = useMemo(
     () =>
       data.balances.filter(
-        (a) => (profileMap.get(a.id)?.cash_kind ?? "none") !== "none",
+        (a) =>
+          (profileMap.get(a.id)?.cash_kind ?? "none") !== "none" &&
+          isOpenAccount(a),
       ),
     [data.balances, profileMap],
   );
@@ -314,7 +316,8 @@ export function AccountingOverview({
     (feeds?.accounts.length ?? 0) === 0;
 
   const accountCards = bankAccounts.map((a) => {
-    const feedAccount = feeds?.accounts.find((f) => f.account_id === a.id);
+    const link = feeds ? currentFeedAccount(feeds.accounts, a.id) : undefined;
+    const feedAccount = link && !link.is_closed ? link : undefined;
     const identities = feedAccount
       ? (feeds?.identities ?? []).filter(
           (i) => i.feed_account_id === feedAccount.id,
@@ -508,26 +511,6 @@ export function AccountingOverview({
                 <CashFlowChart data={monthly} isRevealed={isRevealed} />
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 sm:hidden">
                   <CashFlowLegend />
-                </div>
-                <div className="mt-3 flex flex-wrap gap-4 text-xs">
-                  <button
-                    type="button"
-                    onClick={() => onReport("profit-loss")}
-                    {...intent("reports")}
-                    className="inline-flex items-center gap-1 text-teal-light hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    Profit & loss
-                    <ArrowRight size={12} aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => onReport("balance-sheet")}
-                    {...intent("reports")}
-                    className="inline-flex items-center gap-1 text-teal-light hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    Balance sheet
-                    <ArrowRight size={12} aria-hidden="true" />
-                  </button>
                 </div>
               </>
             )
@@ -830,7 +813,7 @@ export function AccountingOverview({
                 ) : activeConnection ? (
                   <span className="inline-flex items-center gap-1 text-warning">
                     <CircleAlert size={12} aria-hidden="true" />
-                    Not mapped
+                    No feed linked
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1">

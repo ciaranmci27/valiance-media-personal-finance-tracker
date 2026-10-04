@@ -5,6 +5,12 @@ import {
   fixtureAccounts,
   fixtureAccountId as account,
 } from "../src/lib/accounting/fixtures";
+import {
+  RULE_NO_MAXIMUM,
+  ruleAmountLabel,
+  ruleEvidenceLine,
+  ruleOutcomeSentence,
+} from "../src/lib/accounting/rules";
 async function main() {
   const db = await accountingTestDb();
   let checks = 0;
@@ -333,6 +339,134 @@ async function main() {
     );
     checks++;
     await db.exec("SET ROLE authenticated");
+    // The owner's rules are confirmed and name no suggester; each says why it is off.
+    type ViewRule = {
+      id: string;
+      version: number;
+      review_status: string;
+      suggested_by: string | null;
+      paused: { cause: string; at: string } | null;
+      suggestion: unknown;
+    };
+    const view = async () =>
+      (
+        await db.query<{ v: { rules: ViewRule[] } }>(
+          "SELECT accounting.context('rules','{}') v",
+        )
+      ).rows[0].v.rules;
+    let mine = (await view()).find((r) => r.id === rule.id)!;
+    check(
+      [mine.review_status, mine.suggested_by, mine.paused, mine.suggestion],
+      ["confirmed", null, null, null],
+    );
+    check((await view()).find((r) => r.id === tie.id)?.paused?.cause, "paused");
+    const edited = await cmd({
+      type: "rule.save",
+      id: rule.id,
+      expected_version: mine.version,
+      ...ruleBase,
+      name: "Acme edited",
+    });
+    mine = (await view()).find((r) => r.id === rule.id)!;
+    check([mine.review_status, mine.paused?.cause], ["confirmed", "edited"]);
+    const never = await cmd({
+      type: "rule.save",
+      id: randomUUID(),
+      expected_version: 0,
+      ...ruleBase,
+      name: "Never on",
+    });
+    check(
+      (await view()).find((r) => r.id === never.id)?.paused?.cause,
+      "never_on",
+    );
+    // Only a suggestion can be dismissed; the owner's rules are paused instead.
+    await assert.rejects(
+      cmd({
+        type: "rule.dismiss",
+        id: never.id,
+        expected_version: never.version,
+        reason: "Not needed",
+      }),
+      /ACCT_RULE_NOT_SUGGESTED/,
+    );
+    checks++;
+    await db.exec("RESET ROLE");
+    await assert.rejects(
+      db.query("DELETE FROM accounting.rules WHERE id=$1", [edited.id]),
+      /ACCT_NO_HARD_DELETE/,
+    );
+    checks++;
+    await db.exec("SET ROLE authenticated");
+    // Unbounded amounts read as words, not as the bigint ceiling.
+    check(ruleAmountLabel("0", RULE_NO_MAXIMUM), "any amount");
+    check(ruleAmountLabel(null, null), "any amount");
+    check(ruleAmountLabel("50000", RULE_NO_MAXIMUM), "$500 or more");
+    check(ruleAmountLabel("0", "200000"), "up to $2,000");
+    check(ruleAmountLabel("1250", "200000"), "$12.50 to $2,000");
+    const sentence = {
+      direction: "increase" as const,
+      description_mode: "contains" as const,
+      description: "PREMIER ESTATE",
+      min_cents: "0",
+      max_cents: RULE_NO_MAXIMUM,
+    };
+    const pastMatches = (matches: number, in_category: number) => ({
+      matches,
+      posted: matches,
+      in_category,
+      ready: 0,
+      note: null,
+    });
+    // What happens from now on, in the owner's words.
+    check(
+      ruleOutcomeSentence(sentence, {
+        category: "Agency Income",
+        bank: "AMEX Agency Checking -6491",
+        contact: "Premier Estate Planning",
+      }),
+      "New deposits from Premier Estate Planning into AMEX Agency Checking -6491 will be filed as Agency Income.",
+    );
+    check(
+      ruleOutcomeSentence(
+        { ...sentence, direction: null, min_cents: "50000" },
+        { category: "Agency Income", bank: null, contact: null },
+      ),
+      'New transactions matching "PREMIER ESTATE" of $500 or more will be filed as Agency Income.',
+    );
+    check(
+      ruleOutcomeSentence(
+        { ...sentence, direction: "decrease", description_mode: "exact" },
+        { category: null, bank: "Checking", contact: null },
+      ),
+      'New payments described as "PREMIER ESTATE" from Checking will be split across categories.',
+    );
+    // How its past matches line up.
+    check(
+      ruleEvidenceLine(
+        { ...sentence, suggestion: pastMatches(3, 3) },
+        "Agency Income",
+      ),
+      "It matches 3 past deposits, all already filed as Agency Income.",
+    );
+    check(
+      ruleEvidenceLine(
+        { ...sentence, suggestion: pastMatches(3, 1) },
+        "Agency Income",
+      ),
+      "It matches 3 past deposits; 1 already filed as Agency Income.",
+    );
+    check(
+      ruleEvidenceLine(
+        { ...sentence, suggestion: pastMatches(1, 1) },
+        "Agency Income",
+      ),
+      "It matches 1 past deposit, already filed as Agency Income.",
+    );
+    check(
+      ruleEvidenceLine({ ...sentence, suggestion: null }, "Agency Income"),
+      "No past deposits match it yet.",
+    );
     // Per-feature backup/version tables were removed. Applied rule IDs and the append-only audit retain the history.
     await assert.rejects(
       cmd({

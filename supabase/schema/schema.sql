@@ -2305,7 +2305,9 @@ CREATE TABLE accounting.accounts (
   "version" integer DEFAULT 1 NOT NULL,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "closed_on" date,
   CONSTRAINT "accounts_check" CHECK (((parent_id IS NULL) OR (parent_id <> id))),
+  CONSTRAINT "accounts_closed_kind_check" CHECK (((closed_on IS NULL) OR (subtype = ANY (ARRAY['bank'::text, 'card'::text, 'cash'::text])))),
   CONSTRAINT "accounts_code_check" CHECK (((code IS NULL) OR ((length(code) >= 1) AND (length(code) <= 20)))),
   CONSTRAINT "accounts_code_key" UNIQUE (code),
   CONSTRAINT "accounts_created_at_not_null" NOT NULL created_at,
@@ -2416,7 +2418,6 @@ CREATE TABLE accounting.bank_accounts (
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
   CONSTRAINT "bank_accounts_account_id_fkey" FOREIGN KEY (account_id) REFERENCES accounting.accounts(id) ON DELETE RESTRICT,
-  CONSTRAINT "bank_accounts_account_id_key" UNIQUE (account_id),
   CONSTRAINT "bank_accounts_account_id_not_null" NOT NULL account_id,
   CONSTRAINT "bank_accounts_check" CHECK (((NOT is_closed) OR (closed_on IS NOT NULL))),
   CONSTRAINT "bank_accounts_connection_id_fkey" FOREIGN KEY (connection_id) REFERENCES accounting.bank_connections(id) ON DELETE RESTRICT,
@@ -2801,6 +2802,8 @@ CREATE TABLE accounting.rules (
   "version" integer DEFAULT 1 NOT NULL,
   "created_at" timestamp with time zone DEFAULT now() NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "review_status" text DEFAULT 'confirmed'::text NOT NULL,
+  "suggested_by" uuid,
   CONSTRAINT "rules_actions_check" CHECK ((jsonb_typeof(actions) = 'object'::text)),
   CONSTRAINT "rules_actions_not_null" NOT NULL actions,
   CONSTRAINT "rules_auto_post_not_null" NOT NULL auto_post,
@@ -2814,6 +2817,9 @@ CREATE TABLE accounting.rules (
   CONSTRAINT "rules_pkey" PRIMARY KEY (id),
   CONSTRAINT "rules_priority_check" CHECK (((priority >= 0) AND (priority <= 10000))),
   CONSTRAINT "rules_priority_not_null" NOT NULL priority,
+  CONSTRAINT "rules_review_status_check" CHECK ((review_status = ANY (ARRAY['suggested'::text, 'confirmed'::text]))),
+  CONSTRAINT "rules_review_status_not_null" NOT NULL review_status,
+  CONSTRAINT "rules_suggested_by_fkey" FOREIGN KEY (suggested_by) REFERENCES public.team_members(id) ON DELETE SET NULL,
   CONSTRAINT "rules_updated_at_not_null" NOT NULL updated_at,
   CONSTRAINT "rules_version_check" CHECK ((version > 0)),
   CONSTRAINT "rules_version_not_null" NOT NULL version
@@ -3217,6 +3223,8 @@ CREATE INDEX audit_operation ON accounting.audit_log USING btree (operation_id, 
 
 CREATE INDEX audit_row ON accounting.audit_log USING btree (table_name, row_id, id DESC);
 
+CREATE UNIQUE INDEX bank_accounts_one_open_link ON accounting.bank_accounts USING btree (account_id) WHERE (NOT is_closed);
+
 CREATE INDEX bank_matches_line ON accounting.bank_matches USING btree (journal_line_id);
 
 CREATE INDEX bank_transactions_descriptor ON accounting.bank_transactions USING btree (descriptor_key, posted_date);
@@ -3404,6 +3412,12 @@ BEGIN
    to_jsonb(min(p.created_at)),NULL::numeric,'/accounting?view=manage&section=payees'
   FROM accounting.parties p WHERE p.review_status='suggested' AND NOT p.is_archived HAVING count(*)>0
   UNION ALL
+  SELECT 'suggested_rules','info','all',
+   count(*)||CASE WHEN count(*)=1 THEN ' suggested rule is' ELSE ' suggested rules are' END||' waiting for approval',
+   'Agents suggested them; the owner reviews and switches them on, or dismisses them, on the Rules screen.',
+   to_jsonb(min(r.created_at)),NULL::numeric,'/accounting?view=manage&section=rules'
+  FROM accounting.rules r WHERE r.review_status='suggested' HAVING count(*)>0
+  UNION ALL
   SELECT 'uncategorized','info','all',
    count(DISTINCT u.id)||CASE WHEN count(DISTINCT u.id)=1 THEN ' transaction is' ELSE ' transactions are' END||' still uncategorized',
    accounting.usd_text(-coalesce(sum(l.amount_cents) FILTER(WHERE a.type='income'),0))||' money in and '||accounting.usd_text(coalesce(sum(l.amount_cents) FILTER(WHERE a.type<>'income'),0))||' money out are parked in Uncategorized.',
@@ -3513,6 +3527,8 @@ DECLARE t text:=c->>'type'; key uuid:=coalesce((c->>'id')::uuid,gen_random_uuid(
  v integer; current_version integer; candidate_count integer; x jsonb; result jsonb; candidate jsonb; observation accounting.bank_transactions; doc accounting.documents; item accounting.journal_lines; existing jsonb;
  cond jsonb; actions jsonb; mapping_connection uuid; mapping_details jsonb; mapped_row accounting.bank_accounts; account uuid; transit uuid; leg accounting.journal_entries; mate accounting.journal_entries; outgoing jsonb; incoming jsonb; out_id uuid; in_id uuid; amount bigint; match_amount bigint; out_date date; in_date date;
  party_roles text[]; merge_from accounting.parties; merge_into accounting.parties; moved_entries integer; moved_aliases integer; moved_documents integer; moved_rules integer;
+ rule_row accounting.rules;
+ previous_link accounting.bank_accounts; link_start date; last_movement date; books_today date;
 BEGIN
  IF t='party.save' THEN
   SELECT version INTO current_version FROM accounting.parties WHERE id=key;
@@ -3585,7 +3601,8 @@ BEGIN
   SELECT version INTO current_version FROM accounting.rules WHERE id=key;
   IF (c->>'expected_version')::integer IS DISTINCT FROM coalesce(current_version,0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
   IF t='rule.activate' THEN
-   UPDATE accounting.rules SET enabled=(c->>'enabled')::boolean WHERE id=key RETURNING version INTO v;
+   -- Switching a suggestion on after its preview is the owner's approval: it becomes theirs.
+   UPDATE accounting.rules SET enabled=(c->>'enabled')::boolean,review_status=CASE WHEN (c->>'enabled')::boolean THEN 'confirmed' ELSE review_status END WHERE id=key RETURNING version INTO v;
   ELSE
    cond:=coalesce(c->'conditions',jsonb_strip_nulls(jsonb_build_object('description_mode',c->'description_mode','description',c->'description','bank_account_id',c->'bank_account_id','direction',c->'direction','amount_min',c->'min_cents','amount_max',c->'max_cents','payee_id',c->'match_payee_id')));
    actions:=coalesce(c->'actions',jsonb_strip_nulls(jsonb_build_object('account_id',c->'category_account_id','payee_id',c->'assign_payee_id')));
@@ -3598,9 +3615,25 @@ BEGIN
       OR NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=(s->>'account_id')::uuid AND NOT is_archived AND subtype NOT IN ('bank','card','cash')))
       OR (SELECT sum((s->>'share_bps')::integer) FROM jsonb_array_elements(actions->'splits') s)<>10000 THEN RAISE EXCEPTION 'ACCT_INVALID_RULE'; END IF;
    END IF;
-   INSERT INTO accounting.rules(id,name,priority,enabled,conditions,actions,auto_post) VALUES(key,c->>'name',coalesce((c->>'priority')::integer,100),coalesce((c->>'enabled')::boolean,false),cond,actions,coalesce((c->>'auto_post')::boolean,false))
-    ON CONFLICT(id) DO UPDATE SET name=excluded.name,priority=excluded.priority,conditions=excluded.conditions,actions=excluded.actions,enabled=excluded.enabled,auto_post=excluded.auto_post RETURNING version INTO v;
+   -- A rule an agent adds is a suggestion that names the agent; the owner's save makes it theirs.
+   INSERT INTO accounting.rules(id,name,priority,enabled,conditions,actions,auto_post,review_status,suggested_by) VALUES(key,c->>'name',coalesce((c->>'priority')::integer,100),coalesce((c->>'enabled')::boolean,false),cond,actions,coalesce((c->>'auto_post')::boolean,false),
+    CASE WHEN current_setting('accounting.actor_kind',true)='api' THEN 'suggested' ELSE 'confirmed' END,
+    CASE WHEN current_setting('accounting.actor_kind',true)='api' THEN (SELECT k.team_member_id FROM public.api_keys k WHERE k.id::text=current_setting('api.key_id',true)) END)
+    ON CONFLICT(id) DO UPDATE SET name=excluded.name,priority=excluded.priority,conditions=excluded.conditions,actions=excluded.actions,enabled=excluded.enabled,auto_post=excluded.auto_post,review_status=excluded.review_status RETURNING version INTO v;
   END IF;
+ ELSIF t='rule.dismiss' THEN
+  SELECT * INTO rule_row FROM accounting.rules WHERE id=key;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM rule_row.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  -- Only a suggestion is dismissed; the owner pauses a rule of their own instead.
+  IF rule_row.review_status<>'suggested' THEN RAISE EXCEPTION 'ACCT_RULE_NOT_SUGGESTED'; END IF;
+  -- A rule that was ever switched on or filled a transaction stays, so the history that names it keeps its source.
+  IF rule_row.enabled
+   OR EXISTS(SELECT 1 FROM accounting.audit_log a WHERE a.table_name='rules' AND a.row_id=key AND coalesce((a.after->>'enabled')::boolean,false))
+   OR EXISTS(SELECT 1 FROM accounting.journal_entries e WHERE e.applied_rule_id=key)
+   OR EXISTS(SELECT 1 FROM accounting.audit_log a WHERE a.table_name='journal_entries' AND a.action='rule.applied' AND a.before->>'rule_id'=key::text) THEN RAISE EXCEPTION 'ACCT_RULE_IN_USE'; END IF;
+  DELETE FROM accounting.rules WHERE id=key;
+  RETURN jsonb_build_object('id',key,'dismissed',true);
  ELSIF t IN ('rule.apply','rule.apply_preview') THEN
   result:='[]';
   FOR x IN SELECT value FROM jsonb_array_elements(c->'entries') LOOP
@@ -3673,6 +3706,33 @@ BEGIN
      THEN RAISE EXCEPTION 'ACCT_BANK_MAPPING_FROZEN'; END IF;
    UPDATE accounting.bank_connections SET checkpoint=jsonb_set(checkpoint,ARRAY['balance_signs'],coalesce(checkpoint->'balance_signs','{}')||jsonb_build_object(key::text,(c->>'balance_sign')::smallint)) WHERE id=(c->>'connection_id')::uuid;
   END IF;
+ ELSIF t='feed.link' THEN
+  -- A discovered feed account joins a ledger account that may already have a feed (a reissued card). History stays on the one account.
+  SELECT bc.id,d.value INTO mapping_connection,mapping_details FROM accounting.bank_connections bc CROSS JOIN LATERAL jsonb_each(coalesce(bc.checkpoint->'discovery','{}')) d WHERE d.key=banking_command.key::text;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  IF coalesce((c->>'expected_version')::integer,-1)<>0 OR EXISTS(SELECT 1 FROM accounting.bank_accounts WHERE id=key) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  IF coalesce(mapping_details->>'currency','USD')<>'USD' THEN RAISE EXCEPTION 'ACCT_FEED_CURRENCY'; END IF;
+  account:=(c->>'account_id')::uuid;
+  IF NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=account AND subtype IN ('bank','card') AND NOT is_archived) THEN RAISE EXCEPTION 'ACCT_BANK_ACCOUNT_REQUIRED'; END IF;
+  IF EXISTS(SELECT 1 FROM accounting.accounts WHERE id=account AND closed_on IS NOT NULL) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_CLOSED'; END IF;
+  SELECT * INTO previous_link FROM accounting.bank_accounts WHERE account_id=account AND NOT is_closed FOR UPDATE;
+  books_today:=(SELECT (now() AT TIME ZONE books_timezone)::date FROM public.business_profile WHERE id=1);
+  -- The new feed starts the day after the last movement any earlier feed of this account imported, so the overlap is never pulled twice.
+  SELECT max(o.posted_date) INTO last_movement FROM accounting.bank_transactions o JOIN accounting.bank_accounts ob ON ob.id=o.bank_account_id WHERE ob.account_id=account;
+  link_start:=coalesce(last_movement+1,previous_link.coverage_from,(SELECT primary_system_since FROM accounting.settings WHERE id=1),books_today-90);
+  IF previous_link.id IS NOT NULL THEN
+   UPDATE accounting.bank_accounts SET is_closed=true,closed_on=least(books_today,link_start-1) WHERE id=previous_link.id;
+  END IF;
+  INSERT INTO accounting.bank_accounts(id,account_id,connection_id,provider_account_id,institution,mask,movement_sign,coverage_from)
+   VALUES(key,account,mapping_connection,mapping_details->>'provider_account_id',coalesce(mapping_details->>'institution',''),'',coalesce(previous_link.movement_sign,1),link_start) RETURNING version INTO v;
+  -- The bank reports the new card's balance the way it reported the old one's.
+  UPDATE accounting.bank_connections SET checkpoint=jsonb_set(checkpoint,ARRAY['balance_signs'],coalesce(checkpoint->'balance_signs','{}')||jsonb_build_object(key::text,coalesce((SELECT (oc.checkpoint->'balance_signs'->>previous_link.id::text)::smallint FROM accounting.bank_connections oc WHERE oc.id=previous_link.connection_id),1))) WHERE id=mapping_connection;
+ ELSIF t='feed.dismiss' THEN
+  -- The owner says a discovered account is not a replacement for this feed; that suggestion stays away.
+  SELECT bc.id INTO mapping_connection FROM accounting.bank_connections bc WHERE bc.checkpoint->'discovery' ? banking_command.key::text;
+  IF NOT FOUND OR NOT EXISTS(SELECT 1 FROM accounting.bank_accounts WHERE id=(c->>'replaces')::uuid) THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  UPDATE accounting.bank_connections SET checkpoint=jsonb_set(checkpoint,ARRAY['discovery',key::text,'not_replacing'],coalesce(checkpoint->'discovery'->key::text->'not_replacing','[]')||to_jsonb(c->>'replaces'),true) WHERE id=mapping_connection;
+  v:=0;
  ELSIF t='feed.skip' THEN
   IF btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
   SELECT * INTO mapped_row FROM accounting.bank_accounts WHERE id=key;
@@ -3831,8 +3891,13 @@ BEGIN
  ELSIF TG_TABLE_NAME='bank_accounts' THEN
   IF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE'; END IF;
   IF NOT EXISTS(SELECT 1 FROM accounting.accounts WHERE id=NEW.account_id AND subtype IN ('bank','card','cash')) THEN RAISE EXCEPTION 'ACCT_BANK_ACCOUNT_REQUIRED'; END IF;
+  IF NOT NEW.is_closed AND EXISTS(SELECT 1 FROM accounting.accounts WHERE id=NEW.account_id AND closed_on IS NOT NULL) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_CLOSED'; END IF;
   IF TG_OP='UPDATE' AND (NEW.account_id,NEW.movement_sign) IS DISTINCT FROM (OLD.account_id,OLD.movement_sign) AND EXISTS(SELECT 1 FROM accounting.bank_transactions WHERE bank_account_id=OLD.id) THEN RAISE EXCEPTION 'ACCT_FEED_MAPPING_FROZEN'; END IF;
  ELSIF TG_TABLE_NAME='document_links' AND TG_OP='DELETE' AND current_setting('accounting.action',true)='document.unlink' THEN RETURN OLD;
+ -- A dismissed suggestion that never ran leaves nothing to keep; banking_command checks that before it deletes.
+ ELSIF TG_TABLE_NAME='rules' AND TG_OP='DELETE' AND current_setting('accounting.action',true)='rule.dismiss' THEN
+  IF OLD.review_status='suggested' AND NOT OLD.enabled THEN RETURN OLD; END IF;
+  RAISE EXCEPTION 'ACCT_NO_HARD_DELETE';
  ELSIF TG_OP='DELETE' THEN RAISE EXCEPTION 'ACCT_NO_HARD_DELETE';
  END IF;
  IF TG_OP='UPDATE' AND TG_TABLE_NAME IN ('parties','payee_aliases','bank_accounts','bank_connections','documents','rules') THEN
@@ -4185,8 +4250,9 @@ BEGIN
   IF r.status='completed' THEN RAISE EXCEPTION 'ACCT_RECONCILIATION_COMPLETED';END IF;
   bank:=(c->>'bank_account_id')::uuid;
   IF bank IS NULL THEN
-   SELECT id INTO bank FROM accounting.bank_accounts WHERE account_id=(c->>'account_id')::uuid;
-   IF bank IS NULL THEN INSERT INTO accounting.bank_accounts(account_id) VALUES((c->>'account_id')::uuid) RETURNING id INTO bank;END IF;
+   -- The open link when there is one; a closed account reconciles on its latest link.
+   SELECT id INTO bank FROM accounting.bank_accounts WHERE account_id=(c->>'account_id')::uuid ORDER BY is_closed,created_at DESC,id LIMIT 1;
+   IF bank IS NULL THEN INSERT INTO accounting.bank_accounts(account_id,is_closed,closed_on) SELECT ra.id,ra.closed_on IS NOT NULL,ra.closed_on FROM accounting.accounts ra WHERE ra.id=(c->>'account_id')::uuid RETURNING id INTO bank;END IF;
   END IF;
   INSERT INTO accounting.reconciliations(id,bank_account_id,statement_start,statement_end,opening_balance_cents,ending_balance_cents,document_id,difference_cents,notes)
    VALUES(key,bank,coalesce(c->>'statement_start',c->>'from')::date,coalesce(c->>'statement_end',c->>'to')::date,coalesce(c->>'opening_balance_cents',c->>'opening_cents')::bigint,coalesce(c->>'ending_balance_cents',c->>'ending_cents')::bigint,(c->>'document_id')::uuid,0,coalesce(c->>'notes',''))
@@ -4289,22 +4355,29 @@ DECLARE actor uuid:=accounting.require_owner();result jsonb;key uuid;selected_re
 BEGIN
  IF view='session' THEN RETURN jsonb_build_object('owner_id',actor); END IF;
  IF view='manage' THEN
-  RETURN jsonb_build_object('profiles',(SELECT coalesce(jsonb_agg(jsonb_build_object('account_id',id,'version',version,'purpose',system_purpose,'cash_kind',CASE WHEN subtype IN ('bank','cash','card') THEN subtype ELSE 'none' END,'parent_account_id',parent_id,'subtype',subtype,'type',type,'external_names',external_names) ORDER BY code,name),'[]') FROM accounting.accounts),
+  RETURN jsonb_build_object('profiles',(SELECT coalesce(jsonb_agg(jsonb_build_object('account_id',id,'version',version,'purpose',system_purpose,'cash_kind',CASE WHEN subtype IN ('bank','cash','card') THEN subtype ELSE 'none' END,'parent_account_id',parent_id,'subtype',subtype,'type',type,'external_names',external_names,'closed_on',closed_on,
+    'last_activity_on',CASE WHEN subtype IN ('bank','card','cash') THEN (SELECT max(pe.entry_date) FROM accounting.journal_lines pl JOIN accounting.journal_entries pe ON pe.id=pl.entry_id WHERE pl.account_id=accounts.id AND pe.status<>'discarded') END) ORDER BY code,name),'[]') FROM accounting.accounts),
    'parties',(SELECT coalesce(jsonb_agg(to_jsonb(p)||jsonb_build_object('tax_classification',CASE WHEN contractor_classification='unknown' THEN 'unreviewed' ELSE contractor_classification END,'documentation',documentation_status,'suggested_by_name',(SELECT m.name FROM public.team_members m WHERE m.id=p.suggested_by),'top_category',CASE WHEN t.account_id IS NULL THEN NULL ELSE jsonb_build_object('id',t.account_id,'name',t.account_name) END) ORDER BY p.name),'[]') FROM accounting.parties p LEFT JOIN accounting.contact_top_categories() t ON t.party_id=p.id),
    'periods',(SELECT coalesce(jsonb_agg(to_jsonb(p)||jsonb_build_object('month_start',month,'is_locked',status='locked')),'[]') FROM accounting.periods p),
+   'rule_suggestions',(SELECT count(*) FROM accounting.rules WHERE review_status='suggested'),
    'preferences',(SELECT to_jsonb(s)-ARRAY['owner_user_id','financial_revision']||jsonb_build_object('history_start',p.earliest_history_date,'legal_name',p.legal_name,'business_profile',to_jsonb(p)) FROM accounting.settings s CROSS JOIN public.business_profile p));
  ELSIF view='feeds' THEN
   RETURN jsonb_build_object('owner_id',actor,
    'connections',(SELECT coalesce(jsonb_agg(to_jsonb(c)-ARRAY['access_url_encrypted','key_version','checkpoint','lease_run_id'] ORDER BY created_at,id),'[]') FROM accounting.bank_connections c),
-   'accounts',(SELECT coalesce(jsonb_agg(to_jsonb(b)||jsonb_build_object('history_start',extract(epoch FROM (b.coverage_from::timestamp AT TIME ZONE p.books_timezone))::bigint::text,'checkpoint',c.checkpoint->>b.provider_account_id,'posting_timezone',p.books_timezone,'balance_sign',coalesce(c.checkpoint->'balance_signs'->b.id::text,'1'),'can_edit_settings',NOT EXISTS(SELECT 1 FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id))),'[]') FROM accounting.bank_accounts b JOIN accounting.bank_connections c ON c.id=b.connection_id CROSS JOIN public.business_profile p),
+   'accounts',(SELECT coalesce(jsonb_agg(to_jsonb(b)||jsonb_build_object('history_start',extract(epoch FROM (b.coverage_from::timestamp AT TIME ZONE p.books_timezone))::bigint::text,'checkpoint',c.checkpoint->>b.provider_account_id,'posting_timezone',p.books_timezone,'balance_sign',coalesce(c.checkpoint->'balance_signs'->b.id::text,'1'),'can_edit_settings',NOT EXISTS(SELECT 1 FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id),'last_movement_on',(SELECT max(o.posted_date) FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id))),'[]') FROM accounting.bank_accounts b JOIN accounting.bank_connections c ON c.id=b.connection_id CROSS JOIN public.business_profile p),
    'identities',(SELECT coalesce(jsonb_agg(d.value||jsonb_build_object('connection_id',c.id,'provider_account_id',d.value->>'raw_provider_account_id','version',coalesce(b.version,0),'feed_account_id',b.id,'last_seen_at',c.updated_at,
-    'account',CASE WHEN b.id IS NULL THEN NULL ELSE to_jsonb(b)||jsonb_build_object('history_start',extract(epoch FROM (b.coverage_from::timestamp AT TIME ZONE p.books_timezone))::bigint::text,'checkpoint',c.checkpoint->>b.provider_account_id,'posting_timezone',p.books_timezone,'balance_sign',coalesce(c.checkpoint->'balance_signs'->b.id::text,'1'),'can_edit_settings',NOT EXISTS(SELECT 1 FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id)) END,
+    'account',CASE WHEN b.id IS NULL THEN NULL ELSE to_jsonb(b)||jsonb_build_object('history_start',extract(epoch FROM (b.coverage_from::timestamp AT TIME ZONE p.books_timezone))::bigint::text,'checkpoint',c.checkpoint->>b.provider_account_id,'posting_timezone',p.books_timezone,'balance_sign',coalesce(c.checkpoint->'balance_signs'->b.id::text,'1'),'can_edit_settings',NOT EXISTS(SELECT 1 FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id),'last_movement_on',(SELECT max(o.posted_date) FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id)) END,
     'balance',jsonb_build_object('balance_cents',d.value->'balance_cents','available_cents',d.value->'available_cents','balance_at',d.value->'balance_at','issues','[]'::jsonb,'created_at',c.updated_at)) ORDER BY c.created_at,d.key),'[]') FROM accounting.bank_connections c CROSS JOIN public.business_profile p CROSS JOIN LATERAL jsonb_each(coalesce(c.checkpoint->'discovery','{}')) d LEFT JOIN accounting.bank_accounts b ON b.id=d.key::uuid),
    'runs',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',a.operation_id,'connection_id',a.row_id,'actor_kind',a.actor_kind,'status',CASE WHEN (a.after->>'errors')::int>0 THEN 'incomplete' ELSE 'saved' END,'started_at',a.at,'finished_at',a.at,'error','') ORDER BY a.at DESC),'[]') FROM (SELECT * FROM accounting.audit_log WHERE table_name='bank_connections' AND action='sync' AND after ? 'accounts' ORDER BY at DESC LIMIT 100) a),
    'queue',(SELECT coalesce(jsonb_agg(jsonb_build_object('feed_account_id',b.id,'ready',(SELECT count(*) FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id AND o.review='unmatched' AND state='posted'),'pending',(SELECT count(*) FROM accounting.bank_transactions o WHERE o.bank_account_id=b.id AND state='pending'))),'[]') FROM accounting.bank_accounts b),
    'worker',(SELECT jsonb_build_object('last_tick_at',w.last_tick_at,'last_tick_due',w.last_tick_due,'source',w.source) FROM accounting.feed_worker w WHERE w.id=1));
  ELSIF view='rules' THEN
-  RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'rules',(SELECT coalesce(jsonb_agg(to_jsonb(r)||jsonb_build_object('description_mode',coalesce(r.conditions->>'description_mode',(SELECT d.key FROM jsonb_each(coalesce(r.conditions->'descriptor_key','{}')) d LIMIT 1)),'description',coalesce(r.conditions->>'description',(SELECT value#>>'{}' FROM jsonb_each(coalesce(r.conditions->'descriptor_key','{}')) LIMIT 1)),'bank_account_id',r.conditions->'bank_account_id','direction',r.conditions->'direction','min_cents',coalesce(r.conditions->>'amount_min','0'),'max_cents',coalesce(r.conditions->>'amount_max','9223372036854775807'),'match_payee_id',r.conditions->'payee_id','category_account_id',r.actions->'account_id','assign_payee_id',r.actions->'payee_id','reason','') ORDER BY priority,id),'[]') FROM accounting.rules r),'aliases',(SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('party_name',p.name,'match_mode',a.match_kind,'description',a.pattern) ORDER BY a.pattern),'[]') FROM accounting.payee_aliases a JOIN accounting.parties p ON p.id=a.party_id));
+  RETURN jsonb_build_object('revision',(SELECT financial_revision::text FROM accounting.settings),'rules',(SELECT coalesce(jsonb_agg(to_jsonb(r)||jsonb_build_object('description_mode',coalesce(r.conditions->>'description_mode',(SELECT d.key FROM jsonb_each(coalesce(r.conditions->'descriptor_key','{}')) d LIMIT 1)),'description',coalesce(r.conditions->>'description',(SELECT value#>>'{}' FROM jsonb_each(coalesce(r.conditions->'descriptor_key','{}')) LIMIT 1)),'bank_account_id',r.conditions->'bank_account_id','direction',r.conditions->'direction','min_cents',coalesce(r.conditions->>'amount_min','0'),'max_cents',coalesce(r.conditions->>'amount_max','9223372036854775807'),'match_payee_id',r.conditions->'payee_id','category_account_id',r.actions->'account_id','assign_payee_id',r.actions->'payee_id','reason','',
+   'suggested_by_name',(SELECT m.name FROM public.team_members m WHERE m.id=r.suggested_by),
+   -- Why a rule is off: the change that switched it off (an edit or the owner's pause), or never switched on yet.
+   'paused',CASE WHEN r.enabled THEN NULL ELSE coalesce((SELECT jsonb_build_object('cause',CASE a.action WHEN 'rule.save' THEN 'edited' WHEN 'rule.activate' THEN 'paused' ELSE 'other' END,'at',a.at) FROM accounting.audit_log a
+    WHERE a.table_name='rules' AND a.row_id=r.id AND coalesce((a.before->>'enabled')::boolean,false) AND NOT coalesce((a.after->>'enabled')::boolean,false) ORDER BY a.id DESC LIMIT 1),jsonb_build_object('cause','never_on','at',r.created_at)) END,
+   'suggestion',CASE WHEN r.review_status='suggested' THEN accounting.rule_evidence(r.id) END) ORDER BY priority,id),'[]') FROM accounting.rules r),'aliases',(SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('party_name',p.name,'match_mode',a.match_kind,'description',a.pattern) ORDER BY a.pattern),'[]') FROM accounting.payee_aliases a JOIN accounting.parties p ON p.id=a.party_id));
  ELSIF view='close-history' THEN
   RETURN jsonb_build_object('periods',(SELECT coalesce(jsonb_agg(to_jsonb(p)||jsonb_build_object('month_start',month,'is_locked',status='locked') ORDER BY month DESC),'[]') FROM accounting.periods p),'reconciliations',(SELECT coalesce(jsonb_agg(to_jsonb(r)||jsonb_build_object('account_id',b.account_id,'from_date',statement_start,'to_date',statement_end,'opening_cents',opening_balance_cents::text,'ending_cents',ending_balance_cents::text,'difference_cents',difference_cents::text) ORDER BY statement_end DESC),'[]') FROM accounting.reconciliations r JOIN accounting.bank_accounts b ON b.id=r.bank_account_id));
  ELSIF view='tax' THEN
@@ -4543,6 +4616,8 @@ BEGIN
    IF NEW.status<>'draft' THEN NEW.fill_source:=NULL; END IF;
    IF OLD.status='posted' AND (to_jsonb(NEW)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','review_pending','version','updated_at']) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','review_pending','version','updated_at']) THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
    IF OLD.status<>'posted' THEN PERFORM accounting.require_open(OLD.entry_date); PERFORM accounting.require_open(NEW.entry_date); END IF;
+   -- A closed bank or card account takes nothing dated after its closing day; history up to it stays editable.
+   IF NEW.entry_date>OLD.entry_date AND NEW.status<>'discarded' AND EXISTS(SELECT 1 FROM accounting.journal_lines cl JOIN accounting.accounts ca ON ca.id=cl.account_id WHERE cl.entry_id=NEW.id AND ca.closed_on<NEW.entry_date) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_CLOSED'; END IF;
    NEW.version:=OLD.version+1; NEW.updated_at:=now();
   END IF;
   IF NEW.reverses_entry_id IS NOT NULL THEN
@@ -4561,6 +4636,7 @@ BEGIN
   IF TG_OP<>'DELETE' THEN
    SELECT * INTO a FROM accounting.accounts WHERE id=NEW.account_id;
    IF a.is_archived THEN RAISE EXCEPTION 'ACCT_ACCOUNT_ARCHIVED'; END IF;
+   IF a.closed_on<e.entry_date THEN RAISE EXCEPTION 'ACCT_ACCOUNT_CLOSED'; END IF;
   END IF;
  ELSIF TG_TABLE_NAME='accounts' THEN
   IF TG_OP<>'DELETE' AND (
@@ -4618,6 +4694,7 @@ AS $function$
 DECLARE t text:=c->>'type'; k uuid:=coalesce((c->>'id')::uuid,gen_random_uuid()); actor uuid:=CASE WHEN current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE accounting.require_owner() END;
  e accounting.journal_entries; account_row accounting.accounts; v integer; x jsonb; line jsonb; idx integer; r jsonb; replacement jsonb; reversal jsonb;
  preserved uuid[]:='{}'; seen uuid[]:='{}'; existing_line uuid; original_date date; category uuid; bank_line accounting.journal_lines; carried jsonb:='[]'; total numeric; allocated bigint; remain bigint; share_sum bigint;
+ closing date; later integer; first_later date; closing_balance bigint; books_today date;
 BEGIN
  IF t='cash.allocate' THEN
   SELECT * INTO bank_line FROM accounting.journal_lines WHERE id=k;
@@ -4663,6 +4740,35 @@ BEGIN
    is_archived=coalesce((c->>'is_archived')::boolean,is_archived),external_names=coalesce(c->'external_names',external_names)
    WHERE id=k RETURNING version INTO v;
   RETURN jsonb_build_object('id',k,'version',v);
+ ELSIF t IN ('account.close','account.reopen') THEN
+  -- Closing keeps every past entry and balance; it stops new money after the closing day and stops the bank feed.
+  SELECT * INTO account_row FROM accounting.accounts WHERE id=k FOR UPDATE;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM account_row.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  IF account_row.subtype NOT IN ('bank','card','cash') THEN RAISE EXCEPTION 'ACCT_CLOSE_KIND'; END IF;
+  IF t='account.reopen' THEN
+   IF account_row.closed_on IS NULL THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+   UPDATE accounting.accounts SET closed_on=NULL WHERE id=k RETURNING version INTO v;
+   -- The feed link closed with the account syncs again, unless a newer link has opened since.
+   IF NOT EXISTS(SELECT 1 FROM accounting.bank_accounts WHERE account_id=k AND NOT is_closed) THEN
+    UPDATE accounting.bank_accounts SET is_closed=false,closed_on=NULL WHERE id=(SELECT ob.id FROM accounting.bank_accounts ob WHERE ob.account_id=k AND ob.is_closed AND ob.closed_on=account_row.closed_on ORDER BY ob.updated_at DESC,ob.id LIMIT 1);
+   END IF;
+   RETURN jsonb_build_object('id',k,'version',v);
+  END IF;
+  IF account_row.closed_on IS NOT NULL THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  books_today:=(SELECT (now() AT TIME ZONE books_timezone)::date FROM public.business_profile WHERE id=1);
+  -- By default the account closes on the last day anything touched it.
+  closing:=coalesce((c->>'closed_on')::date,(SELECT max(ce.entry_date) FROM accounting.journal_lines cl JOIN accounting.journal_entries ce ON ce.id=cl.entry_id WHERE cl.account_id=k AND ce.status<>'discarded'),books_today);
+  IF closing>books_today THEN RAISE EXCEPTION 'ACCT_CLOSE_DATE'; END IF;
+  SELECT count(DISTINCT ce.id),min(ce.entry_date) INTO later,first_later FROM accounting.journal_lines cl JOIN accounting.journal_entries ce ON ce.id=cl.entry_id WHERE cl.account_id=k AND ce.status<>'discarded' AND ce.entry_date>closing;
+  IF later>0 THEN RAISE EXCEPTION 'ACCT_CLOSE_LATER_ENTRIES %',jsonb_build_object('count',later,'first',first_later,'closed_on',closing); END IF;
+  SELECT count(DISTINCT ce.id) INTO later FROM accounting.journal_lines cl JOIN accounting.journal_entries ce ON ce.id=cl.entry_id WHERE cl.account_id=k AND ce.status='draft';
+  IF later>0 THEN RAISE EXCEPTION 'ACCT_CLOSE_DRAFTS %',jsonb_build_object('count',later); END IF;
+  SELECT coalesce(sum(cl.amount_cents),0) INTO closing_balance FROM accounting.journal_lines cl JOIN accounting.journal_entries ce ON ce.id=cl.entry_id WHERE cl.account_id=k AND ce.status='posted' AND ce.entry_date<=closing;
+  IF closing_balance<>0 THEN RAISE EXCEPTION 'ACCT_CLOSE_BALANCE %',jsonb_build_object('balance_cents',closing_balance::text,'closed_on',closing,'kind',account_row.subtype); END IF;
+  UPDATE accounting.accounts SET closed_on=closing WHERE id=k RETURNING version INTO v;
+  UPDATE accounting.bank_accounts SET is_closed=true,closed_on=closing WHERE account_id=k AND NOT is_closed;
+  RETURN jsonb_build_object('id',k,'version',v,'closed_on',closing);
  ELSIF t IN ('draft.save','transaction.save','transaction.review') THEN
   IF jsonb_typeof(c->'lines') IS DISTINCT FROM 'array' OR jsonb_array_length(c->'lines')>100 THEN RAISE EXCEPTION 'ACCT_INVALID_LINES'; END IF;
   SELECT * INTO e FROM accounting.journal_entries WHERE id=k;
@@ -5619,7 +5725,7 @@ BEGIN
  -- observed_balance_cents already carries the connection's balance sign (sync_server applies it), as the Accounts screen reads it.
  WITH money AS (
   SELECT a.id,a.name,a.code,a.subtype,b.id AS bank_id,b.institution,b.mask,b.observed_balance_cents AS observed,b.observed_at,
-   (b.observed_at AT TIME ZONE zone)::date AS observed_day,b.connection_id,CASE WHEN a.subtype='card' THEN -1 ELSE 1 END AS sign
+   (b.observed_at AT TIME ZONE zone)::date AS observed_day,b.connection_id,CASE WHEN a.subtype='card' THEN -1 ELSE 1 END AS sign,a.closed_on
   FROM accounting.accounts a LEFT JOIN accounting.bank_accounts b ON b.account_id=a.id AND NOT b.is_closed
   WHERE a.subtype IN ('bank','card','cash') AND (selected IS NULL OR a.id=selected) AND (NOT a.is_archived OR a.id=selected)
  ), live AS (
@@ -5637,7 +5743,7 @@ BEGIN
  )
  SELECT jsonb_build_object('as_of',today,'checked_at',now(),'revision',(SELECT financial_revision::text FROM accounting.settings WHERE id=1),
   'accounts',coalesce(jsonb_agg(jsonb_build_object(
-   'account',jsonb_build_object('id',r.id,'name',r.name,'code',nullif(r.code,''),'kind',r.subtype,'institution',nullif(r.institution,''),'mask',nullif(r.mask,'')),
+   'account',jsonb_build_object('id',r.id,'name',r.name,'code',nullif(r.code,''),'kind',r.subtype,'institution',nullif(r.institution,''),'mask',nullif(r.mask,''),'closed_on',r.closed_on),
    'book_cents',(r.book*r.sign)::text,'book_posted_cents',(r.book_posted*r.sign)::text,
    'bank_cents',(r.observed*r.sign)::text,'bank_observed_at',r.observed_at,
    'gap_cents',((r.book_observed-r.observed)*r.sign)::text,
@@ -5646,7 +5752,7 @@ BEGIN
    'unmatched',(SELECT jsonb_build_object('count',count(*),'amount_cents',coalesce(sum(t.amount_cents),0)::text,'oldest',min(t.posted_date)) FROM accounting.bank_transactions t WHERE t.bank_account_id=r.bank_id AND t.state='posted' AND t.review='unmatched'),
    'last_reconciled_through',(SELECT max(x.statement_end) FROM accounting.reconciliations x WHERE x.bank_account_id=r.bank_id AND x.status='completed'),
    'feed',CASE WHEN r.connection_id IS NULL THEN NULL ELSE jsonb_build_object('connection_id',r.connection_id,'connection',r.connection_name,'status',r.connection_status,'last_success_at',r.last_success_at,'last_error',nullif(r.last_error,''),'stale',r.stale) END,
-   'status',CASE WHEN r.connection_id IS NULL THEN 'no_feed' WHEN r.stale THEN 'stale_feed' WHEN r.observed IS NOT NULL AND r.book_observed<>r.observed THEN 'gap' ELSE 'ok' END)
+   'status',CASE WHEN r.closed_on IS NOT NULL THEN 'closed' WHEN r.connection_id IS NULL THEN 'no_feed' WHEN r.stale THEN 'stale_feed' WHEN r.observed IS NOT NULL AND r.book_observed<>r.observed THEN 'gap' ELSE 'ok' END)
   ORDER BY r.subtype,r.code,r.name,r.id),'[]'::jsonb)) INTO result FROM measured r;
  RETURN result;
 END $function$
@@ -6324,7 +6430,32 @@ CREATE OR REPLACE FUNCTION accounting.rules_list()
 AS $function$
 BEGIN
  PERFORM accounting.require_reader();
- RETURN (SELECT coalesce(jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'priority',r.priority,'enabled',r.enabled,'auto_post',r.auto_post,'conditions',r.conditions,'actions',r.actions,'version',r.version) ORDER BY r.priority,r.name,r.id),'[]'::jsonb) FROM accounting.rules r);
+ RETURN (SELECT coalesce(jsonb_agg(jsonb_build_object('id',r.id,'name',r.name,'priority',r.priority,'enabled',r.enabled,'auto_post',r.auto_post,'conditions',r.conditions,'actions',r.actions,'version',r.version,
+  'review_status',r.review_status,'suggested_by',r.suggested_by,'suggested_by_name',(SELECT m.name FROM public.team_members m WHERE m.id=r.suggested_by)) ORDER BY r.priority,r.name,r.id),'[]'::jsonb) FROM accounting.rules r);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.rule_evidence(rule uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE r accounting.rules; pattern text; result jsonb;
+BEGIN
+ SELECT * INTO r FROM accounting.rules WHERE id=rule;
+ IF NOT FOUND THEN RETURN NULL; END IF;
+ pattern:=upper(regexp_replace(btrim(coalesce(r.conditions->>'description',(SELECT value#>>'{}' FROM jsonb_each(coalesce(r.conditions->'descriptor_key','{}')) LIMIT 1),'')),'\s+',' ','g'));
+ -- What the rule matches in the books today, tested by the preview's own matcher on the live transactions whose text holds its pattern.
+ SELECT jsonb_build_object('matches',count(*),'posted',count(*) FILTER(WHERE q.c->>'status'='posted'),
+  'in_category',count(*) FILTER(WHERE r.actions?'account_id' AND EXISTS(SELECT 1 FROM jsonb_array_elements(q.c->'lines') l WHERE l->>'account_id'=r.actions->>'account_id')),
+  'ready',count(*) FILTER(WHERE (q.c->>'eligible')::boolean)) INTO result
+ FROM (SELECT accounting.rule_candidate(e.id,r.id) c FROM accounting.journal_entries e
+  WHERE e.status<>'discarded' AND pattern<>'' AND e.reverses_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries x WHERE x.reverses_entry_id=e.id)
+   AND position(pattern IN upper(regexp_replace(coalesce(e.source_description,'')||' '||coalesce(e.memo,'')||' '||coalesce(e.descriptor_key,accounting.descriptor_key(e.memo),''),'\s+',' ','g')))>0) q
+ WHERE q.c IS NOT NULL;
+ -- The agent's own words when it proposed the rule, unless it gave none.
+ RETURN result||jsonb_build_object('note',(SELECT nullif(nullif(btrim(a.reason),''),'Created through the API') FROM accounting.audit_log a WHERE a.table_name='rules' AND a.row_id=rule AND a.before IS NULL ORDER BY a.id LIMIT 1));
 END $function$
 ;
 
@@ -6567,7 +6698,8 @@ BEGIN
  FOR a IN SELECT value FROM jsonb_array_elements(command->'accounts') LOOP
   provider_key:=jsonb_build_array(a->>'provider_connection_id',a->>'provider_account_id')::text;
   discover_id:=md5(c.id::text||':'||provider_key)::uuid;
-  discovered:=jsonb_set(discovered,ARRAY[discover_id::text],jsonb_build_object('id',discover_id,'provider_account_id',provider_key,'raw_provider_account_id',a->>'provider_account_id','provider_connection_id',a->>'provider_connection_id','name',a->>'name','institution',a->>'institution','currency',a->>'currency','balance_cents',a->>'balance_cents','available_cents',a->>'available_cents','balance_at',a->'balance_at','ownership',coalesce(discovered->discover_id::text->>'ownership','unreviewed')));
+  discovered:=jsonb_set(discovered,ARRAY[discover_id::text],jsonb_build_object('id',discover_id,'provider_account_id',provider_key,'raw_provider_account_id',a->>'provider_account_id','provider_connection_id',a->>'provider_connection_id','name',a->>'name','institution',a->>'institution','currency',a->>'currency','balance_cents',a->>'balance_cents','available_cents',a->>'available_cents','balance_at',a->'balance_at','ownership',coalesce(discovered->discover_id::text->>'ownership','unreviewed'),
+   'seen_at',extract(epoch FROM now())::bigint,'not_replacing',coalesce(discovered->discover_id::text->'not_replacing','[]'::jsonb)));
   SELECT * INTO ba FROM accounting.bank_accounts WHERE connection_id=c.id AND provider_account_id=provider_key AND NOT is_closed;
   IF NOT FOUND THEN CONTINUE; END IF;
   IF a->>'currency'<>'USD' THEN run_complete:=false; CONTINUE; END IF;
@@ -7794,6 +7926,10 @@ GRANT EXECUTE ON FUNCTION accounting.rules_list() TO "postgres";
 REVOKE ALL ON FUNCTION accounting.rule_candidate(uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION accounting.rule_candidate(uuid,uuid) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.rule_evidence(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.rule_evidence(uuid) TO "postgres";
 
 REVOKE ALL ON FUNCTION accounting.rules_preview(jsonb) FROM PUBLIC, anon, authenticated, service_role;
 

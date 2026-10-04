@@ -338,6 +338,7 @@ export function databaseError(message: string, permission: string): ApiError {
     case "ACCT_PERIOD_LOCKED":
     case "ACCT_LATER_PERIOD_LOCKED":
     case "ACCT_ACCOUNT_ARCHIVED":
+    case "ACCT_ACCOUNT_CLOSED":
     case "ACCT_INVALID_LINES":
     case "ACCT_INVALID_CENTS":
     case "ACCT_UNBALANCED":
@@ -364,10 +365,12 @@ export function databaseError(message: string, permission: string): ApiError {
               : code === "ACCT_PERIOD_LOCKED" ||
                   code === "ACCT_LATER_PERIOD_LOCKED"
                 ? "That month is closed; choose a date in an open month."
-                : code === "ACCT_MATCHED_LINE_IMMUTABLE" ||
-                    code === "ACCT_BANK_SOURCE_CHANGED"
-                  ? "Lines matched to a bank transaction keep their account, amount and date."
-                  : "books_code says what the books refused; change the request rather than repeating it.",
+                : code === "ACCT_ACCOUNT_CLOSED"
+                  ? "That bank or card account is closed (its closed_on says on which day); nothing can be dated after that day."
+                  : code === "ACCT_MATCHED_LINE_IMMUTABLE" ||
+                      code === "ACCT_BANK_SOURCE_CHANGED"
+                    ? "Lines matched to a bank transaction keep their account, amount and date."
+                    : "books_code says what the books refused; change the request rather than repeating it.",
         },
       );
     case "API_INVALID_INPUT":

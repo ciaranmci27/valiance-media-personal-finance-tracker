@@ -12,7 +12,7 @@
     "test:accounting": "tsx scripts/verify-accounting.ts",
     "test:accounting:db": "tsx scripts/verify-accounting-db.ts",
     "test:accounting:package": "tsx scripts/verify-accounting-books-package.ts",
-    "test:accounting:accounts": "tsx scripts/verify-accounting-account-setup.ts",
+    "test:accounting:accounts": "tsx scripts/verify-accounting-account-setup.ts && tsx scripts/verify-accounting-account-close.ts",
     "test:accounting:registers": "tsx scripts/verify-accounting-registers.ts",
     "test:accounting:tax": "tsx scripts/verify-accounting-tax-workpapers.ts && tsx scripts/verify-accounting-tax-figures.ts && tsx scripts/verify-tax.ts",
     "test:accounting:payroll": "tsx scripts/verify-accounting-payroll.ts && tsx scripts/verify-accounting-payroll-reporting.ts",
@@ -35,7 +35,7 @@
     "test:accounting:transfers": "tsx scripts/verify-accounting-transfers.ts",
     "test:accounting:bank": "tsx scripts/verify-accounting-bank-matching.ts",
     "test:accounting:rules": "tsx scripts/verify-accounting-rules.ts",
-    "test:accounting:feeds": "tsx scripts/verify-accounting-simplefin.ts && tsx scripts/verify-accounting-feed-db.ts && tsx scripts/verify-accounting-feed-sync.ts",
+    "test:accounting:feeds": "tsx scripts/verify-accounting-simplefin.ts && tsx scripts/verify-accounting-feed-db.ts && tsx scripts/verify-accounting-feed-sync.ts && tsx scripts/verify-accounting-account-close.ts",
     "test:accounting:all": "tsx scripts/verify-accounting-all.ts",
     "test:accounting:integration": "tsx scripts/verify-accounting-all.ts --integration"
   },

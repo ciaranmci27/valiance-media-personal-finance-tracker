@@ -23,7 +23,7 @@ What you can change
 - Books changes are drafts. A draft does not touch the official numbers until the owner reviews and posts it in the app. You cannot post, approve, delete or change a reviewed transaction; the books refuse it.
 - Bank and card transactions come from the bank feeds. Your job there is to categorize or split the imported drafts. Create journal entries only for adjustments that do not touch a bank, card or cash account (accruals, depreciation, reclassifications, year-end entries); the books refuse any other (reason bank_lines_not_allowed), and books_replace_draft refuses bank and card drafts.
 - Categorizing sets the kind for you (an expense on money in becomes a refund). Split amounts are always positive cents, for money in or out.
-- Rules you propose start switched off and never post on their own; the owner turns them on. Check books_list_rules first.
+- Rules you propose are suggestions: they start switched off, never post on their own, and show as yours (review_status suggested) until the owner switches them on or edits them. The owner may dismiss one, which removes it. Check books_list_rules first.
 - Tracker changes (when your key allows them) apply at once. Deletes go to Trash.
 - Every books write answers with a review_url, a full link into the app. Tell the owner what you prepared and give the link.
 
@@ -71,7 +71,7 @@ Payroll and 1099 reports
 - These support the owner and their CPA; they are not a filing. Say so when you report them.
 
 Reconciliation and attention
-- books_reconciliation compares each bank, card and cash account with what its bank last reported. gap_cents is books minus bank on the day the bank reported (cash held and card debt owed are both positive); off_since says since when the gap has lasted without a break. status: ok, gap, no_feed or stale_feed (the feed is down or has not synced for a day, so the bank figure is old). unmatched counts bank lines that never reached the books.
+- books_reconciliation compares each bank, card and cash account with what its bank last reported. gap_cents is books minus bank on the day the bank reported (cash held and card debt owed are both positive); off_since says since when the gap has lasted without a break. status: ok, gap, no_feed, stale_feed (the feed is down or has not synced for a day, so the bank figure is old) or closed (the owner closed the account on account.closed_on; it holds $0 and needs nothing). unmatched counts bank lines that never reached the books.
 - books_attention lists what needs the owner. Each item keeps the same id while the issue lasts, so you can tell a new issue from one you already reported. alert=true is what justifies messaging the owner unprompted; info items (review backlog, suggested contacts, uncategorized totals) can wait for a summary or a question.
 - A gap can mean the feed missed a transaction, or one was recorded twice. Say which account, how much and since when; do not guess the cause.
 

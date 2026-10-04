@@ -18,7 +18,10 @@ import type { BalanceRow } from "@/lib/accounting/contracts";
 import type { FeedData } from "@/lib/accounting/feeds";
 import type { AccountProfile } from "@/lib/accounting/workflows";
 import { accountBalances } from "@/lib/accounting/account-balances";
-import { bankIdentitiesByAccount } from "@/lib/accounting/bank-identity";
+import {
+  bankIdentitiesByAccount,
+  currentFeedAccount,
+} from "@/lib/accounting/bank-identity";
 import { useAccountingRead } from "./use-accounting-read";
 import { money, timestampLabel } from "./format";
 
@@ -28,7 +31,7 @@ const STATUS: Record<Status, { label: string; variant: BadgeVariant }> = {
   connected: { label: "Connected", variant: "success" },
   reconnect: { label: "Reconnect", variant: "warning" },
   disconnected: { label: "Disconnected", variant: "default" },
-  unmapped: { label: "Not mapped", variant: "warning" },
+  unmapped: { label: "No feed linked", variant: "warning" },
   none: { label: "No feed", variant: "default" },
 };
 
@@ -48,6 +51,7 @@ export function AccountingBankPanel({
   onLedger,
   onReconcile,
   onRefresh,
+  onCloseAccount,
 }: {
   accounts: BalanceRow[];
   profiles: AccountProfile[];
@@ -56,6 +60,8 @@ export function AccountingBankPanel({
   onLedger: (a: BalanceRow) => void;
   onReconcile: (a: BalanceRow) => void;
   onRefresh: () => Promise<void>;
+  /** Opens the close dialog for an account nothing feeds any more. */
+  onCloseAccount: (a: BalanceRow) => void;
 }) {
   // The same cached feed the shell already holds, so bank balances are on
   // the first paint instead of replacing book balances a moment later. A
@@ -103,7 +109,10 @@ export function AccountingBankPanel({
   const identities = bankIdentitiesByAccount(feeds);
   const balances = accountBalances(accounts, profiles, feeds);
   const rows = accounts.map((a) => {
-    const identity = identities.get(a.id) ?? null;
+    // A link closed by a card reissue or a disconnect is not a feed.
+    const link = feeds ? currentFeedAccount(feeds.accounts, a.id) : undefined;
+    const identity =
+      link && !link.is_closed ? (identities.get(a.id) ?? null) : null;
     const connection =
       feeds?.connections.find((c) => c.id === identity?.connection_id) ?? null;
     const status: Status = !connection
@@ -197,7 +206,7 @@ export function AccountingBankPanel({
                     ? `Bank reported${r.identity?.balance?.balance_at ? ` · ${timestampLabel(new Date(r.identity.balance.balance_at * 1000).toISOString())}` : ""}`
                     : "Book balance (no bank balance available)"}
                 </p>
-                <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                <p className="mt-1 line-clamp-3 text-xs text-muted-foreground">
                   {off ? (
                     <span className="inline-flex items-center gap-1 text-warning">
                       <CircleAlert size={12} aria-hidden="true" />
@@ -214,14 +223,30 @@ export function AccountingBankPanel({
                   ) : r.connection?.last_success_at ? (
                     `Synced ${timestampLabel(r.connection.last_success_at)}`
                   ) : r.status === "unmapped" ? (
-                    <button
-                      type="button"
-                      onClick={onFeeds}
-                      className="inline-flex items-center gap-1 rounded text-warning hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <CircleAlert size={12} aria-hidden="true" />
-                      Connected, not mapped yet. Map it in Bank connections
-                    </button>
+                    <span className="text-warning">
+                      <CircleAlert
+                        size={12}
+                        aria-hidden="true"
+                        className="mr-1 inline align-[-2px]"
+                      />
+                      No bank feed linked.{" "}
+                      <button
+                        type="button"
+                        onClick={onFeeds}
+                        className="rounded underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        Link one in Bank connections
+                      </button>
+                      , or{" "}
+                      <button
+                        type="button"
+                        onClick={() => onCloseAccount(r.account)}
+                        className="rounded underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        close this account
+                      </button>{" "}
+                      if it is no longer used.
+                    </span>
                   ) : r.status === "none" ? (
                     <span className="inline-flex items-center gap-1">
                       <CircleDashed size={12} aria-hidden="true" />

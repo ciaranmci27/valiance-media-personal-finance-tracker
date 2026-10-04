@@ -33,6 +33,7 @@ import type {
 import type { WorkflowCommand } from "@/lib/accounting/workflows";
 import type { BooksMetadata } from "./types";
 import { centsToDecimal, parseUsd } from "@/lib/accounting/money";
+import { isOpenAccount } from "@/lib/accounting/account-close";
 import {
   defaultEntryContext,
   presentTransaction,
@@ -141,8 +142,14 @@ export function AccountingTransactionEditor({
       .filter((p) => p.cash_kind !== "none")
       .map((p) => p.account_id),
   );
+  // A closed account stays choosable on the transaction that already uses it.
+  const entryAccounts = new Set(entry?.lines.map((l) => l.account_id) ?? []);
   const accountOptions = accounts
-    .filter((a) => !a.is_archived && bankIds.has(a.id))
+    .filter(
+      (a) =>
+        bankIds.has(a.id) &&
+        (isOpenAccount(a) || (!a.is_archived && entryAccounts.has(a.id))),
+    )
     .map((a) => ({
       value: a.id,
       label: a.name,

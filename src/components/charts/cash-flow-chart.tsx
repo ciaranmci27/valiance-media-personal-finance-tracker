@@ -102,64 +102,69 @@ export function CashFlowChart({
     );
 
   return (
-    <div className="w-full" {...hoverProps}>
-      <div className="h-[220px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={data}
-            margin={{ top: 8, right: 4, left: 0, bottom: 0 }}
-            barCategoryGap="28%"
-            barGap={2}
-            barSize={16}
-          >
-            <XAxis
-              dataKey="month"
-              axisLine={false}
-              tickLine={false}
-              tick={AXIS_TICK}
-              tickMargin={8}
-              tickFormatter={(value: string) =>
-                formatMonthShort(value).replace(/\s\d{4}$/, "")
-              }
-              interval={data.length > 8 ? 1 : 0}
-            />
-            <YAxis
-              axisLine={false}
-              tickLine={false}
-              tick={AXIS_TICK}
-              width={48}
-              tickFormatter={(value: number) =>
-                showValues ? formatCurrency(value, { compact: true }) : "•••"
-              }
-            />
-            <Tooltip
-              content={<CustomTooltip />}
-              cursor={{ fill: "rgba(var(--ink), 0.04)" }}
-            />
-            <Bar
-              dataKey="income"
-              name="Income"
-              radius={[4, 4, 0, 0]}
-              fill={INCOME_COLOR}
-              isAnimationActive={false}
+    <div className="flex min-h-[220px] w-full flex-1 flex-col" {...hoverProps}>
+      {/* Fills a stretched card; never shorter than 220px. The chart sits
+          absolutely inside so its 100% height always has a definite box,
+          whether the card stretches (dashboard) or not (accounting). */}
+      <div className="relative min-h-[220px] w-full flex-1">
+        <div className="absolute inset-0">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={data}
+              margin={{ top: 8, right: 4, left: 0, bottom: 0 }}
+              barCategoryGap="28%"
+              barGap={2}
+              barSize={16}
             >
-              {data.map((d) => (
-                <Cell key={d.month} fill={INCOME_COLOR} />
-              ))}
-            </Bar>
-            <Bar
-              dataKey="expenses"
-              name="Expenses"
-              radius={[4, 4, 0, 0]}
-              fill={EXPENSE_COLOR}
-              isAnimationActive={false}
-            >
-              {data.map((d) => (
-                <Cell key={d.month} fill={EXPENSE_COLOR} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+              <XAxis
+                dataKey="month"
+                axisLine={false}
+                tickLine={false}
+                tick={AXIS_TICK}
+                tickMargin={8}
+                tickFormatter={(value: string) =>
+                  formatMonthShort(value).replace(/\s\d{4}$/, "")
+                }
+                interval={data.length > 8 ? 1 : 0}
+              />
+              <YAxis
+                axisLine={false}
+                tickLine={false}
+                tick={AXIS_TICK}
+                width={48}
+                tickFormatter={(value: number) =>
+                  showValues ? formatCurrency(value, { compact: true }) : "•••"
+                }
+              />
+              <Tooltip
+                content={<CustomTooltip />}
+                cursor={{ fill: "rgba(var(--ink), 0.04)" }}
+              />
+              <Bar
+                dataKey="income"
+                name="Income"
+                radius={[4, 4, 0, 0]}
+                fill={INCOME_COLOR}
+                isAnimationActive={false}
+              >
+                {data.map((d) => (
+                  <Cell key={d.month} fill={INCOME_COLOR} />
+                ))}
+              </Bar>
+              <Bar
+                dataKey="expenses"
+                name="Expenses"
+                radius={[4, 4, 0, 0]}
+                fill={EXPENSE_COLOR}
+                isAnimationActive={false}
+              >
+                {data.map((d) => (
+                  <Cell key={d.month} fill={EXPENSE_COLOR} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
       <table className="sr-only">
         <caption>Monthly income, expenses and net profit</caption>

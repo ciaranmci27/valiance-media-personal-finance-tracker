@@ -5,6 +5,7 @@ import { ACCOUNTING_ENABLED } from "@/lib/env";
 import { isDemoMode } from "@/lib/demo";
 import { localAccountingTestClient } from "./local-test-client";
 import type { AccountingRpc } from "./read";
+import { closeRefusal } from "../account-close";
 
 /**
  * The signed-in session's accounting schema, before any books check; the
@@ -51,7 +52,20 @@ export async function accountingClient() {
 }
 
 export function accountingError(message: string): string {
+  // Close refusals carry the amount or count, so they read as a sentence.
+  const refusal = closeRefusal(message);
+  if (refusal) return refusal;
   const known: Record<string, string> = {
+    ACCT_CLOSE_DATE: "Choose a closing date that is not in the future.",
+    ACCT_CLOSE_KIND:
+      "Only bank, card and cash accounts can be closed. Archive other accounts instead.",
+    accounts_closed_kind_check:
+      "Reopen this account before changing what kind of account it is.",
+    ACCT_ACCOUNT_CLOSED:
+      "This account is closed. Date it on or before its closing day, or reopen the account on the Accounts screen.",
+    ACCT_FEED_CURRENCY: "Only USD accounts can feed the books.",
+    bank_accounts_one_open_link:
+      "That account already has a bank feed. Use Link to an existing account to move it to this one.",
     ACCT_CORRECTION_LINKED:
       "Use this transaction's payroll, transfer, register or reconciliation workflow to change it. No changes were saved.",
     ACCT_PATRIOT_CHANGED:
@@ -128,6 +142,10 @@ export function accountingError(message: string): string {
     ACCT_ACCOUNT_ARCHIVED: "An account on this entry is archived.",
     ACCT_RULE_INELIGIBLE:
       "One of the selected drafts no longer qualifies. Refresh the preview and review its exception.",
+    ACCT_RULE_NOT_SUGGESTED:
+      "This rule is already yours, so it cannot be dismissed. Pause it instead.",
+    ACCT_RULE_IN_USE:
+      "This rule has been switched on or has filled transactions, so it stays in the books. Pause it instead.",
     ACCT_BANK_SOURCE_CHANGED:
       "The bank side of this transaction (date, account and amount) comes from the bank and cannot change. Edit the category, description or payee instead.",
     ACCT_REASON_REQUIRED: "Provide a reason for this change.",

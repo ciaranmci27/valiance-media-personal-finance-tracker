@@ -65,6 +65,7 @@ export interface BooksPackageSnapshot {
       account_type: string;
       normal_side: string;
       is_archived: boolean;
+      closed_on?: string | null;
       profile: AccountProfile | null;
     }[];
     document_index: {

@@ -418,6 +418,11 @@ const reconciliationAccount = z.object({
     kind: z.enum(["bank", "card", "cash"]),
     institution: z.string().nullable(),
     mask: z.string().nullable(),
+    closed_on: date
+      .nullable()
+      .describe(
+        "The day the owner closed this account; null while open. A closed account has no feed and takes nothing dated later",
+      ),
   }),
   book_cents: cents.describe(
     "Balance in the books today, drafts included. Normal side: cash held positive, card debt owed positive",
@@ -463,9 +468,9 @@ const reconciliationAccount = z.object({
     })
     .nullable(),
   status: z
-    .enum(["ok", "gap", "no_feed", "stale_feed"])
+    .enum(["ok", "gap", "no_feed", "stale_feed", "closed"])
     .describe(
-      "no_feed: no bank feed; stale_feed: the feed is down or silent, so the bank figure is old; gap: books and bank differ; ok: they match",
+      "closed: the owner closed the account (see account.closed_on); no_feed: no bank feed; stale_feed: the feed is down or silent, so the bank figure is old; gap: books and bank differ; ok: they match",
     ),
 });
 
@@ -564,6 +569,11 @@ const account = z.object({
     ),
   parent_id: uuid.nullable(),
   is_archived: z.boolean(),
+  closed_on: date
+    .nullable()
+    .describe(
+      "Bank, card and cash accounts the owner closed: the closing day. Its history stays in every report; nothing new is dated after it. Null while open",
+    ),
   cash_kind: z.string().describe("bank, card, cash or none"),
   normal_side: z.enum(["debit", "credit"]),
   balance_cents: cents.describe(
@@ -1398,7 +1408,7 @@ export const API_OPERATIONS = [
     tag: "Books",
     summary: "Categorization rules",
     description:
-      "The rules that categorize imported transactions, in the order they apply. Check here before adding one. Page with `offset` and `limit`.",
+      "The rules that categorize imported transactions, in the order they apply. Check here before adding one. A rule an agent proposed is review_status suggested until the owner approves it (by switching it on) or edits it; the owner may also dismiss it, which removes it. Page with `offset` and `limit`.",
     query: z
       .object({
         q: nameSearch,
@@ -1408,6 +1418,10 @@ export const API_OPERATIONS = [
           .describe(
             "true: only rules that are on; false: only proposals and rules switched off",
           ),
+        review_status: z
+          .enum(["suggested", "confirmed"])
+          .optional()
+          .describe("suggested: proposed by an agent and waiting for the owner"),
         offset,
         limit: limit(500, 200),
       })
@@ -1424,6 +1438,11 @@ export const API_OPERATIONS = [
           conditions: z.record(z.string(), z.unknown()),
           actions: z.record(z.string(), z.unknown()),
           version: z.number(),
+          review_status: z.enum(["suggested", "confirmed"]),
+          suggested_by: uuid
+            .nullable()
+            .describe("The team member (agent) who proposed it"),
+          suggested_by_name: z.string().nullable(),
         }),
       ),
     }),
@@ -1718,7 +1737,7 @@ export const API_OPERATIONS = [
     tag: "Books",
     summary: "What needs the owner",
     description:
-      "Whether anything in the books is genuinely wrong. Alerts: a gap between the books and the bank lasting over a day, a bank feed down or silent for a day, a single transaction over $1,000 waiting for review for two days, a likely duplicate charge, drafts that do not balance, bank lines left out of a closed month. Info: the review backlog, contacts waiting for approval, what still sits in Uncategorized. Each item keeps the same id while the issue lasts. `alert` is true only when an alert item exists.",
+      "Whether anything in the books is genuinely wrong. Alerts: a gap between the books and the bank lasting over a day, a bank feed down or silent for a day, a single transaction over $1,000 waiting for review for two days, a likely duplicate charge, drafts that do not balance, bank lines left out of a closed month. Info: the review backlog, contacts and rules waiting for approval, what still sits in Uncategorized. Each item keeps the same id while the issue lasts. `alert` is true only when an alert item exists.",
     query: z
       .object({
         include_info: z

@@ -40,7 +40,20 @@ import {
   type FeedIdentity,
   type FeedCanonicalAccount,
 } from "@/lib/accounting/feeds";
-import { dateLabel, enumLabel, money, timestampLabel } from "./format";
+import {
+  feedKind,
+  replacementSuggestions,
+} from "@/lib/accounting/feed-replacements";
+import { isOpenAccount } from "@/lib/accounting/account-close";
+import { currentFeedAccount } from "@/lib/accounting/bank-identity";
+import { getAccountingDemoFeeds } from "@/lib/accounting/demo";
+import {
+  booksToday,
+  dateLabel,
+  enumLabel,
+  money,
+  timestampLabel,
+} from "./format";
 import { useAccountingCommand } from "./use-accounting-command";
 import { useAccountingRead } from "./use-accounting-read";
 /** Feed checkpoints are unix stamps; the date input and `dateLabel` take `YYYY-MM-DD`. */
@@ -83,7 +96,9 @@ export function AccountingFeeds({
     { view: "feeds" },
     { enabled: !demo },
   );
-  const state = feedsRead.data ?? null;
+  // The demo shows a fixed connection so the linking screens can be seen.
+  const [demoFeeds] = useState(() => (demo ? getAccountingDemoFeeds() : null));
+  const state = demo ? demoFeeds : (feedsRead.data ?? null);
   const [config, setConfig] = useState<Configuration | null>(null),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
@@ -91,6 +106,7 @@ export function AccountingFeeds({
     inFlight = useRef(false);
   const [connect, setConnect] = useState<FeedConnection | "new" | null>(null),
     [mapping, setMapping] = useState<FeedIdentity | null>(null),
+    [linking, setLinking] = useState<FeedIdentity | null>(null),
     [disconnect, setDisconnect] = useState<FeedConnection | null>(null),
     [skip, setSkip] = useState<FeedCanonicalAccount | null>(null);
   async function refresh() {
@@ -158,6 +174,10 @@ export function AccountingFeeds({
       : "";
   const accountName = (id: string) =>
     data.accounts.find((a) => a.id === id)?.name ?? "Unknown account";
+  const kinds = new Map<string, string>(
+    manage.profiles.map((p) => [p.account_id, p.cash_kind]),
+  );
+  const suggestions = replacementSuggestions(state, kinds, booksToday());
   const unreviewed =
     state?.identities.filter((a) => {
       const c = state.connections.find((c) => c.id === a.connection_id);
@@ -386,7 +406,11 @@ export function AccountingFeeds({
             )}
             <div className="divide-y divide-border">
               {identities.map((identity) => {
-                const mapped = identity.account,
+                const linked = identity.account,
+                  // A link that a reissued card or a closed account retired.
+                  retired = !!linked?.is_closed,
+                  mapped = retired ? null : linked,
+                  suggestion = suggestions.get(identity.id),
                   queue = state.queue.find(
                     (q) => q.feed_account_id === mapped?.id,
                   ),
@@ -440,6 +464,8 @@ export function AccountingFeeds({
                               <Badge variant="warning" size="sm" dot>
                                 Needs mapping
                               </Badge>
+                            ) : retired ? (
+                              <Badge size="sm">Closed</Badge>
                             ) : mapped ? (
                               <Badge variant="success" size="sm" dot>
                                 Mapped
@@ -462,11 +488,13 @@ export function AccountingFeeds({
                               ? "Not mapped yet"
                               : unmapped
                                 ? "Choose the book account it feeds"
-                                : mapped
-                                  ? `Feeds ${accountName(mapped.account_id)}`
-                                  : identity.ownership === "personal"
-                                    ? "Personal, left out of the books"
-                                    : "Ignored"}
+                                : retired && linked
+                                  ? `Fed ${accountName(linked.account_id)} until ${dateLabel(linked.closed_on)}`
+                                  : mapped
+                                    ? `Feeds ${accountName(mapped.account_id)}`
+                                    : identity.ownership === "personal"
+                                      ? "Personal, left out of the books"
+                                      : "Ignored"}
                           </p>
                           {twin && (
                             <p className="mt-1 text-xs text-warning">
@@ -476,7 +504,7 @@ export function AccountingFeeds({
                           )}
                         </div>
                       </div>
-                      <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      <div className="flex max-w-full flex-wrap items-center gap-2">
                         {undecided && (
                           <Button
                             size="sm"
@@ -488,25 +516,88 @@ export function AccountingFeeds({
                             Ignore
                           </Button>
                         )}
-                        <Button
-                          size="sm"
-                          variant={
-                            undecided || unmapped ? "default" : "outline"
-                          }
-                          disabled={locked}
-                          onClick={() => setMapping(identity)}
-                        >
-                          {undecided
-                            ? "Map account"
-                            : unmapped
-                              ? "Choose account"
-                              : "Edit mapping"}
-                          {(undecided || unmapped) && (
-                            <ArrowRight size={14} aria-hidden="true" />
-                          )}
-                        </Button>
+                        {(undecided || unmapped) && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={
+                              cmd.busy ||
+                              running ||
+                              connection.status !== "active"
+                            }
+                            onClick={() => setLinking(identity)}
+                          >
+                            <Link2 size={14} aria-hidden="true" />
+                            Link to an existing account
+                          </Button>
+                        )}
+                        {!retired && (
+                          <Button
+                            size="sm"
+                            variant={
+                              undecided || unmapped ? "default" : "outline"
+                            }
+                            disabled={locked}
+                            onClick={() => setMapping(identity)}
+                          >
+                            {undecided
+                              ? "Map account"
+                              : unmapped
+                                ? "Choose account"
+                                : "Edit mapping"}
+                            {(undecided || unmapped) && (
+                              <ArrowRight size={14} aria-hidden="true" />
+                            )}
+                          </Button>
+                        )}
                       </div>
                     </div>
+                    {suggestion && (undecided || unmapped) && (
+                      <div
+                        role="status"
+                        className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[rgba(var(--ink),0.04)] px-4 py-3 text-sm"
+                      >
+                        <p className="min-w-0">
+                          Looks like a replacement for{" "}
+                          <span className="font-medium">
+                            {suggestion.replacedIdentity.name}
+                          </span>
+                          . Link it?
+                        </p>
+                        <div className="flex shrink-0 flex-wrap items-center gap-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={locked}
+                            onClick={() =>
+                              void cmd.execute({
+                                type: "feed.dismiss",
+                                id: identity.id,
+                                replaces: suggestion.replaces.id,
+                                reason: "Not a replacement",
+                              })
+                            }
+                          >
+                            Dismiss
+                          </Button>
+                          <Button
+                            size="sm"
+                            disabled={locked}
+                            onClick={() =>
+                              void cmd.execute({
+                                type: "feed.link",
+                                id: identity.id,
+                                expected_version: 0,
+                                account_id: suggestion.accountId,
+                                reason: "Linked as a replacement card",
+                              })
+                            }
+                          >
+                            Link
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     {mapped && (
                       <div className="mt-4 grid gap-4 text-sm sm:grid-cols-3">
                         <div>
@@ -699,6 +790,20 @@ export function AccountingFeeds({
             setNotice(
               "Connected. Use Discover accounts, then review each company mapping.",
             );
+          }}
+        />
+      )}
+      {linking && state && (
+        <LinkFeed
+          identity={linking}
+          accounts={data.accounts}
+          profiles={manage.profiles}
+          feeds={state}
+          demo={demo}
+          onClose={() => setLinking(null)}
+          onSaved={async () => {
+            await refresh();
+            setLinking(null);
           }}
         />
       )}
@@ -988,10 +1093,17 @@ function MapFeed({
       identity.account?.balance_sign ?? 1,
     );
   const cmd = useAccountingCommand(onSaved),
-    existing = canonical.find((a) => a.account_id === accountId),
+    // This identity's own saved link, when it is being edited.
+    existing = canonical.find(
+      (a) => a.id === identity.id && a.account_id === accountId,
+    ),
     banks = accounts.filter(
       (a) =>
-        !a.is_archived &&
+        isOpenAccount(a) &&
+        // An account another feed fills takes a new one through Link instead.
+        !canonical.some(
+          (c) => c.account_id === a.id && !c.is_closed && c.id !== identity.id,
+        ) &&
         profiles.some(
           (p) =>
             p.account_id === a.id &&
@@ -1002,7 +1114,9 @@ function MapFeed({
     usd = identity.currency === "USD";
   function choose(id: string) {
     setAccountId(id);
-    const saved = canonical.find((a) => a.account_id === id);
+    const saved = canonical.find(
+      (a) => a.id === identity.id && a.account_id === id,
+    );
     if (saved) {
       setStart(stampDate(saved.history_start));
       setZone(saved.posting_timezone);
@@ -1150,6 +1264,124 @@ function MapFeed({
               }
             >
               Save
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+/**
+ * Link a discovered feed account to a bank or card account that already
+ * exists, as when a card is reissued with a new number. The account's current
+ * feed closes and its history stays on the one account.
+ */
+function LinkFeed({
+  identity,
+  accounts,
+  profiles,
+  feeds,
+  demo,
+  onClose,
+  onSaved,
+}: {
+  identity: FeedIdentity;
+  accounts: AccountingWorkspace["accounts"];
+  profiles: BooksMetadata["profiles"];
+  feeds: FeedData;
+  demo: boolean;
+  onClose: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [accountId, setAccountId] = useState("");
+  const cmd = useAccountingCommand(onSaved);
+  const kind = feedKind(identity);
+  const usd = identity.currency === "USD";
+  const options = accounts
+    .filter((a) => {
+      const use = profiles.find((p) => p.account_id === a.id)?.cash_kind;
+      return (
+        isOpenAccount(a) &&
+        (use === "bank" || use === "card") &&
+        (!kind || use === kind)
+      );
+    })
+    .map((a) => ({ value: a.id, label: a.name }));
+  const current = accountId
+    ? currentFeedAccount(feeds.accounts, accountId)
+    : undefined;
+  const replaced =
+    current && !current.is_closed
+      ? feeds.identities.find((i) => i.feed_account_id === current.id)
+      : undefined;
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open && !cmd.busy) onClose();
+      }}
+    >
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="break-words">
+            Link {identity.name}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Choose the bank or card account this feed continues. Its history
+            stays on that account.
+          </DialogDescription>
+        </DialogHeader>
+        <form
+          className="space-y-5"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void cmd.execute({
+              type: "feed.link",
+              id: identity.id,
+              expected_version: 0,
+              account_id: accountId,
+              reason: "Linked from Bank connections",
+            });
+          }}
+        >
+          <Select
+            searchable
+            label="Book account"
+            visibleLabel="Book account"
+            value={accountId}
+            onChange={setAccountId}
+            placeholder={
+              kind === "card"
+                ? "Choose a card account"
+                : kind === "bank"
+                  ? "Choose a bank account"
+                  : "Choose a bank or card account"
+            }
+            required
+            options={options}
+            helperText={
+              current && !current.is_closed
+                ? `Replaces its current feed${replaced ? `, ${replaced.name}` : ""}. Earlier history stays on this account.`
+                : undefined
+            }
+            error={usd ? undefined : "Only USD accounts can feed the books."}
+          />
+          {cmd.error && (
+            <p role="alert" className="text-sm text-destructive">
+              {cmd.error}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={cmd.busy}
+              onClick={onClose}
+            >
+              Cancel
+            </Button>
+            <Button disabled={demo || cmd.busy || !accountId || !usd}>
+              Link
             </Button>
           </div>
         </form>

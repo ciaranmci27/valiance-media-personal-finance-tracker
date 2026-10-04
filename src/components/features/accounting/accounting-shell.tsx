@@ -16,6 +16,10 @@ import { toast } from "@/components/ui/toast";
 import { useLoaderPhase } from "@/components/ui/use-loader-phase";
 import { useBoot, useBootHold } from "@/components/layout/boot";
 import { defaultChart } from "@/lib/accounting/chart";
+import {
+  DEMO_EXTRA_PROFILES,
+  getAccountingDemoRules,
+} from "@/lib/accounting/demo";
 import { parseUsd } from "@/lib/accounting/money";
 import type {
   AccountingWorkspace,
@@ -109,21 +113,27 @@ function demoManage(workspace: AccountingWorkspace): BooksMetadata {
   const byCode = new Map(defaultChart.map((a) => [a.code, a]));
   return {
     ...EMPTY_MANAGE,
-    profiles: workspace.balances.flatMap((a) => {
-      const chart = byCode.get(a.code);
-      return chart && chart.cash_kind !== "none"
-        ? [
-            {
-              account_id: a.id,
-              version: 1,
-              purpose: chart.purpose ?? null,
-              cash_kind: chart.cash_kind,
-              parent_account_id: null,
-              subtype: "",
-            },
-          ]
-        : [];
-    }),
+    rule_suggestions: getAccountingDemoRules().rules.filter(
+      (r) => r.review_status === "suggested",
+    ).length,
+    profiles: [
+      ...workspace.balances.flatMap((a) => {
+        const chart = byCode.get(a.code);
+        return chart && chart.cash_kind !== "none"
+          ? [
+              {
+                account_id: a.id,
+                version: 1,
+                purpose: chart.purpose ?? null,
+                cash_kind: chart.cash_kind,
+                parent_account_id: null,
+                subtype: "",
+              },
+            ]
+          : [];
+      }),
+      ...DEMO_EXTRA_PROFILES,
+    ],
   };
 }
 
@@ -797,7 +807,6 @@ function AccountingBooksInner({
                 onAccounts={() => setView("accounts")}
                 onFeeds={() => setView("manage", "feeds")}
                 onMonthEnd={() => setView("close")}
-                onReport={(id) => setView("reports", undefined, { report: id })}
                 onEntry={(entry) =>
                   void transactionAction(transactionRowAction(entry), entry)
                 }

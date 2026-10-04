@@ -307,6 +307,22 @@ export const extendedCommandSchema = z.union([
           .optional(),
       })
       .strict(),
+    /** Close a bank, card or cash account on a day (default: its last activity) once it holds $0. */
+    z
+      .object({
+        type: z.literal("account.close"),
+        id,
+        expected_version: version,
+        closed_on: dateSchema.optional(),
+      })
+      .strict(),
+    z
+      .object({
+        type: z.literal("account.reopen"),
+        id,
+        expected_version: version,
+      })
+      .strict(),
     z
       .object({
         type: z.literal("chart.seed"),
@@ -434,6 +450,10 @@ export interface AccountProfile {
   type?: AccountType;
   /** Names this account carries in other systems, such as its Wave account name. */
   external_names?: { wave?: string };
+  /** The day a closed bank, card or cash account closed; null while open. */
+  closed_on?: string | null;
+  /** Bank, card and cash accounts: the newest day anything touched the account. */
+  last_activity_on?: string | null;
 }
 export interface Party {
   id: string;
@@ -459,6 +479,8 @@ export interface ManageData {
   profiles: AccountProfile[];
   parties: Party[];
   periods: { month_start: string; is_locked: boolean; reason: string }[];
+  /** Rules an agent suggested that wait for the owner (the Rules rail count). */
+  rule_suggestions?: number;
   preferences: {
     version: number;
     primary_system: "wave" | "admin";

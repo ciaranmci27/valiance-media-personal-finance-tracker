@@ -19,6 +19,7 @@ import type {
 } from "@/lib/accounting/contracts";
 import type { TransferGroup } from "@/lib/accounting/transfers";
 import { parseUsd } from "@/lib/accounting/money";
+import { isOpenAccount } from "@/lib/accounting/account-close";
 import { AccountingPicker } from "./accounting-picker";
 import { dateLabel, money } from "./format";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
@@ -112,7 +113,7 @@ export function TransferForm({
       : linkValid);
   const accountOptions = (exclude?: string) =>
     accounts
-      .filter((a) => a.id !== exclude && (mode === "link" || !a.is_archived))
+      .filter((a) => a.id !== exclude && (mode === "link" || isOpenAccount(a)))
       .map((a) => ({ value: a.id, label: `${a.code} · ${a.name}` }));
   async function save() {
     if (!valid) return;

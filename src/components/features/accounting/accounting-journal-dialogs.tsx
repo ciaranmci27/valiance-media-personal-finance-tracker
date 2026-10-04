@@ -29,6 +29,7 @@ import {
 } from "@/lib/accounting/money";
 import { JournalTotals } from "./accounting-journal-totals";
 import { correctionImpact } from "@/lib/accounting/correction-impact";
+import { isOpenAccount } from "@/lib/accounting/account-close";
 import type {
   AccountingAccount,
   JournalEntry,
@@ -542,8 +543,10 @@ export function JournalEditorDialog({
   const [tab, setTab] = useState<"edit" | "notes">("edit");
   const editorId = editor?.id;
   useEffect(() => setTab("edit"), [editorId]);
+  // A closed account stays choosable on a line that already uses it.
+  const used = new Set(editor?.lines.map((l) => l.account) ?? []);
   const options = accounts
-    .filter((a) => !a.is_archived)
+    .filter((a) => isOpenAccount(a) || (!a.is_archived && used.has(a.id)))
     .map((a) => ({
       value: a.id,
       label: a.name,

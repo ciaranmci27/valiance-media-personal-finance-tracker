@@ -203,7 +203,7 @@ export function Panel({
           {right}
         </div>
       </CardHeader>
-      <CardContent className="flex-1">{children(isRevealed)}</CardContent>
+      <CardContent className="flex flex-1 flex-col">{children(isRevealed)}</CardContent>
     </Card>
   );
 }

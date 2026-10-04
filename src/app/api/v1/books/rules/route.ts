@@ -17,6 +17,7 @@ export const dynamic = "force-dynamic";
 interface Rule {
   name: string;
   enabled: boolean;
+  review_status: "suggested" | "confirmed";
   conditions?: Record<string, unknown>;
   actions?: Record<string, unknown>;
 }
@@ -33,6 +34,10 @@ export const GET = withApi(
     const matching = (result.rules ?? [])
       .filter(
         (rule) => !query.enabled || String(rule.enabled) === query.enabled,
+      )
+      .filter(
+        (rule) =>
+          !query.review_status || rule.review_status === query.review_status,
       )
       .filter((rule) => nameMatches(rule.name, query.q));
     const { rows, ...page } = pageOf(matching, query);

@@ -2,8 +2,8 @@
 import { Disclosure } from "@/components/ui/disclosure";
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { NumberInput } from "@/components/ui/inputs/NumberInput";
-import { useState } from "react";
-import { Plus, ArrowRight, SlidersHorizontal } from "lucide-react";
+import { useRef, useState } from "react";
+import { Plus, ArrowRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/inputs/Checkbox";
@@ -21,16 +21,32 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import type { AccountingWorkspace } from "@/lib/accounting/contracts";
+import { isOpenAccount } from "@/lib/accounting/account-close";
 import type { BooksMetadata } from "./types";
-import type {
-  AccountingRule,
-  PayeeAlias,
-  RulesView,
-  RulesPreview,
+import {
+  ruleAmountBounds,
+  ruleMoney,
+  ruleOutcomeSentence,
+  type AccountingRule,
+  type PayeeAlias,
+  type RulesView,
+  type RulesPreview,
+  type RulePause,
+  type RuleForm,
+  ruleForm,
+  ruleMatchesCleaned,
+  ruleSaveCommand,
 } from "@/lib/accounting/rules";
-import { parseUsd, centsToDecimal } from "@/lib/accounting/money";
+import { getAccountingDemoRules } from "@/lib/accounting/demo";
 import { AccountingPicker } from "./accounting-picker";
-import { dateLabel, enumLabel, money, timestampLabel } from "./format";
+import { RuleSuggestionCard } from "./accounting-rule-suggestion";
+import {
+  booksToday,
+  dateLabel,
+  enumLabel,
+  money,
+  timestampLabel,
+} from "./format";
 import { accountingGet, useAccountingCommand } from "./use-accounting-command";
 import { useAccountingRead } from "./use-accounting-read";
 import { TableSkeleton } from "@/components/ui/skeleton";
@@ -56,7 +72,10 @@ export function AccountingRules({
     { view: "rules" },
     { enabled: !demo },
   );
-  const state = rulesRead.data ?? null;
+  // The demo books have no rules table; fixed rules show every state.
+  const [demoRules] = useState(() => (demo ? getAccountingDemoRules() : null));
+  const state = demoRules ?? rulesRead.data ?? null;
+  const previewHeading = useRef<HTMLHeadingElement>(null);
   const [error, setError] = useState(""),
     [notice, setNotice] = useState("");
   const [applicationId] = useState(() => crypto.randomUUID());
@@ -85,7 +104,11 @@ export function AccountingRules({
     setReviewed(false);
     setPage(0);
   }
-  async function inspect(id = ruleId, offset = 0) {
+  async function inspect(
+    id = ruleId,
+    offset = 0,
+    range: { from: string; to: string } = { from, to },
+  ) {
     setLoading(true);
     setError("");
     setSelected(new Set());
@@ -96,8 +119,8 @@ export function AccountingRules({
       setPreview(
         await accountingGet<RulesPreview>({
           view: "rules-preview",
-          from,
-          to,
+          from: range.from,
+          to: range.to,
           ...(id ? { rule: id } : {}),
           offset: String(offset * PREVIEW_PAGE),
         }),
@@ -122,6 +145,152 @@ export function AccountingRules({
   );
   const accountName = (id: string) =>
     data.accounts.find((a) => a.id === id)?.name ?? "Unknown account";
+  const bankName = (id: string | null) =>
+    id ? accountName(id) : "Any bank or card account";
+  const suggestions =
+    state?.rules.filter((r) => r.review_status === "suggested") ?? [];
+  const ownRules =
+    state?.rules.filter((r) => r.review_status !== "suggested") ?? [];
+  // A suggestion is judged on everything it matches, not only the selected period.
+  const evidenceRange = {
+    from: manage.preferences?.history_start ?? "2000-01-01",
+    to: booksToday(),
+  };
+  const [turningOn, setTurningOn] = useState<AccountingRule | null>(null),
+    [followUp, setFollowUp] = useState<{
+      rule: AccountingRule;
+      count: number;
+    } | null>(null),
+    [filling, setFilling] = useState(false);
+  const isUncategorized = (id: string) =>
+    manage.profiles.some(
+      (p) =>
+        p.account_id === id &&
+        ["uncategorized_income", "uncategorized_expense"].includes(
+          p.purpose ?? "",
+        ),
+    );
+  const ruleNames = (r: AccountingRule) => ({
+    category: r.category_account_id ? accountName(r.category_account_id) : null,
+    bank: r.bank_account_id ? accountName(r.bank_account_id) : null,
+    contact: r.assign_payee_id
+      ? (manage.parties.find((p) => p.id === r.assign_payee_id)?.name ?? null)
+      : null,
+  });
+  function newRule(): AccountingRule {
+    return {
+      id: crypto.randomUUID(),
+      version: 0,
+      name: "",
+      priority: 10,
+      enabled: false,
+      description_mode: "contains",
+      description: "",
+      bank_account_id: "",
+      direction: "decrease",
+      min_cents: "0",
+      max_cents: "100000",
+      match_payee_id: null,
+      category_account_id: "",
+      assign_payee_id: null,
+      reason: "",
+    };
+  }
+  /**
+   * Turning a suggestion on is the owner's approval. The books ask for a
+   * note and a fresh version; both are filled here, read just before.
+   */
+  async function turnOn(r: AccountingRule) {
+    cmd.setError("");
+    let fresh: RulesView;
+    try {
+      fresh = await accountingGet<RulesView>({ view: "rules" });
+    } catch (e) {
+      cmd.setError(e instanceof Error ? e.message : "Unable to read the rule.");
+      return;
+    }
+    const current = fresh.rules.find((x) => x.id === r.id);
+    if (!current || current.review_status !== "suggested") {
+      cmd.setError("This suggestion changed. Close this and look again.");
+      return;
+    }
+    const ready = current.suggestion?.ready ?? 0;
+    if (
+      await cmd.execute({
+        type: "rule.activate",
+        id: current.id,
+        expected_version: current.version,
+        expected_revision: fresh.revision,
+        reviewed: true,
+        enabled: true,
+        reason: current.suggested_by_name
+          ? `Approved ${current.suggested_by_name}'s suggestion`
+          : "Approved the suggestion",
+      })
+    ) {
+      setTurningOn(null);
+      setNotice(
+        `"${current.name}" is on. ${ruleOutcomeSentence(current, ruleNames(current))}`,
+      );
+      setFollowUp(ready > 0 ? { rule: current, count: ready } : null);
+    }
+  }
+  /** After turning a rule on: fill the uncategorized drafts it matches, as Preview & apply would. */
+  async function fillWaiting(r: AccountingRule) {
+    setFilling(true);
+    setError("");
+    try {
+      const p = await accountingGet<RulesPreview>({
+        view: "rules-preview",
+        ...evidenceRange,
+        rule: r.id,
+        offset: "0",
+      });
+      const rows = p.rows
+        .filter((row) => row.eligible && row.winner?.enabled)
+        .slice(0, 100);
+      if (!rows.length) {
+        setFollowUp(null);
+        setNotice("No waiting drafts match it now.");
+        return;
+      }
+      if (
+        await cmd.execute({
+          type: "rule.apply",
+          id: crypto.randomUUID(),
+          expected_revision: p.revision,
+          entries: rows.map((row) => ({
+            id: row.id,
+            expected_version: row.version,
+            rule_id: row.winner!.rule_id,
+            rule_version: row.winner!.version,
+          })),
+        })
+      ) {
+        setFollowUp(null);
+        setNotice(
+          `${rows.length} ${rows.length === 1 ? "draft" : "drafts"} filled. Review them in Transactions before posting.`,
+        );
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to fill the drafts.");
+    } finally {
+      setFilling(false);
+    }
+  }
+  async function dismiss(r: AccountingRule) {
+    if (
+      await cmd.execute({
+        type: "rule.dismiss",
+        id: r.id,
+        expected_version: r.version,
+        reason: r.suggested_by_name
+          ? `Dismissed ${r.suggested_by_name}'s suggestion`
+          : "Dismissed the suggestion",
+      })
+    )
+      setNotice(`Suggestion "${r.name}" dismissed.`);
+  }
   const aliasStatus = (a: PayeeAlias) => (
     <Badge variant={a.enabled ? "success" : "default"} size="sm">
       {a.enabled ? "Enabled" : "Paused"}
@@ -164,33 +333,12 @@ export function AccountingRules({
             proposed categories before filling drafts.
           </p>
         </div>
-        <Button
-          disabled={demo || !state}
-          onClick={() =>
-            setEditor({
-              id: crypto.randomUUID(),
-              version: 0,
-              name: "",
-              priority: 10,
-              enabled: false,
-              description_mode: "contains",
-              description: "",
-              bank_account_id: "",
-              direction: "decrease",
-              min_cents: "0",
-              max_cents: "100000",
-              match_payee_id: null,
-              category_account_id: "",
-              assign_payee_id: null,
-              reason: "",
-            })
-          }
-        >
+        <Button disabled={demo || !state} onClick={() => setEditor(newRule())}>
           <Plus size={15} aria-hidden="true" />
           New rule
         </Button>
       </div>
-      {(error || cmd.error) && (
+      {(error || (cmd.error && !turningOn)) && (
         <p
           role="alert"
           className="rounded-lg border border-error/30 bg-error/5 p-3 text-sm text-error"
@@ -205,95 +353,190 @@ export function AccountingRules({
       )}
       {demo && (
         <p className="text-sm text-muted-foreground">
-          Rules are available in your configured company books.
+          These are sample rules. Preview, edit and switch on work in your own
+          books.
         </p>
+      )}
+      {followUp && (
+        <div className="glass-card flex flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-3">
+          <p className="text-sm">
+            {followUp.count === 1
+              ? "1 uncategorized draft is waiting that this rule can fill."
+              : `${followUp.count} uncategorized drafts are waiting that this rule can fill.`}
+          </p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={filling}
+              onClick={() => setFollowUp(null)}
+            >
+              Not now
+            </Button>
+            <Button
+              size="sm"
+              loading={filling}
+              disabled={filling || cmd.busy}
+              onClick={() => void fillWaiting(followUp.rule)}
+            >
+              Fill {followUp.count} waiting{" "}
+              {followUp.count === 1 ? "draft" : "drafts"} now
+            </Button>
+          </div>
+        </div>
+      )}
+      {suggestions.length > 0 && (
+        <section aria-labelledby="rule-suggestions-title" className="space-y-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3
+                id="rule-suggestions-title"
+                className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground"
+              >
+                Suggested rules
+              </h3>
+              <span className="rounded-full bg-[rgba(var(--ink),0.06)] px-1.5 py-0.5 text-[11px] font-medium leading-none tabular-nums text-muted-foreground">
+                {suggestions.length}
+              </span>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Nothing changes until you turn one on.
+            </p>
+          </div>
+          {suggestions.map((r) => (
+            <RuleSuggestionCard
+              key={r.id}
+              rule={r}
+              names={ruleNames(r)}
+              accountName={accountName}
+              isUncategorized={isUncategorized}
+              from={evidenceRange.from}
+              to={evidenceRange.to}
+              demo={demo}
+              busy={cmd.busy}
+              onTurnOn={() => {
+                cmd.setError("");
+                setTurningOn(r);
+              }}
+              onEdit={() => setEditor(r)}
+              onDismiss={() => void dismiss(r)}
+            />
+          ))}
+        </section>
       )}
       <section className="glass-card overflow-hidden rounded-xl">
         <div className="border-b border-border p-4">
-          <h3 className="font-medium">Categorization rules</h3>
+          <h3 className="font-medium">Your rules</h3>
           <p className="mt-1 text-xs text-muted-foreground">
             Lower priority numbers win. Equal-priority matches and conflicting
-            aliases need review. Saving edits pauses a rule until its next
-            preview is approved.
+            aliases need review. Saving an edit pauses a rule until you preview
+            it and switch it back on.
           </p>
         </div>
-        {rulesRead.loading ? (
+        {rulesRead.loading && !demo ? (
           <div className="p-6">
             <TableSkeleton rows={4} />
           </div>
-        ) : !state?.rules.length ? (
-          <div className="p-6 text-sm text-muted-foreground">
-            <SlidersHorizontal className="mb-3" size={22} aria-hidden="true" />
-            Create a rule for a recurring description, bank account, direction,
-            and amount range.
+        ) : !ownRules.length ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <p className="text-sm text-muted-foreground">
+              No rules of your own yet.
+            </p>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={demo || !state}
+              onClick={() => setEditor(newRule())}
+            >
+              <Plus size={14} aria-hidden="true" />
+              New rule
+            </Button>
           </div>
         ) : (
-          state.rules.map((r) => (
+          ownRules.map((r) => (
             <div
               key={r.id}
               className="flex flex-wrap items-center justify-between gap-3 border-b border-border p-4 last:border-0"
             >
-              <div>
-                <p className="font-medium">
-                  {r.name}
-                  <Badge
-                    variant={r.enabled ? "success" : "default"}
-                    size="sm"
-                    className="ml-2"
-                  >
-                    {r.enabled ? "Enabled for drafts" : "Paused"}
+              <div className="min-w-0">
+                <p className="flex flex-wrap items-center gap-2 font-medium">
+                  <span className="min-w-0 break-words">{r.name}</span>
+                  <Badge variant={r.enabled ? "success" : "default"} size="sm">
+                    {r.enabled
+                      ? "On"
+                      : r.paused?.cause === "never_on"
+                        ? "Not on yet"
+                        : "Paused"}
                   </Badge>
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Priority {r.priority} · {accountName(r.bank_account_id)} ·{" "}
-                  {enumLabel(r.description_mode)}: {r.description}
+                  Priority {r.priority} · {bankName(r.bank_account_id)} ·{" "}
+                  {enumLabel(
+                    r.description_mode === ("equals" as string)
+                      ? "exact"
+                      : r.description_mode,
+                  )}
+                  : {r.description}
                 </p>
                 <p className="mt-1 text-xs">
-                  {accountName(r.category_account_id)} ·{" "}
-                  <MaskedValue value={money(r.min_cents)} /> to{" "}
-                  <MaskedValue value={money(r.max_cents)} />
+                  {r.category_account_id
+                    ? accountName(r.category_account_id)
+                    : "Split categories"}{" "}
+                  · <RuleAmount min={r.min_cents} max={r.max_cents} />
                 </p>
-                <details className="mt-2 text-xs">
-                  <summary className="cursor-pointer text-muted-foreground">
-                    Version history ({r.history?.length ?? 0})
-                  </summary>
-                  <div className="mt-2 max-h-64 space-y-3 overflow-auto rounded-lg bg-secondary/30 p-3">
-                    {r.history?.map((h) => (
-                      <div key={h.version}>
-                        <p>
-                          Version {h.version} ·{" "}
-                          {h.enabled ? "Enabled for drafts" : "Paused"} ·{" "}
-                          {timestampLabel(h.created_at)}
-                        </p>
-                        <p className="mt-1 text-muted-foreground">{h.reason}</p>
-                        <p className="mt-1">
-                          Priority {h.priority} ·{" "}
-                          {enumLabel(h.description_mode)}: {h.description} ·{" "}
-                          {accountName(h.bank_account_id)} →{" "}
-                          {accountName(h.category_account_id)}
-                        </p>
-                        <p>
-                          <MaskedValue value={money(h.min_cents)} /> to{" "}
-                          <MaskedValue value={money(h.max_cents)} />
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </details>
+                {!r.enabled && r.paused && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {pausedLine(r.paused)}
+                  </p>
+                )}
+                {!!r.history?.length && (
+                  <details className="mt-2 text-xs">
+                    <summary className="cursor-pointer text-muted-foreground">
+                      Version history ({r.history.length})
+                    </summary>
+                    <div className="mt-2 max-h-64 space-y-3 overflow-auto rounded-lg bg-secondary/30 p-3">
+                      {r.history?.map((h) => (
+                        <div key={h.version}>
+                          <p>
+                            Version {h.version} · {h.enabled ? "On" : "Paused"}{" "}
+                            · {timestampLabel(h.created_at)}
+                          </p>
+                          <p className="mt-1 text-muted-foreground">
+                            {h.reason}
+                          </p>
+                          <p className="mt-1">
+                            Priority {h.priority} ·{" "}
+                            {enumLabel(h.description_mode)}: {h.description} ·{" "}
+                            {bankName(h.bank_account_id)} →{" "}
+                            {accountName(h.category_account_id)}
+                          </p>
+                          <p>
+                            <RuleAmount min={h.min_cents} max={h.max_cents} />
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                )}
               </div>
               <div className="flex gap-2">
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={loading || cmd.busy}
-                  onClick={() => void inspect(r.id)}
+                  disabled={demo || loading || cmd.busy}
+                  onClick={() => {
+                    setReason("");
+                    void inspect(r.id).then(() =>
+                      previewHeading.current?.focus(),
+                    );
+                  }}
                 >
                   Preview
                 </Button>
                 <Button
                   size="sm"
                   variant="ghost"
-                  disabled={cmd.busy}
+                  disabled={demo || cmd.busy}
                   onClick={() => setEditor(r)}
                 >
                   Edit
@@ -302,14 +545,14 @@ export function AccountingRules({
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={cmd.busy}
+                    disabled={demo || cmd.busy}
                     onClick={async () => {
                       if (
                         await cmd.execute({
                           type: "rule.activate",
                           id: r.id,
                           expected_version: r.version,
-                          expected_revision: state.revision,
+                          expected_revision: state!.revision,
                           reviewed: true,
                           enabled: false,
                           reason: "Owner paused draft suggestions",
@@ -330,7 +573,13 @@ export function AccountingRules({
       </section>
       <section className="glass-card space-y-4 rounded-xl p-5">
         <div>
-          <h3 className="font-semibold">Preview & apply</h3>
+          <h3
+            ref={previewHeading}
+            tabIndex={-1}
+            className="rounded font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Preview & apply
+          </h3>
           <p className="mt-1 text-sm text-muted-foreground">
             Posted history is shown for comparison. Rules fill only balanced,
             uncategorized drafts with one bank movement. Posting remains a
@@ -363,18 +612,37 @@ export function AccountingRules({
             value={ruleId}
             disabled={loading || cmd.busy}
             options={[
-              { value: "", label: "All enabled rules" },
+              { value: "", label: "All rules that are on" },
               ...(state?.rules.map((r) => ({
                 value: r.id,
-                label: `${r.name}${!r.enabled ? " (paused)" : ""}`,
+                label: `${r.name}${r.review_status === "suggested" ? " (suggested)" : !r.enabled ? " (paused)" : ""}`,
               })) ?? []),
             ]}
             onChange={(value) => {
               setRuleId(value);
+              setReason("");
               invalidate();
             }}
           />
         </div>
+        {currentRule?.review_status === "suggested" && (
+          <p className="text-sm text-muted-foreground">
+            This is {currentRule.suggested_by_name ?? "an agent"}&rsquo;s
+            suggestion. Turn it on from{" "}
+            <button
+              type="button"
+              className={`${linkClass} underline underline-offset-2`}
+              onClick={() =>
+                document
+                  .getElementById(`rule-suggestion-${currentRule.id}`)
+                  ?.focus()
+              }
+            >
+              its card above
+            </button>
+            .
+          </p>
+        )}
         <Button
           variant="outline"
           disabled={demo || loading || cmd.busy || !from || !to || from > to}
@@ -457,7 +725,7 @@ export function AccountingRules({
                         {row.eligible
                           ? row.winner?.enabled
                             ? "Ready to fill draft"
-                            : "Enable the reviewed rule first"
+                            : "Switch the rule on first"
                           : row.reason}
                       </p>
                       <details className="mt-2 text-xs">
@@ -511,49 +779,50 @@ export function AccountingRules({
               busy={loading || cmd.busy}
               onChange={(offset) => void inspect(ruleId, offset / PREVIEW_PAGE)}
             />
-            {currentRule && !currentRule.enabled && (
-              <div className="space-y-3 rounded-xl border border-border p-4">
-                <p className="text-sm">
-                  Enable “{currentRule.name}” for draft suggestions after
-                  reviewing its conditions and matches.
-                </p>
-                <TextInput
-                  label="Rule approval note"
-                  value={reason}
-                  onChange={(nextValue) => setReason(nextValue)}
-                  maxLength={1000}
-                />
-                <Checkbox
-                  className="items-start text-left"
-                  checked={reviewed}
-                  onChange={setReviewed}
-                  label="I reviewed these conditions and the matching transactions."
-                />
-                <Button
-                  disabled={!reviewed || !reason.trim() || cmd.busy}
-                  onClick={async () => {
-                    if (
-                      await cmd.execute({
-                        type: "rule.activate",
-                        id: currentRule.id,
-                        expected_version: currentRule.version,
-                        expected_revision: preview.revision,
-                        reviewed: true,
-                        enabled: true,
-                        reason,
-                      })
-                    ) {
-                      setReason("");
-                      setNotice(
-                        "Rule enabled for draft suggestions. Compare again to select drafts.",
-                      );
-                    }
-                  }}
-                >
-                  Enable for drafts
-                </Button>
-              </div>
-            )}
+            {currentRule &&
+              !currentRule.enabled &&
+              currentRule.review_status !== "suggested" && (
+                <div className="space-y-3 rounded-xl border border-border p-4">
+                  <p className="text-sm">
+                    {`Switch "${currentRule.name}" on once these matches look right.`}
+                  </p>
+                  <TextInput
+                    label="Rule approval note"
+                    value={reason}
+                    onChange={(nextValue) => setReason(nextValue)}
+                    maxLength={1000}
+                  />
+                  <Checkbox
+                    className="items-start text-left"
+                    checked={reviewed}
+                    onChange={setReviewed}
+                    label="I reviewed these conditions and the matching transactions."
+                  />
+                  <Button
+                    disabled={!reviewed || !reason.trim() || cmd.busy}
+                    onClick={async () => {
+                      if (
+                        await cmd.execute({
+                          type: "rule.activate",
+                          id: currentRule.id,
+                          expected_version: currentRule.version,
+                          expected_revision: preview.revision,
+                          reviewed: true,
+                          enabled: true,
+                          reason,
+                        })
+                      ) {
+                        setReason("");
+                        setNotice(
+                          "Rule switched on. Compare again to fill matching drafts.",
+                        );
+                      }
+                    }}
+                  >
+                    Switch on
+                  </Button>
+                </div>
+              )}
             {!!chosen.length && (
               <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-4">
                 <p className="font-medium">
@@ -666,6 +935,45 @@ export function AccountingRules({
           />
         </div>
       </section>
+      {turningOn && (
+        <Dialog
+          open
+          onOpenChange={(open) => {
+            if (!open && !cmd.busy) setTurningOn(null);
+          }}
+        >
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Turn on this rule</DialogTitle>
+              <DialogDescription>
+                {ruleOutcomeSentence(turningOn, ruleNames(turningOn))} Nothing
+                already in the books changes.
+              </DialogDescription>
+            </DialogHeader>
+            {cmd.error && (
+              <p role="alert" className="mt-3 text-sm text-error">
+                {cmd.error}
+              </p>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                disabled={cmd.busy}
+                onClick={() => setTurningOn(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                loading={cmd.busy}
+                disabled={cmd.busy}
+                onClick={() => void turnOn(turningOn)}
+              >
+                Turn on
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
       {editor && (
         <RuleEditor
           rule={editor}
@@ -673,11 +981,14 @@ export function AccountingRules({
           manage={manage}
           onClose={() => setEditor(null)}
           onSaved={async (id) => {
+            const wasSuggestion = editor.review_status === "suggested";
             setEditor(null);
             setRuleId(id);
             await refresh();
             setNotice(
-              "Rule saved and paused. Preview it before enabling draft suggestions.",
+              wasSuggestion
+                ? "Saved as your rule. It stays paused until you preview it and switch it on."
+                : "Rule saved and paused. Preview it to switch it on.",
             );
           }}
         />
@@ -714,7 +1025,7 @@ function RuleEditor({
 }) {
   const banks = data.accounts.filter(
       (a) =>
-        !a.is_archived &&
+        isOpenAccount(a) &&
         manage.profiles.some(
           (p) =>
             p.account_id === a.id &&
@@ -738,24 +1049,38 @@ function RuleEditor({
     .map((p) => ({ value: p.id, label: p.name }));
   // With one bank or card account the condition is implied, so it starts
   // filled and lives under Advanced. With several it stays visible.
-  const [value, setValue] = useState(() => ({
-      ...rule,
-      bank_account_id: rule.bank_account_id || (banks[0]?.id ?? ""),
-    })),
-    [min, setMin] = useState(centsToDecimal(rule.min_cents)),
-    [max, setMax] = useState(centsToDecimal(rule.max_cents)),
+  // A rule without an account, a direction or an amount bound matches any;
+  // editing keeps it that way instead of narrowing it to a default. Fields
+  // left as they were are saved exactly as stored (ruleSaveCommand).
+  const suggested = rule.version > 0 && rule.review_status === "suggested";
+  const cleaned = rule.version > 0 && ruleMatchesCleaned(rule);
+  const splits = !!rule.actions && "splits" in rule.actions;
+  const [initial] = useState(() => {
+    const start = ruleForm(rule);
+    if (rule.version === 0 && !start.bank_account_id)
+      start.bank_account_id = banks[0]?.id ?? "";
+    return start;
+  });
+  const [value, setValue] = useState(initial),
+    [changingMatch, setChangingMatch] = useState(!cleaned),
     [reason, setReason] = useState("");
   const cmd = useAccountingCommand();
-  const set = (key: keyof AccountingRule, v: string | number | null) =>
+  const set = <K extends keyof RuleForm>(key: K, v: RuleForm[K]) =>
     setValue((previous) => ({ ...previous, [key]: v }));
+  const modeLabel = {
+    contains: "Contains",
+    prefix: "Starts with",
+    exact: "Is exactly",
+  };
   const bankPicker = (
     <AccountingPicker
       label="Bank or card account"
       visibleLabel="Bank or card account"
-      required
-      placeholder="Choose account"
       value={value.bank_account_id}
-      options={banks.map((a) => ({ value: a.id, label: a.name }))}
+      options={[
+        { value: "", label: "Any bank or card account" },
+        ...banks.map((a) => ({ value: a.id, label: a.name })),
+      ]}
       onChange={(v) => set("bank_account_id", v)}
     />
   );
@@ -768,7 +1093,13 @@ function RuleEditor({
     >
       <DialogContent className="max-h-[90dvh] max-w-lg overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{rule.version ? "Edit rule" : "New rule"}</DialogTitle>
+          <DialogTitle>
+            {suggested
+              ? "Edit suggestion"
+              : rule.version
+                ? "Edit rule"
+                : "New rule"}
+          </DialogTitle>
           <DialogDescription className="sr-only">
             Match bank descriptions to a category. Saving pauses the rule until
             its preview is approved.
@@ -779,31 +1110,11 @@ function RuleEditor({
           onSubmit={async (e) => {
             e.preventDefault();
             try {
-              const minimum = parseUsd(min),
-                maximum = parseUsd(max);
-              if (
-                minimum < BigInt(0) ||
-                maximum <= BigInt(0) ||
-                minimum > maximum
-              )
-                throw new Error("Enter a valid positive amount range.");
-              const r = await cmd.execute({
-                type: "rule.save",
-                id: value.id,
-                expected_version: value.version,
-                name: value.name,
-                priority: value.priority,
-                description_mode: value.description_mode,
-                description: value.description,
-                bank_account_id: value.bank_account_id,
-                direction: value.direction,
-                min_cents: minimum.toString(),
-                max_cents: maximum.toString(),
-                match_payee_id: value.match_payee_id,
-                category_account_id: value.category_account_id,
-                assign_payee_id: value.assign_payee_id,
-                reason,
-              });
+              const r = await cmd.execute(
+                ruleSaveCommand(rule, initial, value, reason) as Parameters<
+                  typeof cmd.execute
+                >[0],
+              );
               if (r) await onSaved(r.id);
             } catch (e) {
               cmd.setError(
@@ -819,30 +1130,65 @@ function RuleEditor({
             value={value.name}
             onChange={(nextValue) => set("name", nextValue)}
           />
-          <div className="grid gap-4 sm:grid-cols-[minmax(0,10rem)_1fr]">
-            <Select
-              label="Match"
-              value={value.description_mode}
-              options={[
-                { value: "contains", label: "Contains" },
-                { value: "prefix", label: "Starts with" },
-                { value: "exact", label: "Is exactly" },
-              ]}
-              onChange={(v) => set("description_mode", v)}
-            />
-            <TextInput
-              label="Bank description"
-              required
-              maxLength={250}
-              value={value.description}
-              onChange={(nextValue) => set("description", nextValue)}
-            />
-          </div>
+          {changingMatch ? (
+            <div className="grid gap-4 sm:grid-cols-[minmax(0,10rem)_1fr]">
+              <Select
+                label="Match"
+                value={value.description_mode}
+                options={(["contains", "prefix", "exact"] as const).map(
+                  (mode) => ({ value: mode, label: modeLabel[mode] }),
+                )}
+                onChange={(v) =>
+                  set("description_mode", v as RuleForm["description_mode"])
+                }
+              />
+              <TextInput
+                label={
+                  cleaned ? "Bank description (cleaned)" : "Bank description"
+                }
+                required
+                maxLength={250}
+                autoFocus={cleaned}
+                value={value.description}
+                onChange={(nextValue) => set("description", nextValue)}
+              />
+            </div>
+          ) : (
+            // A rule on the cleaned description stays exactly as stored until the owner changes it.
+            <div>
+              <p id={`${rule.id}-match`} className="text-sm font-medium">
+                Bank description (cleaned)
+              </p>
+              <div className="mt-1.5 flex items-center justify-between gap-3 rounded-lg bg-[rgba(var(--ink),0.03)] px-3 py-2 shadow-[inset_0_0_0_1px_rgba(var(--ink),0.08)]">
+                <p
+                  aria-labelledby={`${rule.id}-match`}
+                  className="min-w-0 break-words text-sm"
+                >
+                  {modeLabel[value.description_mode]}: {value.description}
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  aria-label="Change the bank description this rule matches"
+                  onClick={() => setChangingMatch(true)}
+                >
+                  Change
+                </Button>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Matched without dates and reference numbers. It stays as it is
+                unless you change it.
+              </p>
+            </div>
+          )}
           <AccountingPicker
             label="Category"
             visibleLabel="Category"
-            required
-            placeholder="Choose category"
+            required={!splits}
+            placeholder={
+              splits ? "Split across categories (unchanged)" : "Choose category"
+            }
             value={value.category_account_id}
             options={categories.map((a) => ({ value: a.id, label: a.name }))}
             onChange={(v) => set("category_account_id", v)}
@@ -861,25 +1207,26 @@ function RuleEditor({
               label="Direction"
               value={value.direction}
               options={[
+                { value: "", label: "Money in or out" },
                 { value: "decrease", label: "Withdrawal or card charge" },
                 { value: "increase", label: "Deposit or card payment" },
               ]}
-              onChange={(v) => set("direction", v)}
+              onChange={(v) => set("direction", v as RuleForm["direction"])}
             />
             <div className="grid gap-4 sm:grid-cols-2">
               <TextInput
                 label="Minimum amount"
-                required
+                placeholder="No minimum"
                 inputMode="decimal"
-                value={min}
-                onChange={(nextValue) => setMin(nextValue)}
+                value={value.min}
+                onChange={(nextValue) => set("min", nextValue)}
               />
               <TextInput
                 label="Maximum amount"
-                required
+                placeholder="No maximum"
                 inputMode="decimal"
-                value={max}
-                onChange={(nextValue) => setMax(nextValue)}
+                value={value.max}
+                onChange={(nextValue) => set("max", nextValue)}
               />
             </div>
             <NumberInput
@@ -897,19 +1244,19 @@ function RuleEditor({
             <AccountingPicker
               label="Only this contact"
               visibleLabel="Only this contact"
-              value={value.match_payee_id ?? ""}
+              value={value.match_payee_id}
               options={[{ value: "", label: "Any contact" }, ...payees]}
-              onChange={(v) => set("match_payee_id", v || null)}
+              onChange={(v) => set("match_payee_id", v)}
             />
             <AccountingPicker
               label="Assign contact"
               visibleLabel="Assign contact"
-              value={value.assign_payee_id ?? ""}
+              value={value.assign_payee_id}
               options={[
                 { value: "", label: "Keep current or resolved alias" },
                 ...payees,
               ]}
-              onChange={(v) => set("assign_payee_id", v || null)}
+              onChange={(v) => set("assign_payee_id", v)}
             />
           </Disclosure>
           {cmd.error && (
@@ -929,11 +1276,9 @@ function RuleEditor({
             <Button
               type="submit"
               loading={cmd.busy}
-              disabled={
-                cmd.busy || !value.bank_account_id || !value.category_account_id
-              }
+              disabled={cmd.busy || (!value.category_account_id && !splits)}
             >
-              Save
+              {suggested ? "Save as my rule" : "Save"}
             </Button>
           </div>
         </form>
@@ -1053,4 +1398,48 @@ function AliasEditor({
       </DialogContent>
     </Dialog>
   );
+}
+/** A rule's amount range in words, with the amounts masked in privacy mode. */
+function RuleAmount({
+  min,
+  max,
+}: {
+  min: string | null | undefined;
+  max: string | null | undefined;
+}) {
+  const b = ruleAmountBounds(min, max);
+  if (b.min && b.max)
+    return (
+      <>
+        <MaskedValue value={ruleMoney(b.min)} /> to{" "}
+        <MaskedValue value={ruleMoney(b.max)} />
+      </>
+    );
+  if (b.min)
+    return (
+      <>
+        <MaskedValue value={ruleMoney(b.min)} /> or more
+      </>
+    );
+  if (b.max)
+    return (
+      <>
+        up to <MaskedValue value={ruleMoney(b.max)} />
+      </>
+    );
+  return <>any amount</>;
+}
+/** Why one of the owner's rules is off, and how to switch it back on. */
+function pausedLine(p: RulePause): string {
+  const day = dateLabel(booksToday(new Date(p.at)));
+  switch (p.cause) {
+    case "never_on":
+      return "Not switched on yet. Preview it to switch it on.";
+    case "edited":
+      return `Paused after an edit on ${day}. Preview it to switch it back on.`;
+    case "paused":
+      return `Paused by you on ${day}. Preview it to switch it back on.`;
+    default:
+      return `Paused since ${day}. Preview it to switch it back on.`;
+  }
 }

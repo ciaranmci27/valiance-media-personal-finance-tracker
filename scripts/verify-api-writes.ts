@@ -2,7 +2,8 @@
  * Finance API writes (phase 2), in SQL: agents write to the books as drafts
  * only, through public.api_books_command, as the key's member. Covers each
  * allowed operation, idempotent replay, all-or-nothing bulk categorize,
- * rules that can never auto-post, create-only rules, contacts as suggestions
+ * rules that can never auto-post, create-only rules that wait as suggestions
+ * the owner approves, edits or dismisses (and their backfill), contacts as suggestions
  * with duplicate guards and suggestion-only updates, assigning a blank
  * contact on drafts and reviewed entries (and nothing else), the audit trail
  * naming the agent and its key, and the after-command check that rolls back
@@ -10,8 +11,10 @@
  * the pglite fixture with the live auth.uid() definition.
  */
 import { createHash, randomUUID } from "node:crypto";
+import { readdir, readFile } from "node:fs/promises";
 import { accountingTestDb } from "./accounting-test-db";
 import { fixtureAccounts, fixtureOwner, fixtureAccountId as account } from "../src/lib/accounting/fixtures";
+import { ruleForm, ruleSaveCommand, rulesCommandSchema, type AccountingRule, type RuleForm } from "../src/lib/accounting/rules";
 
 const AGENT = "10000000-0000-4000-8000-0000000000c1";
 const MEMBER = "10000000-0000-4000-8000-0000000000c2";
@@ -410,6 +413,258 @@ async function main() {
       [hash(drafter.secret)],
     );
     check("payees and rules read back", lists.rows[0]?.p.payees.length === 1 && lists.rows[0]?.r.rules.length === 2, lists.error);
+
+    // Rules from the API are suggestions naming the agent. The owner approves one by switching it on
+    // after its preview, makes it theirs by editing it, or dismisses it while it never ran.
+    type RuleRow = { id: string; version: number; review_status: string; suggested_by: string | null; enabled: boolean };
+    const ruleNamed = async (name: string) => {
+      await superuser();
+      return (await db.query<RuleRow>("SELECT id, version, review_status, suggested_by, enabled FROM accounting.rules WHERE name=$1", [name])).rows[0];
+    };
+    const figmaRule = await ruleNamed("Figma is software");
+    check("rule: one from the API is a suggestion naming the agent", figmaRule?.review_status === "suggested" && figmaRule?.suggested_by === agentId, figmaRule);
+    const listedRule = (lists.rows[0]?.r.rules as { name: string; review_status: string; suggested_by: string | null; suggested_by_name: string | null }[]).find((r) => r.name === "Figma is software");
+    check(
+      "rule: the API list says it is a suggestion and who made it",
+      listedRule?.review_status === "suggested" && listedRule?.suggested_by === agentId && listedRule?.suggested_by_name === "Jeff",
+      listedRule,
+    );
+    await superuser();
+    const uncategorizedExpense = (await db.query<{ id: string }>("SELECT id FROM accounting.accounts WHERE system_purpose='uncategorized_expense'")).rows[0].id;
+    for (const memo of ["Zephyr hosting March", "Zephyr hosting April"]) {
+      const done = await ownerBankDraft(memo, "-4200", account(6), `ZEPHYR HOSTING ${memo.slice(15).toUpperCase()}`);
+      await as(fixtureOwner);
+      await owner({ type: "entry.post", id: done.id, expected_version: done.version });
+    }
+    await ownerBankDraft("Zephyr hosting May", "-4200", uncategorizedExpense, "ZEPHYR HOSTING MAY", "2026-03-20");
+    const zephyr = await write(drafter.secret, "rule.create", randomUUID(), {
+      name: "Zephyr is software",
+      conditions: { descriptor_key: { contains: "ZEPHYR HOSTING" }, direction: "decrease" },
+      actions: { account_id: account(6) },
+      reason: "Every Zephyr charge so far went to Software.",
+    });
+    check("rule: a second suggestion is created", !zephyr.error, zephyr.error);
+    // What the owner's Rules screen reads.
+    type ScreenRule = RuleRow & {
+      name: string;
+      suggested_by_name: string | null;
+      paused: { cause: string } | null;
+      suggestion: { matches: number; posted: number; in_category: number; ready: number; note: string | null } | null;
+    };
+    const screen = async () => {
+      await as(fixtureOwner);
+      return (await db.query<{ v: { rules: ScreenRule[] } }>("SELECT accounting.context('rules','{}') v")).rows[0].v.rules;
+    };
+    const zephyrView = (await screen()).find((r) => r.name === "Zephyr is software");
+    check(
+      "rule: the screen explains a suggestion from what it matches",
+      zephyrView?.review_status === "suggested" && zephyrView?.suggested_by_name === "Jeff" && zephyrView?.paused?.cause === "never_on" &&
+        zephyrView?.suggestion?.matches === 3 && zephyrView.suggestion.posted === 2 && zephyrView.suggestion.in_category === 2 &&
+        zephyrView.suggestion.ready === 1 && zephyrView.suggestion.note === "Every Zephyr charge so far went to Software.",
+      zephyrView,
+    );
+    check("rule: a reason left out gives no note", (await screen()).find((r) => r.name === "Figma is software")?.suggestion?.note === null);
+    const manage = async () => (await db.query<{ v: { rule_suggestions: number } }>("SELECT accounting.context('manage','{}') v")).rows[0].v;
+    await superuser();
+    const suggestedNow = (await db.query<{ n: number }>("SELECT count(*)::int n FROM accounting.rules WHERE review_status='suggested'")).rows[0].n;
+    await as(fixtureOwner);
+    check("rule: the Manage read counts the suggestions for the rail", (await manage()).rule_suggestions === suggestedNow && suggestedNow >= 2, { suggestedNow });
+    const attention = (await db.query<{ a: { items: { kind: string; title: string; link: string }[] } }>("SELECT accounting.attention('{}') a")).rows[0].a.items.find((i) => i.kind === "suggested_rules");
+    check(
+      "rule: attention says how many suggested rules wait for approval",
+      attention?.title === `${suggestedNow} suggested rules are waiting for approval` && attention?.link === "/accounting?view=manage&section=rules",
+      attention,
+    );
+
+    // Approve: the preview's switch-on confirms the suggestion.
+    const revision = async () => {
+      await superuser();
+      return (await db.query<{ r: string }>("SELECT financial_revision::text r FROM accounting.settings")).rows[0].r;
+    };
+    const zephyrRow = await ruleNamed("Zephyr is software");
+    let rev = await revision();
+    await as(fixtureOwner);
+    await owner({ type: "rule.activate", id: zephyrRow.id, expected_version: zephyrRow.version, expected_revision: rev, reviewed: true, enabled: true, reason: "Approved Jeff's suggestion" });
+    const approvedRule = await ruleNamed("Zephyr is software");
+    check("rule: switching a suggestion on approves it", approvedRule.enabled && approvedRule.review_status === "confirmed" && approvedRule.suggested_by === agentId, approvedRule);
+    await as(fixtureOwner);
+    const dismissErr = async (c: Record<string, unknown>) => {
+      await as(fixtureOwner);
+      try {
+        await owner(c);
+        return "";
+      } catch (e) {
+        return (e as Error).message;
+      }
+    };
+    check(
+      "rule: an approved rule cannot be dismissed",
+      /ACCT_RULE_NOT_SUGGESTED/.test(await dismissErr({ type: "rule.dismiss", id: approvedRule.id, expected_version: approvedRule.version, reason: "x" })),
+    );
+
+    // Edit: the owner's save makes a suggestion theirs, paused.
+    const smuggledRule = await ruleNamed("Smuggled");
+    await as(fixtureOwner);
+    await owner({
+      type: "rule.save", id: smuggledRule.id, expected_version: smuggledRule.version, name: "Smuggled, reviewed", priority: 100,
+      description_mode: "contains", description: "SMUG", bank_account_id: null, direction: null, min_cents: null, max_cents: null,
+      match_payee_id: null, category_account_id: account(6), assign_payee_id: null, reason: "Owner edit",
+    });
+    const editedRule = await ruleNamed("Smuggled, reviewed");
+    check("rule: editing a suggestion makes it the owner's, still paused", editedRule?.review_status === "confirmed" && !editedRule.enabled && editedRule.suggested_by === agentId, editedRule);
+    const editedView = (await screen()).find((r) => r.name === "Smuggled, reviewed") as ScreenRule & { min_cents: string; max_cents: string; direction: unknown; bank_account_id: unknown };
+    check(
+      "rule: blank bounds, account and direction stay open",
+      editedView?.min_cents === "0" && editedView?.max_cents === "9223372036854775807" && editedView?.direction === null && editedView?.bank_account_id === null && editedView?.suggestion === null,
+      editedView,
+    );
+
+    // Dismiss: a suggestion that never ran is removed; one that was ever on stays.
+    const doomed = await write(drafter.secret, "rule.create", randomUUID(), {
+      name: "Dismiss me",
+      conditions: { descriptor_key: { contains: "NOBODY" } },
+      actions: { account_id: account(6) },
+    });
+    const doomedRow = await ruleNamed("Dismiss me");
+    check("rule: a stale dismiss is refused", /ACCT_STALE_VERSION/.test(await dismissErr({ type: "rule.dismiss", id: doomedRow.id, expected_version: doomedRow.version + 1, reason: "x" })));
+    check("rule: the owner dismisses a suggestion", !doomed.error && (await dismissErr({ type: "rule.dismiss", id: doomedRow.id, expected_version: doomedRow.version, reason: "Dismissed Jeff's suggestion" })) === "" && !(await ruleNamed("Dismiss me")));
+    await superuser();
+    check(
+      "rule: the dismissal is in the audit trail",
+      (await db.query("SELECT 1 FROM accounting.audit_log WHERE table_name='rules' AND row_id=$1 AND action='rule.dismiss' AND after IS NULL", [doomedRow.id])).rows.length === 1,
+    );
+    const once = await write(drafter.secret, "rule.create", randomUUID(), {
+      name: "Was on once",
+      conditions: { descriptor_key: { contains: "ONCE" } },
+      actions: { account_id: account(6) },
+    });
+    let onceRow = await ruleNamed("Was on once");
+    rev = await revision();
+    await as(fixtureOwner);
+    await owner({ type: "rule.activate", id: onceRow.id, expected_version: onceRow.version, expected_revision: rev, reviewed: true, enabled: true, reason: "On" });
+    onceRow = await ruleNamed("Was on once");
+    rev = await revision();
+    await as(fixtureOwner);
+    await owner({ type: "rule.activate", id: onceRow.id, expected_version: onceRow.version, expected_revision: rev, reviewed: true, enabled: false, reason: "Off" });
+    // A rule from before the review state: switched on once, still marked a suggestion.
+    await superuser();
+    await db.query("UPDATE accounting.rules SET review_status='suggested' WHERE name='Was on once'");
+    onceRow = await ruleNamed("Was on once");
+    check(
+      "rule: a suggestion that was ever switched on cannot be dismissed",
+      !once.error && /ACCT_RULE_IN_USE/.test(await dismissErr({ type: "rule.dismiss", id: onceRow.id, expected_version: onceRow.version, reason: "x" })) && !!(await ruleNamed("Was on once")),
+    );
+    await superuser();
+    check("rule: a direct delete is still refused", /ACCT_NO_HARD_DELETE/.test(await db.query("DELETE FROM accounting.rules WHERE name='Was on once'").then(() => "", (e: Error) => e.message)));
+
+    // Backfill: rules the API made before the review state become suggestions, unless the owner has
+    // since switched them on or edited them; owner rules stay as they are. It runs the migration's own SQL.
+    const backfillSql = async () => {
+      const dir = new URL("../supabase/migrations/", import.meta.url);
+      const file = (await readdir(dir)).find((n) => n.endsWith("_accounting_rule_suggestions.sql"));
+      const sql = (await readFile(new URL(file!, dir), "utf8")).replace(/\r\n/g, "\n");
+      const start = sql.indexOf("-- >>> rule suggestions backfill"), end = sql.indexOf("-- <<< rule suggestions backfill");
+      if (start < 0 || end < start) throw new Error("backfill markers");
+      return sql.slice(start, end);
+    };
+    const pending = await write(drafter.secret, "rule.create", randomUUID(), {
+      name: "Backfill me",
+      conditions: { descriptor_key: { contains: "BACKFILL" } },
+      actions: { account_id: account(6) },
+    });
+    await as(fixtureOwner);
+    const ownersOwn = await owner({
+      type: "rule.save", id: randomUUID(), expected_version: 0, name: "Owner made", priority: 100,
+      description_mode: "contains", description: "OWNER MADE", bank_account_id: null, direction: null, min_cents: null, max_cents: null,
+      match_payee_id: null, category_account_id: account(6), assign_payee_id: null, reason: "Mine",
+    });
+    await superuser();
+    // Every rule as it stood before the migration: confirmed, no suggester.
+    await db.exec("UPDATE accounting.rules SET review_status='confirmed', suggested_by=NULL");
+    await db.exec(await backfillSql());
+    const after = async (name: string) => {
+      const r = await ruleNamed(name);
+      return r ? [r.review_status, r.suggested_by] : null;
+    };
+    check("backfill: an untouched API rule is a suggestion again", !pending.error && JSON.stringify(await after("Backfill me")) === JSON.stringify(["suggested", agentId]), await after("Backfill me"));
+    check("backfill: an API rule the owner switched on is theirs", JSON.stringify(await after("Zephyr is software")) === JSON.stringify(["confirmed", agentId]), await after("Zephyr is software"));
+    check("backfill: an API rule the owner edited is theirs", JSON.stringify(await after("Smuggled, reviewed")) === JSON.stringify(["confirmed", agentId]), await after("Smuggled, reviewed"));
+    check("backfill: the owner's own rule stays confirmed with no suggester", JSON.stringify(await after("Owner made")) === JSON.stringify(["confirmed", null]) && !!ownersOwn.id);
+    await db.exec(await backfillSql());
+    check("backfill: running it twice changes nothing", JSON.stringify(await after("Backfill me")) === JSON.stringify(["suggested", agentId]) && JSON.stringify(await after("Owner made")) === JSON.stringify(["confirmed", null]));
+
+    // Editing never changes what a rule matches by itself. The editor's own command builder saves an
+    // agent's rule on the cleaned description with only the category changed: the stored conditions come
+    // back byte for byte and the preview matches the same transactions.
+    for (const [memo, description] of [
+      ["Acme consulting March", "ACME CONSULTING 03/05/26"],
+      ["Acme consulting group", "ACME CONSULTING GROUP"],
+      ["Acme consulting", "ACME CONSULTING"],
+    ])
+      await ownerBankDraft(memo, "250000", account(5), description, "2026-03-06");
+    const acme = await write(drafter.secret, "rule.create", randomUUID(), {
+      name: "Acme consulting income",
+      conditions: { descriptor_key: { equals: "ACME CONSULTING" }, bank_account_id: account(1), direction: "increase", amount_max: "500000" },
+      actions: { account_id: account(5) },
+    });
+    const acmeId = acme.rows[0]?.r.id as string;
+    const matched = async (id: string) => {
+      await as(fixtureOwner);
+      const p = (await db.query<{ p: { rows: { id: string }[] } }>("SELECT accounting.rules_preview(jsonb_build_object('rule_id',$1::text)) p", [id])).rows[0].p;
+      return p.rows.map((r) => r.id).sort();
+    };
+    const stored = async (id: string) => {
+      await superuser();
+      return (await db.query<{ conditions: Record<string, unknown>; actions: Record<string, unknown>; review_status: string }>(
+        "SELECT conditions, actions, review_status FROM accounting.rules WHERE id=$1", [id])).rows[0];
+    };
+    const onScreen = async (id: string) => (await screen()).find((r) => r.id === id) as unknown as AccountingRule;
+    const saveEdit = async (rule: AccountingRule, change: (form: RuleForm) => RuleForm) => {
+      const initial = ruleForm(rule);
+      const parsed = rulesCommandSchema.parse(ruleSaveCommand(rule, initial, change(initial), "Owner edit"));
+      await as(fixtureOwner);
+      return owner(parsed as Record<string, unknown>);
+    };
+    const beforeMatches = await matched(acmeId), beforeStored = await stored(acmeId);
+    check("round trip: the cleaned description matches the dated and exact deposits, not the longer one", !acme.error && beforeMatches.length === 2, { error: acme.error, beforeMatches });
+    await saveEdit(await onScreen(acmeId), (form) => ({ ...form, category_account_id: account(7) }));
+    const afterStored = await stored(acmeId);
+    await superuser();
+    const sameConditions = (await db.query<{ same: boolean }>("SELECT $1::jsonb = $2::jsonb same", [JSON.stringify(beforeStored.conditions), JSON.stringify(afterStored.conditions)])).rows[0].same;
+    check(
+      "round trip: only the category changes; the stored conditions are untouched and the rule is the owner's",
+      sameConditions && afterStored.actions.account_id === account(7) && afterStored.review_status === "confirmed",
+      { beforeStored, afterStored },
+    );
+    check("round trip: the preview matches exactly the same transactions", JSON.stringify(await matched(acmeId)) === JSON.stringify(beforeMatches), await matched(acmeId));
+    // A deliberate change to the description stays on the cleaned description.
+    await saveEdit(await onScreen(acmeId), (form) => ({ ...form, description_mode: "prefix", description: "ACME CONSULTING G" }));
+    const narrowed = await stored(acmeId);
+    check(
+      "round trip: a changed description keeps the cleaned form and the other conditions",
+      JSON.stringify(narrowed.conditions.descriptor_key) === JSON.stringify({ prefix: "ACME CONSULTING G" }) && !("description" in narrowed.conditions) &&
+        narrowed.conditions.bank_account_id === account(1) && narrowed.conditions.direction === "increase" && narrowed.conditions.amount_max === "500000",
+      narrowed,
+    );
+    check("round trip: and matches what it now says", (await matched(acmeId)).length === 1);
+    // The editor's own form keeps stored bounds, direction and account when only the name changes.
+    await as(fixtureOwner);
+    const formRule = await owner({
+      type: "rule.save", id: randomUUID(), expected_version: 0, name: "Owner bounded", priority: 100,
+      description_mode: "contains", description: "ACME", bank_account_id: account(1), direction: "increase", min_cents: "0", max_cents: "250000",
+      match_payee_id: null, category_account_id: account(5), assign_payee_id: null, reason: "Mine",
+    });
+    const formBefore = await stored(formRule.id as string), formMatches = await matched(formRule.id as string);
+    await saveEdit(await onScreen(formRule.id as string), (form) => ({ ...form, name: "Owner bounded, renamed" }));
+    const formAfter = await stored(formRule.id as string);
+    await superuser();
+    check(
+      "round trip: the editor's own form keeps its stored conditions when only the name changes",
+      (await db.query<{ same: boolean }>("SELECT $1::jsonb = $2::jsonb same", [JSON.stringify(formBefore.conditions), JSON.stringify(formAfter.conditions)])).rows[0].same &&
+        JSON.stringify(await matched(formRule.id as string)) === JSON.stringify(formMatches) && formMatches.length >= 3,
+      { formBefore, formAfter, formMatches },
+    );
+
 
     // Contacts: suggestions from the API, the duplicate guards, suggestion-only updates.
     const refusal = (error: string | undefined) => {

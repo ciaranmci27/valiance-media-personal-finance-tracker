@@ -42,6 +42,7 @@ export const GET = withApi(
           purpose: a.purpose ?? null,
           parent_id: a.parent_account_id,
           is_archived: a.is_archived,
+          closed_on: a.closed_on ?? null,
           cash_kind: a.cash_kind,
           normal_side: a.normal_side,
           balance_cents: normal(a.ending_cents),

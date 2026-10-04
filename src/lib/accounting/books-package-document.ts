@@ -122,7 +122,11 @@ export function booksPackageDocuments(
           mapping
             ? `${(mapping.deductible_bps / 100).toFixed(2)}%`
             : "Not supplied",
-          account.is_archived ? "Archived" : "Active",
+          account.is_archived
+            ? "Archived"
+            : account.closed_on
+              ? `Closed ${account.closed_on}`
+              : "Active",
         ],
       };
     }),

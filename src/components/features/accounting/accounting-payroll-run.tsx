@@ -28,6 +28,7 @@ import { centsToDecimal, journalTotals } from "@/lib/accounting/money";
 import { JournalTotals } from "./accounting-journal-totals";
 import { AccountingPayrollImport } from "./accounting-payroll-import";
 import type { AccountingAccount } from "@/lib/accounting/contracts";
+import { isOpenAccount } from "@/lib/accounting/account-close";
 import type { WorkflowCommand } from "@/lib/accounting/workflows";
 import type { BooksMetadata } from "./types";
 import {
@@ -245,7 +246,7 @@ export function AccountingPayrollRuns({
       accounts
         .filter(
           (a) =>
-            !a.is_archived &&
+            isOpenAccount(a) &&
             ["bank", "cash"].includes(profileMap.get(a.id)?.cash_kind ?? ""),
         )
         .map((a) => ({ value: a.id, label: a.name, detail: a.code })),

@@ -1,7 +1,7 @@
 import type { BalanceRow } from "./contracts";
 import type { FeedData } from "./feeds";
 import type { AccountProfile } from "./workflows";
-import { bankIdentitiesByAccount } from "./bank-identity";
+import { bankIdentitiesByAccount, currentFeedAccount } from "./bank-identity";
 
 export function accountBalances(
   accounts: BalanceRow[],
@@ -9,23 +9,23 @@ export function accountBalances(
   feeds: FeedData | null,
 ) {
   const identities = bankIdentitiesByAccount(feeds);
-  const canonical = new Map(
-    feeds?.accounts.map((a) => [a.account_id, a]) ?? [],
-  );
   const kinds = new Map(profiles.map((p) => [p.account_id, p.cash_kind]));
   return new Map(
     accounts.map((account) => {
       const card = kinds.get(account.id) === "card";
       const book =
         BigInt(account.ending_cents) * (card ? BigInt(-1) : BigInt(1));
-      const mapping = canonical.get(account.id);
+      const mapping = feeds
+        ? currentFeedAccount(feeds.accounts, account.id)
+        : undefined;
       const observation = identities.get(account.id)?.balance;
       // balance_sign normalizes the provider balance into ledger convention
       // (assets positive, card debt negative), the same convention as
       // ending_cents and the server's close checks. Cards flip to "amount
       // owed" here, exactly as the book balance does above.
+      // A closed link's last report is history, not today's balance.
       const observed =
-        mapping && observation?.balance_cents != null
+        mapping && !mapping.is_closed && observation?.balance_cents != null
           ? BigInt(observation.balance_cents) * BigInt(mapping.balance_sign)
           : null;
       const bank = observed === null ? null : card ? -observed : observed;

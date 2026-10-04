@@ -114,6 +114,8 @@ export interface AccountingAccount {
   account_type: AccountType;
   normal_side: "debit" | "credit";
   is_archived: boolean;
+  /** Bank, card and cash accounts: the day the account closed, or null while open. */
+  closed_on?: string | null;
 }
 export interface JournalLine {
   id: string;
