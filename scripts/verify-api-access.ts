@@ -348,6 +348,17 @@ async function main() {
     check("edit: a scope change cannot carry a new prefix", /secret and creation time cannot change/.test(directMove.error ?? ""));
     const direct = await service("UPDATE public.api_keys SET scopes='{accounting.read,tax.read}' WHERE key_hash=$1", [hash(editable)]);
     check("edit: a direct server update is recorded too, without an editor", !direct.error && (await changes(start.id)).at(-1)?.by === null);
+    // Edit key also renames: the guard allows it, the secret stays, and a label is not a recorded change.
+    const beforeRename = await keyRow(editable);
+    const changeCount = (await changes(start.id)).length;
+    const rename = await service("UPDATE public.api_keys SET name='Renamed' WHERE key_hash=$1 AND revoked_at IS NULL", [hash(editable)]);
+    const afterRename = await keyRow(editable);
+    check(
+      "edit: the server renames a key in place, secret unchanged and updated_at moved",
+      !rename.error && afterRename.key_hash === beforeRename.key_hash && afterRename.key_prefix === beforeRename.key_prefix && afterRename.updated_at !== beforeRename.updated_at,
+      rename.error,
+    );
+    check("edit: a rename is not a recorded access change", (await changes(start.id)).length === changeCount);
 
     for (const role of ["authenticated", "anon"]) {
       await db.exec(`RESET ROLE; SET ROLE ${role};`);

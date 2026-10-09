@@ -19,7 +19,7 @@ interface ApiScopePickerProps {
 }
 
 /**
- * What a key can read or change, grouped, for New key and Edit access. A
+ * What a key can read or change, grouped, for New key and Edit key. A
  * scope the member does not hold is disabled with the reason. One that is
  * ticked anyway (the member lost the permission after the key was made) stays
  * enabled so it can be unticked: the key cannot be saved with it.

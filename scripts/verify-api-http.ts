@@ -702,6 +702,29 @@ async function main() {
       const ownLatest = (await keyState(booksOnly)).updated_at;
       const beyond = await edit(agent, before.id, ["accounting.read", "tax.read"], ownLatest);
       check("edit: but not past their own permissions", beyond.status === 422 && /not available to you: tax\.read/.test(errorOf(beyond)), beyond.body);
+
+      // Edit key renames in the same request; the name is a label, not a recorded access change.
+      const editNamed = (access: Parameters<typeof editKeyAccess>[1], id: string, scopes: unknown, expected: string, name: unknown) =>
+        editKeyAccess(service, access, id, { scopes, expected_updated_at: expected, name });
+      const nameOf = async (id: string) => (await db.query<{ name: string }>("SELECT name FROM public.api_keys WHERE id=$1", [id])).rows[0].name;
+      const renamed = await editNamed(agent, before.id, ["accounting.read", "income.read"], ownLatest, "  Books reader  ");
+      check(
+        "edit: a member renames their own key, scopes unchanged",
+        renamed.status === 200 && "data" in renamed.body && renamed.body.data.name === "Books reader" && same(renamed.body.data.scopes, ["accounting.read", "income.read"]),
+        renamed.body,
+      );
+      const afterRename = await keyState(booksOnly);
+      check("edit: the rename is stored and the secret unchanged", (await nameOf(before.id)) === "Books reader" && afterRename.key_hash === before.key_hash && afterRename.key_prefix === before.key_prefix);
+      const staleRename = await editNamed(agent, before.id, ["accounting.read", "income.read"], ownLatest, "Other");
+      check("edit: a rename moves updated_at, so an edit from before it is 409", staleRename.status === 409 && (await nameOf(before.id)) === "Books reader", staleRename.body);
+      for (const [label, name] of [["a blank name", "   "], ["a name over 100 characters", "x".repeat(101)], ["a name that is not text", 42]] as const) {
+        const result = await editNamed(agent, before.id, ["accounting.read", "income.read"], afterRename.updated_at, name);
+        check(`edit: ${label} is 422`, result.status === 422, result.body);
+      }
+      const renameRevoked = await editNamed(owner, revokedKey.id, ["accounting.read"], revokedKey.updated_at, "Back again");
+      check("edit: a revoked key cannot be renamed", renameRevoked.status === 422 && /revoked/.test(errorOf(renameRevoked)) && (await nameOf(revokedKey.id)) === "k", renameRevoked.body);
+      const unchangedName = await editNamed(agent, before.id, ["accounting.read", "income.read"], afterRename.updated_at, "Books reader");
+      check("edit: the same name and scopes change nothing", unchangedName.status === 200 && (await keyState(booksOnly)).updated_at === afterRename.updated_at, unchangedName.body);
       check("edit: every change is recorded", Number((await db.query<{ n: number }>("SELECT count(*)::int n FROM public.api_key_changes WHERE api_key_id=$1", [before.id])).rows[0].n) === 3);
 
       // Demo mode answers a valid edit of a demo key and writes nothing.
@@ -721,11 +744,21 @@ async function main() {
       check("edit: demo answers with the edited demo key", demoOk.status === 200 && JSON.stringify(demoBody.data?.scopes) === JSON.stringify(["accounting.read", "accounting.payroll"]), demoBody);
       check("edit: demo refuses a scope the demo agent lacks", (await demoCall(demoKey, ["income.manage"])).status === 403);
       check("edit: demo refuses the revoked demo key", (await demoCall("00000000-0000-4000-8000-0000000000b3", ["accounting.read"])).status === 403);
+      const demoRenamed = await scopesRoute.POST(
+        new NextRequest(`http://localhost/api/admin/api-keys/${demoKey}/scopes`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ scopes: ["accounting.read"], expected_updated_at: new Date().toISOString(), name: "Demo renamed" }),
+        }),
+        { params: Promise.resolve({ id: demoKey }) },
+      );
+      const demoRenamedBody = (await demoRenamed.json()) as { data?: { name: string } };
+      check("edit: demo answers with the renamed demo key", demoRenamed.status === 200 && demoRenamedBody.data?.name === "Demo renamed", demoRenamedBody);
       delete process.env.NEXT_PUBLIC_DEMO_MODE;
       check("edit: demo wrote nothing", Number((await db.query<{ n: number }>("SELECT count(*)::int n FROM public.api_key_changes")).rows[0].n) === 3);
 
       // Leave the books-only key as the rest of the suite expects it.
-      await db.query("UPDATE public.api_keys SET scopes='{accounting.read}' WHERE id=$1", [before.id]);
+      await db.query("UPDATE public.api_keys SET scopes='{accounting.read}', name='k' WHERE id=$1", [before.id]);
       await uncapped.close();
     }
 

@@ -266,7 +266,7 @@ export function ApiSettingsContent({ available, isOwner, memberId }: Props) {
           ...(canEdit(key)
             ? [
                 {
-                  label: "Edit access",
+                  label: "Edit key",
                   icon: <SlidersHorizontal size={14} aria-hidden="true" />,
                   onSelect: () => openEdit(key),
                 },

@@ -9,7 +9,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Replaces a key's scopes (Settings > API > Edit access). The secret stays
+ * Replaces a key's scopes, and renames it when a name is sent (Settings >
+ * API > Edit key). The secret stays
  * the same, so whatever uses the key keeps working and gets the new access
  * from its next request. Same people and the same scope rules as creating a
  * key; see editKeyAccess for the checks.
@@ -27,7 +28,7 @@ export async function POST(
   // it would be, and nothing is written.
   if (isDemoMode()) {
     const parsed = keyAccessSchema.safeParse(input);
-    const key = parsed.success ? demoEditedKey(id, parsed.data.scopes) : null;
+    const key = parsed.success ? demoEditedKey(id, parsed.data.scopes, parsed.data.name) : null;
     return key
       ? NextResponse.json({ data: key })
       : NextResponse.json({ error: "Demo mode is read-only." }, { status: 403 });

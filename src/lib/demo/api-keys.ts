@@ -146,17 +146,18 @@ export function demoCreatedKey(input: { name: string; scopes: string[]; days: nu
 }
 
 /**
- * A demo key with its access edited, for Edit access. Never stored. Null when
- * the key is not an active demo key or a scope is one its member does not
- * hold, which the route answers as read-only.
+ * A demo key with its access (and name, when sent) edited, for Edit key. Never
+ * stored. Null when the key is not an active demo key or a scope is one its
+ * member does not hold, which the route answers as read-only.
  */
-export function demoEditedKey(id: string, scopes: string[]) {
+export function demoEditedKey(id: string, scopes: string[], name?: string) {
   const key = demoKeys().find((k) => k.id === id && !k.revoked_at);
   const member = demoMembers().find((m) => m.id === key?.team_member_id);
   if (!key || !member || scopes.some((scope) => !member.api_scopes.includes(scope))) return null;
   const wanted = new Set(scopes);
   return {
     ...key,
+    name: name ?? key.name,
     scopes: API_SCOPE_KEYS.filter((scope) => wanted.has(scope)),
     updated_at: new Date().toISOString(),
   };

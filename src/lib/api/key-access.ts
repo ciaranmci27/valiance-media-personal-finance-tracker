@@ -9,6 +9,9 @@ import { API_SCOPE_KEYS, isApiScope } from "./scopes";
 /** The scopes a key asks for, as creating a key and editing its access both send them. */
 export const keyScopesField = z.array(z.string()).min(1, "Choose at least one scope");
 
+/** A key's name, as creating a key and editing it both send it. */
+export const keyNameField = z.string().trim().min(1, "Name is required").max(100, "Name is too long");
+
 export type KeyHolder =
   | {
       ok: true;
@@ -96,6 +99,8 @@ export function refusedScopes(scopes: string[], holder: Extract<KeyHolder, { ok:
 
 export const keyAccessSchema = z.object({
   scopes: keyScopesField,
+  /** A new name; left out, the name stays as it is. */
+  name: keyNameField.optional(),
   /** The key's updated_at as the editor saw it; a key changed since is refused. */
   expected_updated_at: z.string().min(1, "Reload the page and try again."),
 });
@@ -108,13 +113,16 @@ export type KeyAccessResult =
 const NOT_FOUND = { status: 404, body: { error: "API key not found." } } as const;
 
 /**
- * Replaces a key's scopes; the secret, prefix and member never change. Anyone
+ * Replaces a key's scopes and, when sent, its name; the secret, prefix and
+ * member never change. Anyone
  * who can see a key may try, and then the create rules decide (keyHolder): you
  * edit your own keys, the owner also an agent's. The scopes must be known API
  * scopes the key's member holds, at least one. A revoked or expired key cannot
  * be edited, and a key changed since the editor loaded it is a 409 that
  * carries the key as it is now. public.api_key_set_scopes writes the change
- * and its api_key_changes row in one transaction.
+ * and its api_key_changes row in one transaction. A new name is written
+ * after it, and only to a key that is still not revoked: the name is a label,
+ * so it is not recorded in api_key_changes.
  */
 export async function editKeyAccess(
   service: SupabaseClient,
@@ -157,7 +165,22 @@ export async function editKeyAccess(
     p_expected_updated_at: parsed.data.expected_updated_at,
     p_actor: me.id,
   });
-  if (!error && data) return { status: 200, body: { data: data as ApiKeyRow } };
+  if (!error && data) {
+    const saved = data as ApiKeyRow;
+    const name = parsed.data.name;
+    if (name === undefined || name === saved.name) return { status: 200, body: { data: saved } };
+    const { data: renamed, error: renameError } = await service
+      .from("api_keys")
+      .update({ name })
+      .eq("id", id)
+      .is("revoked_at", null)
+      .select(API_KEY_COLUMNS)
+      .maybeSingle();
+    if (renameError)
+      return { status: 500, body: { error: "The access was saved, but the name could not be changed." } };
+    if (!renamed) return { status: 422, body: { error: "This key is revoked. Make a new key instead." } };
+    return { status: 200, body: { data: renamed as unknown as ApiKeyRow } };
+  }
 
   const message = error?.message ?? "";
   if (/API_KEY_CHANGED/.test(message)) {

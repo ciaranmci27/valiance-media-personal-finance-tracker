@@ -5,7 +5,7 @@ import { getServiceClient } from "@/lib/supabase/service";
 import { isDemoMode } from "@/lib/demo";
 import { demoApiKeysPayload, demoCreatedKey } from "@/lib/demo/api-keys";
 import { membersApiAccess } from "@/lib/api/member-access";
-import { keyHolder, keyScopesField, refusedScopes } from "@/lib/api/key-access";
+import { keyHolder, keyNameField, keyScopesField, refusedScopes } from "@/lib/api/key-access";
 import {
   API_KEY_COLUMNS,
   generateApiKey,
@@ -18,11 +18,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const createSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(1, "Name is required")
-    .max(100, "Name is too long"),
+  name: keyNameField,
   scopes: keyScopesField,
   days: z
     .number()

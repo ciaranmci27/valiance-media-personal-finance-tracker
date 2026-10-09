@@ -233,7 +233,7 @@ export function databaseError(message: string, permission: string): ApiError {
           reason: "missing_key_scope",
           grant_on: "api_key",
           required: permission,
-          hint: `Create a key that includes ${permission}.`,
+          hint: `Add ${permission} to this key in Settings > API (Edit key); the key itself stays the same.`,
         },
       );
     case "API_MEMBER_PERMISSION_MISSING":
