@@ -1,5 +1,6 @@
 import type {
   AccountingAccount,
+  CategorizedBy,
   EntryContext,
   JournalEntry,
   JournalLine,
@@ -124,6 +125,107 @@ export function presentTransaction(
     categorized:
       balanced && !entry.lines.some((l) => suspense.has(l.account_id)),
   };
+}
+
+/** The family of a category's source; the screen picks one icon and tone per kind. */
+export type CategorySourceKind =
+  | "you"
+  | "member"
+  | "agent"
+  | "api"
+  | "rule"
+  | "prior"
+  | "payee_default"
+  | "transfer"
+  | "import"
+  | "unknown";
+export interface CategorySourceView {
+  kind: CategorySourceKind;
+  /** The accessible name and tooltip, in the owner's words. */
+  label: string;
+}
+const importLabels = {
+  wave_import: "From Wave history",
+  gusto_import: "From Gusto import",
+  patriot_import: "From Patriot import",
+} as const;
+
+/**
+ * Who or what chose a transaction's category, drafts and reviewed alike.
+ * Null while nothing is categorized: the books' suggestions speak for those
+ * rows. A categorized row the history cannot explain reads as plainly
+ * categorized, never as a guess.
+ */
+export function categorySource(
+  entry: JournalEntry,
+  categorized: boolean,
+): CategorySourceView | null {
+  if (!categorized) return null;
+  // A draft read before the source was recorded still knows how the books filled it.
+  const by: CategorizedBy | null =
+    entry.categorized_by ??
+    (entry.status === "draft" && entry.fill
+      ? { source: entry.fill.source, rule_name: entry.fill.rule_name }
+      : null);
+  if (!by)
+    return { kind: "unknown", label: "Categorized, source not recorded" };
+  const name = by.actor_name?.trim();
+  const agent = by.actor_role === "agent";
+  const self = by.self === true;
+  switch (by.source) {
+    case "person":
+      if (self) return { kind: "you", label: "Categorized by you" };
+      if (agent)
+        return { kind: "agent", label: `Categorized by ${name || "an agent"}` };
+      return {
+        kind: "member",
+        label: `Categorized by ${name || "a team member"}`,
+      };
+    case "api":
+      if (agent)
+        return {
+          kind: "agent",
+          label: self
+            ? "Categorized by you"
+            : `Categorized by ${name || "an agent"}`,
+        };
+      return {
+        kind: "api",
+        label: self
+          ? "Categorized through the API with your key"
+          : `Categorized through the API by ${name || "a team member"}`,
+      };
+    case "rule":
+      return {
+        kind: "rule",
+        label: by.rule_name
+          ? `Categorized by rule: ${by.rule_name}`
+          : "Categorized by a rule",
+      };
+    case "prior":
+      return {
+        kind: "prior",
+        label: "Suggested by the books: same as last time",
+      };
+    case "payee_default":
+      return {
+        kind: "payee_default",
+        label: entry.payee_name
+          ? `Suggested by the books: ${entry.payee_name}'s default category`
+          : "Suggested by the books: the contact's default category",
+      };
+    case "transfer_pair":
+      return {
+        kind: "transfer",
+        label: "Matched transfer, paired by the books",
+      };
+    case "wave_import":
+    case "gusto_import":
+    case "patriot_import":
+      return { kind: "import", label: importLabels[by.source] };
+    default:
+      return { kind: "unknown", label: "Categorized, source not recorded" };
+  }
 }
 
 export interface SimpleTransactionInput {

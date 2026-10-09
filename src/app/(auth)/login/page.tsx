@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Mail, AlertCircle } from "lucide-react";
+import { safeNextPath } from "@/lib/supabase/next-path";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -53,7 +54,11 @@ export default function LoginPage() {
         return;
       }
 
-      router.push("/");
+      // Back to the link that sent them here, else home.
+      router.push(
+        safeNextPath(new URLSearchParams(window.location.search).get("next")) ??
+          "/",
+      );
       router.refresh();
     } catch {
       setError("An unexpected error occurred. Please try again.");

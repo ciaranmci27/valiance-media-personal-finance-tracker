@@ -2853,6 +2853,11 @@ CREATE TABLE accounting.journal_entries (
   "bank_restore_matches" jsonb NOT NULL DEFAULT '[]'::jsonb,
   "fill_source" text,
   "pair_entry_id" uuid,
+  "category_source" text,
+  "category_actor" uuid,
+  CONSTRAINT "entries_category_actor_check" CHECK (((category_actor IS NULL) OR (category_source = ANY (ARRAY['person'::text, 'api'::text])))),
+  CONSTRAINT "entries_category_actor_fk" FOREIGN KEY (category_actor) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "entries_category_source_check" CHECK ((category_source = ANY (ARRAY['person'::text, 'api'::text, 'rule'::text, 'prior'::text, 'payee_default'::text, 'transfer_pair'::text, 'wave_import'::text, 'gusto_import'::text, 'patriot_import'::text]))),
   CONSTRAINT "entries_fill_draft_check" CHECK (((status = 'draft'::text) OR ((fill_source IS NULL) AND (pair_entry_id IS NULL)))),
   CONSTRAINT "entries_fill_source_check" CHECK ((fill_source = ANY (ARRAY['rule'::text, 'prior'::text, 'payee_default'::text, 'transfer_pair'::text]))),
   CONSTRAINT "entries_pair_fk" FOREIGN KEY (pair_entry_id) REFERENCES accounting.journal_entries(id) ON DELETE RESTRICT,
@@ -3277,7 +3282,7 @@ BEGIN
   ELSE
    result:=accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',entry,'expected_version',e.version,'account_id',candidate->'actions'->>'account_id','memo',coalesce(candidate->'actions'->>'memo',e.memo),'payee_id',coalesce(candidate->'actions'->>'payee_id',e.payee_id::text)));
   END IF;
-  UPDATE accounting.journal_entries SET applied_rule_id=(candidate->>'rule_id')::uuid,fill_source='rule' WHERE id=entry RETURNING * INTO e;
+  UPDATE accounting.journal_entries SET applied_rule_id=(candidate->>'rule_id')::uuid,fill_source='rule',category_source='rule',category_actor=NULL WHERE id=entry RETURNING * INTO e;
   INSERT INTO accounting.audit_log(actor_user_id,actor_kind,operation_id,table_name,row_id,action,before,after)
   VALUES(CASE WHEN current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE auth.uid() END,
    coalesce(nullif(current_setting('accounting.actor_kind',true),''),'owner'),
@@ -3293,7 +3298,7 @@ BEGIN
    category:=(previous->>'last_category')::uuid;
    IF EXISTS(SELECT 1 FROM accounting.accounts WHERE id=category AND NOT is_archived) THEN
     result:=accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',entry,'expected_version',e.version,'account_id',category,'payee_id',coalesce(e.payee_id::text,previous->>'payee_id'),'memo',coalesce(previous->>'memo',e.memo)));
-    UPDATE accounting.journal_entries SET fill_source='prior' WHERE id=entry RETURNING * INTO e;
+    UPDATE accounting.journal_entries SET fill_source='prior',category_source='prior',category_actor=NULL WHERE id=entry RETURNING * INTO e;
    END IF;
   END IF;
  END IF;
@@ -3302,7 +3307,7 @@ BEGIN
   SELECT p.default_account_id INTO category FROM accounting.parties p WHERE p.id=party AND p.default_account_id IS NOT NULL;
   IF category IS NOT NULL AND EXISTS(SELECT 1 FROM accounting.accounts WHERE id=category AND NOT is_archived) THEN
    result:=accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',entry,'expected_version',e.version,'account_id',category,'payee_id',party::text,'memo',e.memo));
-   UPDATE accounting.journal_entries SET fill_source='payee_default' WHERE id=entry RETURNING * INTO e;
+   UPDATE accounting.journal_entries SET fill_source='payee_default',category_source='payee_default',category_actor=NULL WHERE id=entry RETURNING * INTO e;
   END IF;
  END IF;
  -- Last, so a rule or a known treatment always wins: a movement still uncategorized whose one counterpart sits on another own account is proposed as a transfer.
@@ -4285,6 +4290,30 @@ BEGIN
 END $function$
 ;
 
+CREATE OR REPLACE FUNCTION accounting.category_stamp(before_lines jsonb, after_lines jsonb, current_source text, current_actor uuid, actor uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE kind text:=coalesce(nullif(current_setting('accounting.actor_kind',true),''),'owner'); marker text:=nullif(current_setting('accounting.category_source',true),'');
+BEGIN
+ -- Nothing has a source while a line is still uncategorized.
+ IF jsonb_typeof(after_lines) IS DISTINCT FROM 'array' OR jsonb_array_length(after_lines)=0
+  OR EXISTS(SELECT 1 FROM jsonb_array_elements(after_lines) l JOIN accounting.accounts a ON a.id::text=lower(l->>'account_id') WHERE a.system_purpose IN ('uncategorized_income','uncategorized_expense')) THEN
+  RETURN jsonb_build_object('source',NULL,'actor',NULL);
+ END IF;
+ -- The same accounts and amounts keep whoever or whatever chose them.
+ IF before_lines IS NOT NULL AND accounting.lines_key(before_lines) IS NOT DISTINCT FROM accounting.lines_key(after_lines) THEN
+  RETURN jsonb_build_object('source',current_source,'actor',current_actor);
+ END IF;
+ -- An import names itself; otherwise the person behind the session or the API key. The feed worker never categorizes as anyone.
+ IF marker IS NOT NULL THEN RETURN jsonb_build_object('source',marker,'actor',NULL); END IF;
+ IF actor IS NULL OR kind NOT IN ('owner','api') THEN RETURN jsonb_build_object('source',NULL,'actor',NULL); END IF;
+ RETURN jsonb_build_object('source',CASE WHEN kind='api' THEN 'api' ELSE 'person' END,'actor',actor);
+END $function$
+;
+
 CREATE OR REPLACE FUNCTION accounting.close_guard()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -4521,6 +4550,12 @@ BEGIN
   'transfer_account_id',CASE WHEN e.transfer_group_id IS NOT NULL THEN (SELECT l.account_id FROM accounting.journal_entries g JOIN accounting.journal_lines l ON l.entry_id=g.id JOIN accounting.accounts a ON a.id=l.account_id
    WHERE g.transfer_group_id=e.transfer_group_id AND g.id<>e.id AND g.reverses_entry_id IS NULL AND a.subtype IN ('bank','card','cash') ORDER BY g.entry_date,l.sort_order LIMIT 1) END,
   'payee_name',(SELECT p.name FROM accounting.parties p WHERE p.id=e.payee_id),
+  -- Who or what chose the category, kept through review: a person, an API key's member, a rule, the books' own fill, a matched transfer or an import.
+  'categorized_by',CASE WHEN e.category_source IS NOT NULL THEN jsonb_strip_nulls(jsonb_build_object('source',e.category_source,
+   'self',CASE WHEN e.category_actor IS NOT NULL THEN e.category_actor=auth.uid() END,
+   'actor_name',(SELECT m.name FROM public.team_members m WHERE m.auth_user_id=e.category_actor),
+   'actor_role',(SELECT m.role FROM public.team_members m WHERE m.auth_user_id=e.category_actor),
+   'rule_name',CASE WHEN e.category_source='rule' THEN (SELECT r.name FROM accounting.rules r WHERE r.id=e.applied_rule_id) END)) END,
   'context',jsonb_build_object('kind',e.kind,'payee_id',e.payee_id),'prior_treatment',NULL,
   'lines',coalesce((SELECT jsonb_agg(to_jsonb(l)||jsonb_build_object('amount_cents',l.amount_cents::text) ORDER BY l.sort_order) FROM accounting.journal_lines l WHERE l.entry_id=e.id),'[]')) INTO result
  FROM accounting.journal_entries e WHERE e.id=entry;
@@ -4583,6 +4618,16 @@ END $fn$;
 REVOKE ALL ON FUNCTION accounting.entry_history(uuid) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION accounting.entry_history(uuid) TO authenticated;
 
+CREATE OR REPLACE FUNCTION accounting.entry_lines(entry uuid)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ SELECT coalesce(jsonb_agg(jsonb_build_object('account_id',l.account_id,'amount_cents',l.amount_cents::text)),'[]'::jsonb) FROM accounting.journal_lines l WHERE l.entry_id=entry
+$function$
+;
+
 CREATE OR REPLACE FUNCTION accounting.guard()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -4614,7 +4659,8 @@ BEGIN
    -- A proposed transfer leg leaves draft only through transfer.confirm or after an unpair; how a draft was filled is a draft-only marker.
    IF NEW.status<>'draft' AND NEW.pair_entry_id IS NOT NULL THEN RAISE EXCEPTION 'ACCT_TRANSFER_PAIR_CONFIRM'; END IF;
    IF NEW.status<>'draft' THEN NEW.fill_source:=NULL; END IF;
-   IF OLD.status='posted' AND (to_jsonb(NEW)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','review_pending','version','updated_at']) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','review_pending','version','updated_at']) THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
+   -- Who or what categorized a posted entry is fixed with it; only the one-time history backfill may fill a source the books never recorded.
+   IF OLD.status='posted' AND (to_jsonb(NEW)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','review_pending','version','updated_at']-CASE WHEN OLD.category_source IS NULL AND current_setting('accounting.action',true)='entry.source.backfill' THEN ARRAY['category_source','category_actor'] ELSE ARRAY[]::text[] END) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','review_pending','version','updated_at']-CASE WHEN OLD.category_source IS NULL AND current_setting('accounting.action',true)='entry.source.backfill' THEN ARRAY['category_source','category_actor'] ELSE ARRAY[]::text[] END) THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
    IF OLD.status<>'posted' THEN PERFORM accounting.require_open(OLD.entry_date); PERFORM accounting.require_open(NEW.entry_date); END IF;
    -- A closed bank or card account takes nothing dated after its closing day; history up to it stays editable.
    IF NEW.entry_date>OLD.entry_date AND NEW.status<>'discarded' AND EXISTS(SELECT 1 FROM accounting.journal_lines cl JOIN accounting.accounts ca ON ca.id=cl.account_id WHERE cl.entry_id=NEW.id AND ca.closed_on<NEW.entry_date) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_CLOSED'; END IF;
@@ -4694,7 +4740,7 @@ AS $function$
 DECLARE t text:=c->>'type'; k uuid:=coalesce((c->>'id')::uuid,gen_random_uuid()); actor uuid:=CASE WHEN current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE accounting.require_owner() END;
  e accounting.journal_entries; account_row accounting.accounts; v integer; x jsonb; line jsonb; idx integer; r jsonb; replacement jsonb; reversal jsonb;
  preserved uuid[]:='{}'; seen uuid[]:='{}'; existing_line uuid; original_date date; category uuid; bank_line accounting.journal_lines; carried jsonb:='[]'; total numeric; allocated bigint; remain bigint; share_sum bigint;
- closing date; later integer; first_later date; closing_balance bigint; books_today date;
+ closing date; later integer; first_later date; closing_balance bigint; books_today date; stamp jsonb; before_lines jsonb; kept boolean;
 BEGIN
  IF t='cash.allocate' THEN
   SELECT * INTO bank_line FROM accounting.journal_lines WHERE id=k;
@@ -4779,14 +4825,17 @@ BEGIN
    IF to_regclass('accounting.bank_matches') IS NOT NULL THEN
     EXECUTE 'SELECT coalesce(array_agg(l.id),ARRAY[]::uuid[]) FROM accounting.journal_lines l WHERE l.entry_id=$1 AND EXISTS(SELECT 1 FROM accounting.bank_matches m WHERE m.journal_line_id=l.id)' INTO preserved USING k;
    END IF;
+   stamp:=accounting.category_stamp(accounting.entry_lines(k),c->'lines',e.category_source,e.category_actor,actor);
    DELETE FROM accounting.journal_lines WHERE entry_id=k AND NOT (id=ANY(preserved));
    UPDATE accounting.journal_entries SET entry_date=(c->>'entry_date')::date,memo=c->>'memo',kind=coalesce(c->'context'->>'kind',c->>'kind',kind),
-    payee_id=CASE WHEN c?'payee_id' OR c->'context'?'payee_id' THEN coalesce(c->>'payee_id',c->'context'->>'payee_id')::uuid ELSE payee_id END,fill_source=NULL WHERE id=k RETURNING version INTO v;
+    payee_id=CASE WHEN c?'payee_id' OR c->'context'?'payee_id' THEN coalesce(c->>'payee_id',c->'context'->>'payee_id')::uuid ELSE payee_id END,fill_source=NULL,
+    category_source=stamp->>'source',category_actor=(stamp->>'actor')::uuid WHERE id=k RETURNING version INTO v;
   ELSE
    IF coalesce((c->>'expected_version')::integer,-1)<>0 THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
-   INSERT INTO accounting.journal_entries(id,entry_date,memo,source_description,origin,kind,payee_id,created_by,register_id,reason)
+   stamp:=accounting.category_stamp(NULL,c->'lines',NULL,NULL,actor);
+   INSERT INTO accounting.journal_entries(id,entry_date,memo,source_description,origin,kind,payee_id,created_by,register_id,reason,category_source,category_actor)
     VALUES(k,(c->>'entry_date')::date,c->>'memo',c->>'source_description',coalesce(c->>'origin','manual'),coalesce(c->'context'->>'kind',c->>'kind','manual'),
-    coalesce(c->>'payee_id',c->'context'->>'payee_id')::uuid,actor,(c->>'register_id')::uuid,coalesce(c->>'reason','')) RETURNING version INTO v;
+    coalesce(c->>'payee_id',c->'context'->>'payee_id')::uuid,actor,(c->>'register_id')::uuid,coalesce(c->>'reason',''),stamp->>'source',(stamp->>'actor')::uuid) RETURNING version INTO v;
   END IF;
   idx:=0;
   FOR line IN SELECT value FROM jsonb_array_elements(c->'lines') LOOP
@@ -4886,7 +4935,11 @@ BEGIN
     IF (c->>'entry_date')::date<(SELECT earliest_history_date FROM public.business_profile WHERE id=1) THEN RAISE EXCEPTION 'ACCT_INVALID_CORRECTION_DATE_OR_REASON'; END IF;
     replacement:=accounting.ledger_command(c||jsonb_build_object('type','draft.save','id',coalesce((c->>'replacement_id')::uuid,gen_random_uuid()),'expected_version',0,'origin','internal','kind','correction','payee_id',e.payee_id));
     k:=(replacement->>'id')::uuid;
-    UPDATE accounting.journal_entries SET replaces_entry_id=e.id WHERE id=k RETURNING version INTO v;
+    -- An edit that keeps every account and amount keeps whoever or whatever chose them.
+    kept:=accounting.lines_key(accounting.entry_lines(e.id)) IS NOT DISTINCT FROM accounting.lines_key(accounting.entry_lines(k));
+    UPDATE accounting.journal_entries SET replaces_entry_id=e.id,category_source=CASE WHEN kept THEN e.category_source ELSE category_source END,
+     category_actor=CASE WHEN kept THEN e.category_actor ELSE category_actor END,applied_rule_id=CASE WHEN kept AND e.category_source='rule' THEN e.applied_rule_id ELSE applied_rule_id END
+     WHERE id=k RETURNING version INTO v;
     replacement:=accounting.ledger_command(jsonb_build_object('type','entry.post','id',k,'expected_version',v));
     FOR x IN SELECT value FROM jsonb_array_elements(carried) LOOP
      SELECT l.* INTO bank_line FROM accounting.journal_lines l WHERE l.entry_id=k AND l.account_id=(x->>'account_id')::uuid AND l.amount_cents=(x->>'line_cents')::bigint
@@ -4912,6 +4965,7 @@ BEGIN
    SELECT l.* INTO bank_line FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id
     WHERE l.entry_id=k AND a.subtype IN ('bank','card','cash');
    IF NOT FOUND OR (SELECT count(*) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=k AND a.subtype IN ('bank','card','cash'))<>1 THEN RAISE EXCEPTION 'ACCT_SIMPLE_MOVEMENT_REQUIRED'; END IF;
+   before_lines:=accounting.entry_lines(k);
    DELETE FROM accounting.journal_lines WHERE entry_id=k AND id<>bank_line.id;
    -- Preserve the bank line's identity so existing observation matches stay attached.
    IF t='entry.categorize' THEN
@@ -4945,7 +4999,9 @@ BEGIN
     END LOOP;
     IF total<>-bank_line.amount_cents THEN RAISE EXCEPTION 'ACCT_UNBALANCED'; END IF;
    END IF;
-   UPDATE accounting.journal_entries SET memo=coalesce(c->>'memo',memo),kind=coalesce(c->>'kind',kind),payee_id=CASE WHEN c?'payee_id' THEN (c->>'payee_id')::uuid ELSE payee_id END,fill_source=NULL WHERE id=k RETURNING version INTO v;
+   stamp:=accounting.category_stamp(before_lines,accounting.entry_lines(k),e.category_source,e.category_actor,actor);
+   UPDATE accounting.journal_entries SET memo=coalesce(c->>'memo',memo),kind=coalesce(c->>'kind',kind),payee_id=CASE WHEN c?'payee_id' THEN (c->>'payee_id')::uuid ELSE payee_id END,fill_source=NULL,
+    category_source=stamp->>'source',category_actor=(stamp->>'actor')::uuid WHERE id=k RETURNING version INTO v;
    IF coalesce((c->>'remember')::boolean,false) AND e.descriptor_key IS NOT NULL THEN
     PERFORM accounting.banking_command(jsonb_build_object('type','alias.save','id',gen_random_uuid(),'party_id',c->'payee_id','match_kind','key','pattern',e.descriptor_key,'enabled',true,'expected_version',0));
    END IF;
@@ -4954,6 +5010,18 @@ BEGIN
  ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND: %',t;
  END IF;
 END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.lines_key(lines jsonb)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ -- The same accounts and amounts give the same key, whatever the order or the line ids.
+ SELECT string_agg(k,',' ORDER BY k) FROM (SELECT lower(l->>'account_id')||':'||CASE WHEN (l->>'amount_cents') ~ '^-?[0-9]+$' THEN ((l->>'amount_cents')::numeric)::text ELSE coalesce(l->>'amount_cents','') END k
+  FROM jsonb_array_elements(CASE WHEN jsonb_typeof(lines)='array' THEN lines ELSE '[]'::jsonb END) l) x
+$function$
 ;
 
 CREATE OR REPLACE FUNCTION accounting.match_review()
@@ -5024,8 +5092,9 @@ BEGIN
   IF re.id IS NULL OR e.reverses_entry_id IS NOT NULL OR EXISTS(SELECT 1 FROM accounting.journal_entries WHERE restores_entry_id=e.id OR replaces_entry_id=e.id) THEN RAISE EXCEPTION 'ACCT_RESTORE_UNAVAILABLE';END IF;
   IF restore_date<re.entry_date THEN RAISE EXCEPTION 'ACCT_RESTORE_DATE';END IF;
   IF e.register_id IS NOT NULL OR e.transfer_group_id IS NOT NULL OR EXISTS(SELECT 1 FROM accounting.payroll_runs WHERE entry_id=e.id OR (coalesce(ytd->'patriot_import',ytd->'gusto_import')->>'original_entry_id'=e.id::text AND coalesce(ytd->'patriot_import',ytd->'gusto_import')->>'journal_mode'='created')) THEN RAISE EXCEPTION 'ACCT_RESTORE_WORKFLOW';END IF;
-  INSERT INTO accounting.journal_entries(entry_date,memo,origin,kind,payee_id,reason,restores_entry_id,created_by)
-   VALUES(restore_date,e.memo,'internal',e.kind,e.payee_id,c->>'reason',e.id,auth.uid()) RETURNING id,version INTO new_id,v;
+  -- The restored lines are the original's, so is whoever or whatever chose them.
+  INSERT INTO accounting.journal_entries(entry_date,memo,origin,kind,payee_id,reason,restores_entry_id,created_by,category_source,category_actor,applied_rule_id)
+   VALUES(restore_date,e.memo,'internal',e.kind,e.payee_id,c->>'reason',e.id,auth.uid(),e.category_source,e.category_actor,CASE WHEN e.category_source='rule' THEN e.applied_rule_id END) RETURNING id,version INTO new_id,v;
   INSERT INTO accounting.journal_lines(entry_id,account_id,amount_cents,memo,sort_order,cash_class)
    SELECT new_id,account_id,amount_cents,memo,sort_order,cash_class FROM accounting.journal_lines WHERE entry_id=e.id;
   result:=accounting.ledger_command(jsonb_build_object('type','entry.post','id',new_id,'expected_version',v));
@@ -5049,7 +5118,8 @@ DECLARE actor uuid:=accounting.require_owner(); committing boolean:=request->>'m
  prior accounting.payroll_runs; saved jsonb; posted jsonb; defaults jsonb; state text; message text;
  run_id uuid; entry_id uuid; pay_date date; employer bigint; identity text; choice text; candidate jsonb; existing accounting.journal_entries; correction boolean;
 BEGIN
- IF committing THEN PERFORM accounting.write_lock(); END IF;
+ -- Entries this import writes or corrects record it as their category source.
+ IF committing THEN PERFORM accounting.write_lock(); PERFORM set_config('accounting.category_source','patriot_import',true); END IF;
  SELECT ytd->'patriot_import' INTO defaults FROM accounting.payroll_runs
  WHERE ytd?'patriot_import' ORDER BY updated_at DESC,id DESC LIMIT 1;
  IF request->>'mode'='defaults' THEN RETURN coalesce(defaults,'{}'); END IF;
@@ -5165,6 +5235,7 @@ BEGIN
    'period_to',body->'period_to','gross',body->'declared_gross_cents','net',body->'declared_net_cents','employer_tax',employer::text,
    'employee_count',jsonb_array_length(body->'employees'),'state',state,'message',message,'candidates',candidates,'run_id',run_id,'entry_id',entry_id));
  END LOOP;
+ PERFORM set_config('accounting.category_source','',true);
  RETURN result;
 END $fn$;
 REVOKE ALL ON FUNCTION accounting.patriot_import(jsonb) FROM PUBLIC, anon, authenticated, service_role;
@@ -5194,7 +5265,8 @@ DECLARE actor uuid:=accounting.require_owner(); committing boolean:=request->>'m
  run_month text; members jsonb; n integer; window_runs jsonb; window_keys jsonb; total jsonb; first_date date; last_date date; pairs jsonb:='[]'; pair jsonb; k text;
  unit jsonb; choice text; link_entry uuid; new_run uuid; saved jsonb; posted jsonb; done jsonb:='{}'; resolution text; group_key text; fee_rows jsonb; pick jsonb;
 BEGIN
- IF committing THEN PERFORM accounting.write_lock(); END IF;
+ -- Entries this import writes or corrects record it as their category source.
+ IF committing THEN PERFORM accounting.write_lock(); PERFORM set_config('accounting.category_source','gusto_import',true); END IF;
  SELECT ytd->'gusto_import' INTO defaults FROM accounting.payroll_runs
  WHERE ytd?'gusto_import' ORDER BY updated_at DESC,id DESC LIMIT 1;
  -- A first Gusto import starts from the payroll accounts the Patriot importer last used.
@@ -5443,6 +5515,7 @@ BEGIN
    END IF;
   END LOOP;
  END IF;
+ PERFORM set_config('accounting.category_source','',true);
  RETURN result;
 END $fn$;
 REVOKE ALL ON FUNCTION accounting.gusto_import(jsonb) FROM PUBLIC, anon, authenticated, service_role;
@@ -7101,7 +7174,7 @@ BEGIN
  FOR leg,other IN SELECT v.x,v.y FROM (VALUES(first_entry,second_entry),(second_entry,first_entry)) v(x,y) LOOP
   SELECT version INTO ver FROM accounting.journal_entries WHERE id=leg;
   PERFORM accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',leg,'expected_version',ver,'account_id',transit,'kind','transfer'));
-  UPDATE accounting.journal_entries SET pair_entry_id=other,fill_source='transfer_pair' WHERE id=leg;
+  UPDATE accounting.journal_entries SET pair_entry_id=other,fill_source='transfer_pair',category_source='transfer_pair',category_actor=NULL WHERE id=leg;
   INSERT INTO accounting.audit_log(actor_user_id,actor_kind,operation_id,table_name,row_id,action,after)
   VALUES(CASE WHEN current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE auth.uid() END,
    coalesce(nullif(current_setting('accounting.actor_kind',true),''),'owner'),
@@ -7127,7 +7200,7 @@ BEGIN
   SELECT id INTO suspense FROM accounting.accounts WHERE system_purpose=CASE WHEN bank.amount_cents>0 THEN 'uncategorized_income' ELSE 'uncategorized_expense' END;
   DELETE FROM accounting.journal_lines WHERE entry_id=leg AND id<>bank.id;
   INSERT INTO accounting.journal_lines(entry_id,account_id,amount_cents,sort_order) VALUES(leg,suspense,-bank.amount_cents,CASE WHEN bank.sort_order=0 THEN 1 ELSE 0 END);
-  UPDATE accounting.journal_entries SET pair_entry_id=NULL,fill_source=NULL,kind=CASE WHEN bank.amount_cents>0 THEN 'income' ELSE 'expense' END WHERE id=leg;
+  UPDATE accounting.journal_entries SET pair_entry_id=NULL,fill_source=NULL,category_source=NULL,category_actor=NULL,kind=CASE WHEN bank.amount_cents>0 THEN 'income' ELSE 'expense' END WHERE id=leg;
   INSERT INTO accounting.audit_log(actor_user_id,actor_kind,operation_id,table_name,row_id,action,after)
   VALUES(CASE WHEN current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE auth.uid() END,
    coalesce(nullif(current_setting('accounting.actor_kind',true),''),'owner'),
@@ -7741,6 +7814,10 @@ REVOKE ALL ON FUNCTION accounting.close_command(jsonb) FROM PUBLIC, anon, authen
 
 GRANT EXECUTE ON FUNCTION accounting.close_command(jsonb) TO "postgres";
 
+REVOKE ALL ON FUNCTION accounting.category_stamp(jsonb,jsonb,text,uuid,uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.category_stamp(jsonb,jsonb,text,uuid,uuid) TO "postgres";
+
 REVOKE ALL ON FUNCTION accounting.close_guard() FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION accounting.close_guard() TO "postgres";
@@ -7783,6 +7860,10 @@ GRANT EXECUTE ON FUNCTION accounting.documents(jsonb) TO "postgres";
 
 GRANT EXECUTE ON FUNCTION accounting.documents(jsonb) TO "authenticated";
 
+REVOKE ALL ON FUNCTION accounting.entry_lines(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.entry_lines(uuid) TO "postgres";
+
 REVOKE ALL ON FUNCTION accounting.entry_detail(uuid) FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION accounting.entry_detail(uuid) TO "postgres";
@@ -7802,6 +7883,10 @@ GRANT EXECUTE ON FUNCTION accounting.ledger(uuid,date,date) TO "authenticated";
 REVOKE ALL ON FUNCTION accounting.ledger_command(jsonb) FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION accounting.ledger_command(jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.lines_key(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.lines_key(jsonb) TO "postgres";
 
 REVOKE ALL ON FUNCTION accounting.match_review() FROM PUBLIC, anon, authenticated, service_role;
 

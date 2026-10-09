@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { safeNextPath } from "./next-path";
 import { sessionUser } from "./session-user";
 
 /**
@@ -87,15 +88,23 @@ export async function updateSession(request: NextRequest) {
         response.cookies.set(cookie);
       return response;
     }
+    // Keep where they were headed (a link to a transaction, a report) so
+    // login can send them back there instead of the home page.
+    const destination = pathname + request.nextUrl.search;
     const url = request.nextUrl.clone();
     url.pathname = "/login";
+    url.search = "";
+    if (destination !== "/") url.searchParams.set("next", destination);
     return NextResponse.redirect(url);
   }
 
   // If user is logged in and trying to access login page
   if (user && request.nextUrl.pathname === "/login") {
+    const next = safeNextPath(request.nextUrl.searchParams.get("next"));
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = next ? next.split("?")[0] : "/";
+    url.search =
+      next && next.includes("?") ? next.slice(next.indexOf("?")) : "";
     return NextResponse.redirect(url);
   }
 

@@ -158,6 +158,10 @@ export interface JournalEntry {
   pair_entry_id?: string | null;
   /** Drafts only: how the books filled this draft on their own. */
   fill?: EntryFill | null;
+  /** Who or what chose the category, drafts and reviewed alike; absent when unknown or uncategorized. */
+  categorized_by?: CategorizedBy | null;
+  /** The contact's name, when the entry has one. */
+  payee_name?: string | null;
   /** Drafts only: the counterpart the books found but were not sure enough to pair. */
   transfer_suggestion?: TransferSuggestion | null;
   created_at: string;
@@ -168,6 +172,24 @@ export interface EntryFill {
   rule_name?: string;
   pair_account_id?: string;
   pair_entry_date?: string;
+}
+export type CategorySourceCode =
+  | "person"
+  | "api"
+  | "rule"
+  | "prior"
+  | "payee_default"
+  | "transfer_pair"
+  | "wave_import"
+  | "gusto_import"
+  | "patriot_import";
+export interface CategorizedBy {
+  source: CategorySourceCode;
+  /** The person or API key's member is the one reading. */
+  self?: boolean;
+  actor_name?: string;
+  actor_role?: "owner" | "admin" | "member" | "agent";
+  rule_name?: string;
 }
 export interface TransferSuggestion {
   counterpart_id: string;

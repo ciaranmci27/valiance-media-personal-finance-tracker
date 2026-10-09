@@ -285,6 +285,19 @@ async function main() {
       { error: categorized.error, afterCat },
     );
     check("still a draft after categorize", (await entry(bankId)).status === "draft");
+    // The category records the agent's key as its source, and the owner's read names the agent.
+    await as(fixtureOwner);
+    const source = (
+      await db.query<{ category_source: string | null; category_actor: string | null; by: Record<string, unknown> | null }>(
+        "SELECT r->>'category_source' category_source, r->>'category_actor' category_actor, r->'categorized_by' by FROM accounting.entry_detail($1) r",
+        [bankId],
+      )
+    ).rows[0];
+    check(
+      "categorize: the source is the agent's API key",
+      source.category_source === "api" && source.category_actor === AGENT && source.by?.actor_name === "Jeff" && source.by?.actor_role === "agent" && source.by?.self === false,
+      source,
+    );
     const postedCat = await write(drafter.secret, "categorize", randomUUID(), { id: posted.id, expected_version: 2, account_id: account(7) });
     check("a posted entry cannot be categorized", /ACCT_POSTED_IMMUTABLE|ACCT_STALE_VERSION/.test(postedCat.error ?? ""), postedCat.error);
     const v3 = (await entry(bankId)).version;

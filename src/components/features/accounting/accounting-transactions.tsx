@@ -2,18 +2,28 @@
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
+  ArrowLeftRight,
   ArrowUpDown,
+  BookUser,
   Bot,
   Copy,
+  History,
+  Import,
+  KeyRound,
   Pencil,
   Plus,
   Unlink,
   Search,
   Split,
+  Tag,
   Trash2,
   Undo2,
+  UserRound,
+  UsersRound,
   Wallet,
+  Workflow,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TextInput } from "@/components/ui/inputs/TextInput";
@@ -49,12 +59,14 @@ import type {
 } from "@/lib/accounting/workflows";
 import type { BooksMetadata } from "./types";
 import {
+  categorySource,
   defaultEntryContext,
   isTransactionReviewed,
   isTransactionReversed,
   canRestoreTransaction,
   presentTransaction,
   transactionRowAction,
+  type CategorySourceKind,
 } from "@/lib/accounting/transactions";
 import {
   AccountingAccountLabel,
@@ -109,6 +121,26 @@ type Result = {
 
 /** An entry as the list shows it: the bank's own wording and prior treatment ride along. */
 type TransactionRow = JournalEntry;
+
+/**
+ * One glyph per category source. Tone groups them: teal for what the books did
+ * on their own, copper for agents and API keys, neutral for people and imports.
+ */
+const SOURCE_ICONS: Record<
+  CategorySourceKind,
+  { icon: LucideIcon; tone: string }
+> = {
+  you: { icon: UserRound, tone: "text-muted-foreground" },
+  member: { icon: UsersRound, tone: "text-muted-foreground" },
+  agent: { icon: Bot, tone: "text-copper-strong" },
+  api: { icon: KeyRound, tone: "text-copper-strong" },
+  rule: { icon: Workflow, tone: "text-teal-light" },
+  prior: { icon: History, tone: "text-teal-light" },
+  payee_default: { icon: BookUser, tone: "text-teal-light" },
+  transfer: { icon: ArrowLeftRight, tone: "text-teal-light" },
+  import: { icon: Import, tone: "text-muted-foreground" },
+  unknown: { icon: Tag, tone: "text-muted-foreground" },
+};
 
 /** One line of a bulk edit: which field changes, and to what. */
 type BulkLine = {
@@ -1039,18 +1071,20 @@ export function AccountingTransactions({
   }
 
   /**
-   * What the books did to a draft on their own, or would do: one copper
-   * robot beside the category, never a second line. It only explains a
-   * category the books filled; it is a button when one click applies what
-   * they suggest (pair the transfer, use last time's category).
+   * Who or what chose the category: one icon beside it, never a second line,
+   * on drafts and reviewed rows alike. On an uncategorized draft it is the
+   * books' suggestion instead, and a button when one click applies it (pair
+   * the transfer, use last time's category).
    */
-  function fillMark(
+  function sourceMark(
     row: TransactionRow,
     p: ReturnType<typeof presentTransaction>,
   ) {
-    if (row.status !== "draft") return null;
-    const icon = <Bot size={13} aria-hidden="true" className="text-copper" />;
-    const note = (text: string) => (
+    const glyph = (kind: CategorySourceKind) => {
+      const { icon: Icon, tone } = SOURCE_ICONS[kind];
+      return <Icon size={13} aria-hidden="true" className={tone} />;
+    };
+    const note = (kind: CategorySourceKind, text: string) => (
       <Tooltip content={text}>
         <span
           role="img"
@@ -1058,11 +1092,11 @@ export function AccountingTransactions({
           tabIndex={0}
           className="flex h-7 w-5 shrink-0 items-center justify-center rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
-          {icon}
+          {glyph(kind)}
         </span>
       </Tooltip>
     );
-    const act = (text: string, run: () => void) => (
+    const act = (kind: CategorySourceKind, text: string, run: () => void) => (
       <Tooltip content={text}>
         <button
           type="button"
@@ -1071,31 +1105,19 @@ export function AccountingTransactions({
           onClick={run}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
         >
-          {icon}
+          {glyph(kind)}
         </button>
       </Tooltip>
     );
-    const fill = row.fill;
-    if (fill?.source === "rule")
-      return note(
-        fill.rule_name
-          ? `Filled by rule: ${fill.rule_name}`
-          : "Filled by a rule",
-      );
-    if (fill?.source === "prior") {
-      const count = row.prior_treatment?.count ?? 0;
-      return note(
-        count > 1 ? `Same as the last ${count} times` : "Same as last time",
-      );
-    }
-    if (fill?.source === "payee_default")
-      return note("Filled from the contact's default category");
-    if (fill || p.categorized || !p.editable) return null;
+    const source = categorySource(row, p.categorized);
+    if (source) return note(source.kind, source.label);
+    if (row.status !== "draft" || !p.editable) return null;
     const found = row.transfer_suggestion;
     if (found) {
       const other = accounts.get(found.account_id)?.name ?? "another account";
       return act(
-        `Looks like a transfer ${p.amount < BigInt(0) ? "to" : "from"} ${other}, ${dateLabel(found.entry_date)}. Pair them`,
+        "transfer",
+        `Suggested by the books: looks like a transfer ${p.amount < BigInt(0) ? "to" : "from"} ${other}, ${dateLabel(found.entry_date)}. Pair them`,
         () => openTransfer(row),
       );
     }
@@ -1104,7 +1126,8 @@ export function AccountingTransactions({
     const name = category ? accounts.get(category)?.name : undefined;
     if (!prior || !category || !name) return null;
     return act(
-      `Use ${name}, chosen ${prior.count > 1 ? `${prior.count} times` : "once"} before`,
+      "prior",
+      `Suggested by the books: use ${name}, chosen ${prior.count > 1 ? `${prior.count} times` : "once"} before`,
       () => void categorize(row, category, prior.payee_id),
     );
   }
@@ -1165,10 +1188,33 @@ export function AccountingTransactions({
     return named(p.accountIds.find((id) => id !== own)!, total(own));
   }
 
+  /**
+   * The category, with its source mark. In the table the mark hangs in the
+   * column gutter so category names stay aligned down the list; on a phone
+   * card it sits inline, still on the one line.
+   */
   function categoryCell(
     entry: JournalEntry,
     p: ReturnType<typeof presentTransaction>,
+    inline = false,
   ) {
+    const mark = sourceMark(entry as TransactionRow, p);
+    const framed = (content: ReactNode) =>
+      inline ? (
+        <div className="flex min-w-0 items-center gap-0.5">
+          {mark}
+          <div className="min-w-0 flex-1">{content}</div>
+        </div>
+      ) : (
+        <div className="relative min-w-0">
+          {mark && (
+            <span className="absolute -left-6 top-1/2 -translate-y-1/2">
+              {mark}
+            </span>
+          )}
+          {content}
+        </div>
+      );
     const categories = p.categoryLines.map(
       (l) => accounts.get(l.account_id)?.name ?? "Unknown account",
     );
@@ -1183,30 +1229,24 @@ export function AccountingTransactions({
       p.categoryLines.length === 1 &&
       !demo
     )
-      return (
-        // The mark hangs in the column gutter so category names stay aligned down the list.
-        <div className="relative min-w-0">
-          <span className="absolute -left-6 top-1/2 -translate-y-1/2">
-            {fillMark(entry as TransactionRow, p)}
-          </span>
-          <AccountingCategoryPicker
-            label={`Category for ${entry.memo}`}
-            compact
-            disabled={rowBusy(entry.id)}
-            value={p.categoryLines[0].account_id}
-            groups={categoryMenu(menus[directionOf(p)], data.accounts, {
-              current: p.categoryLines[0].account_id,
-              prior: entry.prior_treatment,
-              payeeDefault: payeeDefault(entry),
-            })}
-            direction={directionOf(p)}
-            // A placeholder category (Uncategorized) is named on the trigger, not listed.
-            placeholder={categories[0] ?? "Choose a category"}
-            transfer={transferSuggestion(entry as TransactionRow)}
-            onChange={(id) => void categorize(entry, id)}
-            className={cn("w-full min-w-0", !p.categorized && "text-warning")}
-          />
-        </div>
+      return framed(
+        <AccountingCategoryPicker
+          label={`Category for ${entry.memo}`}
+          compact
+          disabled={rowBusy(entry.id)}
+          value={p.categoryLines[0].account_id}
+          groups={categoryMenu(menus[directionOf(p)], data.accounts, {
+            current: p.categoryLines[0].account_id,
+            prior: entry.prior_treatment,
+            payeeDefault: payeeDefault(entry),
+          })}
+          direction={directionOf(p)}
+          // A placeholder category (Uncategorized) is named on the trigger, not listed.
+          placeholder={categories[0] ?? "Choose a category"}
+          transfer={transferSuggestion(entry as TransactionRow)}
+          onChange={(id) => void categorize(entry, id)}
+          className={cn("w-full min-w-0", !p.categorized && "text-warning")}
+        />,
       );
     // One side of a proposed transfer names the other account where the category reads.
     const pair = entry.status === "draft" ? entry.fill : null;
@@ -1218,25 +1258,20 @@ export function AccountingTransactions({
       const when = pair.pair_entry_date
         ? `, matched to ${dateLabel(pair.pair_entry_date)}`
         : "";
-      return (
+      return framed(
         <Tooltip content={`${verb} ${other}${when}. Check to confirm`}>
           <button
             type="button"
             onClick={() => openAction(transactionRowAction(entry), entry)}
-            className="relative flex max-w-full items-center rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex max-w-full items-center rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <Bot
-              size={13}
-              aria-hidden="true"
-              className="absolute -left-4 top-1/2 -translate-y-1/2 text-copper"
-            />
             <TransferLabel verb={verb} account={other} />
           </button>
-        </Tooltip>
+        </Tooltip>,
       );
     }
     const side = transferSide(entry, p);
-    return (
+    return framed(
       <button
         type="button"
         onClick={() => openAction(transactionRowAction(entry), entry)}
@@ -1248,7 +1283,7 @@ export function AccountingTransactions({
         ) : (
           <span className="truncate">{label}</span>
         )}
-      </button>
+      </button>,
     );
   }
 
@@ -1462,7 +1497,7 @@ export function AccountingTransactions({
           </span>
         </div>
         <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0 flex-1">{categoryCell(e, p)}</div>
+          <div className="min-w-0 flex-1">{categoryCell(e, p, true)}</div>
           <div className="flex shrink-0 items-center gap-1">
             {reviewButton(e, p)}
             <RowActionsMenu

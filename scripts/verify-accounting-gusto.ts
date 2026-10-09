@@ -1440,6 +1440,14 @@ async function main() {
     // Undo of a run the import recorded reverses its journal.
     const aug = await runDetail(done(R.aug1).run_id!);
     eq(aug.import_mode, "created");
+    // The journal the import wrote names the import as its category source.
+    eq(
+      await inspect<string>(
+        "SELECT e.category_source r FROM accounting.journal_entries e JOIN accounting.payroll_runs p ON p.entry_id=e.id WHERE p.id=$1",
+        [aug.id],
+      ),
+      "gusto_import",
+    );
     await command({
       type: "payroll.import.undo",
       id: aug.id,
