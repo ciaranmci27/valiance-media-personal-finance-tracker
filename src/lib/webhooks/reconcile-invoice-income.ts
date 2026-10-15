@@ -8,6 +8,12 @@ import { monthStartFromDate, todayIso } from "@/lib/income-ledger";
 
 export const INVOICE_SYNC_SOURCE = "vm_app_invoice";
 
+// The sync went live on 2026-07-26. Income received before then was already
+// entered by hand, so an invoice paid earlier is never mirrored: editing an
+// old invoice in the CRM (for example adding a revenue split) must not add
+// its payment to the ledger a second time.
+export const INVOICE_SYNC_STARTED = "2026-07-26";
+
 // hourly + fixed -> Contracts, recurring -> Retainers.
 // reimbursement is intentionally omitted (cost recovery, not income).
 const TYPE_TO_SOURCE_SLUG: Record<string, string> = {
@@ -46,7 +52,7 @@ export interface InvoiceEvent {
 }
 
 export interface ReconcileResult {
-  status: "applied" | "removed" | "stale";
+  status: "applied" | "removed" | "stale" | "before_sync";
   upserted: number;
   removed: number;
 }
@@ -129,6 +135,10 @@ export async function reconcileInvoiceIncome(
   const invoice = event.data.invoice;
   const invoiceId = invoice.id;
   const sequence = Number(event.sequence) || 0;
+
+  if (parseReceivedDate(event) < INVOICE_SYNC_STARTED) {
+    return { status: "before_sync", upserted: 0, removed: 0 };
+  }
 
   // Idempotency + out-of-order guard: never apply an event older than or equal
   // to the last one we processed for this invoice.
