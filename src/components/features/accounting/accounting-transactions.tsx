@@ -7,7 +7,6 @@ import {
   BookUser,
   Bot,
   Copy,
-  FileCheck2,
   History,
   Import,
   KeyRound,
@@ -1186,7 +1185,7 @@ export function AccountingTransactions({
   function invoiceChip(entry: JournalEntry) {
     const links = (entry.invoice_links ?? []).filter((l) => l.live);
     if (links.length) {
-      const label = `Pays ${invoiceChipLabel(links.map((l) => l.number))}`;
+      const label = invoiceChipLabel(links.map((l) => l.number));
       const detail = links
         .map(
           (l) =>
@@ -1197,7 +1196,7 @@ export function AccountingTransactions({
         <Tooltip content={detail}>
           <span
             tabIndex={0}
-            aria-label={`${label}. ${detail}`}
+            aria-label={`Pays ${label}. ${detail}`}
             className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Badge
@@ -1208,7 +1207,6 @@ export function AccountingTransactions({
                   : "success"
               }
             >
-              <FileCheck2 size={11} aria-hidden="true" className="mr-1" />
               {label}
             </Badge>
           </span>
