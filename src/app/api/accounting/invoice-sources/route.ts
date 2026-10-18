@@ -32,8 +32,9 @@ const requestSchema = z.discriminatedUnion("action", [
           name: z.string().trim().min(1).max(120).optional(),
           base_url: z.string().max(500).optional(),
           api_key: z.string().trim().min(8).max(4000).optional(),
+          // Partial: a line type the source never sends (often sales tax) may stay unmapped.
           account_map: z
-            .record(
+            .partialRecord(
               z.enum(["hourly", "fixed", "recurring", "reimbursement", "tax"]),
               uuid,
             )
