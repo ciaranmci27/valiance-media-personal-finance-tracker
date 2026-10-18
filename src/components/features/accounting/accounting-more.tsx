@@ -3,6 +3,7 @@ import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import {
   FileSpreadsheet,
+  FileText,
   Layers,
   Receipt,
   Repeat2,
@@ -36,12 +37,14 @@ const SECTION_CHUNKS = {
   tax: () => import("./accounting-tax-workpapers"),
   registers: () => import("./accounting-manual-registers"),
   feeds: () => import("./accounting-feeds"),
+  invoices: () => import("./accounting-invoice-sources"),
 };
 /** The first read of the sections that take one, keyed as they ask for it. */
 const SECTION_READS: Partial<Record<ManageSection, AccountingQuery>> = {
   documents: { view: "documents" },
   rules: { view: "rules" },
   feeds: { view: "feeds" },
+  invoices: { view: "receivables", status: "all", limit: "200" },
 };
 const loading = () => <ManagePanelSkeleton />;
 const AccountingDocuments = dynamic(
@@ -64,6 +67,10 @@ const AccountingFeeds = dynamic(
   () => SECTION_CHUNKS.feeds().then((m) => m.AccountingFeeds),
   { loading },
 );
+const AccountingInvoiceSources = dynamic(
+  () => SECTION_CHUNKS.invoices().then((m) => m.AccountingInvoiceSources),
+  { loading },
+);
 
 export type MoreSection = ManageSection;
 
@@ -78,6 +85,12 @@ const SECTIONS: {
     name: "Bank connections",
     description: "Connections and sync",
     icon: Repeat2,
+  },
+  {
+    id: "invoices",
+    name: "Invoice sources",
+    description: "Invoices from your invoicing app",
+    icon: FileText,
   },
   {
     id: "documents",
@@ -111,7 +124,7 @@ const SECTIONS: {
   },
 ];
 const GROUPS: { name: string; ids: MoreSection[] }[] = [
-  { name: "Money in and out", ids: ["feeds", "documents"] },
+  { name: "Money in and out", ids: ["feeds", "invoices", "documents"] },
   { name: "Registers", ids: ["registers"] },
   { name: "Reference", ids: ["payees", "rules"] },
   { name: "Year end", ids: ["tax"] },
@@ -285,6 +298,14 @@ export function AccountingMore({
           )}
           {section === "feeds" && (
             <AccountingFeeds
+              data={data}
+              manage={manage}
+              demo={demo}
+              onRefresh={onRefresh}
+            />
+          )}
+          {section === "invoices" && (
+            <AccountingInvoiceSources
               data={data}
               manage={manage}
               demo={demo}

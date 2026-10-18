@@ -2564,6 +2564,24 @@ CREATE TABLE accounting.bank_transactions (
 
 ALTER TABLE accounting.bank_transactions ENABLE ROW LEVEL SECURITY;
 
+CREATE OR REPLACE FUNCTION accounting.accrual_accounts()
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE result jsonb:='{}'; p record; found_id uuid;
+BEGIN
+ -- The accrual view's own balance sheet lines, created once. No real journal line ever posts to them: the guard refuses it.
+ FOR p IN SELECT * FROM (VALUES('accounts_receivable','Invoices receivable','asset','receivable',1),('unbilled_revenue','Unbilled work','asset','receivable',2),('deferred_revenue','Billed in advance','liability','deferred_revenue',3)) v(purpose,name,type,subtype,n) ORDER BY n LOOP
+  SELECT id INTO found_id FROM accounting.accounts WHERE system_purpose=p.purpose;
+  IF found_id IS NULL THEN INSERT INTO accounting.accounts(name,type,subtype,system_purpose) VALUES(p.name,p.type,p.subtype,p.purpose) RETURNING id INTO found_id; END IF;
+  result:=result||jsonb_build_object(p.purpose,found_id);
+ END LOOP;
+ RETURN result;
+END $function$
+;
+
 CREATE OR REPLACE FUNCTION accounting.contact_name_key(value text)
  RETURNS text
  LANGUAGE plpgsql
@@ -3055,6 +3073,8 @@ CREATE TABLE accounting.settings (
   "version" integer DEFAULT 1 NOT NULL,
   "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
   "setup" jsonb DEFAULT '{}'::jsonb NOT NULL,
+  "accrual_start" date,
+  CONSTRAINT "settings_accrual_start_check" CHECK (((accrual_start IS NULL) OR (EXTRACT(day FROM accrual_start) = (1)::numeric))),
   CONSTRAINT "settings_financial_revision_check" CHECK ((financial_revision >= 0)),
   CONSTRAINT "settings_financial_revision_not_null" NOT NULL financial_revision,
   CONSTRAINT "settings_id_check" CHECK ((id = 1)),
@@ -3073,6 +3093,179 @@ CREATE TABLE accounting.settings (
 );
 
 ALTER TABLE accounting.settings ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.invoice_sources (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "name" text NOT NULL,
+  "base_url" text NOT NULL,
+  "api_key_encrypted" text NOT NULL,
+  "key_version" smallint DEFAULT 1 NOT NULL,
+  "account_map" jsonb DEFAULT '{}'::jsonb NOT NULL,
+  "party_map" jsonb DEFAULT '{}'::jsonb NOT NULL,
+  "auto_link" boolean DEFAULT true NOT NULL,
+  "status" text DEFAULT 'active'::text NOT NULL,
+  "last_synced_at" timestamp with time zone,
+  "last_error" text DEFAULT ''::text NOT NULL,
+  "lease_run_id" uuid,
+  "lease_until" timestamp with time zone,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "invoice_sources_account_map_check" CHECK ((jsonb_typeof(account_map) = 'object'::text)),
+  CONSTRAINT "invoice_sources_account_map_not_null" NOT NULL account_map,
+  CONSTRAINT "invoice_sources_api_key_encrypted_not_null" NOT NULL api_key_encrypted,
+  CONSTRAINT "invoice_sources_auto_link_not_null" NOT NULL auto_link,
+  CONSTRAINT "invoice_sources_base_url_check" CHECK (((base_url ~ '^https://[^[:space:]/?#]+(/[^[:space:]?#]*[^[:space:]?#/])?$'::text) AND (length(base_url) <= 500))),
+  CONSTRAINT "invoice_sources_base_url_key" UNIQUE (base_url),
+  CONSTRAINT "invoice_sources_base_url_not_null" NOT NULL base_url,
+  CONSTRAINT "invoice_sources_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "invoice_sources_id_not_null" NOT NULL id,
+  CONSTRAINT "invoice_sources_key_version_check" CHECK ((key_version > 0)),
+  CONSTRAINT "invoice_sources_key_version_not_null" NOT NULL key_version,
+  CONSTRAINT "invoice_sources_last_error_check" CHECK ((length(last_error) <= 1000)),
+  CONSTRAINT "invoice_sources_last_error_not_null" NOT NULL last_error,
+  CONSTRAINT "invoice_sources_lease_check" CHECK (((lease_run_id IS NULL) = (lease_until IS NULL))),
+  CONSTRAINT "invoice_sources_name_check" CHECK (((length(btrim(name)) >= 1) AND (length(btrim(name)) <= 120))),
+  CONSTRAINT "invoice_sources_name_not_null" NOT NULL name,
+  CONSTRAINT "invoice_sources_party_map_check" CHECK ((jsonb_typeof(party_map) = 'object'::text)),
+  CONSTRAINT "invoice_sources_party_map_not_null" NOT NULL party_map,
+  CONSTRAINT "invoice_sources_pkey" PRIMARY KEY (id),
+  CONSTRAINT "invoice_sources_status_check" CHECK ((status = ANY (ARRAY['active'::text, 'paused'::text, 'auth_failed'::text, 'disconnected'::text]))),
+  CONSTRAINT "invoice_sources_status_not_null" NOT NULL status,
+  CONSTRAINT "invoice_sources_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "invoice_sources_version_check" CHECK ((version > 0)),
+  CONSTRAINT "invoice_sources_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.invoice_sources ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.invoices (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "source_id" uuid NOT NULL,
+  "external_id" text NOT NULL,
+  "number" text DEFAULT ''::text NOT NULL,
+  "project_ref" text NOT NULL,
+  "project_name" text DEFAULT ''::text NOT NULL,
+  "customer_name" text DEFAULT ''::text NOT NULL,
+  "issue_date" date NOT NULL,
+  "due_date" date,
+  "status" text NOT NULL,
+  "total_cents" bigint NOT NULL,
+  "lines" jsonb DEFAULT '[]'::jsonb NOT NULL,
+  "payments" jsonb DEFAULT '[]'::jsonb NOT NULL,
+  "source_updated_at" timestamp with time zone,
+  "synced_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "removed_at" timestamp with time zone,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "invoices_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "invoices_customer_name_check" CHECK ((length(customer_name) <= 200)),
+  CONSTRAINT "invoices_customer_name_not_null" NOT NULL customer_name,
+  CONSTRAINT "invoices_external_id_check" CHECK (((length(external_id) >= 1) AND (length(external_id) <= 200))),
+  CONSTRAINT "invoices_external_id_not_null" NOT NULL external_id,
+  CONSTRAINT "invoices_id_not_null" NOT NULL id,
+  CONSTRAINT "invoices_issue_date_not_null" NOT NULL issue_date,
+  CONSTRAINT "invoices_lines_check" CHECK ((jsonb_typeof(lines) = 'array'::text)),
+  CONSTRAINT "invoices_lines_not_null" NOT NULL lines,
+  CONSTRAINT "invoices_number_check" CHECK ((length(number) <= 100)),
+  CONSTRAINT "invoices_number_not_null" NOT NULL number,
+  CONSTRAINT "invoices_payments_check" CHECK ((jsonb_typeof(payments) = 'array'::text)),
+  CONSTRAINT "invoices_payments_not_null" NOT NULL payments,
+  CONSTRAINT "invoices_pkey" PRIMARY KEY (id),
+  CONSTRAINT "invoices_project_name_check" CHECK ((length(project_name) <= 200)),
+  CONSTRAINT "invoices_project_name_not_null" NOT NULL project_name,
+  CONSTRAINT "invoices_project_ref_check" CHECK (((length(project_ref) >= 1) AND (length(project_ref) <= 200))),
+  CONSTRAINT "invoices_project_ref_not_null" NOT NULL project_ref,
+  CONSTRAINT "invoices_source_id_external_id_key" UNIQUE (source_id, external_id),
+  CONSTRAINT "invoices_source_id_fkey" FOREIGN KEY (source_id) REFERENCES accounting.invoice_sources(id) ON DELETE RESTRICT,
+  CONSTRAINT "invoices_source_id_not_null" NOT NULL source_id,
+  CONSTRAINT "invoices_status_check" CHECK ((status = ANY (ARRAY['draft'::text, 'issued'::text, 'paid'::text, 'void'::text]))),
+  CONSTRAINT "invoices_status_not_null" NOT NULL status,
+  CONSTRAINT "invoices_synced_at_not_null" NOT NULL synced_at,
+  CONSTRAINT "invoices_total_cents_check" CHECK ((total_cents >= 0)),
+  CONSTRAINT "invoices_total_cents_not_null" NOT NULL total_cents,
+  CONSTRAINT "invoices_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "invoices_version_check" CHECK ((version > 0)),
+  CONSTRAINT "invoices_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.invoices ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.invoice_payments (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "invoice_id" uuid NOT NULL,
+  "entry_id" uuid NOT NULL,
+  "amount_cents" bigint NOT NULL,
+  "matched_by" text NOT NULL,
+  "sync_state" text DEFAULT 'pending'::text NOT NULL,
+  "attempts" smallint DEFAULT 0 NOT NULL,
+  "next_attempt_at" timestamp with time zone,
+  "external_payment_id" text,
+  "last_error" text DEFAULT ''::text NOT NULL,
+  "removed_at" timestamp with time zone,
+  "removed_reason" text DEFAULT ''::text NOT NULL,
+  "created_by" uuid,
+  "version" integer DEFAULT 1 NOT NULL,
+  "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+  "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "invoice_payments_amount_cents_check" CHECK ((amount_cents > 0)),
+  CONSTRAINT "invoice_payments_amount_cents_not_null" NOT NULL amount_cents,
+  CONSTRAINT "invoice_payments_attempts_check" CHECK ((attempts >= 0)),
+  CONSTRAINT "invoice_payments_attempts_not_null" NOT NULL attempts,
+  CONSTRAINT "invoice_payments_created_at_not_null" NOT NULL created_at,
+  CONSTRAINT "invoice_payments_created_by_fkey" FOREIGN KEY (created_by) REFERENCES auth.users(id) ON DELETE RESTRICT,
+  CONSTRAINT "invoice_payments_entry_id_fkey" FOREIGN KEY (entry_id) REFERENCES accounting.journal_entries(id) ON DELETE RESTRICT,
+  CONSTRAINT "invoice_payments_entry_id_not_null" NOT NULL entry_id,
+  CONSTRAINT "invoice_payments_id_not_null" NOT NULL id,
+  CONSTRAINT "invoice_payments_invoice_id_fkey" FOREIGN KEY (invoice_id) REFERENCES accounting.invoices(id) ON DELETE RESTRICT,
+  CONSTRAINT "invoice_payments_invoice_id_not_null" NOT NULL invoice_id,
+  CONSTRAINT "invoice_payments_last_error_check" CHECK ((length(last_error) <= 1000)),
+  CONSTRAINT "invoice_payments_last_error_not_null" NOT NULL last_error,
+  CONSTRAINT "invoice_payments_matched_by_check" CHECK ((matched_by = ANY (ARRAY['rule'::text, 'owner'::text]))),
+  CONSTRAINT "invoice_payments_matched_by_not_null" NOT NULL matched_by,
+  CONSTRAINT "invoice_payments_pkey" PRIMARY KEY (id),
+  CONSTRAINT "invoice_payments_removed_check" CHECK ((((sync_state <> ALL (ARRAY['removing'::text, 'removed'::text])) OR (removed_at IS NOT NULL)) AND ((removed_at IS NULL) OR (length(btrim(removed_reason)) > 0)))),
+  CONSTRAINT "invoice_payments_removed_reason_not_null" NOT NULL removed_reason,
+  CONSTRAINT "invoice_payments_sync_state_check" CHECK ((sync_state = ANY (ARRAY['pending'::text, 'synced'::text, 'removing'::text, 'removed'::text, 'failed'::text]))),
+  CONSTRAINT "invoice_payments_sync_state_not_null" NOT NULL sync_state,
+  CONSTRAINT "invoice_payments_updated_at_not_null" NOT NULL updated_at,
+  CONSTRAINT "invoice_payments_version_check" CHECK ((version > 0)),
+  CONSTRAINT "invoice_payments_version_not_null" NOT NULL version
+);
+
+ALTER TABLE accounting.invoice_payments ENABLE ROW LEVEL SECURITY;
+
+CREATE TABLE accounting.earned_work (
+  "id" uuid DEFAULT gen_random_uuid() NOT NULL,
+  "source_id" uuid NOT NULL,
+  "kind" text NOT NULL,
+  "external_ref" text NOT NULL,
+  "project_ref" text NOT NULL,
+  "earned_from" date NOT NULL,
+  "earned_to" date NOT NULL,
+  "amount_cents" bigint NOT NULL,
+  "synced_at" timestamp with time zone DEFAULT now() NOT NULL,
+  CONSTRAINT "earned_work_amount_cents_check" CHECK ((amount_cents > 0)),
+  CONSTRAINT "earned_work_amount_cents_not_null" NOT NULL amount_cents,
+  CONSTRAINT "earned_work_dates_check" CHECK ((earned_to >= earned_from)),
+  CONSTRAINT "earned_work_earned_from_not_null" NOT NULL earned_from,
+  CONSTRAINT "earned_work_earned_to_not_null" NOT NULL earned_to,
+  CONSTRAINT "earned_work_external_ref_check" CHECK (((length(external_ref) >= 1) AND (length(external_ref) <= 200))),
+  CONSTRAINT "earned_work_external_ref_not_null" NOT NULL external_ref,
+  CONSTRAINT "earned_work_id_not_null" NOT NULL id,
+  CONSTRAINT "earned_work_kind_check" CHECK ((kind = ANY (ARRAY['time'::text, 'scheduled'::text]))),
+  CONSTRAINT "earned_work_kind_not_null" NOT NULL kind,
+  CONSTRAINT "earned_work_pkey" PRIMARY KEY (id),
+  CONSTRAINT "earned_work_project_ref_check" CHECK (((length(project_ref) >= 1) AND (length(project_ref) <= 200))),
+  CONSTRAINT "earned_work_project_ref_not_null" NOT NULL project_ref,
+  CONSTRAINT "earned_work_source_id_fkey" FOREIGN KEY (source_id) REFERENCES accounting.invoice_sources(id) ON DELETE RESTRICT,
+  CONSTRAINT "earned_work_source_id_kind_external_ref_key" UNIQUE (source_id, kind, external_ref),
+  CONSTRAINT "earned_work_source_id_not_null" NOT NULL source_id,
+  CONSTRAINT "earned_work_synced_at_not_null" NOT NULL synced_at
+);
+
+ALTER TABLE accounting.earned_work ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE accounting.tax_adjustments (
   "id" uuid DEFAULT gen_random_uuid() NOT NULL,
@@ -3240,6 +3433,8 @@ CREATE UNIQUE INDEX document_link_unique ON accounting.document_links USING btre
 
 CREATE INDEX documents_hash ON accounting.documents USING btree (sha256);
 
+CREATE INDEX earned_work_dates ON accounting.earned_work USING btree (source_id, earned_from);
+
 CREATE INDEX entries_date ON accounting.journal_entries USING btree (entry_date, id);
 
 CREATE INDEX entries_descriptor ON accounting.journal_entries USING btree (descriptor_key, entry_date DESC) WHERE (descriptor_key IS NOT NULL);
@@ -3252,6 +3447,14 @@ CREATE INDEX entries_reverses ON accounting.journal_entries USING btree (reverse
 
 CREATE INDEX entries_review ON accounting.journal_entries USING btree (entry_date DESC, id) WHERE (status = 'draft'::text OR (status = 'posted'::text AND review_pending));
 
+CREATE INDEX invoice_payments_entry ON accounting.invoice_payments USING btree (entry_id);
+
+CREATE UNIQUE INDEX invoice_payments_live ON accounting.invoice_payments USING btree (invoice_id, entry_id) WHERE (removed_at IS NULL);
+
+CREATE INDEX invoice_payments_outbox ON accounting.invoice_payments USING btree (next_attempt_at) WHERE (sync_state = ANY (ARRAY['pending'::text, 'removing'::text]));
+
+CREATE INDEX invoices_project ON accounting.invoices USING btree (source_id, project_ref);
+
 CREATE INDEX lines_account ON accounting.journal_lines USING btree (account_id, entry_id);
 
 CREATE INDEX payroll_runs_entry ON accounting.payroll_runs USING btree (entry_id) WHERE (entry_id IS NOT NULL);
@@ -3259,6 +3462,179 @@ CREATE INDEX payroll_runs_entry ON accounting.payroll_runs USING btree (entry_id
 CREATE UNIQUE INDEX payroll_runs_entry_single ON accounting.payroll_runs USING btree (entry_id) WHERE (NOT entry_shared);
 
 CREATE INDEX tax_adjustments_year_date ON accounting.tax_adjustments USING btree (tax_year, effective_date);
+
+CREATE OR REPLACE FUNCTION accounting.accrual_lines(params jsonb, boundaries date[])
+ RETURNS TABLE(id uuid, entry_id uuid, entry_date date, account_id uuid, amount_cents bigint, payee_id uuid, memo text, sort_order integer, kind text, ref uuid)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+-- The accrual view's adjustment lines, computed from the source mirror, earned work and deposit links. Nothing here is ever posted.
+-- Every synthetic entry balances on its own:
+--  * per source project and day: revenue credits for what was earned that day, receivable debits for invoices issued that day, and the
+--    change in the project's contract position (earned less billed) as Unbilled work when positive or Billed in advance when negative;
+--  * per linked deposit: the deposit's cash revenue taken back (its credit lines, mapped revenue accounts first) against the receivable;
+--  * before the accrual start: one opening set dated the day before, with the offset in opening retained earnings, so the cash books'
+--    earlier revenue is never counted twice.
+-- Straight-line items (retainers, dated fees) earn day by day with cumulative rounding, emitted in segments that end on the given
+-- boundary dates, so any sum the reports take between those dates is exact to the cent.
+DECLARE cutover date; receivable uuid; unbilled uuid; deferred uuid; opening uuid; suspense uuid; last_day date;
+ working boolean:=coalesce(params->>'mode','posted')='working';
+BEGIN
+ SELECT s.accrual_start INTO cutover FROM accounting.settings s WHERE s.id=1;
+ SELECT a.id INTO receivable FROM accounting.accounts a WHERE a.system_purpose='accounts_receivable';
+ SELECT a.id INTO unbilled FROM accounting.accounts a WHERE a.system_purpose='unbilled_revenue';
+ SELECT a.id INTO deferred FROM accounting.accounts a WHERE a.system_purpose='deferred_revenue';
+ SELECT a.id INTO opening FROM accounting.accounts a WHERE a.system_purpose='opening_retained_earnings';
+ SELECT a.id INTO suspense FROM accounting.accounts a WHERE a.system_purpose='uncategorized_income';
+ IF cutover IS NULL OR receivable IS NULL OR unbilled IS NULL OR deferred IS NULL OR opening IS NULL OR suspense IS NULL THEN RAISE EXCEPTION 'ACCT_ACCRUAL_NOT_SET_UP'; END IF;
+ last_day:=(SELECT max(b) FROM unnest(boundaries) b);
+ IF last_day IS NULL OR last_day<cutover-1 THEN RETURN; END IF;
+ RETURN QUERY
+ WITH billed_lines AS (
+  SELECT i.id invoice_id,i.source_id,i.project_ref,i.issue_date,l->>'type' line_type,(l->>'amount_cents')::bigint amount,(l->>'service_from')::date service_from,(l->>'service_to')::date service_to
+  FROM accounting.invoices i CROSS JOIN LATERAL jsonb_array_elements(i.lines) l
+  WHERE i.removed_at IS NULL AND i.status IN ('issued','paid')
+ ), items AS (
+  -- What earns: every billed line except hourly ones (the time an hourly line bills is earned when worked, from earned work), plus
+  -- earned work itself. Fixed and recurring lines with service dates earn across them; everything else on its issue date.
+  SELECT b.source_id,b.project_ref,b.line_type,
+   CASE WHEN b.line_type IN ('fixed','recurring') AND b.service_from IS NOT NULL THEN b.service_from ELSE b.issue_date END f,
+   CASE WHEN b.line_type IN ('fixed','recurring') AND b.service_from IS NOT NULL THEN b.service_to ELSE b.issue_date END t,
+   b.amount,CASE WHEN b.line_type IN ('fixed','recurring') AND b.service_from IS NOT NULL THEN 'retainer' ELSE 'invoice' END origin
+  FROM billed_lines b WHERE b.line_type<>'hourly' AND b.amount<>0
+  UNION ALL
+  SELECT w.source_id,w.project_ref,CASE w.kind WHEN 'time' THEN 'hourly' ELSE 'recurring' END,w.earned_from,w.earned_to,w.amount_cents,CASE w.kind WHEN 'time' THEN 'time' ELSE 'retainer' END
+  FROM accounting.earned_work w
+ ), earned AS (
+  SELECT it.source_id,it.project_ref,it.line_type,it.origin,greatest(seg.d,cutover-1) d,sum(
+   (CASE WHEN seg.d>=it.t THEN it.amount ELSE round(it.amount*((seg.d-it.f)+1)::numeric/((it.t-it.f)+1))::bigint END)
+   -(CASE WHEN seg.prior<it.f THEN 0 WHEN seg.prior>=it.t THEN it.amount ELSE round(it.amount*((seg.prior-it.f)+1)::numeric/((it.t-it.f)+1))::bigint END))::bigint cents
+  FROM items it CROSS JOIN LATERAL (
+   SELECT x.d,coalesce(lag(x.d) OVER (ORDER BY x.d),it.f-1) prior FROM (
+    SELECT b d FROM unnest(boundaries||(cutover-1)) b WHERE b>=it.f AND b<it.t
+    UNION SELECT it.t) x) seg
+  WHERE seg.d<=last_day
+  GROUP BY 1,2,3,4,5
+ ), billed AS (
+  SELECT i.id invoice_id,i.source_id,i.project_ref,greatest(i.issue_date,cutover-1) d,i.total_cents cents
+  FROM accounting.invoices i WHERE i.removed_at IS NULL AND i.status IN ('issued','paid') AND i.issue_date<=last_day
+ ), positions AS (
+  SELECT p.source_id,p.project_ref,p.d,sum(p.earned)::bigint earned,sum(p.billed)::bigint billed FROM (
+   SELECT e.source_id,e.project_ref,e.d,e.cents earned,0::bigint billed FROM earned e
+   UNION ALL SELECT b.source_id,b.project_ref,b.d,0,b.cents FROM billed b) p
+  GROUP BY 1,2,3
+ ), contract AS (
+  -- The project's position after each day, and before it: only the change in its positive part is unbilled, in its negative part deferred.
+  SELECT c.*,
+   sum(c.earned-c.billed) OVER (PARTITION BY c.source_id,c.project_ref ORDER BY c.d ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) after_day,
+   coalesce(sum(c.earned-c.billed) OVER (PARTITION BY c.source_id,c.project_ref ORDER BY c.d ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),0) before_day
+  FROM positions c
+ ), projects AS (
+  SELECT s.id source_id,k.key project_ref,CASE WHEN k.value#>>'{}' ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN (k.value#>>'{}')::uuid END party_id
+  FROM accounting.invoice_sources s CROSS JOIN LATERAL jsonb_each(s.party_map) k
+ ), names AS (
+  SELECT i.source_id,i.project_ref,max(nullif(i.project_name,'')) project_name FROM accounting.invoices i GROUP BY 1,2
+ ), project_lines AS (
+  SELECT e.source_id,e.project_ref,e.d,
+   CASE WHEN e.d<cutover THEN opening ELSE coalesce((SELECT a.id FROM accounting.accounts a JOIN accounting.invoice_sources s ON s.id=e.source_id WHERE a.id::text=s.account_map->>e.line_type),suspense) END account_id,
+   -e.cents amount,CASE WHEN e.d<cutover THEN 'opening' ELSE e.origin END kind,NULL::uuid ref,1 n
+  FROM earned e WHERE e.cents<>0
+  UNION ALL SELECT b.source_id,b.project_ref,b.d,receivable,b.cents,CASE WHEN b.d<cutover THEN 'opening' ELSE 'billing' END,b.invoice_id,2 FROM billed b WHERE b.cents<>0
+  UNION ALL SELECT c.source_id,c.project_ref,c.d,unbilled,greatest(c.after_day,0)-greatest(c.before_day,0),'contract',NULL,3 FROM contract c WHERE greatest(c.after_day,0)<>greatest(c.before_day,0)
+  UNION ALL SELECT c.source_id,c.project_ref,c.d,deferred,-(greatest(-c.after_day,0)-greatest(-c.before_day,0)),'contract',NULL,4 FROM contract c WHERE greatest(-c.after_day,0)<>greatest(-c.before_day,0)
+ ), links AS (
+  -- Links that count, whose deposit is in this report's books (posted, or a balanced draft in working mode), in link order per deposit.
+  SELECT p.id link_id,p.invoice_id,p.entry_id,p.amount_cents,e.entry_date,e.payee_id,i.source_id,i.number,
+   sum(p.amount_cents) OVER (PARTITION BY p.entry_id ORDER BY p.created_at,p.id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)-p.amount_cents link_from
+  FROM accounting.live_invoice_payments() lp JOIN accounting.invoice_payments p ON p.id=lp.id
+  JOIN accounting.journal_entries e ON e.id=p.entry_id JOIN accounting.invoices i ON i.id=p.invoice_id
+  WHERE (e.status='posted' OR (working AND e.status='draft' AND (SELECT count(*)>=2 AND coalesce(sum(bl.amount_cents),0)=0 FROM accounting.journal_lines bl WHERE bl.entry_id=e.id)))
+   AND e.entry_date<=last_day
+ ), credits AS (
+  -- A deposit's credit lines, the source's mapped revenue accounts first, laid end to end.
+  SELECT l.entry_id,l.account_id,-l.amount_cents credit,
+   sum(-l.amount_cents) OVER (PARTITION BY l.entry_id ORDER BY (EXISTS(SELECT 1 FROM accounting.invoice_sources s,jsonb_each_text(s.account_map) m WHERE m.value=l.account_id::text)) DESC,l.sort_order,l.id ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)+l.amount_cents credit_from
+  FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id
+  WHERE l.amount_cents<0 AND a.subtype NOT IN ('bank','cash','card') AND l.entry_id IN (SELECT k.entry_id FROM links k)
+ ), applied AS (
+  -- Each link takes back the stretch of credit it covers; a link beyond what the deposit now credits takes back only what is there.
+  SELECT k.link_id,k.invoice_id,k.entry_id,k.entry_date,k.payee_id,k.number,c.account_id,
+   greatest(least(k.link_from+k.amount_cents,c.credit_from+c.credit)-greatest(k.link_from,c.credit_from),0) cents
+  FROM links k JOIN credits c ON c.entry_id=k.entry_id
+ ), collections AS (
+  SELECT a.link_id,a.invoice_id,a.number,a.payee_id,greatest(a.entry_date,cutover-1) d,CASE WHEN a.entry_date<cutover THEN opening ELSE a.account_id END account_id,a.cents
+  FROM applied a WHERE a.cents>0
+ ), source_collected AS (
+  -- Before the accrual start the source's own payment record stands in for links the books never made.
+  SELECT i.id invoice_id,i.number,greatest(
+   coalesce((SELECT sum((pay->>'amount_cents')::bigint) FROM jsonb_array_elements(i.payments) pay WHERE (pay->>'paid_date')::date<cutover),0)
+   -coalesce((SELECT sum(c.cents) FROM collections c WHERE c.invoice_id=i.id AND c.d<cutover),0),0)::bigint cents
+  FROM accounting.invoices i WHERE i.removed_at IS NULL AND i.status IN ('issued','paid') AND i.issue_date<cutover
+ ), all_lines AS (
+  SELECT 'project:'||pl.source_id||':'||pl.project_ref||':'||pl.d entry_key,pl.d,pl.account_id,pl.amount,pr.party_id,
+   CASE WHEN pl.d<cutover THEN 'Accrual opening balance' ELSE 'Accrual: '||coalesce(nm.project_name,pl.project_ref) END memo,pl.n,pl.kind,pl.ref
+  FROM project_lines pl LEFT JOIN projects pr ON pr.source_id=pl.source_id AND pr.project_ref=pl.project_ref LEFT JOIN names nm ON nm.source_id=pl.source_id AND nm.project_ref=pl.project_ref
+  WHERE pl.amount<>0
+  UNION ALL SELECT 'link:'||c.link_id,c.d,c.account_id,c.cents,c.payee_id,'Accrual: '||coalesce(nullif(c.number,''),'invoice')||' paid',1,CASE WHEN c.d<cutover THEN 'opening' ELSE 'collection' END,NULL FROM collections c
+  UNION ALL SELECT 'link:'||c.link_id,c.d,receivable,-sum(c.cents)::bigint,max(c.payee_id::text)::uuid,'Accrual: '||coalesce(nullif(max(c.number),''),'invoice')||' paid',2,CASE WHEN c.d<cutover THEN 'opening' ELSE 'collection' END,c.invoice_id FROM collections c GROUP BY c.link_id,c.d,c.invoice_id
+  UNION ALL SELECT 'collected:'||s.invoice_id,cutover-1,opening,s.cents,NULL,'Accrual opening balance',1,'opening',NULL FROM source_collected s WHERE s.cents>0
+  UNION ALL SELECT 'collected:'||s.invoice_id,cutover-1,receivable,-s.cents,NULL,'Accrual opening balance',2,'opening',s.invoice_id FROM source_collected s WHERE s.cents>0
+ )
+ SELECT md5('accrual-line:'||l.entry_key||':'||l.account_id||':'||l.n||':'||coalesce(l.ref::text,''))::uuid,md5('accrual:'||l.entry_key)::uuid,l.d,l.account_id,l.amount::bigint,l.party_id,l.memo,l.n::integer,l.kind,l.ref
+ FROM all_lines l WHERE l.amount<>0;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.accrual_summary(params jsonb, start_date date, end_date date, boundaries date[])
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+-- What the accrual view rests on, said plainly so it is never silently wrong: where it starts, what was earned in the range by kind,
+-- the receivable split from customer credits, and every gap that would make it double count or miss revenue.
+DECLARE cutover date; result jsonb;
+BEGIN
+ SELECT s.accrual_start INTO cutover FROM accounting.settings s WHERE s.id=1;
+ WITH lines AS (SELECT * FROM accounting.accrual_lines(params,boundaries)),
+ clients AS (SELECT DISTINCT (k.value#>>'{}') party FROM accounting.invoice_sources s CROSS JOIN LATERAL jsonb_each(s.party_map) k),
+ receivables AS (SELECT l.ref invoice_id,sum(l.amount_cents) cents FROM lines l JOIN accounting.accounts a ON a.id=l.account_id
+  WHERE a.system_purpose='accounts_receivable' AND l.entry_date<=end_date AND l.ref IS NOT NULL GROUP BY l.ref),
+ deposits AS (
+  -- Client money since the start that no invoice link accounts for: the cash books count it as income, and so may the accrual view.
+  SELECT e.id,(SELECT -sum(l.amount_cents) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id AND l.amount_cents<0 AND a.type='income')
+   -coalesce((SELECT sum(p.amount_cents) FROM accounting.live_invoice_payments() p WHERE p.entry_id=e.id),0) cents
+  FROM accounting.journal_entries e
+  WHERE e.payee_id::text IN (SELECT party FROM clients) AND e.entry_date BETWEEN greatest(start_date,cutover) AND end_date
+   AND (e.status='posted' OR (params->>'mode'='working' AND e.status='draft')) AND e.reverses_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries r WHERE r.reverses_entry_id=e.id)
+ )
+ SELECT jsonb_build_object(
+  'accrual_start',cutover,
+  'partial',start_date<cutover,
+  'earned',(SELECT jsonb_build_object('time_cents',coalesce(sum(-l.amount_cents) FILTER(WHERE l.kind='time'),0)::text,'retainer_cents',coalesce(sum(-l.amount_cents) FILTER(WHERE l.kind='retainer'),0)::text,
+    'invoice_cents',coalesce(sum(-l.amount_cents) FILTER(WHERE l.kind='invoice'),0)::text,'collected_back_cents',coalesce(sum(-l.amount_cents) FILTER(WHERE l.kind='collection'),0)::text)
+   FROM lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE a.type='income' AND l.entry_date BETWEEN start_date AND end_date),
+  'receivable_cents',(SELECT coalesce(sum(cents) FILTER(WHERE cents>0),0)::text FROM receivables),
+  'customer_credit_cents',(SELECT coalesce(-sum(cents) FILTER(WHERE cents<0),0)::text FROM receivables),
+  'unlinked_client_deposits',(SELECT jsonb_build_object('count',count(*),'cents',coalesce(sum(cents),0)::text) FROM deposits WHERE cents>0),
+  'paid_at_source_unlinked',(SELECT jsonb_build_object('count',count(*),'cents',coalesce(sum(i.total_cents-coalesce(lk.cents,0)),0)::text)
+   FROM accounting.invoices i LEFT JOIN (SELECT p.invoice_id,sum(p.amount_cents) cents FROM accounting.live_invoice_payments() p GROUP BY 1) lk ON lk.invoice_id=i.id
+   WHERE i.removed_at IS NULL AND i.status='paid' AND i.issue_date>=cutover AND i.issue_date<=end_date AND coalesce(lk.cents,0)<i.total_cents),
+  'unmapped_line_types',(SELECT coalesce(jsonb_agg(DISTINCT l->>'type'),'[]') FROM accounting.invoices i JOIN accounting.invoice_sources s ON s.id=i.source_id CROSS JOIN LATERAL jsonb_array_elements(i.lines) l
+   WHERE i.removed_at IS NULL AND i.status IN ('issued','paid') AND NOT s.account_map ? (l->>'type')),
+  'unmapped_projects',(SELECT count(DISTINCT (i.source_id,i.project_ref)) FROM accounting.invoices i JOIN accounting.invoice_sources s ON s.id=i.source_id
+   WHERE i.removed_at IS NULL AND NOT s.party_map ? i.project_ref),
+  'links_beyond_deposit',(SELECT count(*) FROM (SELECT p.entry_id FROM accounting.live_invoice_payments() p GROUP BY p.entry_id
+   HAVING sum(p.amount_cents)>coalesce((SELECT -sum(l.amount_cents) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=p.entry_id AND l.amount_cents<0 AND a.subtype NOT IN ('bank','cash','card')),0)) x),
+  'ended_links',(SELECT count(*) FROM accounting.invoice_payments p WHERE p.removed_at IS NOT NULL AND p.removed_reason IN ('Invoice removed at the source','Invoice voided at the source','Deposit discarded or reversed')),
+  'stale_sources',(SELECT count(*) FROM accounting.invoice_sources s WHERE s.status='active' AND (s.last_synced_at IS NULL OR s.last_synced_at<now()-interval '24 hours')),
+  'changed_after_lock',(SELECT count(*) FROM accounting.invoices i JOIN accounting.periods pr ON pr.status='locked' AND i.issue_date BETWEEN pr.month AND (pr.month+interval '1 month - 1 day')::date
+   WHERE i.issue_date>=cutover AND i.updated_at>pr.locked_at)
+ ) INTO result;
+ RETURN result;
+END $function$
+;
 
 CREATE OR REPLACE FUNCTION accounting.apply_treatment(entry uuid)
  RETURNS jsonb
@@ -4240,6 +4616,14 @@ BEGIN
    ending:=(month_date+interval '1 month - 1 day')::date;
    snapshot:=jsonb_build_object('financial_revision',(SELECT financial_revision::text FROM accounting.settings),'trial_balance',accounting.report('trial_balance',jsonb_build_object('as_of',ending)),
     'profit_loss',accounting.report('profit_loss',jsonb_build_object('from',month_date,'to',ending)),'balance_sheet',accounting.report('balance_sheet',jsonb_build_object('as_of',ending)));
+   -- With an invoice source the accrual view's month is kept too, so a locked month's accrual figures can be compared later. The legal snapshot above stays cash.
+   IF EXISTS(SELECT 1 FROM accounting.invoice_sources) AND (SELECT accrual_start FROM accounting.settings WHERE id=1)<=ending THEN
+    BEGIN
+     snapshot:=snapshot||jsonb_build_object('accrual',jsonb_build_object('profit_loss',accounting.report('profit_loss',jsonb_build_object('from',month_date,'to',ending,'basis','accrual'))->'totals',
+      'balance_sheet',accounting.report('balance_sheet',jsonb_build_object('as_of',ending,'basis','accrual'))->'totals'));
+    EXCEPTION WHEN raise_exception THEN NULL;
+    END;
+   END IF;
    INSERT INTO accounting.periods(month,status,locked_at,locked_by,close_snapshot) VALUES(month_date,'locked',now(),actor,snapshot)
     ON CONFLICT(month) DO UPDATE SET status='locked',locked_at=excluded.locked_at,locked_by=excluded.locked_by,close_snapshot=excluded.close_snapshot,reopen_reason='' RETURNING version INTO v;
   ELSE
@@ -4586,6 +4970,10 @@ BEGIN
   EXECUTE 'SELECT coalesce(jsonb_agg(to_jsonb(d)),''[]''::jsonb) FROM accounting.documents d JOIN accounting.document_links l ON l.document_id=d.id WHERE l.entry_id=$1' INTO extra USING entry;
   result:=result||jsonb_build_object('documents',extra);
  END IF;
+ -- The invoices this deposit pays, and the open invoices it looks like it pays while some of it is still unapplied.
+ result:=result||jsonb_build_object('invoice_links',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',p.id,'version',p.version,'invoice_id',i.id,'number',i.number,'project_name',i.project_name,'amount_cents',p.amount_cents::text,'matched_by',p.matched_by,'sync_state',p.sync_state,'last_error',p.last_error,'live',accounting.invoice_payment_live(p.id)) ORDER BY i.issue_date,i.number,p.id),'[]') FROM accounting.invoice_payments p JOIN accounting.invoices i ON i.id=p.invoice_id WHERE p.entry_id=entry AND p.removed_at IS NULL));
+ extra:=accounting.invoice_candidates(entry);
+ IF extra IS NOT NULL THEN result:=result||jsonb_build_object('invoice_suggestion',extra); END IF;
  RETURN result;
 END $function$
 ;
@@ -4615,6 +5003,10 @@ BEGIN
  FROM accounting.journal_entries e WHERE e.id=ANY(ids);
  RETURN result||jsonb_build_object('documents',(SELECT coalesce(jsonb_agg(to_jsonb(d)||jsonb_build_object('original_name',d.name,'size_bytes',d.size_bytes::text)),'[]') FROM accounting.documents d WHERE d.status<>'archived' AND EXISTS(SELECT 1 FROM accounting.document_links dl WHERE dl.document_id=d.id AND (dl.entry_id=ANY(ids) OR dl.payroll_run_id IN (SELECT p.id FROM accounting.payroll_runs p WHERE p.entry_id=ANY(ids))))));
 END $fn$;
+REVOKE ALL ON FUNCTION accounting.accrual_accounts() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.accrual_accounts() TO "postgres";
+
 REVOKE ALL ON FUNCTION accounting.entry_history(uuid) FROM PUBLIC,anon,authenticated,service_role;
 GRANT EXECUTE ON FUNCTION accounting.entry_history(uuid) TO authenticated;
 
@@ -4683,6 +5075,8 @@ BEGIN
    SELECT * INTO a FROM accounting.accounts WHERE id=NEW.account_id;
    IF a.is_archived THEN RAISE EXCEPTION 'ACCT_ACCOUNT_ARCHIVED'; END IF;
    IF a.closed_on<e.entry_date THEN RAISE EXCEPTION 'ACCT_ACCOUNT_CLOSED'; END IF;
+   -- The accrual view's receivable, unbilled and billed-in-advance lines are computed, never posted.
+   IF a.system_purpose IN ('accounts_receivable','unbilled_revenue','deferred_revenue') THEN RAISE EXCEPTION 'ACCT_ACCRUAL_ACCOUNT'; END IF;
   END IF;
  ELSIF TG_TABLE_NAME='accounts' THEN
   IF TG_OP<>'DELETE' AND (
@@ -4717,6 +5111,416 @@ BEGIN
  END IF;
  IF TG_OP='DELETE' THEN RETURN OLD; END IF;
  RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.invoice_candidates(entry uuid)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE dep record; remaining bigint; reason text; picked uuid[]; n integer:=0; auto boolean:=false;
+BEGIN
+ -- Only a deposit into a bank or cash account can pay an invoice: never a transfer, a discarded draft or a reversed entry.
+ SELECT e.id,e.entry_date,e.payee_id,
+  (SELECT sum(l.amount_cents) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id AND a.subtype IN ('bank','cash')) bank_cents,
+  (SELECT -sum(l.amount_cents) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id AND a.subtype NOT IN ('bank','cash','card') AND l.amount_cents<0) credit_cents
+ INTO dep FROM accounting.journal_entries e
+ WHERE e.id=entry AND e.status<>'discarded' AND e.reverses_entry_id IS NULL AND e.transfer_group_id IS NULL AND e.pair_entry_id IS NULL
+  AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries r WHERE r.reverses_entry_id=e.id);
+ IF dep.id IS NULL OR coalesce(dep.bank_cents,0)<=0 OR coalesce(dep.credit_cents,0)<=0 THEN RETURN NULL; END IF;
+ remaining:=dep.credit_cents-coalesce((SELECT sum(p.amount_cents) FROM accounting.live_invoice_payments() p WHERE p.entry_id=entry),0);
+ IF remaining<=0 THEN RETURN NULL; END IF;
+ IF dep.payee_id IS NOT NULL THEN
+  -- The deposit's client has an open invoice for exactly what is left. Two of the same amount suggest the oldest and never link on their own.
+  SELECT count(*),(array_agg(o.invoice_id ORDER BY o.issue_date,o.number,o.invoice_id))[1:1],bool_and(o.auto_link) INTO n,picked,auto
+  FROM accounting.open_invoices() o WHERE o.party_id=dep.payee_id AND o.outstanding_cents=remaining AND o.issue_date<=dep.entry_date;
+  IF n>=1 THEN reason:='exact_client'; auto:=n=1 AND coalesce(auto,false);
+  ELSE
+   -- Two to six of the client's invoices, the six oldest, that together come to exactly what is left.
+   WITH RECURSIVE pool AS (
+    SELECT row_number() OVER (ORDER BY o.issue_date,o.number,o.invoice_id)::integer n,o.invoice_id,o.outstanding_cents
+    FROM (SELECT * FROM accounting.open_invoices() x WHERE x.party_id=dep.payee_id AND x.issue_date<=dep.entry_date ORDER BY x.issue_date,x.number,x.invoice_id LIMIT 6) o),
+   sets(last_n,path,ids,total) AS (
+    SELECT p.n,ARRAY[p.n],ARRAY[p.invoice_id],p.outstanding_cents FROM pool p WHERE p.outstanding_cents<remaining
+    UNION ALL
+    SELECT p.n,s.path||p.n,s.ids||p.invoice_id,s.total+p.outstanding_cents FROM sets s JOIN pool p ON p.n>s.last_n WHERE s.total+p.outstanding_cents<=remaining)
+   SELECT count(*) OVER (),s.ids INTO n,picked FROM sets s WHERE s.total=remaining AND cardinality(s.ids)>=2 ORDER BY s.path LIMIT 1;
+   IF coalesce(n,0)>=1 THEN reason:='sum_client'; auto:=false; END IF;
+  END IF;
+ ELSE
+  -- An unknown payer: only one open invoice anywhere at exactly this amount is worth suggesting.
+  SELECT count(*),(array_agg(o.invoice_id))[1:1] INTO n,picked FROM accounting.open_invoices() o WHERE o.outstanding_cents=remaining AND o.issue_date<=dep.entry_date;
+  IF n=1 THEN reason:='exact_amount'; END IF;
+  auto:=false;
+ END IF;
+ IF reason IS NULL THEN RETURN NULL; END IF;
+ RETURN jsonb_build_object('reason',reason,'auto',coalesce(auto,false),'ambiguous',coalesce(n,0)>1,'remaining_cents',remaining::text,
+  'invoices',(SELECT coalesce(jsonb_agg(jsonb_build_object('invoice_id',o.invoice_id,'number',o.number,'project_name',o.project_name,'issue_date',o.issue_date,'amount_cents',o.outstanding_cents::text) ORDER BY o.issue_date,o.number,o.invoice_id),'[]')
+   FROM accounting.open_invoices() o WHERE o.invoice_id=ANY(picked)));
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.invoice_command(c jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE t text:=c->>'type'; key uuid:=coalesce((c->>'id')::uuid,gen_random_uuid());
+ actor uuid:=CASE WHEN current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE accounting.require_owner() END;
+ v integer; source accounting.invoice_sources; link accounting.invoice_payments; dep record; x jsonb; n integer:=0;
+ base text; accounts jsonb; outstanding bigint; total bigint:=0; capacity bigint; candidate jsonb; linked jsonb:='[]'; from_date date; to_date date; books_today date;
+ new_account_map jsonb; new_party_map jsonb;
+BEGIN
+ -- Connections and links are the owner's: an API key's drafts-only path never reaches them.
+ IF current_setting('accounting.actor_kind',true)='api' THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
+ IF t='invoice_source.save' THEN
+  IF actor IS NULL THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
+  SELECT * INTO source FROM accounting.invoice_sources WHERE id=key;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM coalesce(source.version,0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  IF length(btrim(coalesce(c->>'name',source.name,''))) NOT BETWEEN 1 AND 120 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+  base:=rtrim(btrim(coalesce(c->>'base_url',source.base_url,'')),'/');
+  IF base !~ '^https://[^[:space:]/?#]+(/[^[:space:]?#]*[^[:space:]?#/])?$' OR length(base)>500 THEN RAISE EXCEPTION 'ACCT_INVALID_SOURCE_URL'; END IF;
+  IF EXISTS(SELECT 1 FROM accounting.invoice_sources s WHERE s.base_url=base AND s.id<>key) THEN RAISE EXCEPTION 'ACCT_SOURCE_EXISTS'; END IF;
+  IF source.id IS NULL AND nullif(c->>'api_key_encrypted','') IS NULL THEN RAISE EXCEPTION 'ACCT_SOURCE_KEY_REQUIRED'; END IF;
+  IF c ? 'status' AND coalesce(c->>'status','') NOT IN ('active','paused','disconnected') THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+  IF c ? 'auto_link' AND jsonb_typeof(c->'auto_link') IS DISTINCT FROM 'boolean' THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+  -- Each line type goes to one revenue account (a reimbursement may reduce an expense instead, and sales tax is owed, so it goes to a
+  -- liability), never a suspense or accrual account.
+  IF c ? 'account_map' THEN
+   IF jsonb_typeof(c->'account_map') IS DISTINCT FROM 'object' OR EXISTS(
+    SELECT 1 FROM jsonb_each(c->'account_map') m LEFT JOIN accounting.accounts a ON a.id::text=lower(m.value#>>'{}')
+    WHERE m.key NOT IN ('hourly','fixed','recurring','reimbursement','tax') OR jsonb_typeof(m.value) IS DISTINCT FROM 'string' OR a.id IS NULL OR a.is_archived
+     OR NOT ((m.key<>'tax' AND a.type='income') OR (m.key='reimbursement' AND a.type='expense') OR (m.key='tax' AND a.type='liability'))
+     OR coalesce(a.system_purpose,'') IN ('uncategorized_income','uncategorized_expense','accounts_receivable','unbilled_revenue','deferred_revenue')) THEN RAISE EXCEPTION 'ACCT_INVALID_ACCOUNT_MAP'; END IF;
+   SELECT coalesce(jsonb_object_agg(m.key,lower(m.value#>>'{}')),'{}') INTO new_account_map FROM jsonb_each(c->'account_map') m;
+  END IF;
+  -- A source project belongs to one client contact.
+  IF c ? 'party_map' THEN
+   IF jsonb_typeof(c->'party_map') IS DISTINCT FROM 'object' OR EXISTS(
+    SELECT 1 FROM jsonb_each(c->'party_map') m LEFT JOIN accounting.parties p ON p.id::text=lower(m.value#>>'{}')
+    WHERE length(m.key) NOT BETWEEN 1 AND 200 OR jsonb_typeof(m.value) IS DISTINCT FROM 'string' OR p.id IS NULL OR p.is_archived OR NOT ('client'=ANY(p.roles))) THEN RAISE EXCEPTION 'ACCT_INVALID_PARTY_MAP'; END IF;
+   SELECT coalesce(jsonb_object_agg(m.key,lower(m.value#>>'{}')),'{}') INTO new_party_map FROM jsonb_each(c->'party_map') m;
+  END IF;
+  accounts:=accounting.accrual_accounts();
+  -- The proposed row is complete before any conflict check, so it carries every kept value forward itself.
+  INSERT INTO accounting.invoice_sources(id,name,base_url,api_key_encrypted,key_version,account_map,party_map,auto_link,status)
+  VALUES(key,btrim(coalesce(c->>'name',source.name)),base,coalesce(nullif(c->>'api_key_encrypted',''),source.api_key_encrypted),
+   CASE WHEN nullif(c->>'api_key_encrypted','') IS NULL THEN coalesce(source.key_version,1) ELSE coalesce((c->>'key_version')::smallint,1) END,
+   coalesce(new_account_map,source.account_map,'{}'),coalesce(new_party_map,source.party_map,'{}'),
+   CASE WHEN c ? 'auto_link' THEN (c->>'auto_link')::boolean ELSE coalesce(source.auto_link,true) END,
+   -- A new key clears an authentication failure; otherwise the worker's status stands unless the owner sets one.
+   coalesce(c->>'status',CASE WHEN nullif(c->>'api_key_encrypted','') IS NOT NULL AND source.status='auth_failed' THEN 'active' END,source.status,'active'))
+  ON CONFLICT(id) DO UPDATE SET name=excluded.name,base_url=excluded.base_url,api_key_encrypted=excluded.api_key_encrypted,key_version=excluded.key_version,
+   account_map=excluded.account_map,party_map=excluded.party_map,auto_link=excluded.auto_link,status=excluded.status,
+   last_error=CASE WHEN nullif(c->>'api_key_encrypted','') IS NOT NULL THEN '' ELSE accounting.invoice_sources.last_error END
+  RETURNING version INTO v;
+  -- The accrual view starts at the beginning of this year unless the owner already chose a month.
+  books_today:=(SELECT (now() AT TIME ZONE p.books_timezone)::date FROM public.business_profile p WHERE p.id=1);
+  UPDATE accounting.settings SET accrual_start=date_trunc('year',coalesce(books_today,current_date))::date,financial_revision=financial_revision+1 WHERE id=1 AND accrual_start IS NULL;
+  RETURN jsonb_build_object('id',key,'version',v,'accounts',accounts);
+ ELSIF t='invoice.link' THEN
+  IF actor IS NULL THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
+  IF jsonb_typeof(c->'allocations') IS DISTINCT FROM 'array' OR jsonb_array_length(c->'allocations') NOT BETWEEN 1 AND 20 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+  -- The deposit: money into a bank or cash account, not a transfer, still standing. Its credit lines are what it can apply to invoices.
+  SELECT e.id,e.entry_date,e.version,
+   (SELECT sum(l.amount_cents) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id AND a.subtype IN ('bank','cash')) bank_cents,
+   (SELECT -sum(l.amount_cents) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id AND a.subtype NOT IN ('bank','cash','card') AND l.amount_cents<0) credit_cents
+  INTO dep FROM accounting.journal_entries e
+  WHERE e.id=(c->>'entry_id')::uuid AND e.status<>'discarded' AND e.reverses_entry_id IS NULL AND e.transfer_group_id IS NULL AND e.pair_entry_id IS NULL
+   AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries r WHERE r.reverses_entry_id=e.id);
+  IF dep.id IS NULL OR coalesce(dep.bank_cents,0)<=0 OR coalesce(dep.credit_cents,0)<=0 THEN RAISE EXCEPTION 'ACCT_LINK_DEPOSIT_REQUIRED'; END IF;
+  IF c ? 'expected_version' AND (c->>'expected_version')::integer IS DISTINCT FROM dep.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  PERFORM accounting.require_open(dep.entry_date);
+  capacity:=dep.credit_cents-coalesce((SELECT sum(p.amount_cents) FROM accounting.live_invoice_payments() p WHERE p.entry_id=dep.id),0);
+  FOR x IN SELECT value FROM jsonb_array_elements(c->'allocations') LOOP
+   n:=n+1;
+   IF jsonb_typeof(x) IS DISTINCT FROM 'object' OR coalesce(x->>'invoice_id','') !~ '^[0-9a-fA-F-]{36}$' OR coalesce(x->>'amount_cents','') !~ '^[1-9][0-9]{0,15}$' THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+   IF EXISTS(SELECT 1 FROM accounting.invoice_payments p WHERE p.invoice_id=(x->>'invoice_id')::uuid AND p.entry_id=dep.id AND p.removed_at IS NULL) THEN RAISE EXCEPTION 'ACCT_LINK_EXISTS'; END IF;
+   SELECT o.outstanding_cents INTO outstanding FROM accounting.open_invoices() o WHERE o.invoice_id=(x->>'invoice_id')::uuid;
+   IF outstanding IS NULL THEN RAISE EXCEPTION 'ACCT_LINK_INVOICE_NOT_OPEN'; END IF;
+   IF (x->>'amount_cents')::bigint>outstanding THEN RAISE EXCEPTION 'ACCT_LINK_EXCEEDS_INVOICE'; END IF;
+   total:=total+(x->>'amount_cents')::bigint;
+   IF total>capacity THEN RAISE EXCEPTION 'ACCT_LINK_EXCEEDS_DEPOSIT'; END IF;
+   INSERT INTO accounting.invoice_payments(id,invoice_id,entry_id,amount_cents,matched_by,created_by)
+   VALUES(md5(key::text||':'||n)::uuid,(x->>'invoice_id')::uuid,dep.id,(x->>'amount_cents')::bigint,'owner',actor);
+   linked:=linked||jsonb_build_array(jsonb_build_object('id',md5(key::text||':'||n)::uuid,'invoice_id',x->>'invoice_id','amount_cents',x->>'amount_cents'));
+  END LOOP;
+  RETURN jsonb_build_object('id',key,'entry_id',dep.id,'links',linked);
+ ELSIF t='invoice.unlink' THEN
+  IF actor IS NULL THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
+  SELECT * INTO link FROM accounting.invoice_payments WHERE id=key;
+  IF NOT FOUND OR link.removed_at IS NOT NULL THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM link.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  IF btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
+  PERFORM accounting.require_open((SELECT e.entry_date FROM accounting.journal_entries e WHERE e.id=link.entry_id));
+  -- Nothing reached the source: the link just ends. Otherwise the source is told to remove the payment it recorded.
+  UPDATE accounting.invoice_payments SET removed_at=now(),removed_reason=btrim(c->>'reason'),
+   sync_state=CASE WHEN external_payment_id IS NULL AND sync_state<>'synced' THEN 'removed' ELSE 'removing' END,attempts=0,next_attempt_at=NULL,last_error=''
+  WHERE id=key RETURNING version INTO v;
+  RETURN jsonb_build_object('id',key,'version',v);
+ ELSIF t='invoice.retry' THEN
+  IF actor IS NULL THEN RAISE EXCEPTION 'ACCT_FORBIDDEN'; END IF;
+  SELECT * INTO link FROM accounting.invoice_payments WHERE id=key;
+  IF NOT FOUND OR link.sync_state<>'failed' THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  IF (c->>'expected_version')::integer IS DISTINCT FROM link.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  -- A refused push goes back in line from the start: recorded again, removed again, or simply ended when nothing reached the source.
+  UPDATE accounting.invoice_payments SET attempts=0,next_attempt_at=NULL,last_error='',
+   sync_state=CASE WHEN removed_at IS NULL THEN 'pending' WHEN external_payment_id IS NULL THEN 'removed' ELSE 'removing' END
+  WHERE id=key RETURNING version INTO v;
+  RETURN jsonb_build_object('id',key,'version',v);
+ ELSIF t='invoice.auto_link' THEN
+  -- The exact matches a source allows, over deposits never linked before (an ended link is never redone), in open months from the accrual start.
+  from_date:=coalesce((c->>'from')::date,(SELECT s.accrual_start FROM accounting.settings s WHERE s.id=1));
+  to_date:=coalesce((c->>'to')::date,'2100-12-31'::date);
+  IF from_date IS NOT NULL THEN
+   FOR dep IN SELECT e.id FROM accounting.journal_entries e
+    WHERE e.entry_date BETWEEN from_date AND to_date AND e.status<>'discarded'
+     AND NOT EXISTS(SELECT 1 FROM accounting.invoice_payments p WHERE p.entry_id=e.id)
+     AND NOT EXISTS(SELECT 1 FROM accounting.periods pr WHERE pr.status='locked' AND pr.month>=date_trunc('month',e.entry_date)::date)
+     AND EXISTS(SELECT 1 FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id AND a.subtype IN ('bank','cash') AND l.amount_cents>0)
+    ORDER BY e.entry_date,e.id LOOP
+    candidate:=accounting.invoice_candidates(dep.id);
+    IF coalesce((candidate->>'auto')::boolean,false) THEN
+     n:=n+1;
+     INSERT INTO accounting.invoice_payments(id,invoice_id,entry_id,amount_cents,matched_by,created_by)
+     VALUES(md5(key::text||':'||n)::uuid,(candidate->'invoices'->0->>'invoice_id')::uuid,dep.id,(candidate->>'remaining_cents')::bigint,'rule',actor);
+     linked:=linked||jsonb_build_array(jsonb_build_object('id',md5(key::text||':'||n)::uuid,'entry_id',dep.id,'invoice_id',candidate->'invoices'->0->>'invoice_id','amount_cents',candidate->>'remaining_cents'));
+    END IF;
+   END LOOP;
+  END IF;
+  RETURN jsonb_build_object('id',key,'links',linked,'count',jsonb_array_length(linked));
+ END IF;
+ RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND: %',t;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.invoice_guard()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE syncing boolean:=coalesce(current_setting('accounting.action',true),'')='invoice_source.sync'; counts boolean;
+BEGIN
+ IF TG_LEVEL='STATEMENT' THEN PERFORM accounting.write_lock(); RETURN NULL; END IF;
+ -- The mirror and earned work are the source's word: only a sync writes them, and earned work is replaced whole each time.
+ IF TG_TABLE_NAME IN ('invoices','earned_work') AND NOT syncing THEN RAISE EXCEPTION 'ACCT_SOURCE_ONLY'; END IF;
+ IF TG_OP='DELETE' THEN
+  IF TG_TABLE_NAME='earned_work' THEN RETURN OLD; END IF;
+  RAISE EXCEPTION 'ACCT_NO_HARD_DELETE';
+ END IF;
+ IF TG_OP='UPDATE' THEN
+  IF NEW.id<>OLD.id THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY'; END IF;
+  -- Each branch names only its own table's columns: a record field is resolved when the expression runs.
+  IF TG_TABLE_NAME='invoices' THEN
+   IF (NEW.source_id,NEW.external_id) IS DISTINCT FROM (OLD.source_id,OLD.external_id) THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY'; END IF;
+  ELSIF TG_TABLE_NAME='earned_work' THEN
+   IF (NEW.source_id,NEW.kind,NEW.external_ref) IS DISTINCT FROM (OLD.source_id,OLD.kind,OLD.external_ref) THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_IDENTITY'; END IF;
+  ELSIF TG_TABLE_NAME='invoice_payments' THEN
+   -- A link is fixed once made: it can only end, and an ended link never comes back.
+   IF (NEW.invoice_id,NEW.entry_id,NEW.amount_cents,NEW.matched_by,NEW.created_by,NEW.created_at) IS DISTINCT FROM (OLD.invoice_id,OLD.entry_id,OLD.amount_cents,OLD.matched_by,OLD.created_by,OLD.created_at) THEN RAISE EXCEPTION 'ACCT_LINK_IMMUTABLE'; END IF;
+   IF OLD.removed_at IS NOT NULL AND (NEW.removed_at IS DISTINCT FROM OLD.removed_at OR NEW.removed_reason IS DISTINCT FROM OLD.removed_reason) THEN RAISE EXCEPTION 'ACCT_LINK_IMMUTABLE'; END IF;
+  END IF;
+ END IF;
+ -- What the accrual view reads moved, so the books revision moves with it. Push bookkeeping and sync times do not count.
+ -- The mirror and earned work move it once per pull, from the sync itself: an upsert's proposed rows reach this trigger even when nothing changes.
+ IF TG_TABLE_NAME IN ('invoices','earned_work') THEN counts:=false;
+ ELSIF TG_OP='INSERT' THEN counts:=true;
+ ELSIF TG_TABLE_NAME='invoice_payments' THEN counts:=NEW.removed_at IS DISTINCT FROM OLD.removed_at;
+ ELSE counts:=(NEW.account_map,NEW.party_map,NEW.status) IS DISTINCT FROM (OLD.account_map,OLD.party_map,OLD.status);
+ END IF;
+ IF counts THEN UPDATE accounting.settings SET financial_revision=financial_revision+1 WHERE id=1; END IF;
+ IF TG_OP='UPDATE' AND TG_TABLE_NAME<>'earned_work' THEN NEW.version:=OLD.version+1; NEW.updated_at:=now(); END IF;
+ RETURN NEW;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.invoice_payment_live(link uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ SELECT EXISTS(SELECT 1 FROM accounting.live_invoice_payments() p WHERE p.id=link)
+$function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.invoice_push_plan(source uuid)
+ RETURNS jsonb
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ -- What the source still has to hear, due now: a payment to record or one to remove, with what the mirror last said about the invoice.
+ -- A payment the source already holds under this link's id is recorded, and a source already paid in full needs nothing recorded.
+ SELECT coalesce(jsonb_agg(jsonb_build_object('link_id',p.id,'action',CASE p.sync_state WHEN 'pending' THEN 'record' ELSE 'remove' END,
+   'invoice_external_id',i.external_id,'project_ref',i.project_ref,'amount_cents',p.amount_cents::text,'paid_date',e.entry_date,
+   'external_payment_id',p.external_payment_id,'attempts',p.attempts,
+   'recorded_payment_id',(SELECT pay->>'id' FROM jsonb_array_elements(i.payments) pay WHERE pay->>'external_id'=p.id::text LIMIT 1),
+   -- Payments the books themselves already took back count for nothing, even before the next pull refreshes the mirror.
+   'source_outstanding_cents',greatest(i.total_cents-coalesce((SELECT sum((pay->>'amount_cents')::bigint) FROM jsonb_array_elements(i.payments) pay
+    WHERE NOT EXISTS(SELECT 1 FROM accounting.invoice_payments q WHERE q.id::text=pay->>'external_id' AND q.removed_at IS NOT NULL)),0),0)::text)
+   ORDER BY p.created_at,p.id),'[]')
+ FROM accounting.invoice_payments p
+ JOIN accounting.invoices i ON i.id=p.invoice_id
+ JOIN accounting.journal_entries e ON e.id=p.entry_id
+ WHERE i.source_id=source AND p.sync_state IN ('pending','removing') AND (p.next_attempt_at IS NULL OR p.next_attempt_at<=now())
+$function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.invoice_retire_dead(source uuid)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE retired integer;
+BEGIN
+ -- A link whose deposit was discarded or reversed, or whose invoice is gone or voided at the source, ends; the source is told when it holds a payment for it.
+ UPDATE accounting.invoice_payments p SET removed_at=now(),attempts=0,next_attempt_at=NULL,last_error='',
+  removed_reason=CASE WHEN i.removed_at IS NOT NULL THEN 'Invoice removed at the source' WHEN i.status='void' THEN 'Invoice voided at the source' ELSE 'Deposit discarded or reversed' END,
+  sync_state=CASE WHEN p.external_payment_id IS NULL AND p.sync_state<>'synced' THEN 'removed' ELSE 'removing' END
+ FROM accounting.invoices i WHERE i.id=p.invoice_id AND i.source_id=source AND p.removed_at IS NULL AND NOT accounting.invoice_payment_live(p.id);
+ GET DIAGNOSTICS retired=ROW_COUNT;
+ RETURN retired;
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.invoice_sync_server(command jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE s accounting.invoice_sources; run uuid:=coalesce((command->>'run_id')::uuid,gen_random_uuid()); x jsonb; link accounting.invoice_payments;
+ seen text[]:='{}'; earned_keys text[]:='{}'; changed integer:=0; removed integer:=0; retired integer:=0; earned integer:=0; n integer; outcome text; linked jsonb;
+BEGIN
+ IF current_setting('role',true)<>'service_role' THEN RAISE EXCEPTION 'ACCT_WORKER_REQUIRED'; END IF;
+ PERFORM accounting.write_lock();
+ PERFORM set_config('accounting.operation_id',run::text,true);PERFORM set_config('accounting.actor_kind','worker',true);PERFORM set_config('accounting.action','invoice_source.sync',true);
+ IF command->>'action'='due' THEN
+  -- Due: an hour since the last pull, or links waiting to reach the source. Never a source another run holds.
+  RETURN coalesce((SELECT jsonb_agg(d.id ORDER BY d.last_synced_at NULLS FIRST,d.id) FROM accounting.invoice_sources d
+   WHERE d.status='active' AND (d.lease_until IS NULL OR d.lease_until<=now())
+    AND (coalesce((command->>'force')::boolean,false) OR d.last_synced_at IS NULL OR d.last_synced_at<=now()-interval '50 minutes'
+     OR EXISTS(SELECT 1 FROM accounting.invoice_payments p JOIN accounting.invoices i ON i.id=p.invoice_id
+      WHERE i.source_id=d.id AND p.sync_state IN ('pending','removing') AND (p.next_attempt_at IS NULL OR p.next_attempt_at<=now())))),'[]');
+ END IF;
+ SELECT * INTO s FROM accounting.invoice_sources WHERE id=(command->>'id')::uuid FOR UPDATE;
+ IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+ IF command->>'action'='lease' THEN
+  IF s.status<>'active' OR (s.lease_until>now() AND s.lease_run_id IS DISTINCT FROM run) THEN RETURN jsonb_build_object('id',s.id,'acquired',false); END IF;
+  UPDATE accounting.invoice_sources SET lease_run_id=run,lease_until=now()+interval '5 minutes' WHERE id=s.id;
+ ELSIF s.lease_run_id IS DISTINCT FROM run OR s.lease_until<=now() THEN RAISE EXCEPTION 'ACCT_STALE_LEASE';
+ END IF;
+ IF command->>'action'='lease' THEN retired:=accounting.invoice_retire_dead(s.id); END IF;
+ IF command->>'action'='lease' THEN
+  RETURN jsonb_build_object('id',s.id,'acquired',true,'run_id',run,'base_url',s.base_url,'api_key_encrypted',s.api_key_encrypted,'key_version',s.key_version,
+   'history_start',(SELECT p.earliest_history_date FROM public.business_profile p WHERE p.id=1),
+   'today',(SELECT (now() AT TIME ZONE p.books_timezone)::date FROM public.business_profile p WHERE p.id=1),
+   'retired',retired,'pushes',accounting.invoice_push_plan(s.id));
+ ELSIF command->>'action'='fail' THEN
+  UPDATE accounting.invoice_sources SET last_error=left(coalesce(nullif(command->>'error',''),'Invoice sync failed'),1000),
+   status=CASE WHEN coalesce((command->>'auth_failed')::boolean,false) THEN 'auth_failed' ELSE status END,lease_run_id=NULL,lease_until=NULL WHERE id=s.id;
+  RETURN jsonb_build_object('id',s.id,'status','error');
+ ELSIF command->>'action'='release' THEN
+  UPDATE accounting.invoice_sources SET lease_run_id=NULL,lease_until=NULL WHERE id=s.id;
+  RETURN jsonb_build_object('id',s.id,'status','released');
+ ELSIF command->>'action'='push' THEN
+  IF jsonb_typeof(command->'results') IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+  n:=0;
+  FOR x IN SELECT value FROM jsonb_array_elements(command->'results') LOOP
+   SELECT p.* INTO link FROM accounting.invoice_payments p JOIN accounting.invoices i ON i.id=p.invoice_id
+   WHERE p.id::text=x->>'link_id' AND i.source_id=s.id AND p.sync_state IN ('pending','removing');
+   IF link.id IS NULL THEN CONTINUE; END IF;
+   outcome:=x->>'outcome';
+   IF outcome='recorded' THEN
+    -- Unlinked while the request was in flight: the payment it just recorded has to go again.
+    UPDATE accounting.invoice_payments SET external_payment_id=coalesce(nullif(x->>'external_payment_id',''),external_payment_id),attempts=attempts+1,next_attempt_at=NULL,last_error='',
+     sync_state=CASE WHEN removed_at IS NULL THEN 'synced' WHEN coalesce(nullif(x->>'external_payment_id',''),external_payment_id) IS NULL THEN 'removed' ELSE 'removing' END
+    WHERE id=link.id;
+   ELSIF outcome='removed' AND link.removed_at IS NOT NULL THEN
+    UPDATE accounting.invoice_payments SET sync_state='removed',attempts=attempts+1,next_attempt_at=NULL,last_error='' WHERE id=link.id;
+   ELSIF outcome='retry' THEN
+    -- Backs off from five minutes to a day; the eighth failure stops and waits for the owner.
+    UPDATE accounting.invoice_payments SET attempts=attempts+1,last_error=left(coalesce(x->>'error',''),1000),
+     sync_state=CASE WHEN attempts+1>=8 THEN 'failed' ELSE sync_state END,
+     next_attempt_at=CASE WHEN attempts+1>=8 THEN NULL ELSE now()+least(interval '24 hours',interval '5 minutes'*power(2,attempts)) END
+    WHERE id=link.id;
+   ELSIF outcome='failed' THEN
+    UPDATE accounting.invoice_payments SET sync_state='failed',attempts=attempts+1,next_attempt_at=NULL,last_error=left(coalesce(nullif(x->>'error',''),'The source refused the payment.'),1000) WHERE id=link.id;
+   ELSE RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+   n:=n+1;
+  END LOOP;
+  UPDATE accounting.invoice_sources SET lease_until=now()+interval '5 minutes' WHERE id=s.id;
+  RETURN jsonb_build_object('id',s.id,'updated',n,'pushes',accounting.invoice_push_plan(s.id));
+ ELSIF command->>'action'='complete' THEN
+  IF jsonb_typeof(command->'invoices') IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+  FOR x IN SELECT value FROM jsonb_array_elements(command->'invoices') LOOP
+   -- The source's word, checked before it is kept: known statuses and line types, whole cents, and lines that add up to the total
+   -- (a negative line is the source's own correction, such as a discount).
+   IF jsonb_typeof(x) IS DISTINCT FROM 'object' OR length(coalesce(x->>'external_id','')) NOT BETWEEN 1 AND 200 OR length(coalesce(x->>'project_ref','')) NOT BETWEEN 1 AND 200
+    OR coalesce(x->>'status','') NOT IN ('draft','issued','paid','void') OR coalesce(x->>'total_cents','') !~ '^[0-9]{1,15}$' OR coalesce(x->>'issue_date','') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    OR jsonb_typeof(x->'lines') IS DISTINCT FROM 'array' OR jsonb_typeof(x->'payments') IS DISTINCT FROM 'array'
+    OR EXISTS(SELECT 1 FROM jsonb_array_elements(x->'lines') l WHERE jsonb_typeof(l) IS DISTINCT FROM 'object' OR coalesce(l->>'type','') NOT IN ('hourly','fixed','recurring','reimbursement','tax')
+     OR coalesce(l->>'amount_cents','') !~ '^-?[0-9]{1,15}$' OR ((l->>'service_from') IS NULL)<>((l->>'service_to') IS NULL)
+     OR coalesce(l->>'service_from','2000-01-01') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' OR coalesce(l->>'service_to','2000-01-01') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+    OR EXISTS(SELECT 1 FROM jsonb_array_elements(x->'payments') pay WHERE jsonb_typeof(pay) IS DISTINCT FROM 'object' OR coalesce(pay->>'amount_cents','') !~ '^[0-9]{1,15}$'
+     OR coalesce(pay->>'paid_date','') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+   THEN RAISE EXCEPTION 'ACCT_SOURCE_INVALID: %',left(coalesce(x->>'external_id','?'),80); END IF;
+   IF (SELECT coalesce(sum((l->>'amount_cents')::bigint),0) FROM jsonb_array_elements(x->'lines') l)<>(x->>'total_cents')::bigint
+    OR EXISTS(SELECT 1 FROM jsonb_array_elements(x->'lines') l WHERE (l->>'service_to')::date<(l->>'service_from')::date) THEN RAISE EXCEPTION 'ACCT_SOURCE_INVALID: %',left(x->>'external_id',80); END IF;
+   INSERT INTO accounting.invoices(source_id,external_id,number,project_ref,project_name,customer_name,issue_date,due_date,status,total_cents,lines,payments,source_updated_at,synced_at)
+   VALUES(s.id,x->>'external_id',left(coalesce(x->>'number',''),100),x->>'project_ref',left(coalesce(x->>'project_name',''),200),left(coalesce(x->>'customer_name',''),200),
+    (x->>'issue_date')::date,(x->>'due_date')::date,x->>'status',(x->>'total_cents')::bigint,x->'lines',x->'payments',(x->>'source_updated_at')::timestamptz,now())
+   ON CONFLICT (source_id,external_id) DO UPDATE SET number=excluded.number,project_ref=excluded.project_ref,project_name=excluded.project_name,customer_name=excluded.customer_name,
+    issue_date=excluded.issue_date,due_date=excluded.due_date,status=excluded.status,total_cents=excluded.total_cents,lines=excluded.lines,payments=excluded.payments,
+    source_updated_at=excluded.source_updated_at,synced_at=excluded.synced_at,removed_at=NULL
+   -- Unchanged invoices stay untouched, so a quiet hour never moves the books revision.
+   WHERE (accounting.invoices.number,accounting.invoices.project_ref,accounting.invoices.project_name,accounting.invoices.customer_name,accounting.invoices.issue_date,accounting.invoices.due_date,
+     accounting.invoices.status,accounting.invoices.total_cents,accounting.invoices.lines,accounting.invoices.payments,accounting.invoices.removed_at)
+    IS DISTINCT FROM (excluded.number,excluded.project_ref,excluded.project_name,excluded.customer_name,excluded.issue_date,excluded.due_date,
+     excluded.status,excluded.total_cents,excluded.lines,excluded.payments,NULL::timestamptz);
+   GET DIAGNOSTICS n=ROW_COUNT; changed:=changed+n;
+   seen:=seen||(x->>'external_id');
+  END LOOP;
+  -- Only a complete listing can say an invoice is gone; it is marked, never deleted, and comes back if it reappears.
+  IF coalesce((command->>'complete')::boolean,false) THEN
+   UPDATE accounting.invoices SET removed_at=now(),synced_at=now() WHERE source_id=s.id AND removed_at IS NULL AND NOT (external_id=ANY(seen));
+   GET DIAGNOSTICS removed=ROW_COUNT;
+  END IF;
+  IF jsonb_typeof(command->'earned')='array' THEN
+   FOR x IN SELECT value FROM jsonb_array_elements(command->'earned') LOOP
+    IF jsonb_typeof(x) IS DISTINCT FROM 'object' OR coalesce(x->>'kind','') NOT IN ('time','scheduled') OR length(coalesce(x->>'external_ref','')) NOT BETWEEN 1 AND 200
+     OR length(coalesce(x->>'project_ref','')) NOT BETWEEN 1 AND 200 OR coalesce(x->>'amount_cents','') !~ '^[1-9][0-9]{0,15}$'
+     OR coalesce(x->>'earned_from','') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' OR coalesce(x->>'earned_to','') !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+    THEN RAISE EXCEPTION 'ACCT_SOURCE_INVALID: %',left(coalesce(x->>'external_ref','?'),80); END IF;
+    IF (x->>'earned_to')::date<(x->>'earned_from')::date THEN RAISE EXCEPTION 'ACCT_SOURCE_INVALID: %',left(x->>'external_ref',80); END IF;
+    INSERT INTO accounting.earned_work(source_id,kind,external_ref,project_ref,earned_from,earned_to,amount_cents,synced_at)
+    VALUES(s.id,x->>'kind',x->>'external_ref',x->>'project_ref',(x->>'earned_from')::date,(x->>'earned_to')::date,(x->>'amount_cents')::bigint,now())
+    ON CONFLICT (source_id,kind,external_ref) DO UPDATE SET project_ref=excluded.project_ref,earned_from=excluded.earned_from,earned_to=excluded.earned_to,amount_cents=excluded.amount_cents,synced_at=excluded.synced_at
+    WHERE (accounting.earned_work.project_ref,accounting.earned_work.earned_from,accounting.earned_work.earned_to,accounting.earned_work.amount_cents)
+     IS DISTINCT FROM (excluded.project_ref,excluded.earned_from,excluded.earned_to,excluded.amount_cents);
+    GET DIAGNOSTICS n=ROW_COUNT; earned:=earned+n;
+    earned_keys:=earned_keys||(x->>'kind'||':'||(x->>'external_ref'));
+   END LOOP;
+   -- Earned work is the source's current list in full: anything it no longer reports goes.
+   DELETE FROM accounting.earned_work w WHERE w.source_id=s.id AND NOT ((w.kind||':'||w.external_ref)=ANY(earned_keys));
+   GET DIAGNOSTICS n=ROW_COUNT; earned:=earned+n;
+  END IF;
+  -- One revision step for everything the pull changed; an upsert's untouched rows never count.
+  IF changed+removed+earned>0 THEN UPDATE accounting.settings SET financial_revision=financial_revision+1 WHERE id=1; END IF;
+  retired:=accounting.invoice_retire_dead(s.id);
+  -- New money links on its own; deposits from before the source was connected wait for the owner's batch review.
+  linked:=accounting.invoice_command(jsonb_build_object('type','invoice.auto_link','id',gen_random_uuid(),'from',greatest(
+   (SELECT st.accrual_start FROM accounting.settings st WHERE st.id=1),(SELECT (s.created_at AT TIME ZONE p.books_timezone)::date FROM public.business_profile p WHERE p.id=1))));
+  UPDATE accounting.invoice_sources SET last_synced_at=now(),last_error='',lease_until=now()+interval '5 minutes' WHERE id=s.id;
+  RETURN jsonb_build_object('id',s.id,'changed',changed,'removed',removed,'retired',retired,'linked',coalesce((linked->>'count')::integer,0),'pushes',accounting.invoice_push_plan(s.id));
+ END IF;
+ RAISE EXCEPTION 'ACCT_INVALID_COMMAND';
 END $function$
 ;
 
@@ -5024,6 +5828,22 @@ AS $function$
 $function$
 ;
 
+CREATE OR REPLACE FUNCTION accounting.live_invoice_payments()
+ RETURNS TABLE(id uuid, invoice_id uuid, entry_id uuid, amount_cents bigint)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ -- A link counts while it is not removed, its deposit is neither discarded nor reversed, and its invoice is neither voided nor gone from the source.
+ SELECT p.id,p.invoice_id,p.entry_id,p.amount_cents
+ FROM accounting.invoice_payments p
+ JOIN accounting.journal_entries e ON e.id=p.entry_id
+ JOIN accounting.invoices i ON i.id=p.invoice_id
+ WHERE p.removed_at IS NULL AND e.status<>'discarded' AND i.removed_at IS NULL AND i.status<>'void'
+  AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries r WHERE r.reverses_entry_id=e.id)
+$function$
+;
+
 CREATE OR REPLACE FUNCTION accounting.match_review()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -5038,6 +5858,23 @@ BEGIN
  UPDATE accounting.bank_transactions SET review=CASE WHEN total=abs(observation.amount_cents::numeric) OR zero_evidence THEN 'matched' ELSE 'unmatched' END WHERE id=key;
  RETURN NULL;
 END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.open_invoices()
+ RETURNS TABLE(invoice_id uuid, source_id uuid, party_id uuid, number text, project_name text, issue_date date, outstanding_cents bigint, auto_link boolean)
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ -- Issued invoices the books still see money owed on: the total less every link that counts. The client is the contact the source project maps to.
+ SELECT i.id,i.source_id,
+  CASE WHEN s.party_map->>i.project_ref ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN (s.party_map->>i.project_ref)::uuid END,
+  i.number,i.project_name,i.issue_date,i.total_cents-coalesce(l.linked,0),s.auto_link AND s.status='active'
+ FROM accounting.invoices i
+ JOIN accounting.invoice_sources s ON s.id=i.source_id
+ LEFT JOIN (SELECT p.invoice_id,sum(p.amount_cents)::bigint linked FROM accounting.live_invoice_payments() p GROUP BY p.invoice_id) l ON l.invoice_id=i.id
+ WHERE i.removed_at IS NULL AND i.status IN ('issued','paid') AND s.status<>'disconnected' AND i.total_cents-coalesce(l.linked,0)>0
+$function$
 ;
 
 CREATE OR REPLACE FUNCTION accounting.payroll_import_mode(run accounting.payroll_runs)
@@ -5107,7 +5944,31 @@ BEGIN
   RETURN result;
  ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND';END IF;
 END $fn$;
+REVOKE ALL ON FUNCTION accounting.invoice_candidates(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.invoice_candidates(uuid) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.invoice_command(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.invoice_command(jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.invoice_guard() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.invoice_guard() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.invoice_payment_live(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.invoice_payment_live(uuid) TO "postgres";
+
 REVOKE ALL ON FUNCTION accounting.lifecycle_command(jsonb) FROM PUBLIC,anon,authenticated;
+REVOKE ALL ON FUNCTION accounting.live_invoice_payments() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.live_invoice_payments() TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.open_invoices() FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.open_invoices() TO "postgres";
+
 REVOKE ALL ON FUNCTION accounting.payroll_import_mode(accounting.payroll_runs) FROM PUBLIC,anon,authenticated;
 
 CREATE OR REPLACE FUNCTION accounting.patriot_import(request jsonb)
@@ -5601,9 +6462,10 @@ BEGIN
  IF t IN ('settings.save','preferences.save') THEN
   SELECT version INTO current_version FROM accounting.settings WHERE id=1;
   IF (c->>'expected_version')::integer IS DISTINCT FROM current_version AND NOT (initialized AND coalesce((c->>'expected_version')::integer,0)=0) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  IF c ? 'accrual_start' AND c->>'accrual_start' IS NOT NULL AND extract(day FROM (c->>'accrual_start')::date)<>1 THEN RAISE EXCEPTION 'ACCT_INVALID_ACCRUAL_START'; END IF;
   UPDATE accounting.settings SET primary_system=coalesce(c->>'primary_system',CASE c->>'authority_mode' WHEN 'admin_primary' THEN 'admin' WHEN 'wave_primary' THEN 'wave' WHEN 'parallel_pilot' THEN 'wave' END,primary_system),
    primary_system_since=CASE WHEN c?'primary_system_since' THEN (c->>'primary_system_since')::date ELSE primary_system_since END,
-   transfer_window_days=coalesce((c->>'transfer_window_days')::smallint,transfer_window_days),version=version+1,updated_at=now() WHERE id=1 RETURNING version INTO current_version;
+   transfer_window_days=coalesce((c->>'transfer_window_days')::smallint,transfer_window_days),accrual_start=CASE WHEN c ? 'accrual_start' THEN (c->>'accrual_start')::date ELSE accrual_start END,financial_revision=financial_revision+CASE WHEN c ? 'accrual_start' AND (c->>'accrual_start')::date IS DISTINCT FROM accrual_start THEN 1 ELSE 0 END,version=version+1,updated_at=now() WHERE id=1 RETURNING version INTO current_version;
   IF c?'business_profile' THEN
    IF (c->>'profile_version')::integer IS DISTINCT FROM (SELECT version FROM public.business_profile WHERE id=1) THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
    IF EXISTS(SELECT 1 FROM jsonb_object_keys(c->'business_profile') k WHERE k NOT IN ('legal_name','dba','entity_type','ein','formation_date','state_of_formation','address','phone','email','tax_classification','tax_classification_since','home_state','is_sstb','fiscal_year_start_month','books_timezone','earliest_history_date','owner_name','owner_title','accountant_name','accountant_email','default_email_account_id')) THEN RAISE EXCEPTION 'ACCT_INVALID_PROFILE'; END IF;
@@ -5624,6 +6486,7 @@ BEGIN
  ELSIF t LIKE 'payroll.%' OR t LIKE 'register.%' THEN result:=accounting.register_command(c);
  ELSIF t LIKE 'tax.%' THEN result:=accounting.tax_command(c);
  ELSIF t LIKE 'report.%' OR t LIKE 'package.%' THEN result:=accounting.report_command(c);
+ ELSIF t LIKE 'invoice.%' OR t LIKE 'invoice_source.%' THEN result:=accounting.invoice_command(c);
  ELSE RAISE EXCEPTION 'ACCT_UNKNOWN_COMMAND: %',t;
  END IF;
  INSERT INTO accounting.command_receipts(idempotency_key,payload_hash,actor_user_id,result) VALUES(key,hash,actor,result);
@@ -5780,6 +6643,62 @@ AS $function$
 BEGIN PERFORM accounting.require_owner(); RETURN accounting.prior_summary(descriptor_key,bank_account_id,max_rows); END $function$
 ;
 
+CREATE OR REPLACE FUNCTION accounting.receivables(view jsonb DEFAULT '{}'::jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE start_at integer; page_size integer; wanted text; result jsonb;
+BEGIN
+ PERFORM accounting.require_reader();
+ IF jsonb_typeof(view) IS DISTINCT FROM 'object' THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER'; END IF;
+ start_at:=coalesce((view->>'offset')::integer,0); page_size:=coalesce((view->>'limit')::integer,100); wanted:=coalesce(view->>'status','open');
+ IF start_at<0 OR page_size NOT BETWEEN 1 AND 200 OR wanted NOT IN ('open','all') THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER'; END IF;
+ -- Every connection (never its key), the projects to map to clients, and invoices with what the books have linked to each.
+ WITH linked AS (SELECT p.invoice_id,sum(p.amount_cents)::bigint cents FROM accounting.live_invoice_payments() p GROUP BY p.invoice_id),
+ scoped AS (
+  SELECT i.*,s.party_map->>i.project_ref party_text,coalesce(l.cents,0) linked_cents,
+   (SELECT coalesce(sum((pay->>'amount_cents')::bigint),0) FROM jsonb_array_elements(i.payments) pay) source_paid_cents
+  FROM accounting.invoices i JOIN accounting.invoice_sources s ON s.id=i.source_id LEFT JOIN linked l ON l.invoice_id=i.id
+  WHERE (view->>'source_id' IS NULL OR i.source_id=(view->>'source_id')::uuid)
+   AND (view->>'party_id' IS NULL OR s.party_map->>i.project_ref=lower(view->>'party_id'))
+   AND (wanted='all' OR (i.removed_at IS NULL AND i.status IN ('issued','paid') AND i.total_cents>coalesce(l.cents,0)))),
+ paged AS (SELECT * FROM scoped ORDER BY issue_date DESC,number DESC,id LIMIT page_size OFFSET start_at)
+ SELECT jsonb_build_object(
+  'revision',(SELECT financial_revision::text FROM accounting.settings WHERE id=1),
+  'accrual_start',(SELECT accrual_start FROM accounting.settings WHERE id=1),
+  'accounts',(SELECT coalesce(jsonb_object_agg(a.system_purpose,a.id),'{}') FROM accounting.accounts a WHERE a.system_purpose IN ('accounts_receivable','unbilled_revenue','deferred_revenue')),
+  'sources',(SELECT coalesce(jsonb_agg(to_jsonb(s)-ARRAY['api_key_encrypted','key_version','lease_run_id','lease_until']||jsonb_build_object(
+    'invoice_count',(SELECT count(*) FROM accounting.invoices i WHERE i.source_id=s.id AND i.removed_at IS NULL),
+    'pending_pushes',(SELECT count(*) FROM accounting.invoice_payments p JOIN accounting.invoices i ON i.id=p.invoice_id WHERE i.source_id=s.id AND p.sync_state IN ('pending','removing')),
+    'failed_pushes',(SELECT count(*) FROM accounting.invoice_payments p JOIN accounting.invoices i ON i.id=p.invoice_id WHERE i.source_id=s.id AND p.sync_state='failed'),
+    'projects',(SELECT coalesce(jsonb_agg(jsonb_build_object('project_ref',pr.project_ref,'project_name',pr.project_name,'customer_name',pr.customer_name,'party_id',s.party_map->>pr.project_ref) ORDER BY pr.project_name,pr.project_ref),'[]')
+     FROM (SELECT i.project_ref,max(i.project_name) project_name,max(i.customer_name) customer_name FROM accounting.invoices i WHERE i.source_id=s.id GROUP BY i.project_ref) pr)) ORDER BY s.created_at,s.id),'[]') FROM accounting.invoice_sources s),
+  'total',(SELECT count(*) FROM scoped),
+  -- On request: deposits since the accrual start that were never linked and look like invoice payments, for the owner's review.
+  'matches',CASE WHEN view->>'matches'='true' THEN (SELECT coalesce(jsonb_agg(m.row ORDER BY m.entry_date DESC,m.id),'[]') FROM (
+   SELECT e.id,e.entry_date,jsonb_build_object('entry_id',e.id,'version',e.version,'entry_date',e.entry_date,'memo',e.memo,'payee_name',(SELECT p.name FROM accounting.parties p WHERE p.id=e.payee_id),
+    'amount_cents',(SELECT sum(l.amount_cents) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id AND a.subtype IN ('bank','cash'))::text,
+    'suggestion',accounting.invoice_candidates(e.id)) row
+   FROM accounting.journal_entries e
+   WHERE e.entry_date>=(SELECT st.accrual_start FROM accounting.settings st WHERE st.id=1) AND e.status<>'discarded'
+    AND NOT EXISTS(SELECT 1 FROM accounting.invoice_payments ip WHERE ip.entry_id=e.id)
+    AND NOT EXISTS(SELECT 1 FROM accounting.periods pr WHERE pr.status='locked' AND pr.month>=date_trunc('month',e.entry_date)::date)
+    AND EXISTS(SELECT 1 FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id AND a.subtype IN ('bank','cash') AND l.amount_cents>0)
+    AND accounting.invoice_candidates(e.id) IS NOT NULL
+   ORDER BY e.entry_date DESC,e.id LIMIT 200) m) END,
+  'invoices',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',r.id,'version',r.version,'source_id',r.source_id,'external_id',r.external_id,'number',r.number,
+    'project_ref',r.project_ref,'project_name',r.project_name,'customer_name',r.customer_name,'party_id',r.party_text,'party_name',(SELECT p.name FROM accounting.parties p WHERE p.id::text=r.party_text),
+    'issue_date',r.issue_date,'due_date',r.due_date,'status',r.status,'removed_at',r.removed_at,'lines',r.lines,
+    'total_cents',r.total_cents::text,'linked_cents',r.linked_cents::text,'outstanding_cents',greatest(r.total_cents-r.linked_cents,0)::text,'source_paid_cents',r.source_paid_cents::text,
+    'links',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',p.id,'version',p.version,'entry_id',p.entry_id,'entry_date',e.entry_date,'amount_cents',p.amount_cents::text,'matched_by',p.matched_by,
+      'sync_state',p.sync_state,'last_error',p.last_error,'live',accounting.invoice_payment_live(p.id)) ORDER BY e.entry_date,p.id),'[]')
+     FROM accounting.invoice_payments p JOIN accounting.journal_entries e ON e.id=p.entry_id WHERE p.invoice_id=r.id AND p.removed_at IS NULL)) ORDER BY r.issue_date DESC,r.number DESC,r.id),'[]') FROM paged r)) INTO result;
+ RETURN result;
+END $function$
+;
+
 CREATE OR REPLACE FUNCTION accounting.reconciliation_status(params jsonb DEFAULT '{}'::jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -5841,7 +6760,7 @@ DECLARE b jsonb; a jsonb; payload jsonb; actor uuid:=auth.uid(); op uuid; kind t
 BEGIN
  b:=CASE WHEN TG_OP='INSERT' THEN NULL ELSE to_jsonb(OLD) END; a:=CASE WHEN TG_OP='DELETE' THEN NULL ELSE to_jsonb(NEW) END;
  IF TG_TABLE_NAME='settings' AND TG_OP='UPDATE' AND (b-'financial_revision')=(a-'financial_revision') THEN RETURN NULL; END IF;
- FOR money_key IN SELECT unnest(ARRAY['amount_cents','financial_revision','size_bytes','observed_balance_cents','gross_cents','net_cents','employee_withholding_cents','employer_tax_cents','difference_cents','opening_balance_cents','ending_balance_cents']) LOOP
+ FOR money_key IN SELECT unnest(ARRAY['amount_cents','financial_revision','size_bytes','observed_balance_cents','gross_cents','net_cents','employee_withholding_cents','employer_tax_cents','difference_cents','opening_balance_cents','ending_balance_cents','total_cents']) LOOP
   IF b?money_key AND b->money_key<>'null'::jsonb THEN b:=jsonb_set(b,ARRAY[money_key],to_jsonb(b->>money_key)); END IF;
   IF a?money_key AND a->money_key<>'null'::jsonb THEN a:=jsonb_set(a,ARRAY[money_key],to_jsonb(a->>money_key)); END IF;
  END LOOP;
@@ -5849,6 +6768,7 @@ BEGIN
   b:=b-ARRAY['access_url_encrypted','checkpoint','last_error']; a:=a-ARRAY['access_url_encrypted','checkpoint','last_error'];
  END IF;
  IF TG_TABLE_NAME='bank_transactions' THEN b:=b-'raw_payload'; a:=a-'raw_payload'; END IF;
+ IF TG_TABLE_NAME='invoice_sources' THEN b:=b-ARRAY['api_key_encrypted','lease_run_id','lease_until']; a:=a-ARRAY['api_key_encrypted','lease_run_id','lease_until']; END IF;
  IF TG_TABLE_NAME='tax_links' THEN b:=b-ARRAY['inputs','results','forecast_inputs']; a:=a-ARRAY['inputs','results','forecast_inputs']; END IF;
  op:=coalesce(nullif(current_setting('accounting.operation_id',true),'')::uuid,gen_random_uuid());
  kind:=coalesce(nullif(current_setting('accounting.actor_kind',true),''),CASE WHEN actor IS NULL THEN 'system' ELSE 'owner' END);
@@ -6183,7 +7103,7 @@ CREATE OR REPLACE FUNCTION accounting.report(kind text, params jsonb DEFAULT '{}
 AS $function$
 DECLARE start_date date:=coalesce((params->>'from')::date,date_trunc('year',coalesce((params->>'as_of')::date,current_date))::date);
  end_date date:=coalesce((params->>'as_of')::date,(params->>'to')::date,current_date);year_start date;compare_year_start date;compare_start date:=(params->>'compare_from')::date;compare_end date:=(params->>'compare_to')::date;
- accounts jsonb;totals jsonb;comparison jsonb;monthly jsonb;cash jsonb;quality jsonb;dimensions jsonb;result jsonb;
+ accounts jsonb;totals jsonb;comparison jsonb;monthly jsonb;cash jsonb;quality jsonb;dimensions jsonb;result jsonb;basis text:=coalesce(params->>'basis','cash');bounds date[]:='{}';
 BEGIN
  IF NOT (current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker') THEN PERFORM accounting.require_reader();END IF;
  PERFORM accounting.report_validate(params);
@@ -6192,10 +7112,13 @@ BEGIN
  year_start:=make_date(extract(year FROM end_date)::integer,(SELECT fiscal_year_start_month FROM public.business_profile WHERE id=1),1);
  IF year_start>end_date THEN year_start:=(year_start-interval '1 year')::date;END IF;
  IF compare_end IS NOT NULL THEN compare_year_start:=make_date(extract(year FROM compare_end)::integer,(SELECT fiscal_year_start_month FROM public.business_profile WHERE id=1),1);IF compare_year_start>compare_end THEN compare_year_start:=(compare_year_start-interval '1 year')::date;END IF;END IF;
+ -- The accrual view's straight-line earnings split on every date a total below is cut at, so each sum is exact.
+ IF basis='accrual' THEN
+  bounds:=ARRAY[start_date-1,end_date,year_start-1]||CASE WHEN compare_end IS NULL THEN '{}'::date[] ELSE ARRAY[compare_start-1,compare_end,compare_year_start-1] END
+   ||(SELECT coalesce(array_agg((d+interval '1 month - 1 day')::date),'{}') FROM generate_series(date_trunc('month',start_date),date_trunc('month',end_date),interval '1 month') d);
+ END IF;
  WITH selected AS (
-  SELECT e.entry_date,e.status,l.* FROM accounting.journal_entries e JOIN accounting.journal_lines l ON l.entry_id=e.id
-  WHERE (e.status='posted' OR (params->>'mode'='working' AND e.status='draft' AND (SELECT count(*)>=2 AND coalesce(sum(bl.amount_cents),0)=0 FROM accounting.journal_lines bl WHERE bl.entry_id=e.id)))
-    AND (params->>'payee' IS NULL OR (params->>'payee'='unassigned' AND e.payee_id IS NULL) OR e.payee_id::text=params->>'payee')
+  SELECT s.entry_date,s.status,s.id,s.entry_id,s.account_id,s.amount_cents,s.line_memo memo,s.sort_order FROM accounting.report_source(params,bounds) s
  ), rows AS (
  SELECT a.*,p.name parent_name,
   coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date<start_date),0) opening,
@@ -6236,21 +7159,22 @@ BEGIN
  SELECT coalesce(jsonb_agg(jsonb_build_object('month',month,'income_cents',income::text,'expense_cents',expense::text,'net_cents',(income-expense)::text) ORDER BY month),'[]') INTO monthly FROM (
  SELECT d::date AS month,-coalesce(sum(l.amount_cents) FILTER(WHERE a.type='income' AND (NOT params?'account_ids' OR a.id::text IN(SELECT jsonb_array_elements_text(params->'account_ids'))) AND (NOT params?'account_types' OR a.type IN(SELECT jsonb_array_elements_text(params->'account_types')))),0) income,coalesce(sum(l.amount_cents) FILTER(WHERE a.type='expense' AND (NOT params?'account_ids' OR a.id::text IN(SELECT jsonb_array_elements_text(params->'account_ids'))) AND (NOT params?'account_types' OR a.type IN(SELECT jsonb_array_elements_text(params->'account_types')))),0) expense
  FROM generate_series(date_trunc('month',start_date),date_trunc('month',end_date),interval '1 month') d
- LEFT JOIN accounting.journal_entries e ON e.entry_date>=d::date AND e.entry_date<(d+interval '1 month')::date AND e.entry_date BETWEEN start_date AND end_date AND (e.status='posted' OR (params->>'mode'='working' AND e.status='draft' AND (SELECT count(*)>=2 AND coalesce(sum(bl.amount_cents),0)=0 FROM accounting.journal_lines bl WHERE bl.entry_id=e.id))) AND (params->>'payee' IS NULL OR e.payee_id::text=params->>'payee' OR (params->>'payee'='unassigned' AND e.payee_id IS NULL))
- LEFT JOIN accounting.journal_lines l ON l.entry_id=e.id LEFT JOIN accounting.accounts a ON a.id=l.account_id GROUP BY d) m;
+ LEFT JOIN accounting.report_source(params,bounds) l ON l.entry_date>=d::date AND l.entry_date<(d+interval '1 month')::date AND l.entry_date BETWEEN start_date AND end_date
+ LEFT JOIN accounting.accounts a ON a.id=l.account_id GROUP BY d) m;
  SELECT coalesce(jsonb_agg(jsonb_build_object('classification',classification,'amount_cents',cents::text,'line_count',n) ORDER BY classification),'[]') INTO cash FROM (SELECT classification,sum(amount_cents) cents,count(DISTINCT id) n FROM accounting.cash_lines(params||jsonb_build_object('from',start_date,'to',end_date)) GROUP BY classification) c;
  SELECT jsonb_build_object('draft_count',(SELECT count(*) FROM accounting.journal_entries WHERE status='draft' AND entry_date BETWEEN start_date AND end_date),
  'unbalanced_drafts',(SELECT count(*) FROM accounting.journal_entries e WHERE e.status='draft' AND e.entry_date BETWEEN start_date AND end_date AND (SELECT count(*)<2 OR coalesce(sum(amount_cents),0)<>0 FROM accounting.journal_lines WHERE entry_id=e.id)),
  'unclassified_cash_lines',0,'uncategorized_lines',(SELECT count(*) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id JOIN accounting.journal_entries e ON e.id=l.entry_id WHERE a.subtype='uncategorized' AND e.status='posted' AND e.entry_date BETWEEN start_date AND end_date),
  'reconciliations',(SELECT coalesce(jsonb_agg(jsonb_build_object('account_id',b.account_id,'through',r.statement_end)),'[]') FROM accounting.reconciliations r JOIN accounting.bank_accounts b ON b.id=r.bank_account_id WHERE r.status='completed'),
  'feeds',(SELECT coalesce(jsonb_agg(jsonb_build_object('name',name,'last_success_at',last_success_at,'status',status)),'[]') FROM accounting.bank_connections)) INTO quality;
+ IF basis='accrual' THEN quality:=quality||jsonb_build_object('accrual',accounting.accrual_summary(params,start_date,end_date,bounds));END IF;
  SELECT coalesce(jsonb_agg(jsonb_build_object('kind','payee','id',party,'name',name,'income_cents',income::text,'expense_cents',expense::text,'compare_income_cents',compare_income::text,'compare_expense_cents',compare_expense::text)),'[]') INTO dimensions FROM (
- SELECT coalesce(e.payee_id::text,'unassigned') party,coalesce(p.name,'Unassigned') name,
- -coalesce(sum(l.amount_cents) FILTER(WHERE a.type='income' AND e.entry_date BETWEEN start_date AND end_date),0) income,coalesce(sum(l.amount_cents) FILTER(WHERE a.type='expense' AND e.entry_date BETWEEN start_date AND end_date),0) expense,
- -coalesce(sum(l.amount_cents) FILTER(WHERE a.type='income' AND e.entry_date BETWEEN compare_start AND compare_end),0) compare_income,coalesce(sum(l.amount_cents) FILTER(WHERE a.type='expense' AND e.entry_date BETWEEN compare_start AND compare_end),0) compare_expense
- FROM accounting.journal_entries e JOIN accounting.journal_lines l ON l.entry_id=e.id JOIN accounting.accounts a ON a.id=l.account_id LEFT JOIN accounting.parties p ON p.id=e.payee_id
- WHERE (e.status='posted' OR (params->>'mode'='working' AND e.status='draft' AND (SELECT count(*)>=2 AND coalesce(sum(bl.amount_cents),0)=0 FROM accounting.journal_lines bl WHERE bl.entry_id=e.id))) AND (NOT params?'account_ids' OR a.id::text IN(SELECT jsonb_array_elements_text(params->'account_ids'))) AND (NOT params?'account_types' OR a.type IN(SELECT jsonb_array_elements_text(params->'account_types'))) AND (params->>'payee' IS NULL OR e.payee_id::text=params->>'payee' OR (params->>'payee'='unassigned' AND e.payee_id IS NULL)) AND (e.entry_date BETWEEN start_date AND end_date OR e.entry_date BETWEEN compare_start AND compare_end) GROUP BY e.payee_id,p.name) q;
- result:=jsonb_build_object('legal_name',(SELECT legal_name FROM public.business_profile WHERE id=1),'revision',(SELECT financial_revision::text FROM accounting.settings),'definition_version',1,'currency','USD','basis','cash','generated_at',now(),
+ SELECT coalesce(l.payee_id::text,'unassigned') party,coalesce(p.name,'Unassigned') name,
+ -coalesce(sum(l.amount_cents) FILTER(WHERE a.type='income' AND l.entry_date BETWEEN start_date AND end_date),0) income,coalesce(sum(l.amount_cents) FILTER(WHERE a.type='expense' AND l.entry_date BETWEEN start_date AND end_date),0) expense,
+ -coalesce(sum(l.amount_cents) FILTER(WHERE a.type='income' AND l.entry_date BETWEEN compare_start AND compare_end),0) compare_income,coalesce(sum(l.amount_cents) FILTER(WHERE a.type='expense' AND l.entry_date BETWEEN compare_start AND compare_end),0) compare_expense
+ FROM accounting.report_source(params,bounds||CASE WHEN compare_end IS NULL OR basis<>'accrual' THEN '{}'::date[] ELSE ARRAY[compare_start-1,compare_end] END) l JOIN accounting.accounts a ON a.id=l.account_id LEFT JOIN accounting.parties p ON p.id=l.payee_id
+ WHERE (NOT params?'account_ids' OR a.id::text IN(SELECT jsonb_array_elements_text(params->'account_ids'))) AND (NOT params?'account_types' OR a.type IN(SELECT jsonb_array_elements_text(params->'account_types'))) AND (l.entry_date BETWEEN start_date AND end_date OR l.entry_date BETWEEN compare_start AND compare_end) GROUP BY l.payee_id,p.name) q;
+ result:=jsonb_build_object('legal_name',(SELECT legal_name FROM public.business_profile WHERE id=1),'revision',(SELECT financial_revision::text FROM accounting.settings),'definition_version',1,'currency','USD','basis',basis,'generated_at',now(),
  'filter',(params-'as_of')||jsonb_build_object('from',start_date,'to',end_date,'mode',coalesce(params->>'mode','posted'),'offset',coalesce((params->>'offset')::integer,0)),'accounts',accounts,'rows',accounts,'totals',totals,'comparison',comparison,'monthly',monthly,'dimensions',dimensions,'cash',cash,'quality',quality);
  RETURN result||jsonb_build_object('income_cents',totals->'income_cents','expense_cents',totals->'expense_cents','net_income_cents',totals->'net_cents','cost_of_goods_sold_cents',totals->'cogs_cents',
  'gross_profit_cents',((totals->>'income_cents')::numeric-(totals->>'cogs_cents')::numeric)::text,'operating_expense_cents',((totals->>'expense_cents')::numeric-(totals->>'cogs_cents')::numeric)::text,
@@ -6317,7 +7241,7 @@ CREATE OR REPLACE FUNCTION accounting.report_lines(kind text, params jsonb, acco
  STABLE SECURITY DEFINER
  SET search_path TO ''
 AS $function$
-DECLARE start_date date:=(params->>'from')::date;end_date date:=coalesce((params->>'as_of')::date,(params->>'to')::date);offset_rows integer:=coalesce((params->>'offset')::integer,0);limit_rows integer:=coalesce((params->>'limit')::integer,100);result jsonb;opening numeric;
+DECLARE start_date date:=(params->>'from')::date;end_date date:=coalesce((params->>'as_of')::date,(params->>'to')::date);offset_rows integer:=coalesce((params->>'offset')::integer,0);limit_rows integer:=coalesce((params->>'limit')::integer,100);result jsonb;opening numeric;bounds date[]:='{}';
 BEGIN
  PERFORM accounting.require_reader();
  PERFORM accounting.report_validate(params);
@@ -6325,11 +7249,15 @@ BEGIN
  IF report_lines.kind NOT IN ('general_ledger','profit_loss','balance_sheet','trial_balance','account_balances','cash_movements','owner_activity','summary','payee') THEN RAISE EXCEPTION 'ACCT_REPORT_KIND';END IF;
  IF account IS NOT NULL THEN params:=params||jsonb_build_object('account_ids',jsonb_build_array(account));END IF;
  params:=(params-'as_of')||jsonb_build_object('from',start_date,'to',end_date);
+ -- Cash is cash on either basis; only the other ledgers read the accrual view's adjustments, split on the range edges and month ends.
+ IF report_lines.kind='cash_movements' THEN params:=params-'basis';
+ ELSIF params->>'basis'='accrual' THEN
+  bounds:=ARRAY[start_date-1,end_date]||(SELECT coalesce(array_agg((d+interval '1 month - 1 day')::date),'{}') FROM generate_series(date_trunc('month',start_date),date_trunc('month',end_date),interval '1 month') d);
+ END IF;
  WITH selected AS (
- SELECT l.*,e.entry_date,e.memo entry_memo,e.status,e.origin,a.name account_name,a.type account_type
- FROM accounting.journal_lines l JOIN accounting.journal_entries e ON e.id=l.entry_id JOIN accounting.accounts a ON a.id=l.account_id
- WHERE e.entry_date<=end_date AND (e.status='posted' OR (params->>'mode'='working' AND e.status='draft' AND (SELECT count(*)>=2 AND coalesce(sum(bl.amount_cents),0)=0 FROM accounting.journal_lines bl WHERE bl.entry_id=e.id)))
- AND (params->>'payee' IS NULL OR e.payee_id::text=params->>'payee' OR (params->>'payee'='unassigned' AND e.payee_id IS NULL))
+ SELECT s.id,s.entry_id,s.account_id,s.amount_cents,s.line_memo memo,s.sort_order,s.entry_date,s.entry_memo,s.status,s.origin,a.name account_name,a.type account_type
+ FROM accounting.report_source(params,bounds) s JOIN accounting.accounts a ON a.id=s.account_id
+ WHERE s.entry_date<=end_date
  AND (NOT params?'account_ids' OR a.id::text IN(SELECT jsonb_array_elements_text(params->'account_ids'))) AND (NOT params?'account_types' OR a.type IN(SELECT jsonb_array_elements_text(params->'account_types')))
  AND (report_lines.kind<>'owner_activity' OR a.type='equity') AND (report_lines.kind<>'profit_loss' OR a.type IN ('income','expense')) AND (report_lines.kind<>'cash_movements' OR a.subtype IN ('bank','cash'))
  ), scoped AS (
@@ -6345,6 +7273,27 @@ BEGIN
 END $function$
 ;
 
+CREATE OR REPLACE FUNCTION accounting.report_source(params jsonb, boundaries date[] DEFAULT '{}'::date[])
+ RETURNS TABLE(id uuid, entry_id uuid, entry_date date, status text, origin text, entry_memo text, account_id uuid, amount_cents bigint, payee_id uuid, line_memo text, sort_order integer)
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+-- The lines every report reads: the ledger (posted, or balanced drafts in working mode) and, on the accrual basis, the accrual view's
+-- computed adjustments. Cash basis is the ledger exactly as before.
+BEGIN
+ RETURN QUERY SELECT l.id,e.id,e.entry_date,e.status,e.origin,e.memo,l.account_id,l.amount_cents,e.payee_id,l.memo,l.sort_order::integer
+ FROM accounting.journal_entries e JOIN accounting.journal_lines l ON l.entry_id=e.id
+ WHERE (e.status='posted' OR (params->>'mode'='working' AND e.status='draft' AND (SELECT count(*)>=2 AND coalesce(sum(bl.amount_cents),0)=0 FROM accounting.journal_lines bl WHERE bl.entry_id=e.id)))
+  AND (params->>'payee' IS NULL OR (params->>'payee'='unassigned' AND e.payee_id IS NULL) OR e.payee_id::text=params->>'payee');
+ IF coalesce(params->>'basis','cash')='accrual' THEN
+  RETURN QUERY SELECT a.id,a.entry_id,a.entry_date,'posted'::text,'internal'::text,a.memo,a.account_id,a.amount_cents,a.payee_id,''::text,a.sort_order
+  FROM accounting.accrual_lines(params,boundaries) a
+  WHERE (params->>'payee' IS NULL OR (params->>'payee'='unassigned' AND a.payee_id IS NULL) OR a.payee_id::text=params->>'payee');
+ END IF;
+END $function$
+;
+
 CREATE OR REPLACE FUNCTION accounting.report_validate(params jsonb)
  RETURNS void
  LANGUAGE plpgsql
@@ -6355,6 +7304,7 @@ DECLARE ids jsonb;value text;
 BEGIN
  IF jsonb_typeof(params) IS DISTINCT FROM 'object' THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
  IF coalesce(params->>'mode','posted') NOT IN ('posted','working') THEN RAISE EXCEPTION 'ACCT_REPORT_RANGE';END IF;
+ IF coalesce(params->>'basis','cash') NOT IN ('cash','accrual') THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
  IF params ?| ARRAY['customer','project','business_line'] THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
  IF params?'account_ids' THEN
   ids:=params->'account_ids';IF jsonb_typeof(ids) IS DISTINCT FROM 'array' THEN RAISE EXCEPTION 'ACCT_INVALID_FILTER';END IF;
@@ -7428,6 +8378,24 @@ GRANT TRIGGER ON TABLE accounting.balance_observations TO "postgres";
 
 GRANT MAINTAIN ON TABLE accounting.balance_observations TO "postgres";
 
+REVOKE ALL ON TABLE accounting.earned_work FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.earned_work TO "postgres";
+
+GRANT SELECT ON TABLE accounting.earned_work TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.earned_work TO "postgres";
+
+GRANT DELETE ON TABLE accounting.earned_work TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.earned_work TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.earned_work TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.earned_work TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.earned_work TO "postgres";
+
 REVOKE ALL ON TABLE accounting.feed_worker FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT INSERT ON TABLE accounting.feed_worker TO "postgres";
@@ -7445,6 +8413,60 @@ GRANT REFERENCES ON TABLE accounting.feed_worker TO "postgres";
 GRANT TRIGGER ON TABLE accounting.feed_worker TO "postgres";
 
 GRANT MAINTAIN ON TABLE accounting.feed_worker TO "postgres";
+
+REVOKE ALL ON TABLE accounting.invoice_payments FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.invoice_payments TO "postgres";
+
+GRANT SELECT ON TABLE accounting.invoice_payments TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.invoice_payments TO "postgres";
+
+GRANT DELETE ON TABLE accounting.invoice_payments TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.invoice_payments TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.invoice_payments TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.invoice_payments TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.invoice_payments TO "postgres";
+
+REVOKE ALL ON TABLE accounting.invoice_sources FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.invoice_sources TO "postgres";
+
+GRANT SELECT ON TABLE accounting.invoice_sources TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.invoice_sources TO "postgres";
+
+GRANT DELETE ON TABLE accounting.invoice_sources TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.invoice_sources TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.invoice_sources TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.invoice_sources TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.invoice_sources TO "postgres";
+
+REVOKE ALL ON TABLE accounting.invoices FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT INSERT ON TABLE accounting.invoices TO "postgres";
+
+GRANT SELECT ON TABLE accounting.invoices TO "postgres";
+
+GRANT UPDATE ON TABLE accounting.invoices TO "postgres";
+
+GRANT DELETE ON TABLE accounting.invoices TO "postgres";
+
+GRANT TRUNCATE ON TABLE accounting.invoices TO "postgres";
+
+GRANT REFERENCES ON TABLE accounting.invoices TO "postgres";
+
+GRANT TRIGGER ON TABLE accounting.invoices TO "postgres";
+
+GRANT MAINTAIN ON TABLE accounting.invoices TO "postgres";
 
 REVOKE ALL ON TABLE accounting.journal_entries FROM PUBLIC, anon, authenticated, service_role;
 
@@ -7742,6 +8764,14 @@ GRANT UPDATE ON TABLE public.business_profile TO "authenticated";
 
 GRANT DELETE ON TABLE public.business_profile TO "authenticated";
 
+REVOKE ALL ON FUNCTION accounting.accrual_lines(jsonb, date[]) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.accrual_lines(jsonb, date[]) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.accrual_summary(jsonb, date, date, date[]) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.accrual_summary(jsonb, date, date, date[]) TO "postgres";
+
 REVOKE ALL ON FUNCTION accounting.apply_treatment(uuid) FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION accounting.apply_treatment(uuid) TO "postgres";
@@ -7874,6 +8904,20 @@ REVOKE ALL ON FUNCTION accounting.guard() FROM PUBLIC, anon, authenticated, serv
 
 GRANT EXECUTE ON FUNCTION accounting.guard() TO "postgres";
 
+REVOKE ALL ON FUNCTION accounting.invoice_push_plan(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.invoice_push_plan(uuid) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.invoice_retire_dead(uuid) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.invoice_retire_dead(uuid) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.invoice_sync_server(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.invoice_sync_server(jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.invoice_sync_server(jsonb) TO "service_role";
+
 REVOKE ALL ON FUNCTION accounting.ledger(uuid,date,date) FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION accounting.ledger(uuid,date,date) TO "postgres";
@@ -7917,6 +8961,12 @@ REVOKE ALL ON FUNCTION accounting.prior_treatment(text,uuid,integer) FROM PUBLIC
 GRANT EXECUTE ON FUNCTION accounting.prior_treatment(text,uuid,integer) TO "postgres";
 
 GRANT EXECUTE ON FUNCTION accounting.prior_treatment(text,uuid,integer) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.receivables(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.receivables(jsonb) TO "postgres";
+
+GRANT EXECUTE ON FUNCTION accounting.receivables(jsonb) TO "authenticated";
 
 REVOKE ALL ON FUNCTION accounting.reconciliation_status(jsonb) FROM PUBLIC, anon, authenticated, service_role;
 
@@ -7971,6 +9021,10 @@ REVOKE ALL ON FUNCTION accounting.report_lines(text,jsonb,uuid) FROM PUBLIC, ano
 GRANT EXECUTE ON FUNCTION accounting.report_lines(text,jsonb,uuid) TO "postgres";
 
 GRANT EXECUTE ON FUNCTION accounting.report_lines(text,jsonb,uuid) TO "authenticated";
+
+REVOKE ALL ON FUNCTION accounting.report_source(jsonb, date[]) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.report_source(jsonb, date[]) TO "postgres";
 
 REVOKE ALL ON FUNCTION accounting.report_validate(jsonb) FROM PUBLIC, anon, authenticated, service_role;
 
@@ -8169,6 +9223,28 @@ CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.documents FO
 CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.documents FOR EACH ROW EXECUTE FUNCTION accounting.banking_guard();
 
 CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.documents FOR EACH STATEMENT EXECUTE FUNCTION accounting.banking_guard();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.earned_work FOR EACH ROW EXECUTE FUNCTION accounting.invoice_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.earned_work FOR EACH STATEMENT EXECUTE FUNCTION accounting.invoice_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.invoice_payments FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.invoice_payments FOR EACH ROW EXECUTE FUNCTION accounting.invoice_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.invoice_payments FOR EACH STATEMENT EXECUTE FUNCTION accounting.invoice_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.invoice_sources FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.invoice_sources FOR EACH ROW EXECUTE FUNCTION accounting.invoice_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.invoice_sources FOR EACH STATEMENT EXECUTE FUNCTION accounting.invoice_guard();
+
+CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.invoices FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
+
+CREATE TRIGGER guard BEFORE INSERT OR DELETE OR UPDATE ON accounting.invoices FOR EACH ROW EXECUTE FUNCTION accounting.invoice_guard();
+
+CREATE TRIGGER write_lock BEFORE INSERT OR DELETE OR UPDATE ON accounting.invoices FOR EACH STATEMENT EXECUTE FUNCTION accounting.invoice_guard();
 
 CREATE TRIGGER audit AFTER INSERT OR DELETE OR UPDATE ON accounting.journal_entries FOR EACH ROW EXECUTE FUNCTION accounting.record_audit();
 

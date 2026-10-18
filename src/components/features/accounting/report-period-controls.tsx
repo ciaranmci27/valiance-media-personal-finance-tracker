@@ -29,6 +29,7 @@ import {
   type BalanceCompare,
 } from "@/lib/accounting/balance-sheet";
 import { FilterChip, PresetSegments } from "./report-kit";
+import { BasisToggle, basisLabel } from "./accounting-basis";
 
 /**
  * The period report controls: the period presets with Custom dates, the
@@ -45,7 +46,10 @@ export function PeriodControls({
   onApply,
   fiscalMonth = 1,
   compare = true,
+  basis,
 }: {
+  /** Offer the Cash | Accrual toggle (once an invoice source set the accrual start). */
+  basis?: boolean;
   /** The fiscal year's start month: "Year to date" and "Last year" follow it. */
   fiscalMonth?: number;
   /** Whether the report offers a comparison (the general ledger does not). */
@@ -171,6 +175,12 @@ export function PeriodControls({
             { value: "posted", label: "Reviewed only" },
           ]}
         />
+        {basis && (
+          <BasisToggle
+            value={filter.basis ?? "cash"}
+            onChange={(b) => onApply({ basis: b === "accrual" ? b : undefined })}
+          />
+        )}
       </div>
       {rangeError && (
         <p role="alert" className="text-xs text-error">
@@ -181,6 +191,12 @@ export function PeriodControls({
         <span>{rangeLabel(filter.from, filter.to)}</span>
         <span aria-hidden="true">·</span>
         <span>{scope}</span>
+        {basis && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>{basisLabel(filter.basis)}</span>
+          </>
+        )}
         <span aria-hidden="true">·</span>
         <span>USD</span>
         {compared && (

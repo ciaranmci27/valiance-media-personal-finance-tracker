@@ -14,6 +14,8 @@ export const reportFilterSchema = z
     from: dateSchema,
     to: dateSchema,
     mode: z.enum(["posted", "working"]).default(DEFAULT_BOOK_MODE),
+    /** Accrual reads the books with what was earned and billed; absent means cash, the basis the books are kept and filed on. */
+    basis: z.enum(["cash", "accrual"]).optional(),
     compare_from: dateSchema.optional(),
     compare_to: dateSchema.optional(),
     payee: dimension,
@@ -127,7 +129,30 @@ export interface ReportData {
     uncategorized_lines: number;
     reconciliations: { account_id: string; through: string }[];
     feeds: { name: string; last_success_at: string | null; status: string }[];
+    /** On the accrual basis: what the figures rest on and every gap that could double count. */
+    accrual?: AccrualQuality;
   };
+}
+export interface AccrualQuality {
+  accrual_start: string | null;
+  /** The range starts before the accrual start, so earlier months read cash. */
+  partial: boolean;
+  earned: {
+    time_cents: string;
+    retainer_cents: string;
+    invoice_cents: string;
+    collected_back_cents: string;
+  };
+  receivable_cents: string;
+  customer_credit_cents: string;
+  unlinked_client_deposits: { count: number; cents: string };
+  paid_at_source_unlinked: { count: number; cents: string };
+  unmapped_line_types: string[];
+  unmapped_projects: number;
+  links_beyond_deposit: number;
+  ended_links: number;
+  stale_sources: number;
+  changed_after_lock: number;
 }
 export interface ReportDetail {
   revision: string;

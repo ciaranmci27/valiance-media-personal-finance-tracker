@@ -48,6 +48,7 @@ import {
 } from "@/lib/accounting/categories";
 import { AccountingContextEditor } from "./accounting-context-editor";
 import { EntryEvidenceDisclosure } from "./accounting-entry-evidence";
+import { EntryInvoices } from "./accounting-entry-invoices";
 import {
   commandContext,
   useAccountingCommand,
@@ -69,6 +70,7 @@ export function AccountingTransactionEditor({
   onClose,
   onSaved,
   onJournal,
+  demo = false,
 }: {
   entry?: JournalEntry;
   initialDirection?: "in" | "out";
@@ -78,6 +80,7 @@ export function AccountingTransactionEditor({
   onClose: () => void;
   onSaved: () => Promise<void>;
   onJournal: () => void;
+  demo?: boolean;
 }) {
   const presentation = entry
     ? presentTransaction(entry, manage.profiles)
@@ -647,6 +650,15 @@ export function AccountingTransactionEditor({
               </section>
             )}
           </form>
+          {entry && (
+            <EntryInvoices
+              key={`${entry.id}:${entry.version}`}
+              entry={entry}
+              bankLineId={presentation?.bankLine?.id ?? null}
+              demo={demo}
+              onSaved={onSaved}
+            />
+          )}
           {entry && (
             <EntryEvidenceDisclosure
               key={entry.id}

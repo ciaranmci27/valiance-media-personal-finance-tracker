@@ -129,6 +129,7 @@ export function AccountingReports({
         onEntry={onEntry}
         onReview={onReview}
         demo={demo}
+        accrualReady={!demo && !!manage.preferences?.accrual_start}
       />
     );
   if (report?.id === "general-ledger")

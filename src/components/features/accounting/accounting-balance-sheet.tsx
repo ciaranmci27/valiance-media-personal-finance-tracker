@@ -57,6 +57,7 @@ import { AccountingPageHeader } from "./accounting-page-header";
 import { AccountingReportDetail } from "./accounting-report-detail";
 import { AccountingAccountLogo } from "./accounting-bank-identity";
 import { useAccountingRead } from "./use-accounting-read";
+import { AccrualNotes, BasisToggle, basisLabel } from "./accounting-basis";
 import { useReportExport } from "./use-report-export";
 import { useFiscalStartMonth } from "./use-fiscal-year";
 import { todayInBooks } from "./format";
@@ -122,11 +123,14 @@ export function AccountingBalanceSheet({
   onEntry,
   onReview,
   demo = false,
+  accrualReady = false,
 }: {
   onBack: () => void;
   onEntry: (id: string) => void;
   onReview: () => void;
   demo?: boolean;
+  /** An invoice source set the accrual start, so the accrual basis can be read. */
+  accrualReady?: boolean;
 }) {
   const params = useSearchParams();
   const today = todayInBooks();
@@ -138,7 +142,10 @@ export function AccountingBalanceSheet({
   );
   // A link from elsewhere may carry any start date; a balance only needs its year.
   const asOf = filter.to;
-  const normalized = balanceFilter(asOf, filter.mode, filter.compare_to);
+  const normalized: ReportFilter = {
+    ...balanceFilter(asOf, filter.mode, filter.compare_to),
+    ...(filter.basis === "accrual" ? { basis: "accrual" as const } : {}),
+  };
   const signature = JSON.stringify(normalized);
   const preset = asOfPresetOf(asOf, today, fiscalStart);
   const compareMode = balanceCompareOf(normalized, fiscalStart);
@@ -238,7 +245,13 @@ export function AccountingBalanceSheet({
 
   function apply(next: ReportFilter, replace = false) {
     setDrill(null);
-    writeReportFilter(next, replace);
+    // A new date or comparison keeps the basis being read.
+    writeReportFilter(
+      "basis" in next || !normalized.basis
+        ? next
+        : { ...next, basis: normalized.basis },
+      replace,
+    );
   }
   function setAsOf(date: string, replace = false) {
     // A comparison keeps its meaning (end of previous month, and so on) as the date moves.
@@ -353,11 +366,19 @@ export function AccountingBalanceSheet({
             { value: "posted", label: "Reviewed only" },
           ]}
         />
+        {accrualReady && (
+          <BasisToggle
+            value={normalized.basis ?? "cash"}
+            onChange={(b) =>
+              apply({ ...normalized, basis: b === "accrual" ? b : undefined })
+            }
+          />
+        )}
       </div>
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <span>As of {dateText(asOf)}</span>
         <span aria-hidden="true">·</span>
-        <span>Cash basis</span>
+        <span>{basisLabel(normalized.basis)}</span>
         <span aria-hidden="true">·</span>
         <span>USD</span>
         {compared && (
@@ -388,6 +409,7 @@ export function AccountingBalanceSheet({
     <div className="space-y-5 lg:space-y-6">
       {header}
       {controls}
+      <AccrualNotes data={data} />
       {errorMessage && (
         <p
           role="alert"

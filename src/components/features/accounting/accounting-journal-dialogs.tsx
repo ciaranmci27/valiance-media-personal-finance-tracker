@@ -39,6 +39,7 @@ import type { BooksMetadata } from "./types";
 import { AccountingContextEditor } from "./accounting-context-editor";
 import { partyRolesLabel } from "./accounting-party-form";
 import { EntryEvidenceDisclosure } from "./accounting-entry-evidence";
+import { EntryInvoices } from "./accounting-entry-invoices";
 import { EntryNotes } from "./accounting-entry-notes";
 import { commandContext, type CommandContext } from "./use-accounting-command";
 import {
@@ -151,8 +152,14 @@ export function EntryDetailDialog({
   error = "",
   canReview = true,
   opening = false,
+  bankLineId = null,
+  onInvoicesChanged,
 }: {
   entry: JournalEntry | null;
+  /** The entry's one bank or cash line, so a deposit can be linked to the invoices it paid. */
+  bankLineId?: string | null;
+  /** Re-reads the entry after a link changes; without it the Invoices section stays hidden. */
+  onInvoicesChanged?: () => Promise<void>;
   /** The entry is still being fetched: open at once with a placeholder body. */
   opening?: boolean;
   accounts: Map<string, AccountingAccount>;
@@ -420,6 +427,15 @@ export function EntryDetailDialog({
                     </>
                   )}
                 </p>
+              )}
+              {onInvoicesChanged && (
+                <EntryInvoices
+                  key={`${entry.id}:${entry.version}`}
+                  entry={entry}
+                  bankLineId={bankLineId}
+                  demo={demo}
+                  onSaved={onInvoicesChanged}
+                />
               )}
               {!demo && (
                 <EntryEvidenceDisclosure

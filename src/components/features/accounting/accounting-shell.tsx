@@ -897,6 +897,7 @@ function AccountingBooksInner({
             date={data.to}
             accounts={data.accounts}
             manage={manage}
+            demo={demo}
             onClose={() => setSimpleEditor(null)}
             onSaved={refreshTransactionBooks}
             onJournal={() => {
@@ -922,6 +923,20 @@ function AccountingBooksInner({
             !!selected &&
             presentTransaction(selected, manage.profiles).categorized
           }
+          bankLineId={
+            selected
+              ? (presentTransaction(selected, manage.profiles).bankLine?.id ??
+                null)
+              : null
+          }
+          onInvoicesChanged={async () => {
+            await refreshTransactionBooks();
+            if (!selected || demo) return;
+            const fresh = await cache.read<{ entries: JournalEntry[] }>(
+              registerQuery({ entry_id: selected.id }),
+            );
+            setSelected(fresh.entries[0] ?? null);
+          }}
           onClose={() => {
             entryRequest.current++;
             setSelected(null);

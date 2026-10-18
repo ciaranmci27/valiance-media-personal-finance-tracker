@@ -29,6 +29,9 @@
       ],
       "@feeds/*": [
         "./supabase/functions/_shared/feeds/*"
+      ],
+      "@invoices/*": [
+        "./supabase/functions/_shared/invoices/*"
       ]
     }
   },

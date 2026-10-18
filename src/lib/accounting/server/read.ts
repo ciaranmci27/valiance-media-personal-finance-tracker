@@ -170,6 +170,8 @@ export async function readAccounting(
     case "transfers":
     case "cash-review":
       return client.rpc("context", { view, params: p });
+    case "receivables":
+      return client.rpc("receivables", { view: p });
     default:
       return { data: null, error: { message: "ACCT_INVALID_VIEW" } };
   }

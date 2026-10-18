@@ -63,6 +63,7 @@ import type { BooksMetadata } from "./types";
 import { AccountingPageHeader } from "./accounting-page-header";
 import { AccountingReportDetail } from "./accounting-report-detail";
 import { useAccountingRead } from "./use-accounting-read";
+import { AccrualNotes, BasisToggle, basisLabel } from "./accounting-basis";
 import { useReportExport } from "./use-report-export";
 import { useFiscalStartMonth } from "./use-fiscal-year";
 import { todayInBooks } from "./format";
@@ -204,8 +205,9 @@ export function AccountingProfitLoss({
     reportQuery("profit-loss", filter),
     { enabled: live, keepPrevious: true },
   );
+  // The month-by-month comparison reads cash only, so the accrual basis shows its own months without it.
   const monthsRead = useAccountingRead<BreakdownData>(
-    comparing ? breakdownQuery(filter) : null,
+    comparing && filter.basis !== "accrual" ? breakdownQuery(filter) : null,
     { enabled: live, keepPrevious: true },
   );
   const demoData = useMemo(
@@ -227,6 +229,7 @@ export function AccountingProfitLoss({
       reportRead.revalidating ||
       (comparing && monthsRead.loading));
   const parties = demo ? demoParties : manage.parties;
+  const accrualReady = !demo && !!manage.preferences?.accrual_start;
 
   function apply(patch: Partial<ReportFilter>, replace = false) {
     const next: ReportFilter = { ...filter, ...patch, offset: 0 };
@@ -360,6 +363,12 @@ export function AccountingProfitLoss({
             { value: "posted", label: "Reviewed only" },
           ]}
         />
+        {accrualReady && (
+          <BasisToggle
+            value={filter.basis ?? "cash"}
+            onChange={(b) => apply({ basis: b === "accrual" ? b : undefined })}
+          />
+        )}
         <FilterChip
           label="Contact"
           searchable
@@ -380,7 +389,7 @@ export function AccountingProfitLoss({
       <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
         <span>{periodText}</span>
         <span aria-hidden="true">·</span>
-        <span>Cash basis</span>
+        <span>{basisLabel(filter.basis)}</span>
         <span aria-hidden="true">·</span>
         <span>USD</span>
         {compared && (
@@ -412,6 +421,7 @@ export function AccountingProfitLoss({
     <div className="space-y-5 lg:space-y-6">
       {header}
       {controls}
+      <AccrualNotes data={data} />
       {errorMessage && (
         <p
           role="alert"

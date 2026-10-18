@@ -52,6 +52,7 @@ import { uncategorizedCents } from "@/lib/accounting/account-balances";
 import { AccountingPageHeader } from "./accounting-page-header";
 import { AccountingReportDetail } from "./accounting-report-detail";
 import { useAccountingRead } from "./use-accounting-read";
+import { AccrualNotes } from "./accounting-basis";
 import { useContactSeries } from "./use-contact-series";
 import { useReportExport } from "./use-report-export";
 import { todayInBooks } from "./format";
@@ -215,7 +216,9 @@ export function AccountingCustomerIncome({
         scope="Income by contact"
         updating={updating}
         onApply={apply}
+        basis={!demo && !!manage.preferences?.accrual_start}
       />
+      <AccrualNotes data={data} />
       {errorMessage && (
         <p role="alert" className="rounded-lg border border-error/30 p-4 text-sm text-error">
           {errorMessage}

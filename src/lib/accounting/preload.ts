@@ -132,6 +132,17 @@ export function overviewReportFilter(to: string): ReportFilter {
   return { from: monthsBefore(to, 11), to, mode: DEFAULT_BOOK_MODE, offset: 0 };
 }
 
+/** The Overview's Earned this month: this month to date, on the accrual basis. */
+export function earnedReportFilter(to: string): ReportFilter {
+  return {
+    from: `${to.slice(0, 7)}-01`,
+    to,
+    mode: DEFAULT_BOOK_MODE,
+    basis: "accrual",
+    offset: 0,
+  };
+}
+
 /** A report opened from the catalog: the books' date range, all activity. */
 export function defaultReportFilter(from: string, to: string): ReportFilter {
   return { from, to, mode: DEFAULT_BOOK_MODE, offset: 0 };

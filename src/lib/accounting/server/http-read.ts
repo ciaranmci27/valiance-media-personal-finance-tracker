@@ -49,10 +49,7 @@ export async function answerAccountingRead(
       /not configured/.test(e.message)
     )
       return NextResponse.json(
-        claimGuide(
-          Number(params.get("year")) ||
-            new Date().getFullYear(),
-        ),
+        claimGuide(Number(params.get("year")) || new Date().getFullYear()),
         { headers: { "Cache-Control": "no-store" } },
       );
     return NextResponse.json(
@@ -323,8 +320,7 @@ export async function answerAccountingRead(
       }
       const parsed = reportFilterSchema.safeParse(input);
       const ledger =
-        view === "report" &&
-        params.get("report") === "general-ledger";
+        view === "report" && params.get("report") === "general-ledger";
       if (
         !parsed.success ||
         (view === "report" &&
@@ -518,6 +514,23 @@ export async function answerAccountingRead(
       result = await readAccounting(client, view, {
         month: `${parsed.data.slice(0, 7)}-01`,
       });
+    } else if (view === "receivables") {
+      const parsed = z
+        .object({
+          source_id: z.guid().optional(),
+          party_id: z.guid().optional(),
+          status: z.enum(["open", "all"]).default("open"),
+          matches: z.enum(["true"]).optional(),
+          offset: z.coerce.number().int().min(0).max(10000000).default(0),
+          limit: z.coerce.number().int().min(1).max(200).default(100),
+        })
+        .safeParse(Object.fromEntries(params));
+      if (!parsed.success)
+        return NextResponse.json(
+          { error: "Choose valid invoice filters." },
+          { status: 400 },
+        );
+      result = await readAccounting(client, "receivables", parsed.data);
     } else if (view === "account-ledger") {
       const schema = z
         .object({
@@ -528,9 +541,7 @@ export async function answerAccountingRead(
           mode: z.enum(["posted", "working"]).default(DEFAULT_BOOK_MODE),
         })
         .refine((v) => v.from <= v.to);
-      const parsed = schema.safeParse(
-        Object.fromEntries(params),
-      );
+      const parsed = schema.safeParse(Object.fromEntries(params));
       if (!parsed.success)
         return NextResponse.json(
           { error: "Choose an account and valid range." },

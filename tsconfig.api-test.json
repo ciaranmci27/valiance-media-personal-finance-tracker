@@ -4,6 +4,7 @@
     "paths": {
       "@/*": ["./src/*"],
       "@feeds/*": ["./supabase/functions/_shared/feeds/*"],
+      "@invoices/*": ["./supabase/functions/_shared/invoices/*"],
       "server-only": ["./scripts/stubs/server-only.ts"]
     }
   }

@@ -28,6 +28,7 @@ const VIEWS = new Set<string>([...ACCOUNTING_NAV.map((n) => n.view), "close"]);
 /** The Manage sections, in rail order. */
 export type ManageSection =
   | "feeds"
+  | "invoices"
   | "documents"
   | "registers"
   | "tax"
@@ -36,6 +37,7 @@ export type ManageSection =
 
 const MANAGE_SECTIONS = new Set<string>([
   "feeds",
+  "invoices",
   "documents",
   "registers",
   "tax",

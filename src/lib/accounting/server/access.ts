@@ -149,6 +149,24 @@ export function accountingError(message: string): string {
     ACCT_BANK_SOURCE_CHANGED:
       "The bank side of this transaction (date, account and amount) comes from the bank and cannot change. Edit the category, description or payee instead.",
     ACCT_REASON_REQUIRED: "Provide a reason for this change.",
+    ACCT_INVALID_SOURCE_URL:
+      "Use the invoicing app's public HTTPS address, without a port, query or trailing path segment.",
+    ACCT_SOURCE_EXISTS: "That invoicing app is already connected.",
+    ACCT_SOURCE_KEY_REQUIRED: "Paste an API key to connect.",
+    ACCT_INVALID_ACCOUNT_MAP:
+      "Choose an income account for each kind of invoice line (reimbursements may use an expense account).",
+    ACCT_INVALID_PARTY_MAP:
+      "Choose a client contact for each project. Approve suggested contacts first.",
+    ACCT_INVALID_ACCRUAL_START: "The accrual view starts on the first of a month.",
+    ACCT_ACCRUAL_ACCOUNT:
+      "That account belongs to the accrual view and never takes entries. Choose another account.",
+    ACCT_LINK_DEPOSIT_REQUIRED:
+      "Only money into a bank or cash account can pay an invoice.",
+    ACCT_LINK_INVOICE_NOT_OPEN:
+      "That invoice is not open: it is a draft, voided, gone from the invoicing app or already fully linked.",
+    ACCT_LINK_EXCEEDS_INVOICE: "That is more than the invoice still owes.",
+    ACCT_LINK_EXCEEDS_DEPOSIT: "That is more than this deposit has left to apply.",
+    ACCT_LINK_EXISTS: "This deposit is already linked to that invoice.",
     ACCT_FORBIDDEN: "Your account does not have access to the books.",
   };
   for (const [code, text] of Object.entries(known))

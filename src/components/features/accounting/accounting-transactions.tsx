@@ -7,6 +7,7 @@ import {
   BookUser,
   Bot,
   Copy,
+  FileCheck2,
   History,
   Import,
   KeyRound,
@@ -106,6 +107,11 @@ import { FilterPopover } from "./accounting-filter-popover";
 import { contactAffiliation } from "./accounting-party-form";
 import { Select } from "@/components/ui/inputs/Select";
 import { dateLabel, money, signedMoney } from "./format";
+import {
+  SUGGESTION_REASONS,
+  invoiceChipLabel,
+  linkStateLabel,
+} from "@/lib/accounting/receivables";
 import {
   AccountingPageHeader,
   accountingHeader,
@@ -1132,6 +1138,111 @@ export function AccountingTransactions({
     );
   }
 
+  /** Tells the invoicing app about links made here right away; the hourly sync catches anything this misses. */
+  function pushInvoices() {
+    if (demo) return;
+    void fetch("/api/accounting/invoice-sources", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "push" }),
+    }).catch(() => undefined);
+  }
+
+  /** One click on a suggested match: link the deposit to those invoices. The entry itself never changes. */
+  async function linkSuggested(entry: JournalEntry) {
+    const found = entry.invoice_suggestion;
+    if (!found || rowCommand.isPending(entry.id)) return;
+    const saved = await rowCommand.execute(entry.id, {
+      type: "invoice.link",
+      id: crypto.randomUUID(),
+      entry_id: entry.id,
+      expected_version: entry.version,
+      allocations: found.invoices.map((i) => ({
+        invoice_id: i.invoice_id,
+        amount_cents: i.amount_cents,
+      })),
+    });
+    try {
+      await onTransactionSaved();
+    } catch {
+      setError(
+        "The transaction list could not refresh. Reload to check the latest saved state.",
+      );
+    }
+    if (saved) {
+      toast(
+        "success",
+        `Linked to ${invoiceChipLabel(found.invoices.map((i) => i.number))}. Your invoicing app will show it paid.`,
+      );
+      pushInvoices();
+    }
+  }
+
+  /**
+   * The invoices a deposit pays, or the ones it looks like it pays. A linked
+   * deposit shows a chip (amber when the invoicing app has not taken the
+   * payment); an unlinked one with a match offers it as a one-click button.
+   */
+  function invoiceChip(entry: JournalEntry) {
+    const links = (entry.invoice_links ?? []).filter((l) => l.live);
+    if (links.length) {
+      const label = `Pays ${invoiceChipLabel(links.map((l) => l.number))}`;
+      const detail = links
+        .map(
+          (l) =>
+            `${l.number || "Invoice"} ${money(l.amount_cents)}: ${linkStateLabel(l)}${l.sync_state === "failed" && l.last_error ? `. ${l.last_error}` : ""}`,
+        )
+        .join(". ");
+      return (
+        <Tooltip content={detail}>
+          <span
+            tabIndex={0}
+            aria-label={`${label}. ${detail}`}
+            className="shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <Badge
+              size="sm"
+              variant={
+                links.some((l) => l.sync_state === "failed")
+                  ? "warning"
+                  : "success"
+              }
+            >
+              <FileCheck2 size={11} aria-hidden="true" className="mr-1" />
+              {label}
+            </Badge>
+          </span>
+        </Tooltip>
+      );
+    }
+    const found = entry.invoice_suggestion;
+    if (
+      !found ||
+      demo ||
+      entry.status === "discarded" ||
+      isTransactionReversed(entry)
+    )
+      return null;
+    const names = invoiceChipLabel(found.invoices.map((i) => i.number));
+    const why = `${SUGGESTION_REASONS[found.reason]}${found.ambiguous ? ", the oldest of several" : ""}. Link to mark ${found.invoices.length > 1 ? "them" : "it"} paid`;
+    return (
+      <Tooltip content={why}>
+        <button
+          type="button"
+          aria-label={`Pays ${names}? ${why}`}
+          disabled={rowBusy(entry.id)}
+          onClick={(event) => {
+            event.stopPropagation();
+            void linkSuggested(entry);
+          }}
+          className="shrink-0 rounded-full border border-dashed border-teal-light/50 px-2 py-0.5 text-[11px] font-medium text-teal-light transition-colors hover:bg-teal-light/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+        >
+          Pays {names}?
+        </button>
+      </Tooltip>
+    );
+  }
+
   function reviewButton(
     entry: JournalEntry,
     p: ReturnType<typeof presentTransaction>,
@@ -1340,6 +1451,7 @@ export function AccountingTransactions({
                     {affiliationOf(e)}
                   </Badge>
                 )}
+                {invoiceChip(e)}
                 {!demo &&
                   !isTransactionReversed(e) &&
                   e.status !== "discarded" && (
@@ -1479,6 +1591,7 @@ export function AccountingTransactions({
               </button>
               <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                 <span>{dateLabel(e.entry_date)}</span>
+                {invoiceChip(e)}
                 {affiliationOf(e) && (
                   <Badge size="sm">{affiliationOf(e)}</Badge>
                 )}

@@ -3,6 +3,7 @@ import type { AccountingWorkspace } from "./contracts";
 import type { FeedData, FeedIdentity } from "./feeds";
 import { RULE_NO_MAXIMUM, type RuleEvidenceRow, type RulesView } from "./rules";
 import type { AccountProfile } from "./workflows";
+import type { ReceivablesView } from "./receivables";
 
 /** A card the demo owner closed: it keeps its history and shows in the chart only. */
 export const DEMO_CLOSED_CARD = {
@@ -99,6 +100,25 @@ export function getAccountingDemo(): AccountingWorkspace {
           amount_cents: amount,
           memo: "",
         })),
+        // The demo's one client receipt pays part of an invoice, so the invoice chip and the editor's Invoices section show.
+        ...(e.memo.startsWith("Partial receipt")
+          ? {
+              invoice_links: [
+                {
+                  id: "60000000-0000-4000-8000-000000000301",
+                  version: 1,
+                  invoice_id: "60000000-0000-4000-8000-000000000101",
+                  number: "INV-1041",
+                  project_name: "Growth retainer",
+                  amount_cents: "200000",
+                  matched_by: "rule" as const,
+                  sync_state: "synced" as const,
+                  last_error: "",
+                  live: true,
+                },
+              ],
+            }
+          : {}),
       }))
       .reverse(),
     balances: [
@@ -373,4 +393,93 @@ export function getAccountingDemoRuleEvidence(ruleId: string): {
     ],
   }));
   return { total: rows.length, rows };
+}
+
+/** One connected invoicing app with two projects, a failed payment push and an unmatched project, so every state of the screen shows. */
+export function getAccountingDemoReceivables(): ReceivablesView {
+  const source = "60000000-0000-4000-8000-000000000001";
+  const invoice = (
+    n: number,
+    project: "retainer" | "build",
+    issue_date: string,
+    total: string,
+    linked: string,
+    links: ReceivablesView["invoices"][number]["links"] = [],
+  ) => ({
+    id: `60000000-0000-4000-8000-0000000001${String(n).padStart(2, "0")}`,
+    source_id: source,
+    number: `INV-10${40 + n}`,
+    project_ref: project,
+    project_name: project === "retainer" ? "Growth retainer" : "Store rebuild",
+    customer_name: "Northwind Traders",
+    party_id: null,
+    party_name: null,
+    issue_date,
+    due_date: null,
+    status: "issued" as const,
+    removed_at: null,
+    total_cents: total,
+    linked_cents: linked,
+    outstanding_cents: String(BigInt(total) - BigInt(linked)),
+    source_paid_cents: linked,
+    links,
+  });
+  return {
+    revision: "1",
+    accrual_start: "2026-01-01",
+    accounts: {},
+    sources: [
+      {
+        id: source,
+        version: 3,
+        name: "Invoices",
+        base_url: "https://pm.example.com",
+        status: "active",
+        auto_link: true,
+        account_map: {
+          hourly: fixtureAccountId(5),
+          fixed: fixtureAccountId(5),
+          recurring: fixtureAccountId(5),
+        },
+        party_map: {},
+        last_synced_at: "2026-02-26T15:47:00Z",
+        last_error: "",
+        invoice_count: 3,
+        pending_pushes: 0,
+        failed_pushes: 1,
+        projects: [
+          {
+            project_ref: "build",
+            project_name: "Store rebuild",
+            customer_name: "Northwind Traders",
+            party_id: null,
+          },
+          {
+            project_ref: "retainer",
+            project_name: "Growth retainer",
+            customer_name: "Northwind Traders",
+            party_id: null,
+          },
+        ],
+      },
+    ],
+    total: 3,
+    invoices: [
+      invoice(1, "retainer", "2026-02-01", "500000", "500000"),
+      invoice(2, "build", "2026-02-10", "320000", "320000", [
+        {
+          id: "60000000-0000-4000-8000-000000000201",
+          version: 2,
+          entry_id: fixtureAccountId(1),
+          entry_date: "2026-02-20",
+          amount_cents: "320000",
+          matched_by: "owner",
+          sync_state: "failed",
+          last_error: "Payment exceeds the amount owed",
+          live: true,
+        },
+      ]),
+      invoice(3, "retainer", "2026-03-01", "500000", "0"),
+    ],
+  };
 }

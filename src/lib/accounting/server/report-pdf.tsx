@@ -464,7 +464,7 @@ export async function reportPdf(doc: ReportDocument): Promise<Buffer> {
           {masthead}
           {heading}
           <Text style={s.facts}>
-            {[doc.company, doc.statement.periodLabel, "Cash basis", "USD"].join(
+            {[doc.company, doc.statement.periodLabel, doc.statement.basisLabel ?? "Cash basis", "USD"].join(
               "  ·  ",
             )}
             {doc.statement.comparisonLabel

@@ -68,6 +68,10 @@ async function main() {
       "tax_adjustments",
       "tax_links",
       "report_snapshots",
+      "invoice_sources",
+      "invoices",
+      "invoice_payments",
+      "earned_work",
     ].sort();
     assert.deepEqual(
       (
@@ -110,7 +114,7 @@ async function main() {
     checks++;
     assert.deepEqual(
       functions.filter((f) => f.worker).map((f) => f.name),
-      ["sync_server", "tax_refresh_server"],
+      ["invoice_sync_server", "sync_server", "tax_refresh_server"],
     );
     checks++;
     for (const migration of await accountingMigrations())

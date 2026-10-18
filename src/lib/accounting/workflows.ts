@@ -11,13 +11,18 @@ import { taxWorkpaperCommandSchema } from "./tax-workpapers";
 import { registerCommandSchema } from "./registers";
 import { supportReportCommandSchema } from "./support-reports";
 import { booksPackageCommandSchema } from "./books-package";
+import { invoiceCommandSchema } from "./receivables";
 import type { RuleCandidate } from "./rules";
 import {
   CONTACT_ROLES,
   type ContactRole,
   type ContactTopCategory,
 } from "./contacts";
-export { CONTACT_ROLES, CONTACT_ROLE_LABELS, type ContactRole } from "./contacts";
+export {
+  CONTACT_ROLES,
+  CONTACT_ROLE_LABELS,
+  type ContactRole,
+} from "./contacts";
 
 const id = z.guid();
 const version = z.number().int().min(0).max(2147483646);
@@ -114,6 +119,7 @@ export const registerFilterSchema = registerFilterObject.refine(
 );
 export type RegisterFilter = z.infer<typeof registerFilterSchema>;
 export const extendedCommandSchema = z.union([
+  invoiceCommandSchema,
   taxWorkpaperCommandSchema,
   registerCommandSchema,
   supportReportCommandSchema,
@@ -172,6 +178,11 @@ export const extendedCommandSchema = z.union([
         primary_system: z.enum(["wave", "admin"]).optional(),
         primary_system_since: dateSchema.nullable().optional(),
         transfer_window_days: z.number().int().min(0).max(30).optional(),
+        /** The first of the month the accrual view starts from. */
+        accrual_start: dateSchema
+          .refine((d) => d.endsWith("-01"), "Choose the first of a month.")
+          .nullable()
+          .optional(),
         profile_version: version.optional(),
         business_profile: z
           .object({
@@ -487,6 +498,8 @@ export interface ManageData {
     primary_system_since: string | null;
     history_start: string | null;
     transfer_window_days: number;
+    /** The first of the month the accrual view starts; set by the first invoice source. */
+    accrual_start?: string | null;
   } | null;
 }
 export interface EntryEvidence {

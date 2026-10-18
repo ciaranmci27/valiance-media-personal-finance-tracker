@@ -124,6 +124,8 @@ export interface StatementPanel {
 export interface StatementDocument {
   /** "Jan 1 to Oct 3, 2026", or "As of Oct 3, 2026". */
   periodLabel: string;
+  /** "Cash basis" unless the report was read on the accrual basis. */
+  basisLabel?: string;
   comparisonLabel: string | null;
   scopeNote: string | null;
   tiles: {
@@ -535,6 +537,7 @@ function profitLossDocument(
   const awaiting = data.quality.draft_count - data.quality.unbalanced_drafts;
   const document: StatementDocument = {
     periodLabel: rangeLabel(data.filter.from, data.filter.to),
+    basisLabel: data.basis === "accrual" ? "Accrual basis" : "Cash basis",
     comparisonLabel: compared?.long ?? null,
     scopeNote:
       data.filter.mode === "working"
@@ -692,6 +695,7 @@ function balanceSheetDocument(
   const awaiting = data.quality.draft_count - data.quality.unbalanced_drafts;
   const document: StatementDocument = {
     periodLabel: `As of ${dateText(data.filter.to)}`,
+    basisLabel: data.basis === "accrual" ? "Accrual basis" : "Cash basis",
     comparisonLabel: compared?.long ?? null,
     scopeNote:
       data.filter.mode === "working"
@@ -797,6 +801,7 @@ function cashFlowDocument(data: ReportData, details: boolean) {
   const rows = cashFlowStatement(data, details);
   const document: StatementDocument = {
     periodLabel: rangeLabel(data.filter.from, data.filter.to),
+    basisLabel: data.basis === "accrual" ? "Accrual basis" : "Cash basis",
     comparisonLabel: compared?.long ?? null,
     scopeNote:
       data.filter.mode === "working"
@@ -984,6 +989,7 @@ function customerIncomeDocument(
   const otherRows = rankedRows(rows, ["other", "none"], short, config, 20);
   const document: StatementDocument = {
     periodLabel: rangeLabel(data.filter.from, data.filter.to),
+    basisLabel: data.basis === "accrual" ? "Accrual basis" : "Cash basis",
     comparisonLabel: compared?.long ?? null,
     scopeNote:
       data.filter.mode === "working"
@@ -1169,6 +1175,7 @@ function vendorExpensesDocument(
   const biggest = roles[0];
   const document: StatementDocument = {
     periodLabel: rangeLabel(data.filter.from, data.filter.to),
+    basisLabel: data.basis === "accrual" ? "Accrual basis" : "Cash basis",
     comparisonLabel: compared?.long ?? null,
     scopeNote:
       data.filter.mode === "working"
@@ -1318,6 +1325,7 @@ function ownerActivityDocument(data: ReportData, details: boolean) {
   const rows = ownerStatement(data, details);
   const document: StatementDocument = {
     periodLabel: rangeLabel(data.filter.from, data.filter.to),
+    basisLabel: data.basis === "accrual" ? "Accrual basis" : "Cash basis",
     comparisonLabel: compared?.long ?? null,
     scopeNote:
       data.filter.mode === "working"
@@ -1519,6 +1527,7 @@ function trialBalanceDocument(data: ReportData, details: boolean) {
   const checks = trialChecks(data, lines);
   const document: StatementDocument = {
     periodLabel: `As of ${dateText(data.filter.to)}`,
+    basisLabel: data.basis === "accrual" ? "Accrual basis" : "Cash basis",
     comparisonLabel: compared?.long ?? null,
     scopeNote:
       data.filter.mode === "working"
@@ -1706,6 +1715,7 @@ function generalLedgerDocument(
   ].filter(Boolean);
   const document: StatementDocument = {
     periodLabel: rangeLabel(data.filter.from, data.filter.to),
+    basisLabel: data.basis === "accrual" ? "Accrual basis" : "Cash basis",
     comparisonLabel: null,
     scopeNote: scope.length ? scope.join(" ") : null,
     tiles: [

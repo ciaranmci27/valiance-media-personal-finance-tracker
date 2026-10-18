@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { readCents } from "./money";
+import type { EntryInvoiceLink, InvoiceSuggestion } from "./receivables";
 
 export const dateSchema = z
   .string()
@@ -164,6 +165,10 @@ export interface JournalEntry {
   payee_name?: string | null;
   /** Drafts only: the counterpart the books found but were not sure enough to pair. */
   transfer_suggestion?: TransferSuggestion | null;
+  /** Deposits: the invoices this money pays, as linked in the books. */
+  invoice_links?: EntryInvoiceLink[];
+  /** Deposits with money still unapplied: the open invoices it looks like it pays. */
+  invoice_suggestion?: InvoiceSuggestion | null;
   created_at: string;
   lines: JournalLine[];
 }

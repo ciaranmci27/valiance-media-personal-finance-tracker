@@ -4,6 +4,7 @@ import {
   ArrowDownLeft,
   ArrowRight,
   ArrowUpRight,
+  Briefcase,
   CheckCircle2,
   CircleAlert,
   CircleDashed,
@@ -50,6 +51,7 @@ import {
 import type { BooksMetadata } from "./types";
 import { useAccountingRead } from "./use-accounting-read";
 import {
+  earnedReportFilter,
   overviewReportFilter,
   registerQuery,
   reportQuery,
@@ -157,6 +159,22 @@ function RowSkeleton({ rows }: { rows: number }) {
  * accounts behind it and the month in progress. Everything here links into
  * the deeper screens; nothing is edited in place except the review queue.
  */
+/** "Hours $1,200 \u00b7 Retainers $3,000": what the month earned by kind, leaving out what is zero. */
+function earnedParts(report: ReportData | undefined | null) {
+  const earned = report?.quality.accrual?.earned;
+  if (!earned) return "";
+  return (
+    [
+      ["Hours", earned.time_cents],
+      ["Retainers", earned.retainer_cents],
+      ["Invoiced", earned.invoice_cents],
+    ] as const
+  )
+    .filter(([, c]) => BigInt(c) !== BigInt(0))
+    .map(([label, c]) => `${label} ${money(BigInt(c))}`)
+    .join(" \u00b7 ");
+}
+
 export function AccountingOverview({
   data,
   manage,
@@ -195,6 +213,14 @@ export function AccountingOverview({
   const reportRead = useAccountingRead<ReportData>(
     reportQuery("profit-loss", overviewReportFilter(data.to)),
     { enabled, revalidateOnFocus: true },
+  );
+  // What the month earned so far, invoiced or not, once an invoice source set the accrual start.
+  const accrualReady = enabled && !!manage.preferences?.accrual_start;
+  const earnedRead = useAccountingRead<ReportData>(
+    accrualReady
+      ? reportQuery("profit-loss", earnedReportFilter(data.to))
+      : null,
+    { enabled: accrualReady, revalidateOnFocus: true },
   );
   const feedsRead = useAccountingRead<FeedData>(
     { view: "feeds" },
@@ -447,7 +473,12 @@ export function AccountingOverview({
   return (
     <div className="space-y-5 lg:space-y-6">
       {header}
-      <div className="grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 lg:grid-cols-4 lg:gap-4">
+      <div
+        className={cn(
+          "grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 lg:gap-4",
+          accrualReady ? "lg:grid-cols-5" : "lg:grid-cols-4",
+        )}
+      >
         <StatCard
           title="Cash in bank"
           value={metadataLoading ? 0 : Number(cash) / 100}
@@ -486,6 +517,19 @@ export function AccountingOverview({
           className="stagger-4"
           subtitle={monthLabel(`${thisMonth}-01`)}
         />
+        {accrualReady && (
+          <StatCard
+            title="Earned this month"
+            value={cents(earnedRead.data?.totals.income_cents)}
+            loading={earnedRead.loading && !earnedRead.data}
+            icon={<Briefcase className="h-5 w-5" />}
+            className="stagger-4"
+            subtitle={
+              earnedParts(earnedRead.data) ||
+              "Invoiced or not, on the accrual basis"
+            }
+          />
+        )}
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3">

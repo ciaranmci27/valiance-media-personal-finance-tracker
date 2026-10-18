@@ -7,3 +7,8 @@ project_id = "kedxsjrbnrffrzdoyveh"
 # pg_cron calls this with the shared worker secret (x-worker-secret), which
 # the function checks itself. The gateway JWT check would refuse that call.
 verify_jwt = false
+
+[functions.sync-invoice-sources]
+# pg_cron calls this with the shared worker secret (x-worker-secret), which
+# the function checks itself. The gateway JWT check would refuse that call.
+verify_jwt = false
