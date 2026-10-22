@@ -298,14 +298,21 @@ async function main() {
     ).rows[0].r;
     check(corrected.reports.net_income_cents, "-125000");
     check(corrected.reports.balance_difference_cents, "0");
+    // The register (and so the workspace's entries) leaves reversed pairs out; each
+    // entry's detail still links the pair both ways.
     check(
-      corrected.entries.find((e) => e.id === entryIds[2])?.reversed_by_entry_id,
-      reversal.id,
+      corrected.entries.some((e) => e.id === entryIds[2] || e.id === reversal.id),
+      false,
     );
-    check(
-      corrected.entries.find((e) => e.id === reversal.id)?.reverses_entry_id,
-      entryIds[2],
-    );
+    const pairDetail = async (id: string) =>
+      (
+        await db.query<{ r: { reversed_by_entry_id: string | null; reverses_entry_id: string | null } }>(
+          "select accounting.entry_detail($1) r",
+          [id],
+        )
+      ).rows[0].r;
+    check((await pairDetail(entryIds[2])).reversed_by_entry_id, reversal.id);
+    check((await pairDetail(reversal.id)).reverses_entry_id, entryIds[2]);
     await rejected(
       "select accounting.operate(jsonb_build_object('key',$1::uuid,'command',$2::jsonb))",
       [

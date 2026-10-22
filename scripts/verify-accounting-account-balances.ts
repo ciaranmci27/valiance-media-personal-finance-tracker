@@ -29,7 +29,9 @@ const feeds: FeedData = {
     checkpoint: null,
     posting_timezone: "UTC",
     movement_sign: 1,
-    balance_sign: a === card ? -1 : 1,
+    // balance_sign normalizes the provider's balance into ledger convention (card
+    // debt negative). SimpleFIN already sends card debt negative, so the card is 1.
+    balance_sign: 1,
     version: 1,
     can_edit_settings: true,
   })),
@@ -61,8 +63,19 @@ assert.equal(result.get(bank.id)?.book, BigInt(1353109));
 assert.equal(
   result.get(card.id)?.amount,
   BigInt(2136),
+  "A card's reported debt reads as the amount owed",
+);
+// A provider that reports card debt as a positive number is set to -1: the sign
+// is applied once to reach ledger convention, then the card reads as owed.
+feeds.accounts[1].balance_sign = -1;
+feeds.identities[1].balance!.balance_cents = "2136";
+assert.equal(
+  accountBalances(data.balances, profiles, feeds).get(card.id)?.amount,
+  BigInt(2136),
   "Use the configured provider balance sign once",
 );
+feeds.accounts[1].balance_sign = 1;
+feeds.identities[1].balance!.balance_cents = "-2136";
 assert.equal(
   result.get(card.id)?.book,
   BigInt(499),
