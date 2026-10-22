@@ -337,6 +337,53 @@ async function main() {
     );
     check(tool.categorized_by, { source: "prior" });
 
+    // 5b. One description, two kinds of payment. Patriot debits net pay and payroll taxes
+    // under the same description; reusing simply the latest booked a tax debit as net pay
+    // (Oct 2026). A mixed history is matched by amount; with no match a person decides.
+    const book = async (description: string, category: string) => {
+      const d = await bySource(description);
+      const done = await cmd({
+        type: "entry.categorize",
+        id: d.id,
+        expected_version: d.version,
+        account_id: category,
+      });
+      await cmd({ type: "entry.post", id: d.id, expected_version: done.version });
+    };
+    const filled = async (description: string) => {
+      const d = await bySource(description);
+      const line = d.lines.find((l: any) => l.account_id !== account(1));
+      return [d.fill_source ?? null, line?.account_id === uncategorized ? "none" : line?.account_id];
+    };
+    const NET = office; // stands in for Net Salary Payable
+    const TAX = software; // and for Taxes Payable
+    await sync([["checking", "2026-09-26", -288642, "PAYROLLCO TRANSFER REF 1001"]]);
+    await book("PAYROLLCO TRANSFER REF 1001", NET);
+    await sync([["checking", "2026-09-28", -88133, "PAYROLLCO TRANSFER REF 1002"]]);
+    check(await filled("PAYROLLCO TRANSFER REF 1002"), ["prior", NET], "one-category history: the latest, as before");
+    await book("PAYROLLCO TRANSFER REF 1002", TAX); // the owner corrects it to taxes
+    await sync([["checking", "2026-10-26", -288642, "PAYROLLCO TRANSFER REF 1003"]]);
+    check(await filled("PAYROLLCO TRANSFER REF 1003"), ["prior", NET], "mixed history: net pay by its amount, not the latest (taxes)");
+    await book("PAYROLLCO TRANSFER REF 1003", NET);
+    await sync([["checking", "2026-10-28", -88133, "PAYROLLCO TRANSFER REF 1004"]]);
+    check(await filled("PAYROLLCO TRANSFER REF 1004"), ["prior", TAX], "mixed history: taxes by their amount");
+    await book("PAYROLLCO TRANSFER REF 1004", TAX);
+    await sync([["checking", "2026-11-26", -299999, "PAYROLLCO TRANSFER REF 1005"]]);
+    check(await filled("PAYROLLCO TRANSFER REF 1005"), [null, "none"], "mixed history, a new amount (a raise): a person decides");
+
+    // A vendor moved from one category to another is never pulled back by an old charge of the
+    // same amount once the new category is all it has been used for lately.
+    await sync([["checking", "2026-09-01", -2000, "GADGETHUB ORDER 5001"], ["checking", "2026-09-05", -3500, "GADGETHUB ORDER 5002"]]);
+    await book("GADGETHUB ORDER 5001", office);
+    await book("GADGETHUB ORDER 5002", office);
+    await sync([["checking", "2026-09-10", -2000, "GADGETHUB ORDER 5003"]]);
+    await book("GADGETHUB ORDER 5003", software); // moved
+    await sync([["checking", "2026-09-15", -2000, "GADGETHUB ORDER 5004"]]);
+    check(await filled("GADGETHUB ORDER 5004"), ["prior", software], "moved vendor: the same amount follows the move");
+    await book("GADGETHUB ORDER 5004", software);
+    await sync([["checking", "2026-09-20", -3500, "GADGETHUB ORDER 5005"]]);
+    check(await filled("GADGETHUB ORDER 5005"), [null, "none"], "moved vendor: an old amount does not drag it back");
+
     // 6. A rule.
     const preview = async () =>
       (
@@ -491,7 +538,7 @@ async function main() {
     const live = await snapshot();
     check(
       live.filter((r) => r.category_source).length,
-      10,
+      18, // 10 from the scenarios above, 8 booked in 5b (4 payroll, 4 vendor)
       "the scenarios recorded sources",
     );
     await db.exec(

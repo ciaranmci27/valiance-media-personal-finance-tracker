@@ -39,6 +39,9 @@ export interface TextareaProps
   maxLength?: number;
   showCharCount?: boolean;
   autoResize?: boolean;
+  /** With autoResize: starts one line tall, grows with the text up to this
+   *  height in px, then scrolls inside. */
+  maxHeight?: number;
   resizable?: boolean;
   name?: string;
   id?: string;
@@ -67,6 +70,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
     maxLength,
     showCharCount = false,
     autoResize = false,
+    maxHeight,
     resizable = false,
     name,
     id,
@@ -91,12 +95,35 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
     const el = internalRef.current;
     if (!el || !autoResize) return;
     el.style.height = 'auto';
-    el.style.height = `${el.scrollHeight}px`;
-  }, [autoResize]);
+    if (maxHeight === undefined) {
+      el.style.height = `${el.scrollHeight}px`;
+      return;
+    }
+    // scrollHeight leaves out the border, which border-box height includes.
+    const full = el.scrollHeight + el.offsetHeight - el.clientHeight;
+    el.style.height = `${Math.min(full, maxHeight)}px`;
+    el.style.overflowY = full > maxHeight ? 'auto' : 'hidden';
+  }, [autoResize, maxHeight]);
 
   useEffect(() => {
     adjustHeight();
   }, [value, adjustHeight]);
+
+  // The line count depends on the width, which can settle after mount (a
+  // flex row, a panel sliding in): measure again whenever the width changes.
+  // Height changes are ignored, since adjustHeight makes them itself.
+  useEffect(() => {
+    const el = internalRef.current;
+    if (!el || !autoResize || typeof ResizeObserver === 'undefined') return;
+    let width = el.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (el.clientWidth === width) return;
+      width = el.clientWidth;
+      adjustHeight();
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [autoResize, adjustHeight]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onChange?.(e.target.value);
@@ -170,7 +197,13 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
         className={`w-full ${sizeClasses} outline-none text-input-text ${resizeClass} ${fieldChrome(error, disabled)} ${
           readOnly ? 'bg-input-bg-disabled cursor-default' : ''
         } placeholder:text-input-text-placeholder ${inputClassName || ''}`}
-        style={autoResize ? { overflow: 'hidden', minHeight: `${rows * 1.5 + 1}rem` } : undefined}
+        style={
+          autoResize && maxHeight === undefined
+            ? { overflow: 'hidden', minHeight: `${rows * 1.5 + 1}rem` }
+            : autoResize
+              ? { overflowY: 'hidden' }
+              : undefined
+        }
       />
       {error && (
         <p id={errorId} role="alert" className="text-xs text-input-error">

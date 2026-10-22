@@ -3713,14 +3713,13 @@ BEGIN
    RETURN accounting.ledger_command(jsonb_build_object('type','entry.post','id',entry,'expected_version',e.version));
   END IF;
  ELSIF e.descriptor_key IS NOT NULL THEN
-  previous:=accounting.prior_summary(e.descriptor_key,bank.account_id,1);
-  -- Reuse a single-category treatment only. A past split's proportions may not fit this purchase.
-  IF jsonb_array_length(coalesce(previous->'entries'->0->'lines','[]'))=1 THEN
-   category:=(previous->>'last_category')::uuid;
-   IF EXISTS(SELECT 1 FROM accounting.accounts WHERE id=category AND NOT is_archived) THEN
-    result:=accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',entry,'expected_version',e.version,'account_id',category,'payee_id',coalesce(e.payee_id::text,previous->>'payee_id'),'memo',coalesce(previous->>'memo',e.memo)));
-    UPDATE accounting.journal_entries SET fill_source='prior',category_source='prior',category_actor=NULL WHERE id=entry RETURNING * INTO e;
-   END IF;
+  -- An earlier treatment of the same description, chosen by prior_choice: the latest when the
+  -- recent ones agree, else the latest of the same amount still in use, else none (a person decides).
+  previous:=accounting.prior_choice(accounting.prior_summary(e.descriptor_key,bank.account_id,10),abs(bank.amount_cents));
+  category:=(previous->>'account_id')::uuid;
+  IF category IS NOT NULL AND EXISTS(SELECT 1 FROM accounting.accounts WHERE id=category AND NOT is_archived) THEN
+   result:=accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',entry,'expected_version',e.version,'account_id',category,'payee_id',coalesce(e.payee_id::text,previous->>'payee_id'),'memo',coalesce(previous->>'memo',e.memo)));
+   UPDATE accounting.journal_entries SET fill_source='prior',category_source='prior',category_actor=NULL WHERE id=entry RETURNING * INTO e;
   END IF;
  END IF;
  -- Still uncategorized after aliases, rules and prior treatment: fall back to the payee's default category.
@@ -6656,6 +6655,40 @@ BEGIN
 END $function$
 ;
 
+CREATE OR REPLACE FUNCTION accounting.prior_choice(previous jsonb, amount_cents bigint)
+ RETURNS jsonb
+ LANGUAGE sql
+ IMMUTABLE
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+ -- Which earlier treatment a new feed draft reuses, from prior_summary's recent entries (newest
+ -- first). Only single-category ones count (a split's proportions may not fit a new purchase), and
+ -- only when the latest is one. When they all agree, the latest is the answer. When they disagree,
+ -- one description carries more than one kind of payment (Patriot sends net pay and payroll taxes
+ -- under one description; the latest alone booked a tax debit as net pay, Oct 2026), so only the
+ -- latest entry of the same amount counts, and only if its category is one of the two the
+ -- description went to most recently: a vendor moved from one category to another is never pulled
+ -- back by an old charge of the same amount. Otherwise none, and the draft waits for a person.
+ WITH entries AS (
+  SELECT t.ord, t.x->>'payee_id' AS payee_id, t.x->>'memo' AS memo, coalesce(t.x->'lines','[]'::jsonb) AS lines
+  FROM jsonb_array_elements(coalesce($1->'entries','[]'::jsonb)) WITH ORDINALITY AS t(x, ord)
+ ), singles AS (
+  SELECT ord, payee_id, memo, lines->0->>'account_id' AS account_id, abs((lines->0->>'amount_cents')::bigint) AS cents
+  FROM entries WHERE jsonb_array_length(lines)=1
+ ), in_use AS (
+  SELECT account_id FROM singles ORDER BY ord LIMIT 2
+ )
+ SELECT jsonb_build_object('account_id',s.account_id,'payee_id',s.payee_id,'memo',s.memo)
+ FROM singles s
+ WHERE EXISTS(SELECT 1 FROM singles WHERE ord=1)
+  AND ((SELECT count(DISTINCT account_id) FROM singles)=1
+   OR (s.cents=$2 AND s.account_id IN (SELECT account_id FROM in_use)))
+ ORDER BY s.ord
+ LIMIT 1
+$function$
+;
+
 CREATE OR REPLACE FUNCTION accounting.prior_summary(key text, bank_account uuid, max_rows integer DEFAULT 10)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -9013,6 +9046,10 @@ GRANT EXECUTE ON FUNCTION accounting.payroll(jsonb) TO "authenticated";
 REVOKE ALL ON FUNCTION accounting.payroll_plan(jsonb) FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION accounting.payroll_plan(jsonb) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.prior_choice(jsonb,bigint) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.prior_choice(jsonb,bigint) TO "postgres";
 
 REVOKE ALL ON FUNCTION accounting.prior_summary(text,uuid,integer) FROM PUBLIC, anon, authenticated, service_role;
 
