@@ -7889,10 +7889,16 @@ BEGIN
  IF NOT partial AND NOT discovery_only AND EXISTS(SELECT 1 FROM accounting.bank_accounts b WHERE b.connection_id=c.id AND NOT b.is_closed AND NOT seen ? b.provider_account_id) THEN run_complete:=false; END IF;
  new_checkpoint:=jsonb_set(new_checkpoint,ARRAY['discovery'],discovered);
  new_checkpoint:=jsonb_set(new_checkpoint,ARRAY['sync_run'],jsonb_build_object('seen',seen,'blocked',blocked,'complete',run_complete AND count_conflicts=0));
- -- 110 minutes lands the two-hour cadence on the next hourly worker tick; an incomplete run retries at the following tick.
+ -- Bridge refreshes each institution about every 24 hours; its accounts' balance-date is the last refresh.
+ -- Rest until two hours before the next one is due (six hours at most), poll each half-hour tick until four
+ -- hours after, and fall back to two hours for an overdue one. An incomplete run retries in an hour.
  UPDATE accounting.bank_connections SET checkpoint=new_checkpoint,last_success_at=CASE WHEN NOT partial AND NOT discovery_only AND count_conflicts=0 AND run_complete THEN now() ELSE last_success_at END,
   last_error=CASE WHEN count_conflicts>0 THEN 'Provider records changed. Original evidence was retained; review before advancing coverage.' WHEN NOT run_complete THEN 'The provider reported incomplete account data.' ELSE '' END,
-  lease_run_id=CASE WHEN partial THEN run ELSE NULL END,lease_until=CASE WHEN partial THEN c.lease_until ELSE NULL END,next_sync_at=now()+CASE WHEN run_complete AND count_conflicts=0 THEN interval '110 minutes' ELSE interval '1 hour' END WHERE id=c.id;
+  lease_run_id=CASE WHEN partial THEN run ELSE NULL END,lease_until=CASE WHEN partial THEN c.lease_until ELSE NULL END,next_sync_at=CASE WHEN NOT (run_complete AND count_conflicts=0) THEN now()+interval '1 hour'
+   ELSE coalesce((SELECT min(CASE WHEN now()<r.refreshed+interval '22 hours' THEN least(r.refreshed+interval '22 hours',now()+interval '6 hours')
+     WHEN now()<r.refreshed+interval '28 hours' THEN now()+interval '25 minutes' ELSE now()+interval '110 minutes' END)
+    FROM (SELECT d.value->>'provider_connection_id' institution,max(to_timestamp((d.value->>'balance_at')::bigint)) refreshed FROM jsonb_each(discovered) d
+     WHERE (d.value->>'seen_at')::bigint>=extract(epoch FROM now())-600 AND jsonb_typeof(d.value->'balance_at')='number' GROUP BY 1) r),now()+interval '110 minutes') END WHERE id=c.id;
  INSERT INTO accounting.audit_log(actor_kind,operation_id,table_name,row_id,action,after)
   VALUES('worker',run,'bank_connections',c.id,'sync',jsonb_build_object('accounts',jsonb_array_length(command->'accounts'),'new',count_new,'pending',count_pending,'drafts',count_drafts,'errors',count_conflicts));
  RETURN jsonb_build_object('id',c.id,'new',count_new,'pending',count_pending,'drafts',count_drafts,'conflicts',count_conflicts,'complete',run_complete AND count_conflicts=0);

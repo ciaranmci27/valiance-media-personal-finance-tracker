@@ -164,7 +164,7 @@ export interface FeedData {
     source: string;
   } | null;
 }
-/** The scheduler ticks hourly; past three hours the worker is treated as not running. */
+/** The scheduler ticks every half hour; past three hours the worker is treated as not running. */
 export const FEED_WORKER_STALE_MS = 3 * 60 * 60 * 1000;
 export function feedWorkerAlive(feeds: FeedData | null, now = Date.now()) {
   return (

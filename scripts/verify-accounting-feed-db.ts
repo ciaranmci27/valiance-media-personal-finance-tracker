@@ -425,6 +425,37 @@ async function main() {
       ]),
       [["MX-1", String(stamp + 1)]],
     );
+    // The next check follows each institution's last refresh (its balance-date):
+    // rest until two hours before the next is due (six hours at most), poll each
+    // half-hour tick until four hours after, then fall back to two hours.
+    const clock = Math.floor(Date.now() / 1000),
+      hour = 3600;
+    const nextCheck = async (refreshed: number[]) => {
+      await worker({ id: renamed, action: "lease" });
+      await worker({
+        id: renamed,
+        action: "complete",
+        accounts: refreshed.map((at, i) =>
+          feedAccount(`MX-${i + 1}`, i ? `ACT-${i + 2}` : "ACT-1", [], {
+            balance_at: at,
+          }),
+        ),
+      });
+      run = randomUUID();
+      return (
+        await raw(
+          "SELECT round(extract(epoch FROM (next_sync_at-now()))/60)::int m FROM accounting.bank_connections WHERE id=$1",
+          [renamed],
+        )
+      )[0].m;
+    };
+    check(await nextCheck([clock - hour]), 360);
+    check(await nextCheck([clock - 20 * hour]), 120);
+    check(await nextCheck([clock - 23 * hour]), 25);
+    check(await nextCheck([clock - 30 * hour]), 110);
+    // One bank already refreshed today does not hold back another that is due.
+    check(await nextCheck([clock - hour, clock - 23 * hour]), 25);
+    check(await nextCheck([clock - hour, clock - 21 * hour]), 60);
     console.log(
       `SimpleFIN durable chunks, checkpoints and worker isolation: ${checks} assertions passed.`,
     );

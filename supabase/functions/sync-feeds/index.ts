@@ -1,6 +1,7 @@
 // Supabase Edge Function: sync-feeds
 //
-// Called by pg_cron (job accounting-sync-feeds, hourly at :17) through pg_net.
+// Called by pg_cron (job accounting-sync-feeds, every half hour at :17 and :47)
+// through pg_net.
 // Runs the same SimpleFIN pull as the Next.js worker route, through the same
 // accounting.sync_server lease, so it can never overlap a manual "Sync now".
 // Auth is the shared worker secret (x-worker-secret, or a Bearer token), not

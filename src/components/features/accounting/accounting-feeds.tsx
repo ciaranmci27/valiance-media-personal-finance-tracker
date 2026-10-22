@@ -336,7 +336,7 @@ export function AccountingFeeds({
                     : !connection.scheduled
                       ? "Background sync off"
                       : workerAlive
-                        ? `Background sync every 2 hours · worker checked in ${workerCheckedIn}`
+                        ? `Next bank check ${connection.next_sync_at ? timestampLabel(connection.next_sync_at) : "on the next tick"} · worker checked in ${workerCheckedIn}`
                         : "Background worker not running · syncs when you open the books"}
                 </p>
               </div>
@@ -723,7 +723,7 @@ export function AccountingFeeds({
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
                   {workerAlive
-                    ? "Runs every 2 hours from saved checkpoints. Opening the books also syncs after six hours."
+                    ? "Checks every half hour around each bank's daily refresh and rests in between. Opening the books also syncs after six hours."
                     : config?.workerEnabled
                       ? "Enabled here, but no scheduler has checked in yet. Opening the books still syncs after six hours."
                       : "The background worker must be configured before it can be enabled."}
