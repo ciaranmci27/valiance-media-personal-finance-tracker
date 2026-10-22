@@ -19,9 +19,7 @@ import {
   History,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Tooltip } from "@/components/ui/tooltip";
 import { formatMonth, formatDate, cn } from "@/lib/utils";
-import { useConfirmationDialog } from "@/components/ui/confirmation-dialog";
 import { toast } from "@/components/ui/toast";
 import { createClient } from "@/lib/supabase/client";
 import { isDemoMode } from "@/lib/demo";
@@ -71,9 +69,7 @@ export function TrashSettingsContent({
   deletedTaxEstimates,
 }: TrashSettingsContentProps) {
   const router = useRouter();
-  const { confirm, dialog: confirmDialog } = useConfirmationDialog();
   const [restoring, setRestoring] = React.useState<string | null>(null);
-  const [deleting, setDeleting] = React.useState<string | null>(null);
 
   const allItems = [
     ...deletedSources.map((item) => ({ ...item, type: "income_sources" as ItemType })),
@@ -109,50 +105,8 @@ export function TrashSettingsContent({
     }
   };
 
-  const handlePermanentDelete = async (type: ItemType, id: string) => {
-    let description = "This will permanently delete this item. This cannot be undone.";
-    let useDoubleConfirm = false;
-
-    if (type === "expenses") {
-      description = "Permanently deleting this expense will make your historical financial data inaccurate. Past monthly totals and reports will no longer reflect this expense.";
-      useDoubleConfirm = true;
-    } else if (type === "expense_history") {
-      description = "Permanently deleting this history entry will remove the audit trail for this expense change.";
-      useDoubleConfirm = true;
-    }
-
-    const confirmed = await confirm({
-      title: "Permanently delete?",
-      description,
-      confirmLabel: "Delete",
-      variant: "danger",
-      doubleConfirm: useDoubleConfirm,
-      doubleConfirmLabel: "Delete Forever",
-    });
-    if (!confirmed) return;
-
-    // In demo mode, show message
-    if (isDemoMode()) {
-      toast("info", "Demo mode: changes are not saved");
-      return;
-    }
-
-    setDeleting(id);
-    const supabase = createClient();
-
-    try {
-      await supabase.from(type).delete().eq("id", id);
-      router.refresh();
-    } catch (error) {
-      console.error("Error deleting:", error);
-    } finally {
-      setDeleting(null);
-    }
-  };
-
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
-      {confirmDialog}
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-y-2">
         <div className="flex items-center gap-3">
@@ -188,7 +142,7 @@ export function TrashSettingsContent({
           </div>
           <h3 className="font-medium mb-1">Trash is empty</h3>
           <p className="text-sm text-muted-foreground">
-            Deleted items will appear here for recovery
+            Deleted items appear here until you restore them
           </p>
         </div>
       ) : (
@@ -206,7 +160,7 @@ export function TrashSettingsContent({
               {allItems.map((item) => {
                 const config = itemConfig[item.type];
                 const Icon = config.icon;
-                const isLoading = restoring === item.id || deleting === item.id;
+                const isLoading = restoring === item.id;
 
                 return (
                   <div
@@ -256,21 +210,6 @@ export function TrashSettingsContent({
                           </>
                         )}
                       </Button>
-                      <Tooltip content="Delete permanently">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-8 w-8 p-0 rounded-lg hover:bg-error/10 hover:text-error"
-                        onClick={() => handlePermanentDelete(item.type, item.id)}
-                        disabled={isLoading}
-                      >
-                        {deleting === item.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
-                      </Tooltip>
                     </div>
                   </div>
                 );
@@ -280,7 +219,7 @@ export function TrashSettingsContent({
 
           {/* Info Text */}
           <p className="text-xs text-muted-foreground text-center px-4">
-            Items in trash are kept for 30 days before permanent deletion
+            Items in Trash are kept until you restore them. Nothing is ever permanently deleted.
           </p>
         </div>
       )}

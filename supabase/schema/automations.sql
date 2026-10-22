@@ -170,6 +170,13 @@ CREATE TRIGGER automations_updated_at
 --   $$
 -- );
 
+-- Never permanently deleted (migration 20261022054752_tracker_never_hard_deleted.sql);
+-- forbid_tracker_hard_delete() is defined in schema.sql.
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.automations
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.automations
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+
 -- To view scheduled jobs:
 -- SELECT * FROM cron.job;
 

@@ -605,6 +605,51 @@ CREATE POLICY tax_estimates_update ON public.tax_estimates FOR UPDATE TO authent
 CREATE POLICY tax_estimates_delete ON public.tax_estimates FOR DELETE TO authenticated USING ((SELECT public.has_permission('tax.manage')));
 
 -- ============================================================================
+-- TRACKER RECORDS ARE NEVER PERMANENTLY DELETED
+-- (migration 20261022054752_tracker_never_hard_deleted.sql)
+-- Income, expenses, net worth, tax estimates and automations go to Trash
+-- (deleted_at) and come back with Restore. DELETE and TRUNCATE are refused
+-- for every role. The automations triggers are in automations.sql.
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION public.forbid_tracker_hard_delete()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'Rows in % are never permanently deleted. Move them to Trash instead.', TG_TABLE_NAME
+    USING ERRCODE = 'P0001';
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.forbid_tracker_hard_delete() FROM PUBLIC, anon;
+
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.income_sources
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.income_sources
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.income_entries
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.income_entries
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.expenses
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.expenses
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.expense_history
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.expense_history
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.net_worth
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.net_worth
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+CREATE TRIGGER forbid_hard_delete BEFORE DELETE ON public.tax_estimates
+  FOR EACH ROW EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+CREATE TRIGGER forbid_truncate BEFORE TRUNCATE ON public.tax_estimates
+  FOR EACH STATEMENT EXECUTE FUNCTION public.forbid_tracker_hard_delete();
+
+-- ============================================================================
 -- EMAIL ACCOUNTS
 -- Referenced (unconstrained) by organization_config.default_email_account_id.
 -- ============================================================================
