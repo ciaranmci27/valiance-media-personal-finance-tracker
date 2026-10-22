@@ -384,6 +384,71 @@ async function main() {
     await sync([["checking", "2026-09-20", -3500, "GADGETHUB ORDER 5005"]]);
     check(await filled("GADGETHUB ORDER 5005"), [null, "none"], "moved vendor: an old amount does not drag it back");
 
+    // 5c. An edited bank transaction is the same bank movement: the corrected version keeps
+    // the bank's description, so the import learns from the edit (Oct 2026: correcting the
+    // Sep 30 Patriot tax debit dropped it, and the next would have been net pay again).
+    const liveEntry = async (description: string) => {
+      await db.exec("RESET ROLE");
+      const found = (
+        await db.query<{ id: string }>(
+          "SELECT e.id FROM accounting.journal_entries e WHERE e.source_description=$1 AND e.status='posted' AND e.reverses_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries r WHERE r.reverses_entry_id=e.id)",
+          [description],
+        )
+      ).rows;
+      await as(fixtureOwner);
+      assert.equal(found.length, 1, `one live entry for ${description}`);
+      return detail(found[0].id);
+    };
+    await sync([["checking", "2026-10-01", -4200, "STREAMCO BILL 7001"]]);
+    await book("STREAMCO BILL 7001", office);
+    const streamed = await liveEntry("STREAMCO BILL 7001");
+    await cmd({
+      type: "entry.correct",
+      id: streamed.id,
+      expected_version: streamed.version,
+      reversal_date: "2026-10-01",
+      entry_date: "2026-10-01",
+      memo: streamed.memo,
+      lines: streamed.lines.map((l: any) => ({
+        account_id: l.account_id === office ? software : l.account_id,
+        amount_cents: l.amount_cents,
+        memo: l.memo,
+      })),
+      reason: "Belongs under software",
+    });
+    const corrected = await liveEntry("STREAMCO BILL 7001");
+    check(corrected.id !== streamed.id, true, "the edit saved a new version");
+    check(corrected.descriptor_key, streamed.descriptor_key, "the corrected version keeps the descriptor key");
+    await sync([["checking", "2026-11-01", -4200, "STREAMCO BILL 7002"]]);
+    check(await filled("STREAMCO BILL 7002"), ["prior", software], "the import learns from the edit");
+
+    // The guard keeps provenance fixed: outside the one-time backfill nobody may set it.
+    await db.exec("RESET ROLE");
+    await assert.rejects(
+      db.query("UPDATE accounting.journal_entries SET source_description='SOMETHING ELSE' WHERE id=$1", [corrected.id]),
+      /ACCT_IMMUTABLE_PROVENANCE|ACCT_POSTED_IMMUTABLE/,
+      "provenance stays fixed",
+    );
+    checks++;
+    // The backfill: a correction made before this change (simulated by clearing its
+    // description with the guard off) takes its original's, and only that.
+    await db.exec("ALTER TABLE accounting.journal_entries DISABLE TRIGGER guard");
+    await db.query("UPDATE accounting.journal_entries SET source_description=NULL,descriptor_key=NULL WHERE id=$1", [corrected.id]);
+    await db.exec("ALTER TABLE accounting.journal_entries ENABLE TRIGGER guard");
+    const dir = new URL("../supabase/migrations/", import.meta.url);
+    const migration = (await readdir(dir)).find((f) => f.endsWith("_accounting_corrections_keep_bank_description.sql"));
+    assert.ok(migration, "correction description migration");
+    const text = (await readFile(new URL(migration, dir), "utf8")).replace(/\r\n/g, "\n");
+    const from = text.indexOf("-- >>> correction description backfill");
+    const to = text.indexOf("-- <<< correction description backfill");
+    assert.ok(from >= 0 && to > from, "backfill markers");
+    await db.exec(text.slice(from, to));
+    const backfilled = (await db.query<{ n: number }>("SELECT accounting.correction_description_backfill() n")).rows[0].n;
+    await db.exec("DROP FUNCTION accounting.correction_description_backfill()");
+    const after = await detail(corrected.id);
+    check([backfilled >= 1, after.descriptor_key], [true, streamed.descriptor_key], "the backfill restores the description");
+    await as(fixtureOwner);
+
     // 6. A rule.
     const preview = async () =>
       (
@@ -538,7 +603,7 @@ async function main() {
     const live = await snapshot();
     check(
       live.filter((r) => r.category_source).length,
-      18, // 10 from the scenarios above, 8 booked in 5b (4 payroll, 4 vendor)
+      21, // 10 from the scenarios above, 8 booked in 5b (4 payroll, 4 vendor), 3 in 5c (bill, its correction, the next bill)
       "the scenarios recorded sources",
     );
     await db.exec(

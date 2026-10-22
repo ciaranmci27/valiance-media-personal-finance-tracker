@@ -5070,7 +5070,7 @@ CREATE OR REPLACE FUNCTION accounting.guard()
  SECURITY DEFINER
  SET search_path TO ''
 AS $function$
-DECLARE e accounting.journal_entries; a accounting.accounts; parent accounting.accounts; d date;
+DECLARE e accounting.journal_entries; a accounting.accounts; parent accounting.accounts; d date; inherits boolean:=false;
 BEGIN
  IF TG_LEVEL='STATEMENT' THEN PERFORM accounting.write_lock(); RETURN NULL; END IF;
  IF TG_TABLE_NAME IN ('audit_log','command_receipts') THEN
@@ -5089,14 +5089,19 @@ BEGIN
    PERFORM accounting.require_open(NEW.entry_date);
    INSERT INTO accounting.periods(month) VALUES(date_trunc('month',NEW.entry_date)::date) ON CONFLICT DO NOTHING;
   ELSE
-   IF NEW.id IS DISTINCT FROM OLD.id OR NEW.source_description IS DISTINCT FROM OLD.source_description OR NEW.descriptor_key IS DISTINCT FROM OLD.descriptor_key OR NEW.origin IS DISTINCT FROM OLD.origin OR NEW.created_at IS DISTINCT FROM OLD.created_at OR NEW.created_by IS DISTINCT FROM OLD.created_by THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_PROVENANCE'; END IF;
+   -- Provenance never changes, except once by the backfill below: a correction made before
+   -- corrections kept their bank description takes its original's.
+   inherits:=current_setting('accounting.action',true)='entry.provenance.backfill' AND OLD.source_description IS NULL AND OLD.replaces_entry_id IS NOT NULL
+    AND NEW.source_description IS NOT NULL AND NEW.source_description=(SELECT o.source_description FROM accounting.journal_entries o WHERE o.id=OLD.replaces_entry_id)
+    AND NEW.descriptor_key IS NOT DISTINCT FROM accounting.descriptor_key(NEW.source_description);
+   IF NEW.id IS DISTINCT FROM OLD.id OR (NOT inherits AND (NEW.source_description IS DISTINCT FROM OLD.source_description OR NEW.descriptor_key IS DISTINCT FROM OLD.descriptor_key)) OR NEW.origin IS DISTINCT FROM OLD.origin OR NEW.created_at IS DISTINCT FROM OLD.created_at OR NEW.created_by IS DISTINCT FROM OLD.created_by THEN RAISE EXCEPTION 'ACCT_IMMUTABLE_PROVENANCE'; END IF;
    IF OLD.transfer_group_id IS NOT NULL AND NEW.transfer_group_id IS DISTINCT FROM OLD.transfer_group_id THEN RAISE EXCEPTION 'ACCT_TRANSFER_GROUP_IMMUTABLE'; END IF;
    IF OLD.status='discarded' THEN RAISE EXCEPTION 'ACCT_DISCARDED'; END IF;
    -- A proposed transfer leg leaves draft only through transfer.confirm or after an unpair; how a draft was filled is a draft-only marker.
    IF NEW.status<>'draft' AND NEW.pair_entry_id IS NOT NULL THEN RAISE EXCEPTION 'ACCT_TRANSFER_PAIR_CONFIRM'; END IF;
    IF NEW.status<>'draft' THEN NEW.fill_source:=NULL; END IF;
    -- Who or what categorized a posted entry is fixed with it; only the one-time history backfill may fill a source the books never recorded.
-   IF OLD.status='posted' AND (to_jsonb(NEW)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','review_pending','version','updated_at']-CASE WHEN OLD.category_source IS NULL AND current_setting('accounting.action',true)='entry.source.backfill' THEN ARRAY['category_source','category_actor'] ELSE ARRAY[]::text[] END) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','review_pending','version','updated_at']-CASE WHEN OLD.category_source IS NULL AND current_setting('accounting.action',true)='entry.source.backfill' THEN ARRAY['category_source','category_actor'] ELSE ARRAY[]::text[] END) THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
+   IF OLD.status='posted' AND (to_jsonb(NEW)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','review_pending','version','updated_at']-CASE WHEN OLD.category_source IS NULL AND current_setting('accounting.action',true)='entry.source.backfill' THEN ARRAY['category_source','category_actor'] ELSE ARRAY[]::text[] END-CASE WHEN inherits THEN ARRAY['source_description','descriptor_key'] ELSE ARRAY[]::text[] END) IS DISTINCT FROM (to_jsonb(OLD)-ARRAY['memo','payee_id','reason','register_id','transfer_group_id','review_pending','version','updated_at']-CASE WHEN OLD.category_source IS NULL AND current_setting('accounting.action',true)='entry.source.backfill' THEN ARRAY['category_source','category_actor'] ELSE ARRAY[]::text[] END-CASE WHEN inherits THEN ARRAY['source_description','descriptor_key'] ELSE ARRAY[]::text[] END) THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
    IF OLD.status<>'posted' THEN PERFORM accounting.require_open(OLD.entry_date); PERFORM accounting.require_open(NEW.entry_date); END IF;
    -- A closed bank or card account takes nothing dated after its closing day; history up to it stays editable.
    IF NEW.entry_date>OLD.entry_date AND NEW.status<>'discarded' AND EXISTS(SELECT 1 FROM accounting.journal_lines cl JOIN accounting.accounts ca ON ca.id=cl.account_id WHERE cl.entry_id=NEW.id AND ca.closed_on<NEW.entry_date) THEN RAISE EXCEPTION 'ACCT_ACCOUNT_CLOSED'; END IF;
@@ -5781,7 +5786,9 @@ BEGIN
    END IF;
    IF t='entry.correct' THEN
     IF (c->>'entry_date')::date<(SELECT earliest_history_date FROM public.business_profile WHERE id=1) THEN RAISE EXCEPTION 'ACCT_INVALID_CORRECTION_DATE_OR_REASON'; END IF;
-    replacement:=accounting.ledger_command(c||jsonb_build_object('type','draft.save','id',coalesce((c->>'replacement_id')::uuid,gen_random_uuid()),'expected_version',0,'origin','internal','kind','correction','payee_id',e.payee_id));
+    -- The corrected version is the same bank movement: it keeps the bank's description, so the
+    -- import still learns from it (an edit used to drop it, Oct 2026).
+    replacement:=accounting.ledger_command(c||jsonb_build_object('type','draft.save','id',coalesce((c->>'replacement_id')::uuid,gen_random_uuid()),'expected_version',0,'origin','internal','kind','correction','payee_id',e.payee_id,'source_description',e.source_description));
     k:=(replacement->>'id')::uuid;
     -- An edit that keeps every account and amount keeps whoever or whatever chose them.
     kept:=accounting.lines_key(accounting.entry_lines(e.id)) IS NOT DISTINCT FROM accounting.lines_key(accounting.entry_lines(k));
