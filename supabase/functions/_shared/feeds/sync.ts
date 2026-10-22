@@ -202,11 +202,7 @@ export async function syncSimpleFin(options: {
         continue;
       }
       for (const identity of plan.identities) {
-        const account = response.accounts.find(
-          (a) =>
-            a.provider_connection_id === identity.provider_connection_id &&
-            a.provider_account_id === identity.provider_account_id,
-        );
+        const account = matchAccount(response.accounts, identity);
         if (!account) {
           complete = false;
           errors.push(
@@ -266,6 +262,28 @@ export async function syncSimpleFin(options: {
     }
     throw issue;
   }
+}
+/**
+ * A v1 identity (derived "v1:" connection id) is found under its v2
+ * connection by account id alone, when exactly one account carries it; saving
+ * it lets sync_server re-key the identity. Every other identity matches exactly.
+ */
+export function matchAccount(
+  accounts: FeedAccount[],
+  identity: Identity,
+): FeedAccount | undefined {
+  const exact = accounts.find(
+    (a) =>
+      a.provider_connection_id === identity.provider_connection_id &&
+      a.provider_account_id === identity.provider_account_id,
+  );
+  if (exact || !identity.provider_connection_id.startsWith("v1:")) return exact;
+  const renamed = accounts.filter(
+    (a) =>
+      a.provider_account_id === identity.provider_account_id &&
+      !a.provider_connection_id.startsWith("v1:"),
+  );
+  return renamed.length === 1 ? renamed[0] : undefined;
 }
 function accountIssue(account: FeedAccount) {
   return `${account.name}: ${account.issues.map((i) => i.message).join(" ")}`;

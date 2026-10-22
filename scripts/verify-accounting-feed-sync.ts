@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
+import type { FeedAccount } from "../supabase/functions/_shared/feeds/data.ts";
 import {
+  matchAccount,
   planRequests,
   runDueFeeds,
   syncSimpleFin,
@@ -82,7 +84,7 @@ async function main() {
   let transport: ProviderTransport = async (url) => {
     networkCalls++;
     check(calls[0]?.action, "lease");
-    check(url.searchParams.get("version"), "1");
+    check(url.searchParams.get("version"), "2");
     check(url.searchParams.get("account"), null);
     check(url.searchParams.get("pending"), "1");
     check(url.searchParams.get("end-date"), String(now + 1));
@@ -134,6 +136,34 @@ async function main() {
   check(
     planRequests([identity(1, String(now - 3600)), identity(2)], now).length,
     1,
+  );
+  // A v1 identity finds its account under the v2 connection by account id,
+  // only when exactly one account carries it; other identities match exactly.
+  const fed = (connectionId: string, accountId: string) =>
+    ({
+      provider_connection_id: connectionId,
+      provider_account_id: accountId,
+    }) as FeedAccount;
+  const legacy = {
+    ...identity(1),
+    provider_connection_id: "v1:abc",
+    provider_account_id: "ACT-1",
+  };
+  check(matchAccount([fed("MX-1", "ACT-1")], legacy), fed("MX-1", "ACT-1"));
+  check(
+    matchAccount([fed("v1:abc", "ACT-1"), fed("MX-1", "ACT-1")], legacy),
+    fed("v1:abc", "ACT-1"),
+  );
+  check(
+    matchAccount([fed("MX-1", "ACT-1"), fed("MX-2", "ACT-1")], legacy),
+    undefined,
+  );
+  check(
+    matchAccount([fed("MX-1", "ACT-1")], {
+      ...legacy,
+      provider_connection_id: "MX-9",
+    }),
+    undefined,
   );
   calls = [];
   networkCalls = 0;

@@ -7715,7 +7715,7 @@ CREATE OR REPLACE FUNCTION accounting.sync_server(command jsonb)
  SET search_path TO ''
 AS $function$
 DECLARE c accounting.bank_connections; ba accounting.bank_accounts; observation accounting.bank_transactions; a jsonb; tx jsonb; normalized jsonb;
- provider_key text; discover_id uuid; new_checkpoint jsonb; discovered jsonb; due_list jsonb; zone text; run uuid:=coalesce((command->>'run_id')::uuid,gen_random_uuid());
+ provider_key text; legacy text[]; legacy_key text; legacy_id text; discover_id uuid; new_checkpoint jsonb; discovered jsonb; due_list jsonb; zone text; run uuid:=coalesce((command->>'run_id')::uuid,gen_random_uuid());
  run_complete boolean:=coalesce((command->>'complete')::boolean,true);count_new integer:=0;count_pending integer:=0;count_drafts integer:=0;count_conflicts integer:=0; book_date date; amount bigint; existing_id uuid;
  candidate_id uuid; candidate_count integer; allocation bigint; draft jsonb; bank_line uuid; category uuid; account_complete boolean; balance_sign smallint; seen jsonb; blocked jsonb; conflicts_before integer; partial boolean:=coalesce((command->>'partial')::boolean,false); discovery_only boolean:=coalesce((command->>'discovery')::boolean,false);
 BEGIN
@@ -7765,7 +7765,24 @@ BEGIN
  run_complete:=run_complete AND coalesce((c.checkpoint->'sync_run'->>'complete')::boolean,true);
  FOR a IN SELECT value FROM jsonb_array_elements(command->'accounts') LOOP
   provider_key:=jsonb_build_array(a->>'provider_connection_id',a->>'provider_account_id')::text;
-  discover_id:=md5(c.id::text||':'||provider_key)::uuid;
+  -- Protocol v2 replaces the derived v1:<hash> connection id with the provider's own; account ids do not change.
+  -- The first v2 sighting re-keys the one v1 identity with this account id, so mapping, coverage and evidence carry over.
+  IF a->>'provider_connection_id' NOT LIKE 'v1:%' AND NOT EXISTS(SELECT 1 FROM jsonb_each(discovered) d WHERE d.value->>'provider_account_id'=provider_key) THEN
+   SELECT array_agg(DISTINCT k) INTO legacy FROM (
+    SELECT d.value->>'provider_account_id' k FROM jsonb_each(discovered) d WHERE d.value->>'raw_provider_account_id'=a->>'provider_account_id' AND d.value->>'provider_connection_id' LIKE 'v1:%'
+    UNION SELECT b.provider_account_id FROM accounting.bank_accounts b WHERE b.connection_id=c.id AND CASE WHEN b.provider_account_id LIKE '["v1:%' THEN (b.provider_account_id::jsonb)->>1 END=a->>'provider_account_id') l;
+   IF cardinality(legacy)=1 THEN
+    legacy_key:=legacy[1];
+    SELECT d.key INTO legacy_id FROM jsonb_each(discovered) d WHERE d.value->>'provider_account_id'=legacy_key;
+    IF legacy_id IS NOT NULL THEN
+     discovered:=jsonb_set(discovered,ARRAY[legacy_id],discovered->legacy_id||jsonb_build_object('provider_account_id',provider_key,'provider_connection_id',a->>'provider_connection_id'));
+    END IF;
+    UPDATE accounting.bank_accounts SET provider_account_id=provider_key WHERE connection_id=c.id AND provider_account_id=legacy_key;
+    IF new_checkpoint ? legacy_key THEN new_checkpoint:=jsonb_set(new_checkpoint-legacy_key,ARRAY[provider_key],new_checkpoint->legacy_key); END IF;
+   END IF;
+  END IF;
+  -- A re-keyed entry keeps its original id: feed accounts are keyed by it.
+  discover_id:=coalesce((SELECT d.key::uuid FROM jsonb_each(discovered) d WHERE d.value->>'provider_account_id'=provider_key LIMIT 1),md5(c.id::text||':'||provider_key)::uuid);
   discovered:=jsonb_set(discovered,ARRAY[discover_id::text],jsonb_build_object('id',discover_id,'provider_account_id',provider_key,'raw_provider_account_id',a->>'provider_account_id','provider_connection_id',a->>'provider_connection_id','name',a->>'name','institution',a->>'institution','currency',a->>'currency','balance_cents',a->>'balance_cents','available_cents',a->>'available_cents','balance_at',a->'balance_at','ownership',coalesce(discovered->discover_id::text->>'ownership','unreviewed'),
    'seen_at',extract(epoch FROM now())::bigint,'not_replacing',coalesce(discovered->discover_id::text->'not_replacing','[]'::jsonb)));
   SELECT * INTO ba FROM accounting.bank_accounts WHERE connection_id=c.id AND provider_account_id=provider_key AND NOT is_closed;

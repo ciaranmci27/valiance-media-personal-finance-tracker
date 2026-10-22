@@ -307,6 +307,124 @@ async function main() {
       [{ balance: "10000", at: String(stamp) }],
     );
     check(typeof feeds.worker.last_tick_at, "string");
+    // Protocol v2 renames a derived "v1:" connection to the provider's id; account and
+    // transaction ids do not change. The first v2 sighting re-keys the v1 identity in place.
+    const renamed = randomUUID(),
+      card = randomUUID(),
+      v1Key = '["v1:abc", "ACT-1"]',
+      v2Key = '["MX-1", "ACT-1"]';
+    await cmd({
+      type: "account.create",
+      id: card,
+      code: "2051",
+      name: "Synthetic card",
+      account_type: "liability",
+      normal_side: "credit",
+      cash_kind: "card",
+    });
+    await cmd({
+      type: "feed.claim",
+      id: renamed,
+      name: "Synthetic v1 connection",
+      access_url_encrypted: "synthetic-encrypted-access",
+      expected_version: 0,
+    });
+    const feedAccount = (
+      connectionId: string,
+      accountId: string,
+      transactions: object[],
+      extra: object = {},
+    ) =>
+      account(transactions, {
+        provider_connection_id: connectionId,
+        provider_account_id: accountId,
+        name: accountId,
+        ...extra,
+      });
+    const renamedCheckpoint = async () =>
+      (
+        await raw(
+          "SELECT checkpoint FROM accounting.bank_connections WHERE id=$1",
+          [renamed],
+        )
+      )[0].checkpoint;
+    run = randomUUID();
+    await worker({ id: renamed, action: "lease" });
+    await worker({
+      id: renamed,
+      action: "complete",
+      discovery: true,
+      accounts: [
+        feedAccount("v1:abc", "ACT-1", [], { through: null }),
+        feedAccount("v1:abc", "ACT-2", [], { through: null }),
+      ],
+    });
+    const discovery = (await renamedCheckpoint()).discovery;
+    const cardKey = Object.keys(discovery).find(
+      (k) => discovery[k].raw_provider_account_id === "ACT-1",
+    )!;
+    await cmd({
+      type: "feed.map",
+      id: cardKey,
+      expected_version: 0,
+      account_id: card,
+      connection_id: renamed,
+      provider_account_id: v1Key,
+      coverage_from: "2026-01-01",
+    });
+    const cardTx = { ...tx, external_id: "TRN-1", hash: "d".repeat(64) };
+    run = randomUUID();
+    await worker({ id: renamed, action: "lease" });
+    result = await worker({
+      id: renamed,
+      action: "complete",
+      accounts: [feedAccount("v1:abc", "ACT-1", [cardTx])],
+    });
+    check([result.new, result.complete], [1, true]);
+    check((await renamedCheckpoint())[v1Key], String(stamp + 1));
+    run = randomUUID();
+    await worker({ id: renamed, action: "lease" });
+    result = await worker({
+      id: renamed,
+      action: "complete",
+      accounts: [
+        feedAccount("MX-1", "ACT-1", [cardTx], {
+          complete: false,
+          through: String(stamp + 5),
+        }),
+        feedAccount("MX-1", "ACT-2", [], { through: null }),
+      ],
+    });
+    // The same movement is recognised, not observed twice or flagged as changed.
+    check([result.new, result.conflicts], [0, 0]);
+    const rekeyed = await renamedCheckpoint();
+    // Coverage moves to the new key unchanged; an incomplete account does not advance it.
+    check([rekeyed[v1Key], rekeyed[v2Key]], [undefined, String(stamp + 1)]);
+    // The mapped and the unmapped entry keep their ids: no duplicate discovery entries.
+    check(Object.keys(rekeyed.discovery).length, 2);
+    check(rekeyed.discovery[cardKey].provider_account_id, v2Key);
+    check(
+      Object.values(rekeyed.discovery)
+        .map((d: any) => d.provider_connection_id)
+        .sort(),
+      ["MX-1", "MX-1"],
+    );
+    check(
+      await raw(
+        "SELECT provider_account_id, (SELECT count(*)::int FROM accounting.bank_transactions t WHERE t.bank_account_id=b.id) n FROM accounting.bank_accounts b WHERE id=$1",
+        [cardKey],
+      ),
+      [{ provider_account_id: v2Key, n: 1 }],
+    );
+    run = randomUUID();
+    lease = await worker({ id: renamed, action: "lease" });
+    check(
+      lease.identities.map((i: any) => [
+        i.provider_connection_id,
+        i.checkpoint,
+      ]),
+      [["MX-1", String(stamp + 1)]],
+    );
     console.log(
       `SimpleFIN durable chunks, checkpoints and worker isolation: ${checks} assertions passed.`,
     );
