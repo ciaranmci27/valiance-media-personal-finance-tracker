@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { accountingTestDb } from "./accounting-test-db";
+import { syncOverdue } from "../src/lib/accounting/receivables";
 import {
   fixtureAccounts,
   fixtureAccountId as account,
@@ -295,6 +296,12 @@ async function main() {
     "https://box.internal",
   ])
     (assert.throws(() => sourceBaseUrl(bad), /address/i), checks++);
+  // A source that stopped pulling says so; one that was never meant to run does not.
+  const noon = Date.parse("2026-11-06T12:00:00Z");
+  check(syncOverdue({ status: "active", last_synced_at: "2026-11-06T02:00:00Z" }, noon), false);
+  check(syncOverdue({ status: "active", last_synced_at: "2026-11-05T11:59:00Z" }, noon), true);
+  check(syncOverdue({ status: "active", last_synced_at: null }, noon), true);
+  check(syncOverdue({ status: "paused", last_synced_at: "2026-10-18T23:44:00Z" }, noon), false);
   check(
     sourceBaseUrl("https://pm.example.com/base/").href,
     "https://pm.example.com/base",

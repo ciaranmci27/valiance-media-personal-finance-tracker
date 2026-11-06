@@ -806,6 +806,7 @@ function AccountingBooksInner({
                 onTransactions={() => setView("journal")}
                 onAccounts={() => setView("accounts")}
                 onFeeds={() => setView("manage", "feeds")}
+                onInvoiceSources={() => setView("manage", "invoices")}
                 onMonthEnd={() => setView("close")}
                 onEntry={(entry) =>
                   void transactionAction(transactionRowAction(entry), entry)

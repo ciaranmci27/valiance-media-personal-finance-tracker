@@ -279,6 +279,7 @@ export function viewQueries(
     case "overview":
       return [
         reportQuery("profit-loss", overviewReportFilter(ctx.to)),
+        { view: "receivables", limit: "1" },
         registerQuery({
           review: "needs_review",
           sort: "date_desc",

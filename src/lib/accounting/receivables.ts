@@ -88,6 +88,20 @@ export interface InvoiceSource {
     party_id: string | null;
   }[];
 }
+/**
+ * An active source that has not pulled for a day, the same test as the accrual
+ * report's stale_sources: the hourly job runs 24 times in that window, so
+ * something is wrong. Only a pull counts; a payment pushed back moves nothing.
+ */
+export function syncOverdue(
+  source: Pick<InvoiceSource, "status" | "last_synced_at">,
+  now = Date.now(),
+): boolean {
+  if (source.status !== "active") return false;
+  if (!source.last_synced_at) return true;
+  return now - Date.parse(source.last_synced_at) > 24 * 60 * 60 * 1000;
+}
+
 export interface InvoiceLink {
   id: string;
   version: number;

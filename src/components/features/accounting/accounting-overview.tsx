@@ -50,6 +50,7 @@ import {
 } from "@/lib/accounting/transactions";
 import type { BooksMetadata } from "./types";
 import { useAccountingRead } from "./use-accounting-read";
+import { syncOverdue, type ReceivablesView } from "@/lib/accounting/receivables";
 import {
   earnedReportFilter,
   overviewReportFilter,
@@ -185,6 +186,7 @@ export function AccountingOverview({
   onTransactions,
   onAccounts,
   onFeeds,
+  onInvoiceSources,
   onMonthEnd,
   onEntry,
   onAdd,
@@ -200,6 +202,7 @@ export function AccountingOverview({
   onTransactions: () => void;
   onAccounts: () => void;
   onFeeds: () => void;
+  onInvoiceSources: () => void;
   onMonthEnd: () => void;
   onEntry: (entry: JournalEntry) => void;
   onAdd: (direction: "in" | "out") => void;
@@ -225,6 +228,11 @@ export function AccountingOverview({
   const feedsRead = useAccountingRead<FeedData>(
     { view: "feeds" },
     { enabled: enabled && feedsProp === undefined },
+  );
+  // Only the connections matter here, so one invoice row is enough.
+  const receivablesRead = useAccountingRead<ReceivablesView>(
+    { view: "receivables", limit: "1" },
+    { enabled },
   );
   const draftsRead = useAccountingRead<{ entries: JournalEntry[] }>(
     registerQuery({
@@ -332,6 +340,9 @@ export function AccountingOverview({
       (c.status === "active" && !c.last_success_at && c.last_error),
   );
   const activeConnection = connections.some((c) => c.status === "active");
+  const overdueSource = receivablesRead.data?.sources.find((s) =>
+    syncOverdue(s),
+  );
   const unmappedIdentities = (feeds?.identities ?? []).filter(
     (i) => i.ownership === "unreviewed" && !i.feed_account_id,
   ).length;
@@ -473,6 +484,28 @@ export function AccountingOverview({
   return (
     <div className="space-y-5 lg:space-y-6">
       {header}
+      {overdueSource && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-warning/10 px-4 py-3 text-sm"
+        >
+          <CircleAlert
+            size={16}
+            aria-hidden="true"
+            className="shrink-0 text-warning"
+          />
+          <p className="min-w-0 flex-1">
+            {overdueSource.last_synced_at
+              ? `Invoices last synced ${timestampLabel(overdueSource.last_synced_at)}.`
+              : "Invoices have not synced yet."}{" "}
+            New invoices and payments will not show until they do.
+          </p>
+          <Button variant="outline" size="sm" onClick={onInvoiceSources}>
+            Invoice sources
+            <ArrowRight size={14} aria-hidden="true" />
+          </Button>
+        </div>
+      )}
       <div
         className={cn(
           "grid grid-cols-1 gap-3 min-[360px]:grid-cols-2 lg:gap-4",

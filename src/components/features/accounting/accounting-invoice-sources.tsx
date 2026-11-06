@@ -28,6 +28,7 @@ import {
   type ReceivablesView,
   type SourceInvoice,
   type SourceStatus,
+  syncOverdue,
 } from "@/lib/accounting/receivables";
 import { getAccountingDemoReceivables } from "@/lib/accounting/demo";
 import type { BooksMetadata } from "./types";
@@ -366,6 +367,17 @@ function SourceCard({
           </Button>
         </div>
       </div>
+      {syncOverdue(source) && !source.last_error && (
+        <p role="alert" className="flex items-start gap-2 text-sm text-warning">
+          <AlertTriangle
+            size={15}
+            aria-hidden="true"
+            className="mt-0.5 shrink-0"
+          />
+          The hourly sync has stopped. Sync now brings invoices up to date, but
+          it will stop again until the job is fixed.
+        </p>
+      )}
       {source.last_error && (
         <p role="alert" className="flex items-start gap-2 text-sm text-warning">
           <AlertTriangle
