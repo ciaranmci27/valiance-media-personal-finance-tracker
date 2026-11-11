@@ -4988,7 +4988,8 @@ BEGIN
   'lines',coalesce((SELECT jsonb_agg(to_jsonb(l)||jsonb_build_object('amount_cents',l.amount_cents::text) ORDER BY l.sort_order) FROM accounting.journal_lines l WHERE l.entry_id=e.id),'[]')) INTO result
  FROM accounting.journal_entries e WHERE e.id=entry;
  IF result IS NULL THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
- SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('id',a.id::text) ORDER BY a.id),'[]') INTO extra FROM accounting.audit_log a WHERE a.row_id=entry;
+ -- The table name lets the lookup use audit_row's index; without it every entry read scanned the whole log.
+ SELECT coalesce(jsonb_agg(to_jsonb(a)||jsonb_build_object('id',a.id::text) ORDER BY a.id),'[]') INTO extra FROM accounting.audit_log a WHERE a.table_name='journal_entries' AND a.row_id=entry;
  result:=result||jsonb_build_object('audit',extra,'matches','[]'::jsonb,'documents','[]'::jsonb);
  IF to_regclass('accounting.bank_matches') IS NOT NULL THEN
   SELECT l.account_id INTO bank_account FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=entry AND a.subtype IN ('bank','card','cash') ORDER BY l.sort_order LIMIT 1;
@@ -8285,10 +8286,11 @@ CREATE OR REPLACE FUNCTION accounting.workspace(from_date date, to_date date, mo
  STABLE SECURITY DEFINER
  SET search_path TO ''
 AS $function$
-DECLARE r jsonb;tx jsonb;
+DECLARE r jsonb;
 BEGIN
- PERFORM accounting.require_reader();r:=accounting.report('summary',jsonb_build_object('from',from_date,'to',to_date,'mode',coalesce(mode,'posted')));tx:=accounting.transactions(jsonb_build_object('from',from_date,'to',to_date));
- RETURN jsonb_build_object('legal_name',r->'legal_name','revision',r->'revision','from',from_date,'to',to_date,'accounts',r->'accounts','balances',r->'accounts','entries',tx->'entries','entry_count',tx->'total','draft_count',r->'quality'->'draft_count',
+ -- Balances and report totals only: the screens read their transactions from the register, page by page.
+ PERFORM accounting.require_reader();r:=accounting.report('summary',jsonb_build_object('from',from_date,'to',to_date,'mode',coalesce(mode,'posted')));
+ RETURN jsonb_build_object('legal_name',r->'legal_name','revision',r->'revision','from',from_date,'to',to_date,'accounts',r->'accounts','balances',r->'accounts','draft_count',r->'quality'->'draft_count',
  'needs_review_count',(SELECT count(*) FROM accounting.journal_entries e WHERE (status='draft' OR (status='posted' AND review_pending)) AND e.reverses_entry_id IS NULL AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries re WHERE re.reverses_entry_id=e.id)),'sync_due',EXISTS(SELECT 1 FROM accounting.bank_connections WHERE status='active' AND scheduled AND (last_success_at IS NULL OR last_success_at<now()-interval '6 hours')),
  'reports',r-ARRAY['legal_name','revision','definition_version','currency','basis','generated_at','filter','accounts','rows','totals','comparison','monthly','dimensions','cash','quality']);
 END $function$

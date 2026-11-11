@@ -408,7 +408,7 @@ export function AccountingTransactions({
         manage.parties.find((party) => party.id === id)?.name,
       account: (id: string) => accounts.get(id),
     };
-    const list = data.entries.filter(
+    const list = (data.entries ?? []).filter(
       (e) =>
         (f.status === "reversed"
           ? !e.reverses_entry_id &&

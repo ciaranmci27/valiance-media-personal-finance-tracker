@@ -254,10 +254,10 @@ export function AccountingOverview({
   const report = reportRead.data ?? null;
   const feeds = feedsProp !== undefined ? feedsProp : (feedsRead.data ?? null);
   const drafts = demo
-    ? data.entries.filter((e) => !isTransactionReviewed(e)).slice(0, 5)
+    ? (data.entries ?? []).filter((e) => !isTransactionReviewed(e)).slice(0, 5)
     : (draftsRead.data?.entries ?? (draftsRead.error ? [] : null));
   const recent = demo
-    ? data.entries.filter((e) => e.status === "posted").slice(0, 8)
+    ? (data.entries ?? []).filter((e) => e.status === "posted").slice(0, 8)
     : (recentRead.data?.entries ?? (recentRead.error ? [] : null));
   const close = closeRead.data ?? null;
   const intent = (view: AccountingView) => ({

@@ -203,7 +203,7 @@ function AccountingBooksInner({
     ...preloadContextFromLocation(params, today, reviewCount),
     from: data.from,
     to: data.to,
-    entry: detailOnly ? (initial.entries[0]?.id ?? null) : null,
+    entry: detailOnly ? (initial.entries?.[0]?.id ?? null) : null,
   };
 
   function setView(
@@ -255,7 +255,7 @@ function AccountingBooksInner({
     direction?: "in" | "out";
   } | null>(null);
   const [selected, setSelected] = useState<JournalEntry | null>(
-    detailOnly ? (initial.entries[0] ?? null) : null,
+    detailOnly ? (initial.entries?.[0] ?? null) : null,
   );
   // An entry asked for by id alone: the dialog opens at once and fills in.
   const [opening, setOpening] = useState(false);
@@ -486,7 +486,7 @@ function AccountingBooksInner({
   }
   async function openEntry(id: string, known?: JournalEntry) {
     const request = ++entryRequest.current;
-    const loaded = known ?? data.entries.find((e) => e.id === id);
+    const loaded = known ?? data.entries?.find((e) => e.id === id);
     if (loaded || demo) {
       setSelected(loaded ?? null);
       return;

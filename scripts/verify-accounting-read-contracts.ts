@@ -102,14 +102,19 @@ async function main() {
       ).reports.net_income_cents,
       "12345",
     );
-    check(workspace.entries[0].prior_treatment, null);
+    // Totals only: the screens page through the register for transactions.
+    check("entries" in workspace, false);
+    const register = await read("register", {
+      p_filter: { from: "2026-01-01", to: "2026-06-30" },
+    });
+    check(register.entries[0].prior_treatment, null);
     const filtered = await read("workspace", {
       p_from: "2026-01-01",
       p_to: "2026-06-30",
       p_entry_id: entry,
     });
     check(filtered.entries.length, 1);
-    const line = workspace.entries[0].lines.find(
+    const line = register.entries[0].lines.find(
       (l: any) => l.account_id === fixtureAccountId(1),
     );
     const cash = await read("cash-review", { p_line: line.id });

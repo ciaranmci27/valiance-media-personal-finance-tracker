@@ -298,10 +298,16 @@ async function main() {
     ).rows[0].r;
     check(corrected.reports.net_income_cents, "-125000");
     check(corrected.reports.balance_difference_cents, "0");
-    // The register (and so the workspace's entries) leaves reversed pairs out; each
-    // entry's detail still links the pair both ways.
+    // The register leaves reversed pairs out; each entry's detail still links
+    // the pair both ways. The workspace carries totals only, no transactions.
+    check("entries" in corrected, false);
+    const register = (
+      await db.query<{ r: { entries: { id: string }[] } }>(
+        `select accounting.transactions('{"from":"2026-01-01","to":"2026-02-28"}') r`,
+      )
+    ).rows[0].r;
     check(
-      corrected.entries.some((e) => e.id === entryIds[2] || e.id === reversal.id),
+      register.entries.some((e) => e.id === entryIds[2] || e.id === reversal.id),
       false,
     );
     const pairDetail = async (id: string) =>

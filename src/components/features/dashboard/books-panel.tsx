@@ -162,7 +162,7 @@ export function useDashboardBooks({
   ]);
 
   const recent: JournalEntry[] | null = demoData
-    ? demoData.entries.filter((e) => e.status === "posted").slice(0, 6)
+    ? (demoData.entries ?? []).filter((e) => e.status === "posted").slice(0, 6)
     : (recentRead.data?.entries.slice(0, 6) ?? (recentRead.error ? [] : null));
 
   return {

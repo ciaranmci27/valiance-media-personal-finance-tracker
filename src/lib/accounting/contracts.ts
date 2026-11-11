@@ -231,8 +231,12 @@ export interface AccountingWorkspace {
   from: string;
   to: string;
   accounts: AccountingAccount[];
-  entries: JournalEntry[];
-  entry_count: number;
+  /**
+   * Only on a read for one entry (`entry_id`) and in the demo. The live
+   * workspace carries balances and totals; transactions come from the register.
+   */
+  entries?: JournalEntry[];
+  entry_count?: number;
   draft_count: number;
   needs_review_count: number;
   sync_due: boolean;
