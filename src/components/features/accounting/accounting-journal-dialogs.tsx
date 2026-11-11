@@ -1017,7 +1017,13 @@ function ApprovalForm({
                   entry_date: date,
                   reason: note,
                 }
-              : { ...common, type: "draft.discard", reason: note };
+              : {
+                  ...common,
+                  type: "draft.discard",
+                  reason: note,
+                  // A deleted bank draft stays deleted; the next sync does not bring it back.
+                  exclude_bank: true,
+                };
         if (await onSubmit(command)) onClose();
       }}
     >

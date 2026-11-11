@@ -86,6 +86,8 @@ export const commandSchema = z.discriminatedUnion("type", [
       id: z.guid(),
       expected_version: version,
       reason: z.string().trim().min(1).max(1000),
+      /** A person deleting a bank draft: its bank line is set aside so the next sync does not bring it back. */
+      exclude_bank: z.boolean().optional(),
     })
     .strict(),
   z

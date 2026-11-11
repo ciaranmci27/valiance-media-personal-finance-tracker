@@ -168,6 +168,7 @@ export function breakdownQuery(filter: ReportFilter): AccountingQuery {
     from: filter.from,
     to: filter.to,
     mode: filter.mode,
+    ...(filter.basis === "accrual" ? { basis: "accrual" as const } : {}),
     group_by: "month",
     ...(filter.payee ? { payee: filter.payee } : {}),
     ...(filter.compare_from && filter.compare_to

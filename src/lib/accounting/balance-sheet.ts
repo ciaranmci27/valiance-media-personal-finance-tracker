@@ -1,11 +1,12 @@
 import type { ReportModel } from "./report-model";
 import { fiscalPriorEnd } from "./fiscal-year";
-import type {
-  BreakdownData,
-  BreakdownFilter,
-  ReportAccount,
-  ReportData,
-  ReportFilter,
+import {
+  activityOf,
+  type BreakdownData,
+  type BreakdownFilter,
+  type ReportAccount,
+  type ReportData,
+  type ReportFilter,
 } from "./reports";
 import {
   percentOf,
@@ -442,8 +443,7 @@ export type Lifetime = Map<string, { credits: bigint; debits: bigint }>;
 export function lifetimeOf(data: ReportData): Lifetime {
   const out: Lifetime = new Map();
   for (const a of data.accounts) {
-    const debits = big(a.debit_cents),
-      credits = big(a.credit_cents);
+    const { debits, credits } = activityOf(a);
     if (big(a.opening_cents) === ZERO && debits - credits === big(a.ending_cents))
       out.set(a.id, { credits, debits });
   }
@@ -594,11 +594,13 @@ export function balanceSeriesFilters(
   asOf: string,
   mode: ReportFilter["mode"],
   accounts: Pick<ReportAccount, "id" | "account_type" | "normal_side" | "cash_kind">[],
+  basis?: ReportFilter["basis"],
 ): Record<BalanceSeries, BreakdownFilter | null> {
   const base = {
     from: seriesStart(asOf),
     to: asOf,
     mode,
+    ...(basis === "accrual" ? { basis: "accrual" as const } : {}),
     group_by: "month" as const,
     measure: "balance" as const,
   };

@@ -276,6 +276,7 @@ export function AccountingTransactionEditor({
               memo,
               reason: reason.trim() || "Edited in Transactions",
               lines,
+              payee_id: context.payee_id ?? null,
             }
         : {
             type: review ? "transaction.review" : "transaction.save",

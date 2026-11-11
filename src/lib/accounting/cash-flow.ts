@@ -1,9 +1,10 @@
-import type {
-  BreakdownData,
-  BreakdownFilter,
-  ReportAccount,
-  ReportData,
-  ReportFilter,
+import {
+  activityOf,
+  type BreakdownData,
+  type BreakdownFilter,
+  type ReportAccount,
+  type ReportData,
+  type ReportFilter,
 } from "./reports";
 import type { StatementRow } from "./profit-loss";
 import { periodScope } from "./profit-loss";
@@ -146,8 +147,7 @@ export function cashFlowTotals(data: ReportData): CashFlowTotals {
     else if (role === "owner" || role === "loan") {
       // Credits brought money in, debits took it out; a mixed owner account
       // (or a dedicated one with a correction) splits the same way.
-      const credits = big(a.credit_cents),
-        debits = big(a.debit_cents);
+      const { credits, debits } = activityOf(a);
       if (role === "owner") {
         ownerIn += credits;
         ownerOut -= debits;

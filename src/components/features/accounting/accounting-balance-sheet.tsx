@@ -190,6 +190,7 @@ export function AccountingBalanceSheet({
     asOf,
     normalized.mode,
     data?.accounts ?? [],
+    normalized.basis,
   );
   const read = (f: BreakdownFilter | null) =>
     f && data ? balanceSeriesQuery(f) : null;

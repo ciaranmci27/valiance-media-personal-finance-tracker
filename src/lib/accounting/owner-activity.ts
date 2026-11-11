@@ -1,4 +1,4 @@
-import type { ReportAccount, ReportData, ReportDetail, ReportFilter } from "./reports";
+import { activityOf, type ReportAccount, type ReportData, type ReportDetail, type ReportFilter } from "./reports";
 import { cashRole } from "./cash-flow";
 import { percentOf, periodScope, type StatementRow } from "./profit-loss";
 
@@ -66,13 +66,14 @@ export function ownerTotals(data: ReportData, previous = false): OwnerTotals {
   const period = (a: ReportAccount) => big(previous ? a.compare_period_cents : a.period_cents);
   const owners = ownerAccounts(data);
   // A credit to an owner account is money in; a debit is money out. The
-  // comparison has only each account's net, so there it splits by sign.
+  // comparison has only each account's net, so there it splits by sign. An
+  // entry deleted or edited in the period counts once, not both ways.
   const putIn = previous
     ? sum(owners, (a) => (period(a) < ZERO ? -period(a) : ZERO))
-    : sum(owners, (a) => big(a.credit_cents));
+    : sum(owners, (a) => activityOf(a).credits);
   const takenOut = previous
     ? sum(owners, (a) => (period(a) > ZERO ? period(a) : ZERO))
-    : sum(owners, (a) => big(a.debit_cents));
+    : sum(owners, (a) => activityOf(a).debits);
   const loans = ownerLoanAccounts(data);
   const profit = big(totals.net_cents);
   const opening = -sum(openingAccounts(data), period);
@@ -87,12 +88,12 @@ export function ownerTotals(data: ReportData, previous = false): OwnerTotals {
     salary: sum(salaryAccounts(data), period),
     profit,
     opening,
-    lent: previous ? sum(loans, (a) => (period(a) < ZERO ? -period(a) : ZERO)) : sum(loans, (a) => big(a.credit_cents)),
-    repaid: previous ? sum(loans, (a) => (period(a) > ZERO ? period(a) : ZERO)) : sum(loans, (a) => big(a.debit_cents)),
+    lent: previous ? sum(loans, (a) => (period(a) < ZERO ? -period(a) : ZERO)) : sum(loans, (a) => activityOf(a).credits),
+    repaid: previous ? sum(loans, (a) => (period(a) > ZERO ? period(a) : ZERO)) : sum(loans, (a) => activityOf(a).debits),
     startingEquity: endingEquity - equityMoved - profit,
     endingEquity,
     takenShare: profit > ZERO ? percentOf(takenOut, profit) : null,
-    mixed: previous ? [] : owners.filter((a) => big(a.credit_cents) > ZERO && big(a.debit_cents) > ZERO),
+    mixed: previous ? [] : owners.filter((a) => activityOf(a).credits > ZERO && activityOf(a).debits > ZERO),
     salaryTracked: salaryAccounts(data).length > 0,
   };
 }

@@ -388,6 +388,8 @@ export const extendedCommandSchema = z.union([
         reason: memo,
         memo,
         lines: lines.min(2),
+        /** The new version's contact; absent keeps the original's. */
+        payee_id: optionalId,
       })
       .strict(),
     z

@@ -68,6 +68,13 @@ export interface ReportAccount {
   opening_cents: string;
   debit_cents: string;
   credit_cents: string;
+  /**
+   * The period's debits and credits without entries a reversal in the same
+   * period cancels, so a deleted or edited entry is not money both in and
+   * out. Absent from books that predate it; read through activityOf.
+   */
+  activity_debit_cents?: string;
+  activity_credit_cents?: string;
   period_cents: string;
   ending_cents: string;
   prior_cents: string;
@@ -76,6 +83,17 @@ export interface ReportAccount {
   compare_ending_cents: string;
   compare_prior_cents: string;
   compare_year_cents: string;
+}
+/**
+ * What moved in and out of an account in the period: its debits and credits
+ * without entries a reversal in the same period cancels. Books that predate
+ * those fields fall back to the plain debits and credits.
+ */
+export function activityOf(a: ReportAccount): { debits: bigint; credits: bigint } {
+  return {
+    debits: BigInt(a.activity_debit_cents ?? a.debit_cents),
+    credits: BigInt(a.activity_credit_cents ?? a.credit_cents),
+  };
 }
 export interface ReportTotals {
   income_cents: string;
@@ -266,6 +284,8 @@ export const breakdownFilterSchema = z
     from: dateSchema,
     to: dateSchema,
     mode: z.enum(["posted", "working"]).default(DEFAULT_BOOK_MODE),
+    /** The statement's basis, so a chart reads the same figures; absent means cash. */
+    basis: z.enum(["cash", "accrual"]).optional(),
     group_by: z.literal("month"),
     measure: z.enum(["activity", "balance"]).optional(),
     payee: dimension,

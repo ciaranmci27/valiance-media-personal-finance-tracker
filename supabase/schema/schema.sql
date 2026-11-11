@@ -3699,10 +3699,19 @@ BEGIN
  candidate:=accounting.rule_candidate(entry);
  IF candidate IS NOT NULL AND (candidate->>'eligible')::boolean THEN
   IF candidate->'actions'?'splits' THEN
-   result:=accounting.ledger_command(jsonb_build_object('type','entry.split','id',entry,'expected_version',e.version,'splits',candidate->'actions'->'splits','memo',coalesce(candidate->'actions'->>'memo',e.memo),'payee_id',coalesce(candidate->'actions'->>'payee_id',e.payee_id::text)));
+   -- A split can round one share of a cents-sized charge to nothing. That charge waits for a person: a failure
+   -- here would undo the whole sync batch, and every later run would stop at the same charge (Nov 2026).
+   BEGIN
+    result:=accounting.ledger_command(jsonb_build_object('type','entry.split','id',entry,'expected_version',e.version,'splits',candidate->'actions'->'splits','memo',coalesce(candidate->'actions'->>'memo',e.memo),'payee_id',coalesce(candidate->'actions'->>'payee_id',e.payee_id::text)));
+   EXCEPTION WHEN raise_exception THEN
+    IF SQLERRM<>'ACCT_INVALID_SPLIT' THEN RAISE; END IF;
+    candidate:=NULL;
+   END;
   ELSE
    result:=accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',entry,'expected_version',e.version,'account_id',candidate->'actions'->>'account_id','memo',coalesce(candidate->'actions'->>'memo',e.memo),'payee_id',coalesce(candidate->'actions'->>'payee_id',e.payee_id::text)));
   END IF;
+ END IF;
+ IF candidate IS NOT NULL AND (candidate->>'eligible')::boolean THEN
   UPDATE accounting.journal_entries SET applied_rule_id=(candidate->>'rule_id')::uuid,fill_source='rule',category_source='rule',category_actor=NULL WHERE id=entry RETURNING * INTO e;
   INSERT INTO accounting.audit_log(actor_user_id,actor_kind,operation_id,table_name,row_id,action,before,after)
   VALUES(CASE WHEN current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE auth.uid() END,
@@ -4414,6 +4423,7 @@ CREATE OR REPLACE FUNCTION accounting.breakdown(params jsonb DEFAULT '{}'::jsonb
 AS $function$
 DECLARE start_date date; end_date date; compare_start date; compare_end date; shift interval; unit text; step interval; top_n integer; timed boolean; result jsonb;
  measure text:=coalesce(params->>'measure','activity'); dimension text:=params->>'group_by'; working boolean:=coalesce(params->>'mode','posted')='working';
+ accrual boolean:=coalesce(params->>'basis','cash')='accrual'; bounds date[]:='{}';
 BEGIN
  PERFORM accounting.require_reader();
  PERFORM accounting.report_validate(params);
@@ -4428,7 +4438,9 @@ BEGIN
   -- Activity is the profit and loss, so only income and expense accounts; a balance has no contact, role or kind.
   OR (measure='activity' AND EXISTS(SELECT 1 FROM accounting.accounts a WHERE a.id::text IN (SELECT jsonb_array_elements_text(coalesce(params->'account_ids','[]'::jsonb))) AND a.type NOT IN ('income','expense')))
   OR (measure='activity' AND EXISTS(SELECT 1 FROM jsonb_array_elements_text(coalesce(params->'account_types','[]'::jsonb)) t WHERE t.value NOT IN ('income','expense')))
-  OR (measure='balance' AND (dimension IN ('contact','role') OR params ?| ARRAY['payee','role','kind','bank_account'])) THEN
+  OR (measure='balance' AND (dimension IN ('contact','role') OR params ?| ARRAY['payee','role','kind','bank_account']))
+  -- The accrual view's adjustment lines carry a contact but no kind, role or bank account.
+  OR (accrual AND (dimension IN ('bank_account','role') OR params ?| ARRAY['role','kind','bank_account'])) THEN
   RAISE EXCEPTION 'ACCT_INVALID_FILTER';
  END IF;
  timed:=dimension IN ('month','quarter');
@@ -4453,6 +4465,13 @@ BEGIN
   compare_end:=CASE WHEN extract(day FROM shift)=0 AND end_date=(date_trunc('month',end_date)+interval '1 month -1 day')::date
    THEN (date_trunc('month',(end_date-shift)::date)+interval '1 month -1 day')::date ELSE (end_date-shift)::date END;
  END IF;
+ -- The accrual basis reads the reports' own lines (report_source), cut on every date a sum below ends at, as the reports
+ -- cut them, so a chart matches its statement. The ledger alone is the cash basis (the charts mixed the two, Nov 2026).
+ IF accrual THEN
+  bounds:=ARRAY[start_date-1,end_date]||CASE WHEN compare_start IS NULL THEN '{}'::date[] ELSE ARRAY[compare_start-1,compare_end] END
+   ||(SELECT coalesce(array_agg((d+interval '1 month - 1 day')::date),'{}') FROM generate_series(date_trunc('month',start_date),date_trunc('month',end_date),interval '1 month') d)
+   ||CASE WHEN compare_start IS NULL THEN '{}'::date[] ELSE (SELECT coalesce(array_agg((d+interval '1 month - 1 day')::date),'{}') FROM generate_series(date_trunc('month',compare_start),date_trunc('month',compare_end),interval '1 month') d) END;
+ END IF;
  IF measure='activity' THEN
   WITH live AS (
    -- The reports' live entries (posted, or balanced drafts in working mode) in either period, after the entry filters.
@@ -4473,7 +4492,16 @@ BEGIN
     CASE WHEN a.type='income' THEN -l.amount_cents ELSE 0 END AS income,CASE WHEN a.type='expense' THEN l.amount_cents ELSE 0 END AS expense,
     date_trunc(unit,CASE WHEN w.is_compare THEN (x.entry_date+shift)::date ELSE x.entry_date END)::date AS bucket
    FROM live x CROSS JOIN (VALUES (false),(true)) AS w(is_compare) JOIN accounting.journal_lines l ON l.entry_id=x.id JOIN accounting.accounts a ON a.id=l.account_id
-   WHERE CASE WHEN w.is_compare THEN x.entry_date BETWEEN compare_start AND compare_end ELSE x.entry_date BETWEEN start_date AND end_date END
+   WHERE NOT accrual AND CASE WHEN w.is_compare THEN x.entry_date BETWEEN compare_start AND compare_end ELSE x.entry_date BETWEEN start_date AND end_date END
+    AND a.type IN ('income','expense')
+    AND (NOT params?'account_ids' OR a.id::text IN (SELECT jsonb_array_elements_text(params->'account_ids')))
+    AND (NOT params?'account_types' OR a.type IN (SELECT jsonb_array_elements_text(params->'account_types')))
+   UNION ALL
+   SELECT w.is_compare,s.entry_id,s.payee_id,NULL::uuid,s.account_id,
+    CASE WHEN a.type='income' THEN -s.amount_cents ELSE 0 END,CASE WHEN a.type='expense' THEN s.amount_cents ELSE 0 END,
+    date_trunc(unit,CASE WHEN w.is_compare THEN (s.entry_date+shift)::date ELSE s.entry_date END)::date
+   FROM accounting.report_source(params,bounds) s CROSS JOIN (VALUES (false),(true)) AS w(is_compare) JOIN accounting.accounts a ON a.id=s.account_id
+   WHERE accrual AND CASE WHEN w.is_compare THEN s.entry_date BETWEEN compare_start AND compare_end ELSE s.entry_date BETWEEN start_date AND end_date END
     AND a.type IN ('income','expense')
     AND (NOT params?'account_ids' OR a.id::text IN (SELECT jsonb_array_elements_text(params->'account_ids')))
     AND (NOT params?'account_types' OR a.type IN (SELECT jsonb_array_elements_text(params->'account_types')))
@@ -4530,8 +4558,12 @@ BEGIN
   ), moves AS (
    SELECT l.account_id,e.entry_date,l.amount_cents*c.sign AS amount
    FROM accounting.journal_lines l JOIN chosen c ON c.id=l.account_id JOIN accounting.journal_entries e ON e.id=l.entry_id
-   WHERE e.entry_date<=greatest(end_date,coalesce(compare_end,end_date))
+   WHERE NOT accrual AND e.entry_date<=greatest(end_date,coalesce(compare_end,end_date))
     AND (e.status='posted' OR (working AND e.status='draft' AND (SELECT count(*)>=2 AND coalesce(sum(bl.amount_cents),0)=0 FROM accounting.journal_lines bl WHERE bl.entry_id=e.id)))
+   UNION ALL
+   SELECT s.account_id,s.entry_date,s.amount_cents*c.sign
+   FROM accounting.report_source(params,bounds) s JOIN chosen c ON c.id=s.account_id
+   WHERE accrual AND s.entry_date<=greatest(end_date,coalesce(compare_end,end_date))
   ), points AS (
    -- Each period's end (the last, partial one ends at `to`), or each account at `to`.
    SELECT d::date::text AS key,NULL::uuid AS account_id,least((d+step-interval '1 day')::date,end_date) AS at FROM generate_series(date_trunc(unit,start_date),date_trunc(unit,end_date),step) d WHERE timed
@@ -5594,7 +5626,7 @@ AS $function$
 DECLARE t text:=c->>'type'; k uuid:=coalesce((c->>'id')::uuid,gen_random_uuid()); actor uuid:=CASE WHEN current_setting('role',true)='service_role' AND current_setting('accounting.actor_kind',true)='worker' THEN NULL ELSE accounting.require_owner() END;
  e accounting.journal_entries; account_row accounting.accounts; v integer; x jsonb; line jsonb; idx integer; r jsonb; replacement jsonb; reversal jsonb;
  preserved uuid[]:='{}'; seen uuid[]:='{}'; existing_line uuid; original_date date; category uuid; bank_line accounting.journal_lines; carried jsonb:='[]'; total numeric; allocated bigint; remain bigint; share_sum bigint;
- closing date; later integer; first_later date; closing_balance bigint; books_today date; stamp jsonb; before_lines jsonb; kept boolean;
+ closing date; later integer; first_later date; closing_balance bigint; books_today date; stamp jsonb; before_lines jsonb; kept boolean; released uuid[];
 BEGIN
  IF t='cash.allocate' THEN
   SELECT * INTO bank_line FROM accounting.journal_lines WHERE id=k;
@@ -5743,8 +5775,16 @@ BEGIN
    IF e.status<>'draft' THEN RAISE EXCEPTION 'ACCT_POSTED_IMMUTABLE'; END IF;
    IF btrim(coalesce(c->>'reason',''))='' THEN RAISE EXCEPTION 'ACCT_REASON_REQUIRED'; END IF;
    IF to_regclass('accounting.bank_matches') IS NOT NULL THEN
+    SELECT coalesce(array_agg(DISTINCT m.bank_transaction_id),'{}') INTO released FROM accounting.bank_matches m JOIN accounting.journal_lines l ON l.id=m.journal_line_id WHERE l.entry_id=k;
     EXECUTE 'DELETE FROM accounting.bank_matches m USING accounting.journal_lines l WHERE m.journal_line_id=l.id AND l.entry_id=$1 AND m.amount_cents=0' USING k;
     EXECUTE 'DELETE FROM accounting.bank_matches m USING accounting.journal_lines l WHERE m.journal_line_id=l.id AND l.entry_id=$1' USING k;
+    -- A discard returns the bank line to review, so it can be matched elsewhere. A person deleting a draft the
+    -- feed made (exclude_bank) means the charge itself: its line is set aside, as deleting a reviewed one does,
+    -- or the next sync re-reads it and makes the draft again (Nov 2026).
+    IF e.origin IN ('simplefin','csv') AND coalesce((c->>'exclude_bank')::boolean,false) THEN
+     UPDATE accounting.bank_transactions b SET review='excluded',excluded_reason='Transaction deleted: '||k::text
+      WHERE b.id=ANY(released) AND NOT EXISTS(SELECT 1 FROM accounting.bank_matches WHERE bank_transaction_id=b.id);
+    END IF;
    END IF;
    UPDATE accounting.journal_entries SET status='discarded',reason=c->>'reason' WHERE id=k RETURNING version INTO v;
   ELSIF t IN ('entry.reverse','entry.correct') THEN
@@ -5788,8 +5828,10 @@ BEGIN
    IF t='entry.correct' THEN
     IF (c->>'entry_date')::date<(SELECT earliest_history_date FROM public.business_profile WHERE id=1) THEN RAISE EXCEPTION 'ACCT_INVALID_CORRECTION_DATE_OR_REASON'; END IF;
     -- The corrected version is the same bank movement: it keeps the bank's description, so the
-    -- import still learns from it (an edit used to drop it, Oct 2026).
-    replacement:=accounting.ledger_command(c||jsonb_build_object('type','draft.save','id',coalesce((c->>'replacement_id')::uuid,gen_random_uuid()),'expected_version',0,'origin','internal','kind','correction','payee_id',e.payee_id,'source_description',e.source_description));
+    -- import still learns from it (an edit used to drop it, Oct 2026). A contact sent with the edit is the new
+    -- version's; without one it keeps the original's (the contact used to be dropped, Nov 2026).
+    replacement:=accounting.ledger_command(c||jsonb_build_object('type','draft.save','id',coalesce((c->>'replacement_id')::uuid,gen_random_uuid()),'expected_version',0,'origin','internal','kind','correction',
+     'payee_id',CASE WHEN c?'payee_id' THEN c->'payee_id' ELSE to_jsonb(e.payee_id) END,'source_description',e.source_description));
     k:=(replacement->>'id')::uuid;
     -- An edit that keeps every account and amount keeps whoever or whatever chose them.
     kept:=accounting.lines_key(accounting.entry_lines(e.id)) IS NOT DISTINCT FROM accounting.lines_key(accounting.entry_lines(k));
@@ -7205,11 +7247,21 @@ BEGIN
  END IF;
  WITH selected AS (
   SELECT s.entry_date,s.status,s.id,s.entry_id,s.account_id,s.amount_cents,s.line_memo memo,s.sort_order FROM accounting.report_source(params,bounds) s
+ ), cancelled AS (
+  -- An entry and its reversal both inside the period cancel line for line. The activity debits and credits leave
+  -- both out, so a deleted or edited entry never reads as money both in and out (Nov 2026). Net movement is unchanged.
+  SELECT o.id FROM accounting.journal_entries o JOIN accounting.journal_entries r ON r.reverses_entry_id=o.id
+  WHERE o.status='posted' AND r.status='posted' AND o.entry_date BETWEEN start_date AND end_date AND r.entry_date BETWEEN start_date AND end_date
+  UNION ALL
+  SELECT r.id FROM accounting.journal_entries o JOIN accounting.journal_entries r ON r.reverses_entry_id=o.id
+  WHERE o.status='posted' AND r.status='posted' AND o.entry_date BETWEEN start_date AND end_date AND r.entry_date BETWEEN start_date AND end_date
  ), rows AS (
  SELECT a.*,p.name parent_name,
   coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date<start_date),0) opening,
   coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date BETWEEN start_date AND end_date AND l.amount_cents>0),0) debit,
   -coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date BETWEEN start_date AND end_date AND l.amount_cents<0),0) credit,
+  coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date BETWEEN start_date AND end_date AND l.amount_cents>0 AND l.entry_id NOT IN (SELECT id FROM cancelled)),0) activity_debit,
+  -coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date BETWEEN start_date AND end_date AND l.amount_cents<0 AND l.entry_id NOT IN (SELECT id FROM cancelled)),0) activity_credit,
   coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date BETWEEN start_date AND end_date),0) movement,
   coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date<=end_date),0) ending,
   coalesce(sum(l.amount_cents) FILTER(WHERE l.entry_date<year_start),0) prior,
@@ -7222,14 +7274,14 @@ BEGIN
  WHERE (NOT params?'account_ids' OR a.id::text IN(SELECT jsonb_array_elements_text(params->'account_ids'))) AND (NOT params?'account_types' OR a.type IN(SELECT jsonb_array_elements_text(params->'account_types')))
  GROUP BY a.id,p.name
  )
- SELECT coalesce(jsonb_agg(to_jsonb(r)-ARRAY['opening','debit','credit','movement','ending','prior','current_year','compare_movement','compare_ending','compare_prior','compare_year']||jsonb_build_object(
+ SELECT coalesce(jsonb_agg(to_jsonb(r)-ARRAY['opening','debit','credit','activity_debit','activity_credit','movement','ending','prior','current_year','compare_movement','compare_ending','compare_prior','compare_year']||jsonb_build_object(
   'code',coalesce(r.code,''),'account_type',r.type,'normal_side',CASE WHEN (r.type IN ('asset','expense'))<>r.is_contra THEN 'debit' ELSE 'credit' END,'parent_account_id',r.parent_id,'purpose',r.system_purpose,'cash_kind',CASE WHEN r.subtype IN ('bank','cash','card') THEN r.subtype ELSE 'none' END,
-  'opening_cents',opening::text,'debit_cents',debit::text,'credit_cents',credit::text,'movement_cents',movement::text,'period_cents',movement::text,'ending_cents',ending::text,'prior_cents',prior::text,'year_cents',current_year::text,
+  'opening_cents',opening::text,'debit_cents',debit::text,'credit_cents',credit::text,'activity_debit_cents',activity_debit::text,'activity_credit_cents',activity_credit::text,'movement_cents',movement::text,'period_cents',movement::text,'ending_cents',ending::text,'prior_cents',prior::text,'year_cents',current_year::text,
   'compare_period_cents',compare_movement::text,'compare_ending_cents',compare_ending::text,'compare_prior_cents',compare_prior::text,'compare_year_cents',compare_year::text) ORDER BY r.code NULLS LAST,r.name,r.id),'[]') INTO accounts FROM rows r;
  WITH a AS(SELECT value r FROM jsonb_array_elements(accounts)),s AS(SELECT
   -coalesce(sum((r->>'period_cents')::numeric) FILTER(WHERE r->>'type'='income'),0) income,
   coalesce(sum((r->>'period_cents')::numeric) FILTER(WHERE r->>'type'='expense'),0) expense,
-  coalesce(sum((r->>'period_cents')::numeric) FILTER(WHERE r->>'type'='expense' AND r->>'subtype'='cost_of_goods_sold'),0) cogs,
+  coalesce(sum((r->>'period_cents')::numeric) FILTER(WHERE r->>'type'='expense' AND lower(r->>'subtype') IN ('cogs','cost_of_goods_sold','cost of goods sold','direct_costs')),0) cogs,
   coalesce(sum((r->>'ending_cents')::numeric) FILTER(WHERE r->>'type'='asset'),0) assets,
   -coalesce(sum((r->>'ending_cents')::numeric) FILTER(WHERE r->>'type'='liability'),0) liabilities,
   -coalesce(sum((r->>'ending_cents')::numeric) FILTER(WHERE r->>'type'='equity'),0) equity,
@@ -7607,7 +7659,10 @@ BEGIN
  IF e.status='posted' THEN why:='Posted history is preview only';
  ELSIF NOT EXISTS(SELECT 1 FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=entry AND a.system_purpose IN ('uncategorized_income','uncategorized_expense')) THEN why:='Category already reviewed';
  ELSIF alias_count>1 THEN why:='Conflicting payee aliases';
- ELSIF (SELECT count(*) FROM jsonb_array_elements(matches) m WHERE m->>'priority'=winner->>'priority')>1 THEN why:='Rules share the winning priority'; END IF;
+ ELSIF (SELECT count(*) FROM jsonb_array_elements(matches) m WHERE m->>'priority'=winner->>'priority')>1 THEN why:='Rules share the winning priority';
+ -- A category archived after the rule was saved: the draft waits for a person instead of failing the sync (Nov 2026).
+ ELSIF EXISTS(SELECT 1 FROM accounting.accounts a WHERE a.is_archived AND (a.id::text=winner->'actions'->>'account_id'
+  OR a.id::text IN (SELECT s->>'account_id' FROM jsonb_array_elements(coalesce(winner->'actions'->'splits','[]')) s))) THEN why:='The rule''s category is archived'; END IF;
  RETURN winner||jsonb_build_object('id',e.id,'version',e.version,'entry_id',entry,'entry_version',e.version,'rule_id',winner->'id','rule_version',winner->'version',
   'entry_date',e.entry_date,'memo',e.memo,'status',e.status,'payee_id',e.payee_id,
   'aliases',jsonb_build_object('conflict',alias_count>1,'aliases',(SELECT coalesce(jsonb_agg(jsonb_build_object('id',a.id,'name',p.name,'description',a.pattern)),'[]') FROM accounting.payee_aliases a JOIN accounting.parties p ON p.id=a.party_id WHERE a.enabled AND ((a.match_kind='key' AND a.pattern=e.descriptor_key) OR (a.match_kind='exact' AND upper(a.pattern)=descriptor) OR (a.match_kind='prefix' AND left(descriptor,length(a.pattern))=upper(a.pattern))))),
@@ -7860,14 +7915,16 @@ BEGIN
     count_new:=count_new+1;
    END IF;
    IF observation.review<>'unmatched' OR EXISTS(SELECT 1 FROM accounting.bank_matches WHERE bank_transaction_id=observation.id) THEN CONTINUE; END IF;
-   SELECT count(*),(array_agg(l.id ORDER BY e.entry_date,l.id))[1] INTO candidate_count,candidate_id
+   -- Same-amount entries already in the books take the bank lines one each, nearest date first. Two $25 charges
+   -- next to two $25 entries used to match neither and add two drafts, four entries for two charges (Nov 2026).
+   SELECT count(*),(array_agg(l.id ORDER BY abs(e.entry_date-book_date),e.entry_date,l.id))[1] INTO candidate_count,candidate_id
     FROM accounting.journal_lines l JOIN accounting.journal_entries e ON e.id=l.entry_id
     WHERE l.account_id=ba.account_id AND l.amount_cents=amount AND e.status IN ('draft','posted') AND e.reverses_entry_id IS NULL
      AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries WHERE reverses_entry_id=e.id)
      AND abs(e.entry_date-book_date)<=(SELECT transfer_window_days FROM accounting.settings WHERE id=1)
      AND (NOT EXISTS(SELECT 1 FROM accounting.bank_matches WHERE journal_line_id=l.id)
       OR EXISTS(SELECT 1 FROM accounting.bank_matches m JOIN accounting.bank_transactions o ON o.id=m.bank_transaction_id WHERE m.journal_line_id=l.id AND m.amount_cents=abs(amount) AND o.source<>observation.source AND o.bank_account_id=ba.id AND o.amount_cents=amount AND abs(o.posted_date-book_date)<=(SELECT transfer_window_days FROM accounting.settings WHERE id=1)));
-   IF candidate_count=1 THEN
+   IF candidate_count>=1 THEN
     allocation:=CASE WHEN EXISTS(SELECT 1 FROM accounting.bank_matches WHERE journal_line_id=candidate_id) THEN 0 ELSE abs(amount) END;
     INSERT INTO accounting.bank_matches(bank_transaction_id,journal_line_id,amount_cents) VALUES(observation.id,candidate_id,allocation);
    ELSIF coalesce((command->>'create_drafts')::boolean,false) THEN

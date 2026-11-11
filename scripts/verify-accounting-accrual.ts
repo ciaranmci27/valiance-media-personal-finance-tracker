@@ -385,6 +385,45 @@ async function main() {
     });
     check(jan.basis, "accrual");
 
+    // ---- The charts read the statement's basis (they read cash only until Nov 2026) ----
+    const breakdown = (params: object) =>
+      one<any>("SELECT accounting.breakdown($1) r", [
+        JSON.stringify({ group_by: "month", basis: "accrual", ...params }),
+      ]);
+    const months = await breakdown({ from: "2026-01-01", to: "2026-03-31" });
+    for (const [i, [from, to]] of [
+      ["2026-01-01", "2026-01-31"],
+      ["2026-02-01", "2026-02-28"],
+      ["2026-03-01", "2026-03-31"],
+    ].entries())
+      check(
+        months.rows[i].income_cents,
+        (await accrual({ from, to })).totals.income_cents,
+        `accrual chart month ${from}`,
+      );
+    check(
+      (await breakdown({ from: "2026-01-01", to: "2026-01-31", payee: client }))
+        .rows[0].income_cents,
+      "520000",
+      "a customer's accrual bars match their row",
+    );
+    check(
+      (
+        await breakdown({
+          from: "2026-01-01",
+          to: "2026-03-31",
+          measure: "balance",
+          account_ids: [AR],
+        })
+      ).rows.map((r: any) => r.balance_cents),
+      ["440000", "50000", "130000"],
+      "the month-end chart includes receivables",
+    );
+    await assert.rejects(
+      breakdown({ from: "2026-01-01", to: "2026-01-31", kind: "income" }),
+      /ACCT_INVALID_FILTER/,
+    );
+
     // ---- The ledger drilldown ties to the report ----
     const drill = await one<any>(
       "SELECT accounting.report_lines('general_ledger',$1,$2) r",
