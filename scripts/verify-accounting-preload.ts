@@ -106,7 +106,7 @@ assert.equal(
 
 // Overview: twelve months of cash flow, the inbox, recent activity, the month.
 const overview = viewQueries("overview", ctx);
-assert.equal(overview.length, 4);
+assert.equal(overview.length, 5);
 assert.equal(overview[0].view, "report");
 assert.equal(overview[0].report, "profit-loss");
 assert.deepEqual(JSON.parse(overview[0].filter), {
@@ -115,15 +115,17 @@ assert.deepEqual(JSON.parse(overview[0].filter), {
   mode: "working",
   offset: 0,
 });
+// The invoice sources, for the overview's sync warning.
+assert.deepEqual(overview[1], { view: "receivables", limit: "1" });
 assert.equal(
-  overview[1].filter,
+  overview[2].filter,
   '{"review":"needs_review","sort":"date_desc","offset":0,"limit":5}',
 );
 assert.equal(
-  overview[2].filter,
+  overview[3].filter,
   '{"status":"posted","sort":"date_desc","offset":0,"limit":8}',
 );
-assert.deepEqual(overview[3], { view: "close", date: "2026-01-01" });
+assert.deepEqual(overview[4], { view: "close", date: "2026-01-01" });
 assert.equal(monthsBefore("2026-01-15", 11), "2025-02-01");
 assert.equal(monthsBefore("2026-03-31", 0), "2026-03-01");
 assert.equal(monthsBefore("2026-12-01", 12), "2025-12-01");
