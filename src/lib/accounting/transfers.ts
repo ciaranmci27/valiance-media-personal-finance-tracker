@@ -45,6 +45,26 @@ export const transferCommandSchema = z.discriminatedUnion("type", [
       reason: z.string().trim().min(1).max(1000),
     })
     .strict(),
+  // Two movements the books already hold become one transfer. The accounts and
+  // amount are what the owner saw in the preview; the server refuses if they changed.
+  z
+    .object({
+      type: z.literal("transfer.convert"),
+      id: z.guid(),
+      outgoing_entry_id: z.guid(),
+      outgoing_version: z.number().int().min(1),
+      incoming_entry_id: z.guid(),
+      incoming_version: z.number().int().min(1),
+      from_account_id: terms.from_account_id,
+      to_account_id: terms.to_account_id,
+      amount_cents: terms.amount_cents,
+      reason: z
+        .string()
+        .trim()
+        .min(1, "Say why these are one transfer.")
+        .max(1000),
+    })
+    .strict(),
   // A proposed pair is addressed by either leg; the server finds the other.
   z
     .object({

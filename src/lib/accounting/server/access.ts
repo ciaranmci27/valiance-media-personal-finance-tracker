@@ -105,6 +105,22 @@ export function accountingError(message: string): string {
       "Choose an active bank or card account in the account settings.",
     ACCT_TRANSFER_ALREADY_LINKED:
       "A selected entry already belongs to a transfer group.",
+    ACCT_OWNER_ONLY:
+      "Only the owner can convert transactions into a transfer.",
+    ACCT_TRANSIT_REQUIRED:
+      "Choose a Transfers in transit account on the Accounts screen first.",
+    ACCT_TRANSFER_SIDE_STATUS:
+      "One of these transactions was deleted or replaced. Refresh and pick its current version.",
+    ACCT_TRANSFER_SIDE_SHAPE:
+      "Each side must be one movement on one bank, card or cash account. Split transactions cannot be converted.",
+    ACCT_TRANSFER_SAME_ACCOUNT:
+      "Both sides are on the same account. Pick the movement on the other account.",
+    ACCT_TRANSFER_AMOUNT:
+      "The two amounts differ. A transfer moves the same amount out of one account and into the other.",
+    ACCT_TRANSFER_DIRECTION:
+      "These cannot be one transfer: money must leave one account and arrive in the other.",
+    ACCT_TRANSFER_CHANGED:
+      "One of these transactions changed after the preview. Refresh and check it again.",
     ACCT_TRANSFER_PAIR_CONFIRM:
       "This is one side of a proposed transfer. Confirm the transfer, or choose Not a transfer first.",
     ACCT_TRANSFER_NOT_PAIRED:

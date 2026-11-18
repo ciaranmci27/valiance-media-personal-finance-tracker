@@ -6575,6 +6575,7 @@ BEGIN
   result:=jsonb_build_object('id',coalesce(c->>'id',c->>'key'),'version',current_version);
  ELSIF t IN ('entry.restore','payroll.import.undo') THEN result:=accounting.lifecycle_command(c);
  ELSIF t LIKE 'account.%' OR t='chart.seed' OR t LIKE 'entry.%' OR t LIKE 'draft.%' OR t LIKE 'transaction.%' OR t='cash.allocate' THEN result:=accounting.ledger_command(c);
+ ELSIF t='transfer.convert' THEN result:=accounting.transfer_convert(c);
  ELSIF t LIKE 'bank.%' OR t LIKE 'feed.%' OR t LIKE 'transfer.%' OR t LIKE 'party.%' OR t LIKE 'alias.%' OR t LIKE 'rule.%' OR t LIKE 'document.%' THEN result:=accounting.banking_command(c);
  ELSIF t LIKE 'period.%' OR t LIKE 'reconciliation.%' THEN result:=accounting.close_command(c);
  ELSIF t LIKE 'payroll.%' OR t LIKE 'register.%' THEN result:=accounting.register_command(c);
@@ -8243,7 +8244,10 @@ BEGIN
     JOIN accounting.bank_matches m2 ON m2.journal_line_id=l2.id
     JOIN accounting.bank_transactions o2 ON o2.id=m2.bank_transaction_id AND o2.descriptor_key=kb
     WHERE g1.transfer_group_id IS NOT NULL AND g1.status='posted' AND g1.reverses_entry_id IS NULL
-     AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries r WHERE r.reverses_entry_id IN (g1.id,g2.id))) THEN signal:='learned';
+     AND NOT EXISTS(SELECT 1 FROM accounting.journal_entries r WHERE r.reverses_entry_id IN (g1.id,g2.id))
+     -- A transfer the owner converted by hand is one judgement, not a pattern: it teaches the matcher nothing.
+     AND NOT EXISTS(SELECT 1 FROM accounting.audit_log ca WHERE ca.table_name='journal_entries' AND ca.action='transfer.converted'
+      AND ca.row_id IN (g1.id,g2.id,g1.replaces_entry_id,g2.replaces_entry_id))) THEN signal:='learned';
   ELSIF EXISTS(
    -- One side's bank text names the other side's account: its institution or the last digits of its number.
    SELECT 1 FROM accounting.bank_accounts ba CROSS JOIN LATERAL (SELECT CASE WHEN ba.account_id=theirs.account_id THEN a ELSE b END txt) d
@@ -8254,6 +8258,88 @@ BEGIN
   END IF;
  END IF;
  RETURN jsonb_build_object('counterpart_id',theirs.entry_id,'account_id',theirs.account_id,'entry_date',theirs.entry_date,'ambiguous',n<>1 OR back<>1,'signal',signal);
+END $function$
+;
+
+CREATE OR REPLACE FUNCTION accounting.transfer_convert(c jsonb)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO ''
+AS $function$
+DECLARE key uuid:=(c->>'id')::uuid; out_id uuid:=(c->>'outgoing_entry_id')::uuid; in_id uuid:=(c->>'incoming_entry_id')::uuid;
+ reason text:=btrim(coalesce(c->>'reason','')); amount bigint; transit uuid; side record; e accounting.journal_entries; bank accounting.journal_lines;
+ out_bank accounting.journal_lines; in_bank accounting.journal_lines; result jsonb; linked uuid; linked_ids uuid[]:='{}'; removed jsonb;
+BEGIN
+ -- The owner alone. A team member with the books, an API key and an agent are all refused, even through operate.
+ IF auth.uid() IS NULL OR coalesce(current_setting('accounting.actor_kind',true),'')='api' OR coalesce(current_setting('api.command',true),'')<>''
+  OR NOT EXISTS(SELECT 1 FROM accounting.settings WHERE id=1 AND owner_user_id=auth.uid()) THEN RAISE EXCEPTION 'ACCT_OWNER_ONLY'; END IF;
+ IF key IS NULL OR out_id IS NULL OR in_id IS NULL OR out_id=in_id OR reason='' OR length(reason)>1000
+  OR coalesce(c->>'amount_cents','') !~ '^[0-9]{1,18}$' OR c->>'from_account_id' IS NULL OR c->>'to_account_id' IS NULL THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+ amount:=(c->>'amount_cents')::bigint;
+ IF amount<=0 THEN RAISE EXCEPTION 'ACCT_INVALID_COMMAND'; END IF;
+ SELECT id INTO transit FROM accounting.accounts WHERE system_purpose='transfers_in_transit' AND NOT is_archived;
+ IF transit IS NULL THEN RAISE EXCEPTION 'ACCT_TRANSIT_REQUIRED'; END IF;
+ -- Both sides are locked in one order, so two corrections of the same pair cannot interleave.
+ PERFORM 1 FROM accounting.journal_entries WHERE id IN (out_id,in_id) ORDER BY id FOR UPDATE;
+
+ FOR side IN SELECT * FROM (VALUES (1,out_id,(c->>'outgoing_version')::integer),(2,in_id,(c->>'incoming_version')::integer)) s(n,entry_id,expected) ORDER BY n LOOP
+  SELECT * INTO e FROM accounting.journal_entries WHERE id=side.entry_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'ACCT_NOT_FOUND'; END IF;
+  IF side.expected IS DISTINCT FROM e.version THEN RAISE EXCEPTION 'ACCT_STALE_VERSION'; END IF;
+  IF e.status NOT IN ('draft','posted') OR e.reverses_entry_id IS NOT NULL OR EXISTS(SELECT 1 FROM accounting.journal_entries r WHERE r.reverses_entry_id=e.id) THEN RAISE EXCEPTION 'ACCT_TRANSFER_SIDE_STATUS'; END IF;
+  IF e.transfer_group_id IS NOT NULL THEN RAISE EXCEPTION 'ACCT_TRANSFER_ALREADY_LINKED'; END IF;
+  IF e.pair_entry_id IS NOT NULL THEN RAISE EXCEPTION 'ACCT_TRANSFER_PAIR_CONFIRM'; END IF;
+  -- Money another workflow owns changes there: a register, a payroll run, an invoice payment, a reconciliation.
+  IF e.register_id IS NOT NULL OR EXISTS(SELECT 1 FROM accounting.payroll_runs p WHERE p.entry_id=e.id AND p.status<>'void')
+   OR EXISTS(SELECT 1 FROM accounting.invoice_payments p WHERE p.entry_id=e.id AND p.removed_at IS NULL)
+   OR EXISTS(SELECT 1 FROM accounting.journal_lines l JOIN accounting.reconciliation_items ri ON ri.journal_line_id=l.id WHERE l.entry_id=e.id) THEN RAISE EXCEPTION 'ACCT_CORRECTION_LINKED'; END IF;
+  -- Each side is one movement: exactly one bank, card or cash line.
+  IF (SELECT count(*) FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id AND a.subtype IN ('bank','cash','card'))<>1 THEN RAISE EXCEPTION 'ACCT_TRANSFER_SIDE_SHAPE'; END IF;
+  SELECT l.* INTO bank FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id AND a.subtype IN ('bank','cash','card');
+  IF side.n=1 THEN out_bank:=bank; ELSE in_bank:=bank; END IF;
+ END LOOP;
+
+ -- Lines are debit-positive for every account: money leaving a bank account, or a card's balance owed
+ -- rising (a charge, or a credit balance paid back out), is a credit. So the outgoing side's line is
+ -- negative and the incoming side's positive, for banks and cards alike, and the two cancel exactly.
+ IF out_bank.account_id=in_bank.account_id THEN RAISE EXCEPTION 'ACCT_TRANSFER_SAME_ACCOUNT'; END IF;
+ IF abs(out_bank.amount_cents)<>abs(in_bank.amount_cents) THEN RAISE EXCEPTION 'ACCT_TRANSFER_AMOUNT'; END IF;
+ IF out_bank.amount_cents>=0 OR in_bank.amount_cents<=0 THEN RAISE EXCEPTION 'ACCT_TRANSFER_DIRECTION'; END IF;
+ -- The preview the owner confirmed must still describe these two movements.
+ IF out_bank.account_id<>(c->>'from_account_id')::uuid OR in_bank.account_id<>(c->>'to_account_id')::uuid OR in_bank.amount_cents<>amount THEN RAISE EXCEPTION 'ACCT_TRANSFER_CHANGED'; END IF;
+
+ FOR side IN SELECT * FROM (VALUES (1,out_id,in_id),(2,in_id,out_id)) s(n,entry_id,other_id) ORDER BY n LOOP
+  SELECT * INTO e FROM accounting.journal_entries WHERE id=side.entry_id;
+  IF side.n=1 THEN bank:=out_bank; ELSE bank:=in_bank; END IF;
+  SELECT coalesce(jsonb_agg(jsonb_build_object('account_id',l.account_id,'account',a.name,'amount_cents',l.amount_cents::text) ORDER BY l.sort_order),'[]') INTO removed
+   FROM accounting.journal_lines l JOIN accounting.accounts a ON a.id=l.account_id WHERE l.entry_id=e.id AND l.id<>bank.id;
+  IF e.status='draft' THEN
+   -- In place: the bank line and its evidence stay; the category becomes transit and the contact goes.
+   result:=accounting.ledger_command(jsonb_build_object('type','entry.categorize','id',e.id,'expected_version',e.version,'account_id',transit,'kind','transfer','payee_id',NULL));
+   result:=accounting.ledger_command(jsonb_build_object('type','entry.post','id',e.id,'expected_version',(result->>'version')::integer));
+   -- Posted so the pair links; still the owner's to tick in Review, as the draft was.
+   UPDATE accounting.journal_entries SET review_pending=true WHERE id=e.id;
+   linked:=e.id;
+  ELSE
+   result:=accounting.ledger_command(jsonb_build_object('type','entry.correct','id',e.id,'expected_version',e.version,'replacement_id',gen_random_uuid(),
+    'entry_date',e.entry_date,'reversal_date',e.entry_date,'memo',e.memo,'reason',reason,'payee_id',NULL,
+    'lines',jsonb_build_array(jsonb_build_object('account_id',bank.account_id,'amount_cents',bank.amount_cents::text,'memo',bank.memo),
+     jsonb_build_object('account_id',transit,'amount_cents',(-bank.amount_cents)::text))));
+   linked:=(result->>'id')::uuid;
+   -- A posted side still waiting for its tick keeps waiting: the correction is not the review.
+   IF e.review_pending THEN UPDATE accounting.journal_entries SET review_pending=true WHERE id=linked; END IF;
+  END IF;
+  linked_ids:=linked_ids||linked;
+  INSERT INTO accounting.audit_log(actor_user_id,actor_kind,operation_id,table_name,row_id,action,before,after,reason)
+  VALUES(auth.uid(),'owner',coalesce(nullif(current_setting('accounting.operation_id',true),'')::uuid,key),'journal_entries',e.id,'transfer.converted',
+   jsonb_build_object('status',e.status,'review_pending',e.review_pending,'kind',e.kind,'payee_id',e.payee_id,'removed_lines',removed),
+   jsonb_build_object('transfer_group_id',key,'entry_id',linked,'counterpart_entry_id',side.other_id,'account_id',bank.account_id,'amount_cents',bank.amount_cents::text,'entry_date',e.entry_date),
+   reason);
+ END LOOP;
+
+ UPDATE accounting.journal_entries SET transfer_group_id=key WHERE id=ANY(linked_ids);
+ RETURN jsonb_build_object('id',key,'transfer_group_id',key,'outgoing_entry_id',linked_ids[1],'incoming_entry_id',linked_ids[2]);
 END $function$
 ;
 
@@ -9314,6 +9400,10 @@ GRANT EXECUTE ON FUNCTION accounting.transactions(jsonb,jsonb) TO "authenticated
 REVOKE ALL ON FUNCTION accounting.transfer_candidate(uuid) FROM PUBLIC, anon, authenticated, service_role;
 
 GRANT EXECUTE ON FUNCTION accounting.transfer_candidate(uuid) TO "postgres";
+
+REVOKE ALL ON FUNCTION accounting.transfer_convert(jsonb) FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION accounting.transfer_convert(jsonb) TO "postgres";
 
 REVOKE ALL ON FUNCTION accounting.transfer_legs() FROM PUBLIC, anon, authenticated, service_role;
 

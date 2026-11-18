@@ -33,7 +33,7 @@
     "build:accounting": "tsx scripts/build-accounting.ts",
     "lint:accounting": "eslint --config eslint.accounting.config.mjs src/lib/accounting src/components/features/accounting src/app/api/accounting \"src/app/(dashboard)/accounting\" supabase/functions/_shared scripts/verify-accounting.ts scripts/verify-accounting-db.ts",
     "format:accounting": "prettier --write \"src/lib/accounting/**/*.ts\" \"src/components/features/accounting/**/*.{ts,tsx}\" \"src/app/(dashboard)/accounting/page.tsx\" \"src/app/api/accounting/**/*.ts\" \"scripts/*accounting*.ts\" \"supabase/functions/_shared/**/*.ts\" \"supabase/functions/sync-feeds/*.ts\" eslint.accounting.config.mjs",
-    "test:accounting:transfers": "tsx scripts/verify-accounting-transfers.ts",
+    "test:accounting:transfers": "tsx scripts/verify-accounting-transfers.ts && tsx scripts/verify-accounting-transfer-convert.ts",
     "test:accounting:bank": "tsx scripts/verify-accounting-bank-matching.ts",
     "test:accounting:rules": "tsx scripts/verify-accounting-rules.ts",
     "test:accounting:feeds": "tsx scripts/verify-accounting-simplefin.ts && tsx scripts/verify-accounting-feed-db.ts && tsx scripts/verify-accounting-feed-sync.ts && tsx scripts/verify-accounting-account-close.ts",

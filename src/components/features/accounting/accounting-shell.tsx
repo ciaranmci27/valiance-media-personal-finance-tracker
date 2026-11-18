@@ -154,6 +154,8 @@ export function AccountingBooks({
   demo?: boolean;
   detailOnly?: boolean;
   testing?: boolean;
+  /** The business owner: owner-only corrections show for them alone (the server checks too). */
+  owner?: boolean;
 }) {
   const mode = props.demo ? "demo" : props.testing ? "test" : "live";
   return (
@@ -171,11 +173,13 @@ function AccountingBooksInner({
   demo = false,
   detailOnly = false,
   testing = false,
+  owner = false,
 }: {
   initial: AccountingWorkspace;
   demo?: boolean;
   detailOnly?: boolean;
   testing?: boolean;
+  owner?: boolean;
 }) {
   const [data, setData] = useState<Workspace>(initial);
   const params = useSearchParams();
@@ -819,6 +823,7 @@ function AccountingBooksInner({
                 key={ledgerKey}
                 data={data}
                 manage={manage}
+                owner={owner}
                 metadataLoading={!manageLoaded}
                 demo={demo}
                 initialFilter={ledgerFilter}

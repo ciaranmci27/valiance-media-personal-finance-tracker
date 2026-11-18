@@ -97,6 +97,10 @@ import {
 } from "@/lib/accounting/categories";
 import { AccountingTransferFromDraft } from "./accounting-transfer-from-draft";
 import {
+  AccountingTransferConvert,
+  canConvertToTransfer,
+} from "./accounting-transfer-convert";
+import {
   commandContext,
   useAccountingCommand,
   type CommandContext,
@@ -178,6 +182,7 @@ export function AccountingTransactions({
   data,
   manage,
   demo,
+  owner = false,
   metadataLoading = false,
   initialFilter = {},
   onAction,
@@ -188,6 +193,8 @@ export function AccountingTransactions({
   data: AccountingWorkspace;
   manage: BooksMetadata;
   demo: boolean;
+  /** The business owner: sees owner-only corrections such as Convert to transfer. */
+  owner?: boolean;
   metadataLoading?: boolean;
   initialFilter?: Partial<RegisterFilter>;
   onAction: (action: TransactionAction, entry: JournalEntry) => void;
@@ -256,6 +263,8 @@ export function AccountingTransactions({
     counterpart: JournalEntry | null;
     match?: { account_id: string; entry_date: string };
   } | null>(null);
+  // The owner linking two existing movements as one transfer.
+  const [converting, setConverting] = useState<JournalEntry | null>(null);
   const cmd = useAccountingCommand(onRefresh);
   const { feeds } = useAccountingBankIdentity();
   const balances = useMemo(
@@ -1017,6 +1026,13 @@ export function AccountingTransactions({
         disabled: readOnly("copy"),
       },
     ];
+    if (owner && !demo && canConvertToTransfer(entry, profiles))
+      actions.push({
+        label: "Convert to transfer",
+        icon: <ArrowLeftRight />,
+        onSelect: () => setConverting(entry),
+        disabled: rowBusy(entry.id),
+      });
     if (entry.status === "draft" && entry.pair_entry_id)
       actions.push({
         label: "Not a transfer",
@@ -2270,6 +2286,21 @@ export function AccountingTransactions({
             })()}
         </DialogContent>
       </Dialog>
+
+      {converting && (
+        <AccountingTransferConvert
+          entry={converting}
+          accounts={data.accounts}
+          profiles={profiles}
+          periods={manage.periods}
+          onClose={() => setConverting(null)}
+          onSaved={async (message) => {
+            setConverting(null);
+            toast("success", message);
+            await onRefresh();
+          }}
+        />
+      )}
 
       {transfer && (
         <AccountingTransferFromDraft

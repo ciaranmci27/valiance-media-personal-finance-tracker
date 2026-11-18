@@ -146,6 +146,7 @@ async function AccountingPage({
       initial={data}
       preloaded={preloaded}
       testing={testing}
+      owner={isTeamOwner}
       detailOnly={entry?.success === true}
     />
   );
