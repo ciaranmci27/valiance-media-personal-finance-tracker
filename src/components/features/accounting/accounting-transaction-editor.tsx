@@ -4,6 +4,7 @@ import { fieldLabelClass } from "@/components/ui/inputs/_shared";
 import { useMemo, useRef, useState } from "react";
 import {
   ArrowDownLeft,
+  ArrowLeftRight,
   ArrowUpRight,
   BookOpen,
   Check,
@@ -12,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { RowActionsMenu } from "@/components/ui/row-actions-menu";
 import { TextInput } from "@/components/ui/inputs/TextInput";
 import { Checkbox } from "@/components/ui/inputs/Checkbox";
 import { ReviewCheck } from "./accounting-review-check";
@@ -70,6 +72,7 @@ export function AccountingTransactionEditor({
   onClose,
   onSaved,
   onJournal,
+  onConvert,
   demo = false,
 }: {
   entry?: JournalEntry;
@@ -80,6 +83,8 @@ export function AccountingTransactionEditor({
   onClose: () => void;
   onSaved: () => Promise<void>;
   onJournal: () => void;
+  /** The owner only, on a transaction that can be one side of a transfer. */
+  onConvert?: () => void;
   demo?: boolean;
 }) {
   const presentation = entry
@@ -219,6 +224,20 @@ export function AccountingTransactionEditor({
       }))
     )
       onJournal();
+  }
+
+  /** Money between two own accounts is not a category: hand off to Convert to transfer. */
+  async function openConvert() {
+    if (
+      !dirty.current ||
+      (await confirm({
+        title: "Convert to transfer?",
+        description: "Unsaved changes here will be discarded.",
+        confirmLabel: "Continue",
+        variant: "warning",
+      }))
+    )
+      onConvert?.();
   }
 
   /** Accounts, amounts and memos as one comparable key, order independent. */
@@ -532,6 +551,22 @@ export function AccountingTransactionEditor({
                   <BookOpen size={14} aria-hidden="true" />
                   Journal view
                 </Button>
+                {onConvert && (
+                  <RowActionsMenu
+                    label="More actions for this transaction"
+                    align="end"
+                    // Same height and corners as the Split entry and Journal view buttons beside it.
+                    className="h-9 w-9 rounded-md"
+                    actions={[
+                      {
+                        label: "Convert to transfer",
+                        icon: <ArrowLeftRight size={14} aria-hidden="true" />,
+                        onSelect: () => void openConvert(),
+                        disabled: command.busy,
+                      },
+                    ]}
+                  />
+                )}
               </div>
             </div>
             {posted && (

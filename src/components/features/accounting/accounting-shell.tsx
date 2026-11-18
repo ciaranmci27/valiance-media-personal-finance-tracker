@@ -52,6 +52,10 @@ import {
   type TransactionAction,
 } from "./accounting-transactions";
 import { AccountingTransactionEditor } from "./accounting-transaction-editor";
+import {
+  AccountingTransferConvert,
+  canConvertToTransfer,
+} from "./accounting-transfer-convert";
 import { AccountingAccountCreate } from "./accounting-account-create";
 import {
   ApprovalDialog,
@@ -258,6 +262,10 @@ function AccountingBooksInner({
     entry?: JournalEntry;
     direction?: "in" | "out";
   } | null>(null);
+  // The owner linking two existing movements as one transfer, from the editor or the detail view.
+  const [converting, setConverting] = useState<JournalEntry | null>(null);
+  const convertible = (e: JournalEntry | null | undefined): e is JournalEntry =>
+    owner && !demo && !!e && canConvertToTransfer(e, manage.profiles);
   const [selected, setSelected] = useState<JournalEntry | null>(
     detailOnly ? (initial.entries?.[0] ?? null) : null,
   );
@@ -906,12 +914,36 @@ function AccountingBooksInner({
             demo={demo}
             onClose={() => setSimpleEditor(null)}
             onSaved={refreshTransactionBooks}
+            onConvert={
+              convertible(simpleEditor.entry)
+                ? () => {
+                    const e = simpleEditor.entry!;
+                    setSimpleEditor(null);
+                    setConverting(e);
+                  }
+                : undefined
+            }
             onJournal={() => {
               const e = simpleEditor.entry;
               setSimpleEditor(null);
               // The same escape hatch for every state: a posted entry lands in the correction mode.
               if (e?.status === "posted") openCorrection(e);
               else void openEditor(e);
+            }}
+          />
+        )}
+
+        {converting && (
+          <AccountingTransferConvert
+            entry={converting}
+            accounts={data.accounts}
+            profiles={manage.profiles}
+            periods={manage.periods}
+            onClose={() => setConverting(null)}
+            onSaved={async (message) => {
+              setConverting(null);
+              toast("success", message);
+              await refreshTransactionBooks();
             }}
           />
         )}
@@ -953,6 +985,14 @@ function AccountingBooksInner({
             setSelected(null);
             void transactionAction("edit", e);
           }}
+          onConvert={
+            convertible(selected)
+              ? (e) => {
+                  setSelected(null);
+                  setConverting(e);
+                }
+              : undefined
+          }
           onPost={async (e) => {
             const reviewed = !isTransactionReviewed(e);
             const saved = await detailCommand.execute({

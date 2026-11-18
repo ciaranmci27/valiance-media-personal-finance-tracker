@@ -2,7 +2,15 @@
 import { DateInput } from "@/components/ui/inputs/DateInput";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Check, Copy, Loader2, Plus, RotateCcw, X } from "lucide-react";
+import {
+  ArrowLeftRight,
+  Check,
+  Copy,
+  Loader2,
+  Plus,
+  RotateCcw,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   RowActionsMenu,
@@ -148,6 +156,7 @@ export function EntryDetailDialog({
   onRestore,
   onCopy,
   onCorrect,
+  onConvert,
   busy = false,
   error = "",
   canReview = true,
@@ -174,6 +183,8 @@ export function EntryDetailDialog({
   onRestore: (entry: JournalEntry) => void;
   onCopy: (entry: JournalEntry) => void;
   onCorrect: (entry: JournalEntry) => void;
+  /** The owner only, on a transaction that can be one side of a transfer. */
+  onConvert?: (entry: JournalEntry) => void;
   busy?: boolean;
   error?: string;
   canReview?: boolean;
@@ -199,6 +210,16 @@ export function EntryDetailDialog({
           onSelect: () => onCopy(entry),
           disabled: demo,
         },
+        ...(onConvert
+          ? [
+              {
+                label: "Convert to transfer",
+                icon: <ArrowLeftRight size={14} aria-hidden="true" />,
+                onSelect: () => onConvert(entry),
+                disabled: demo,
+              },
+            ]
+          : []),
         ...(entry.status === "posted" && !isTransactionReversed(entry)
           ? [
               {
