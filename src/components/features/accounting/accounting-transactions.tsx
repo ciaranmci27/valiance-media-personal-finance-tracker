@@ -1,6 +1,13 @@
 "use client";
 import { DateInput } from "@/components/ui/inputs/DateInput";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  useRef,
+  type ReactNode,
+} from "react";
 import {
   ArrowLeftRight,
   ArrowUpDown,
@@ -82,6 +89,7 @@ import {
   registerQuery,
 } from "@/lib/accounting/preload";
 import { useAccountingRead } from "./use-accounting-read";
+import { useAccountingCache } from "./accounting-cache";
 import { useAccountingRowCommand } from "./use-accounting-row-command";
 import { AccountingPicker } from "./accounting-picker";
 import {
@@ -177,6 +185,15 @@ export type TransactionAction =
   | "detail";
 
 const PAGE = REGISTER_PAGE;
+
+/** The inbox when the books already count nothing to review. */
+const EMPTY_INBOX: Result = {
+  entries: [],
+  total: 0,
+  offset: 0,
+  limit: PAGE,
+  revision: "empty",
+};
 
 export function AccountingTransactions({
   data,
@@ -407,6 +424,41 @@ export function AccountingTransactions({
     : status === "draft"
       ? (page.data?.total ?? null)
       : (reviewTotal.data?.total ?? null);
+  // Nothing to review and nothing narrowing the list: the books' own count
+  // already says the inbox is empty, so Review shows that at once instead
+  // of waiting on a read. A fresh answer from the read still wins.
+  const knownEmpty =
+    !demo &&
+    status === "draft" &&
+    !narrowed &&
+    reviewCount === 0 &&
+    (page.data === undefined || page.isPlaceholder || page.stale);
+  // Leaving Review lands on All. Its first page is warmed while Review is
+  // open, so that switch paints the right rows at once (refreshing behind
+  // them after a write) instead of dimming the inbox until they load.
+  const cache = useAccountingCache();
+  const allSignature = JSON.stringify(
+    buildRegisterFilter({
+      search,
+      account,
+      status: "all",
+      sort,
+      source,
+      payee,
+      from,
+      to,
+      missing,
+      minCents,
+      maxCents,
+      offset: 0,
+    }),
+  );
+  useEffect(() => {
+    if (status !== "draft" || demo || invalid) return;
+    const all = registerQuery(JSON.parse(allSignature));
+    // Only when it is missing: a stale page is still the right rows to show.
+    if (!cache.entry(all)) void cache.read(all).catch(() => undefined);
+  }, [status, demo, invalid, allSignature, cache, page.data]);
   const demoResult = useMemo<Result | null>(() => {
     if (!demo || invalid) return null;
     const f: Partial<RegisterFilter> = JSON.parse(signature);
@@ -456,11 +508,18 @@ export function AccountingTransactions({
     accounts,
     profiles,
   ]);
-  const result = demo ? demoResult : (page.data ?? null);
-  const loading = !demo && !invalid && page.loading;
+  const result = demo
+    ? demoResult
+    : knownEmpty
+      ? EMPTY_INBOX
+      : (page.data ?? null);
+  const loading = !demo && !invalid && !knownEmpty && page.loading;
+  // The last filter's rows held on screen while this one loads.
+  const placeholder = page.isPlaceholder && !knownEmpty;
   useEffect(() => {
     const next = page.data;
-    if (!next || page.isPlaceholder) return;
+    // Only a current answer settles rows: a stale one predates the saves.
+    if (!next || page.isPlaceholder || page.stale) return;
     clearRowErrors(next.entries);
     setSettling((previous) => {
       const still = [...previous].filter(
@@ -468,17 +527,20 @@ export function AccountingTransactions({
       );
       return still.length === previous.size ? previous : new Set(still);
     });
+    // A saved row keeps its new state until a current read shows it. A row
+    // this page does not hold keeps it too: leaving Review for All paints
+    // All's last answer, which may predate these saves.
     setOverrides((previous) =>
       Object.fromEntries(
         Object.entries(previous).filter(([id, value]) => {
           const fresh = next.entries.find((e) => e.id === id);
           return (
-            value.pending || (fresh && fresh.version < value.entry.version)
+            value.pending || !fresh || fresh.version < value.entry.version
           );
         }),
       ),
     );
-  }, [page.data, page.isPlaceholder, clearRowErrors]);
+  }, [page.data, page.isPlaceholder, page.stale, clearRowErrors]);
 
   const bankProfiles = profiles.filter((p) => p.cash_kind !== "none");
   const bankIds = new Set(bankProfiles.map((p) => p.account_id));
@@ -564,7 +626,35 @@ export function AccountingTransactions({
   const plural = (n: number, noun: string) =>
     `${n} ${n === 1 ? noun : `${noun}s`}`;
   const chosenSet = new Set(chosen.map((e) => e.id));
-  const busy = cmd.busy || page.isPlaceholder;
+  const busy = cmd.busy || placeholder;
+
+  // Once the last row of the inbox is reviewed there is nothing left to do
+  // on Review, so the list moves on to All. Only a change on this tab counts:
+  // opening Review with nothing in it shows its empty state and stays.
+  const reviewedAll =
+    offset === 0 &&
+    !!page.data &&
+    !page.isPlaceholder &&
+    page.data.entries.length > 0 &&
+    page.data.total <= page.data.entries.length &&
+    rows.length === 0 &&
+    rowCommand.pending.size === 0 &&
+    settling.size === 0;
+  const inboxEmpty =
+    status === "draft" && (reviewedAll || (!narrowed && reviewCount === 0));
+  const inboxWasEmpty = useRef<boolean | null>(null);
+  useLayoutEffect(() => {
+    if (status !== "draft") {
+      inboxWasEmpty.current = null;
+      return;
+    }
+    const was = inboxWasEmpty.current;
+    inboxWasEmpty.current = inboxEmpty;
+    if (was === false && inboxEmpty) {
+      setStatus("all");
+      setOffset(0);
+    }
+  }, [status, inboxEmpty]);
   const rowBusy = (id: string) =>
     busy || rowCommand.pending.has(id) || settling.has(id);
 
@@ -2008,7 +2098,7 @@ export function AccountingTransactions({
                 : "bg-card hover:bg-[color-mix(in_srgb,var(--card),var(--foreground)_2%)]"
           }
           onRowClick={(e) => openAction(transactionRowAction(e), e)}
-          busy={page.isPlaceholder}
+          busy={placeholder}
           skeletonRows={loading ? 12 : 0}
           emptyState={emptyState}
           mobileCard={mobileCard}
@@ -2044,7 +2134,7 @@ export function AccountingTransactions({
               total={demo || countedKey === countKey ? (result?.total ?? 0) : 0}
               onChange={setOffset}
               noun="transactions"
-              busy={loading || page.isPlaceholder}
+              busy={loading || placeholder}
             />
           }
         />

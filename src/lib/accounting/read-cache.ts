@@ -11,9 +11,10 @@ export type CacheEntry<T> = {
   value: T;
   time: number;
   /**
-   * A write has happened since this was read. A screen already showing it
-   * keeps it while the fresh answer loads; a screen mounting later treats it
-   * as absent, so a pre-mutation value is never the first thing painted.
+   * A write has happened since this was read, or it is older than maxAge. A
+   * screen already showing it keeps it while the fresh answer loads; a screen
+   * mounting later treats it as absent, so a pre-mutation value is never the
+   * first thing painted.
    */
   stale: boolean;
 };
@@ -69,15 +70,29 @@ export function createAccountingReadCache(
     for (const set of listeners.values())
       for (const listener of set) listener();
   };
-  /** The live entry for a key; an answer older than maxAge is forgotten. */
+  /**
+   * The entry for a key. An answer older than maxAge turns stale in place,
+   * exactly like a write would: a screen showing it keeps it while the fresh
+   * one loads, and nobody new paints it. This runs while screens render, so
+   * the notice waits for a microtask instead of reaching listeners mid-render.
+   */
   const current = (key: string) => {
     const entry = values.get(key);
     if (!entry) return undefined;
-    if (Date.now() - entry.time >= maxAge) {
-      values.delete(key);
-      return undefined;
+    if (!entry.stale && Date.now() - entry.time >= maxAge) {
+      const aged = { ...entry, stale: true };
+      values.set(key, aged);
+      queueMicrotask(() => notify(key));
+      return aged;
     }
     return entry;
+  };
+  /** Keep within the bound, oldest first, never evicting an answer on screen. */
+  const trim = () => {
+    for (const key of values.keys()) {
+      if (values.size <= limit) return;
+      if (!listeners.has(key)) values.delete(key);
+    }
   };
   const dropKey = (key: string) => {
     const entry = values.get(key);
@@ -121,17 +136,20 @@ export function createAccountingReadCache(
      * what the browser has is at least as new as a page payload, which back
      * and forward navigation can replay long after it was rendered. Keeping
      * the server's time lets the usual ttl and maxAge age such a replay out.
+     * An answer past maxAge doesn't count as held: the page's fresh one
+     * replaces it, so coming back after a while paints at once.
      */
     seed(query: AccountingQuery, value: unknown, time: number) {
       const key = accountingQueryKey(query);
-      if (current(key) || flights.has(key)) return;
+      const held = values.get(key);
+      if ((held && Date.now() - held.time < maxAge) || flights.has(key)) return;
       values.set(key, {
         query,
         value,
         time: Math.min(time, Date.now()),
         stale: false,
       });
-      while (values.size > limit) values.delete(values.keys().next().value!);
+      trim();
       notify(key);
     },
     /** Forget everything at once, for a change of workspace or user. */
@@ -193,8 +211,7 @@ export function createAccountingReadCache(
               return { ok: false, error: aborted() };
             values.delete(key);
             values.set(key, { query, value, time: Date.now(), stale: false });
-            while (values.size > limit)
-              values.delete(values.keys().next().value!);
+            trim();
             return { ok: true, value };
           } catch (error) {
             return { ok: false, error };

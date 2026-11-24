@@ -20,6 +20,8 @@ export type AccountingRead<T> = {
   loading: boolean;
   /** An answer is on screen while a newer one loads behind it. */
   revalidating: boolean;
+  /** The answer on screen predates a write or has aged out; a fresh one is on its way. */
+  stale: boolean;
   /** The answer belongs to the previous query, kept so a filter change does not blank the screen. */
   isPlaceholder: boolean;
   error: string;
@@ -34,7 +36,10 @@ const noop = () => {};
  * paints at once and refreshes behind itself when it has aged; a write
  * elsewhere marks it stale and this hook reads again while keeping it on
  * screen. An answer that was already stale when this screen mounted is not
- * shown at all, so a pre-write value is never the first thing painted.
+ * shown at all, so a pre-write value is never the first thing painted. With
+ * `keepPrevious`, a switch to a query whose answer is stale shows that answer
+ * while it refreshes: it is the right query's rows, which beats keeping the
+ * last query's rows on screen.
  */
 export function useAccountingRead<T>(
   query: AccountingQuery | null,
@@ -80,7 +85,7 @@ export function useAccountingRead<T>(
   const [seen, setSeen] = useState(key);
   if (seen !== key) {
     setSeen(key);
-    setHidden(entry?.stale ? key : null);
+    setHidden(entry?.stale && !(keepPrevious && seen !== null) ? key : null);
   }
   if (hidden !== null && hidden === key && entry && !entry.stale)
     setHidden(null);
@@ -99,7 +104,10 @@ export function useAccountingRead<T>(
     const go = (fresh = false) => {
       cache.read<T>(stableQuery, controller.signal, { fresh }).then(
         () => {
-          if (!controller.signal.aborted) setError("");
+          if (controller.signal.aborted) return;
+          // A recovered read follows writes again.
+          failed = false;
+          setError("");
         },
         (e: unknown) => {
           if (controller.signal.aborted) return;
@@ -120,13 +128,21 @@ export function useAccountingRead<T>(
       const current = cache.entry(stableQuery);
       if (!current || current.stale) go();
     });
+    // Coming back to the tab does not always focus the window, so a return
+    // is heard either way. Both landing together share one request.
     const onFocus = () => {
       if (document.visibilityState === "visible") go(true);
     };
-    if (revalidateOnFocus) window.addEventListener("focus", onFocus);
+    if (revalidateOnFocus) {
+      window.addEventListener("focus", onFocus);
+      document.addEventListener("visibilitychange", onFocus);
+    }
     return () => {
       unsubscribe();
-      if (revalidateOnFocus) window.removeEventListener("focus", onFocus);
+      if (revalidateOnFocus) {
+        window.removeEventListener("focus", onFocus);
+        document.removeEventListener("visibilitychange", onFocus);
+      }
       controller.abort();
     };
   }, [cache, stableQuery, revalidateOnFocus]);
@@ -153,6 +169,7 @@ export function useAccountingRead<T>(
     data,
     loading: stableQuery !== null && data === undefined && !error,
     revalidating: value !== undefined && (!!entry?.stale || inflight),
+    stale: value !== undefined && !!entry?.stale,
     isPlaceholder: placeholder !== null,
     error,
     reload,

@@ -191,10 +191,40 @@ async function main() {
     accountingQueryKey({ b: "2", a: "1" }),
     accountingQueryKey({ a: "1", b: "2" }),
   );
-  const aged = createAccountingReadCache(async () => "old", 30_000, 24, 0);
+  // An answer past maxAge turns stale in place: a screen showing it keeps
+  // it, its readers hear so and read again, and nobody new paints it.
+  let agedLoads = 0;
+  const aged = createAccountingReadCache(
+    async () => ++agedLoads,
+    30_000,
+    24,
+    20,
+  );
   await aged.read(query);
-  assert.equal(aged.entry(query), undefined, "An old answer is forgotten");
-  assert.equal(aged.peek(query), undefined);
+  let agedNotices = 0;
+  const stopAged = aged.subscribe(query, () => agedNotices++);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const agedEntry = aged.entry<number>(query);
+  assert.equal(agedEntry?.value, 1, "An aged answer on screen stays readable");
+  assert.equal(agedEntry?.stale, true, "An aged answer is stale");
+  assert.equal(aged.entry(query), agedEntry, "Aging replaces the entry once");
+  await Promise.resolve();
+  assert.equal(agedNotices, 1, "Readers hear an answer age out");
+  assert.equal(await aged.read(query), 2, "An aged answer is read again");
+  stopAged();
+
+  // The bound evicts answers nobody is showing, never one on screen.
+  const shown = createAccountingReadCache(async (q) => q.filter, 30_000, 2);
+  await shown.read({ filter: "one" });
+  const stopShown = shown.subscribe({ filter: "one" }, () => {});
+  for (const filter of ["two", "three", "four"]) await shown.read({ filter });
+  assert.equal(
+    shown.peek({ filter: "one" }),
+    "one",
+    "An answer on screen is never evicted",
+  );
+  assert.equal(shown.peek({ filter: "two" }), undefined);
+  stopShown();
 
   // Server answers seed a cold key, never what the browser already has.
   let seededLoads = 0;
@@ -214,6 +244,17 @@ async function main() {
     true,
     "A seed never revives an answer a write made stale",
   );
+  // Coming back after a while: an answer past maxAge takes the page's fresh one.
+  const agedSeed = createAccountingReadCache(async () => "network", 30_000, 24, 20);
+  await agedSeed.read(query);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  agedSeed.seed(query, "fresh page", Date.now());
+  assert.equal(
+    agedSeed.entry(query)?.value,
+    "fresh page",
+    "A seed replaces an answer past maxAge",
+  );
+  assert.equal(agedSeed.entry(query)?.stale, false, "And it counts as fresh");
   const replay = { view: "manage" };
   seeded.seed(replay, "old page", Date.now() - 60_000);
   assert.equal(
