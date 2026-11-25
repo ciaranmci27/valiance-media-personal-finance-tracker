@@ -65,6 +65,23 @@ async function main() {
     () => parsePatriot(csv([row(2)]).replace("2/28/2026", "2/30/2026")),
     /invalid date/,
   );
+  // Salaried pay often lands before the period ends (Oct 31, 2026 is a Saturday).
+  const early = parsePatriot(
+    csv([row(10).replace("10/1/2026 - 10/28/2026", "10/1/2026 - 10/31/2026")]),
+  );
+  assert.deepEqual(
+    [early.groups[0].pay_date, early.groups[0].period_to],
+    ["2026-10-28", "2026-10-31"],
+  );
+  assert.throws(
+    () =>
+      parsePatriot(
+        csv([
+          row(10).replace("10/1/2026 - 10/28/2026", "10/29/2026 - 10/28/2026"),
+        ]),
+      ),
+    /ends before it starts/,
+  );
   const names = parsePatriot(
     csv(
       [

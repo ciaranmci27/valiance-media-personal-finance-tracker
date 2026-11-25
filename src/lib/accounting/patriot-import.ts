@@ -211,8 +211,9 @@ export function parsePatriot(csv: string): PatriotReport {
     const pay_date = date(r["Pay Date"], label),
       period_from = date(period[0], label),
       period_to = date(period[1], label);
-    if (period_from > period_to || period_to > pay_date)
-      throw new Error(`${label}: review the pay period and pay date.`);
+    // Salaried pay often lands before the period ends, as in Gusto.
+    if (period_from > period_to)
+      throw new Error(`${label}: the pay period ends before it starts.`);
     for (const [field, before] of [
       ["Report Start Date", true],
       ["Report End Date", false],
